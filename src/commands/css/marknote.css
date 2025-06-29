@@ -237,6 +237,46 @@ Details Box
 
 /*
 =========================
+Tabs
+=========================
+*/
+
+.markdown-body .tabs-container {
+  background-color: transparent;
+  border: 1px solid #dadde1;
+  border-radius: 6px;
+  margin: 0 0 1rem;
+}
+
+.markdown-body .tabs-labels {
+  display: flex;
+  border-bottom: 1px solid #dadde1;
+}
+
+.markdown-body .tabs-labels label {
+  min-width: 5rem;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  background: #f6f8fa;
+  cursor: pointer;
+  border-right: 1px solid #dadde1;
+}
+
+.markdown-body .tabs-labels label:hover {
+  background: #ddd;
+}
+
+.markdown-body .tabs-container input[type="radio"] {
+  display: none;
+}
+
+.markdown-body .tabs-contents .tab-content {
+  display: none;
+  margin: 1rem;
+}
+
+/*
+=========================
 Code Blocks
 =========================
 */

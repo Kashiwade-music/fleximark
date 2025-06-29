@@ -14,6 +14,7 @@ import {
 import remarkDirective from "remark-directive";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
+import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 
 const renderMarkdownToHtml = async (
   markdown: string,
@@ -26,6 +27,7 @@ const renderMarkdownToHtml = async (
     .use(remarkDirective)
     .use(remarkDirectiveAdmonitions)
     .use(remarkDirectiveDetails)
+    .use(remarkDirectiveTabs)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
