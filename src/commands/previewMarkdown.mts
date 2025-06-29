@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import renderMarkdownToHtml from "./remark/renderMarkdownToHtml.mjs";
+import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const previewMarkdown = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;

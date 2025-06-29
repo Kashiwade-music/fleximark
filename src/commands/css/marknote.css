@@ -121,35 +121,117 @@ Paragraphs
 
 /*
 =========================
+Admonitions
+=========================
+*/
+
+.markdown-body div.info,
+.markdown-body div.tip,
+.markdown-body div.warning,
+.markdown-body div.danger {
+  border-radius: 6px;
+  margin: 0 0 1rem;
+  border: 1px solid transparent;
+
+  & > .admonition-title {
+    padding: 0.6rem 1rem;
+    font-weight: bold;
+    border-bottom: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    & > svg {
+      height: 1.6em;
+      fill: currentColor;
+    }
+  }
+
+  & > .admonition-content {
+    margin: 1rem;
+  }
+}
+
+.markdown-body div.info {
+  background-color: #eef9fd;
+  border-color: #eef9fd;
+
+  & > .admonition-title {
+    border-bottom-color: #4cb3d4;
+    color: #193c47;
+  }
+
+  & > .admonition-content {
+    color: #193c47;
+  }
+}
+
+.markdown-body div.tip {
+  background-color: #e6f6e6;
+  border-color: #e6f6e6;
+
+  & > .admonition-title {
+    border-bottom-color: #009400;
+    color: #003100;
+  }
+
+  & > .admonition-content {
+    color: #003100;
+  }
+}
+
+.markdown-body div.warning {
+  background-color: #fff8e6;
+  border-color: #fff8e6;
+
+  & > .admonition-title {
+    border-bottom-color: #e6a700;
+    color: #4d3800;
+  }
+
+  & > .admonition-content {
+    color: #4d3800;
+  }
+}
+
+.markdown-body div.danger {
+  background-color: #ffebec;
+  border-color: #ffebec;
+
+  & > .admonition-title {
+    border-bottom-color: #e13238;
+    color: #4b1113;
+  }
+
+  & > .admonition-content {
+    color: #4b1113;
+  }
+}
+
+/*
+=========================
 Details Box
 =========================
 */
 
-.markdown-body details {
+.markdown-body details.details {
   background-color: transparent;
   border: 1px solid #dadde1;
   border-radius: 6px;
+  margin: 0 0 1rem;
+
+  & > summary {
+    cursor: pointer;
+    padding: 0.6rem 1rem;
+    border-bottom: none;
+  }
+
+  & > .details-content {
+    margin: 1rem;
+  }
 }
 
-.markdown-body details > * {
-  margin: 0 1rem;
-}
-
-.markdown-body details > :first-child:not(summary) {
-  margin-top: 1rem;
-}
-
-.markdown-body details > :last-child:not(summary) {
-  margin-bottom: 1rem;
-}
-
-.markdown-body details > summary {
-  cursor: pointer;
-  padding: 0.6rem 0;
-  border-bottom: none;
-}
-
-.markdown-body details[open] > summary {
+.markdown-body details.details[open] > summary {
   border-bottom: 1px solid #dadde1;
 }
 

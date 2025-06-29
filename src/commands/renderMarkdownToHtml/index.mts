@@ -11,6 +11,9 @@ import {
   readGlobalMarknoteCss,
   readWorkspaceMarknoteCss,
 } from "../css/index.mjs";
+import remarkDirective from "remark-directive";
+import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
+import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 
 const renderMarkdownToHtml = async (
   markdown: string,
@@ -20,6 +23,9 @@ const renderMarkdownToHtml = async (
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkMath)
+    .use(remarkDirective)
+    .use(remarkDirectiveAdmonitions)
+    .use(remarkDirectiveDetails)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {

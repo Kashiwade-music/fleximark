@@ -5,7 +5,7 @@ import previewMarkdown from "./commands/previewMarkdown.mjs";
 import exportHtml from "./commands/exportHtml.mjs";
 import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mjs";
 import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
-import renderMarkdownToHtml from "./commands/remark/renderMarkdownToHtml.mjs";
+import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
