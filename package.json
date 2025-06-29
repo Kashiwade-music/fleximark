@@ -16,12 +16,23 @@
       {
         "command": "marknote.previewMarkdownAsHtml",
         "title": "Preview Markdown as HTML",
-        "category": "Markdown",
+        "category": "MarkNote",
         "icon": "$(eye)"
       },
       {
         "command": "marknote.exportHtml",
-        "title": "Export Markdown as HTML"
+        "title": "Export Markdown as HTML",
+        "category": "MarkNote"
+      },
+      {
+        "command": "marknote.createWorkspaceMarknoteCss",
+        "title": "Create Workspace marknote.css",
+        "category": "MarkNote"
+      },
+      {
+        "command": "marknote.resetGlobalMarknoteCss",
+        "title": "Reset Global marknote.css",
+        "category": "MarkNote"
       }
     ],
     "menus": {

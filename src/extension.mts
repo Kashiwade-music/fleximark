@@ -3,6 +3,8 @@
 import * as vscode from "vscode";
 import previewMarkdown from "./commands/previewMarkdown.mjs";
 import exportHtml from "./commands/exportHtml.mjs";
+import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mjs";
+import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -23,6 +25,24 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("marknote.exportHtml", exportHtml)
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "marknote.createWorkspaceMarknoteCss",
+      async () => {
+        await createWorkspaceMarknoteCss(context);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "marknote.resetGlobalMarknoteCss",
+      async () => {
+        await saveMarknoteCssToGlobalStorage(context);
+      }
+    )
   );
 }
 
