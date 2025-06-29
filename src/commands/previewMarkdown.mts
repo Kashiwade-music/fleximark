@@ -14,12 +14,13 @@ const previewMarkdown = async (context: vscode.ExtensionContext) => {
 
   try {
     const html = await renderMarkdownToHtml(doc.getText(), context);
-    showPreviewPanel(html);
+    return showPreviewPanel(html);
   } catch (err) {
     vscode.window.showErrorMessage(
       "Markdown のプレビュー生成中にエラーが発生しました。"
     );
     console.error(err);
+    return;
   }
 };
 
@@ -32,6 +33,8 @@ const showPreviewPanel = (htmlContent: string) => {
   );
 
   panel.webview.html = htmlContent;
+
+  return panel;
 };
 
 export default previewMarkdown;

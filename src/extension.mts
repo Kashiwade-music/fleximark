@@ -5,6 +5,7 @@ import previewMarkdown from "./commands/previewMarkdown.mjs";
 import exportHtml from "./commands/exportHtml.mjs";
 import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mjs";
 import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
+import renderMarkdownToHtml from "./commands/remark/renderMarkdownToHtml.mjs";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -14,6 +15,15 @@ export function activate(context: vscode.ExtensionContext) {
   console.log('Congratulations, your extension "marknote" is now active!');
   saveMarknoteCssToGlobalStorage(context);
 
+  let panel: vscode.WebviewPanel | undefined;
+
+  const updatePreview = async (doc: vscode.TextDocument) => {
+    if (panel && doc.languageId === "markdown") {
+      const html = await renderMarkdownToHtml(doc.getText(), context);
+      panel.webview.html = html;
+    }
+  };
+
   // The command has been defined in the package.json file
   // Now provide the implementation of the command with registerCommand
   // The commandId parameter must match the command field in package.json
@@ -21,9 +31,27 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "marknote.previewMarkdownAsHtml",
       async () => {
-        await previewMarkdown(context);
+        panel = await previewMarkdown(context);
       }
     )
+  );
+
+  // hot-reload the preview when the active text editor changes
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor && editor.document.languageId === "markdown") {
+        updatePreview(editor.document);
+      }
+    })
+  );
+
+  // hot-reload the preview when the text document is changed
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      if (panel && event.document.languageId === "markdown") {
+        updatePreview(event.document);
+      }
+    })
   );
 
   context.subscriptions.push(

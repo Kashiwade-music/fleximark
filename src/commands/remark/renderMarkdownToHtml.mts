@@ -1,5 +1,3 @@
-import * as fs from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
@@ -38,8 +36,8 @@ const wrapHtml = async (
   body: string,
   context: vscode.ExtensionContext
 ): Promise<string> => {
-  const globalCss = readGlobalMarknoteCss(context);
-  const workspaceCss = readWorkspaceMarknoteCss();
+  const globalCss = await readGlobalMarknoteCss(context);
+  const workspaceCss = await readWorkspaceMarknoteCss();
 
   return `
 <!DOCTYPE html>
