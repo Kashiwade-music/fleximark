@@ -1,0 +1,78 @@
+{
+  "name": "marknote",
+  "displayName": "marknote",
+  "description": "super flexible markdown note for VSCode",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "marknote.previewMarkdownAsHtml",
+        "title": "Preview Markdown as HTML",
+        "category": "Markdown",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "marknote.exportHtml",
+        "title": "Export Markdown as HTML"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "marknote.previewMarkdownAsHtml",
+          "group": "navigation",
+          "when": "editorLangId == markdown"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.101.0",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.3",
+    "eslint": "^9.25.1",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.8.3"
+  },
+  "volta": {
+    "node": "22.17.0",
+    "npm": "11.4.2"
+  },
+  "dependencies": {
+    "rehype-katex": "^7.0.1",
+    "rehype-pretty-code": "^0.14.1",
+    "rehype-stringify": "^10.0.1",
+    "remark": "^15.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-rehype": "^11.1.2",
+    "shiki": "^3.7.0"
+  }
+}
