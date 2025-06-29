@@ -30,6 +30,8 @@ const showPreviewPanel = (htmlContent: string) => {
     vscode.ViewColumn.Beside,
     { enableScripts: true }
   );
+
+  panel.webview.html = htmlContent;
 };
 
 export default previewMarkdown;

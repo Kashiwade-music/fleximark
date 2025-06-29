@@ -1,5 +1,12 @@
 # Welcome to your VS Code Extension
 
+## Setup
+- install volta
+- run `npm i`
+
+## Make Package
+- `npx @vscode/vsce package`
+
 ## What's in the folder
 
 * This folder contains all of the files necessary for your extension.
