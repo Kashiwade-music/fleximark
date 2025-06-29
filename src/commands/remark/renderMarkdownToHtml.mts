@@ -23,8 +23,8 @@ const renderMarkdownToHtml = async (
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
-      theme: "github-dark-default",
-      keepBackground: true,
+      theme: "github-light-default",
+      keepBackground: false,
     })
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown);
@@ -52,7 +52,9 @@ const wrapHtml = async (
   </style>
 </head>
 <body>
-  ${body}
+  <div class="markdown-body">
+    ${body}
+  </div>
   <script>
     console.log("Markdown Preview loaded");
   </script>
