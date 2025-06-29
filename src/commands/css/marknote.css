@@ -1,4 +1,9 @@
-/* Reset */
+/*
+=========================
+Reset 
+=========================
+*/
+
 html {
   font-size: 16px;
 }
@@ -21,104 +26,86 @@ body {
   box-sizing: border-box;
 }
 
-/* Headings */
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+/*
+=========================
+Headings
+=========================
+*/
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
   font-weight: 600;
   line-height: 1.25;
   margin: 0 0 1rem 0;
 }
 
-h1 {
-  font-size: 2rem;
+.markdown-body h1 {
+  font-size: 2.1rem;
   border-bottom: 1px solid #eaecef;
   padding-bottom: 0.5rem;
 }
 
-h2 {
-  font-size: 1.75rem;
+.markdown-body h2 {
+  font-size: 1.8rem;
   border-bottom: 1px solid #eaecef;
   padding-bottom: 0.5rem;
 }
 
-h3 {
+.markdown-body h3 {
   font-size: 1.5rem;
 }
 
-h4 {
+.markdown-body h4 {
   font-size: 1.25rem;
 }
 
-h5 {
+.markdown-body h5 {
   font-size: 1rem;
+  font-weight: bold;
 }
 
-h6 {
-  font-size: 0.875rem;
+.markdown-body h6 {
+  font-size: 1rem;
   color: #6a737d;
 }
 
-/* Paragraphs */
-p {
+/*
+=========================
+Paragraphs
+=========================
+*/
+
+.markdown-body p {
   margin: 0 0 1rem;
 }
 
 /* Links */
-a {
+.markdown-body a {
   color: #3578e5;
   text-decoration: none;
 }
 
-a:hover {
+.markdown-body a:hover {
   text-decoration: underline;
 }
 
 /* Lists */
-ul,
-ol {
+.markdown-body ul,
+.markdown-body ol {
   padding-left: 2rem;
   margin-bottom: 1rem;
 }
 
-li {
+.markdown-body li {
   margin-bottom: 0.3rem;
 }
 
-/* Figures */
-figure {
-  margin: 1rem 0;
-}
-
-/* Code blocks */
-figcaption {
-  background-color: #f6f8fa;
-  padding: 1rem;
-}
-
-pre {
-  background-color: #f6f8fa;
-  margin: 0;
-  padding: 1rem;
-  border-radius: 6px;
-  overflow: auto;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier,
-    monospace;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-code {
-  font-size: 0.95em;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier,
-    monospace;
-}
-
 /* Blockquotes */
-blockquote {
+.markdown-body blockquote {
   color: #6a737d;
   border-left: 4px solid #dfe2e5;
   padding: 0.5rem 1rem;
@@ -126,26 +113,133 @@ blockquote {
   background-color: #f9f9f9;
 }
 
-/* Tables */
-table {
+/* Figures */
+.markdown-body figure,
+.markdown-body pre {
+  margin: 1rem 0;
+}
+
+/*
+=========================
+Code Blocks
+=========================
+*/
+
+.markdown-body pre,
+.markdown-body code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier,
+    monospace;
+  background-color: #f6f8fa;
+  color: inherit;
+}
+
+.markdown-body pre {
+  margin: 1rem 0;
+  padding: 1rem;
+  overflow: auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  border-radius: 6px;
+}
+
+.markdown-body code {
+  font-size: 0.95em;
+  padding: 0;
+  border-radius: 4px;
+}
+
+/* Inline code */
+.markdown-body p > code {
+  color: indianred;
+  padding: 2px 5px;
+}
+
+/* Code Blocks with Language assigned */
+.markdown-body figure[data-rehype-pretty-code-figure] {
+  margin: 1rem 0;
+  background-color: #f6f8fa;
+  border-radius: 6px;
+
+  & > figcaption[data-rehype-pretty-code-title] {
+    background-color: transparent;
+    padding: 0.6rem 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid #dadde1;
+  }
+
+  & > pre {
+    background-color: transparent;
+    margin: 0;
+
+    & > code {
+      display: table;
+
+      & > span[data-highlighted-line] {
+        margin: 0 -1rem;
+        padding: 0rem 1rem;
+        background-color: #0000001a;
+      }
+    }
+
+    /* With line numbers */
+    & > code[data-line-numbers] {
+      counter-reset: line;
+
+      & > [data-line]::before {
+        display: inline-block;
+        width: 12px;
+        margin-right: 1rem;
+        color: gray;
+        text-align: right;
+        content: counter(line);
+        counter-increment: line;
+      }
+    }
+
+    code[data-line-numbers-max-digits="2"] > [data-line]::before {
+      width: 1.25rem;
+    }
+
+    code[data-line-numbers-max-digits="3"] > [data-line]::before {
+      width: 1.75rem;
+    }
+
+    code[data-line-numbers-max-digits="4"] > [data-line]::before {
+      width: 2.25rem;
+    }
+  }
+}
+
+/*
+=========================
+Tables
+=========================
+*/
+
+.markdown-body table {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 1.5rem;
 }
 
-th,
-td {
+.markdown-body th,
+.markdown-body td {
   border: 1px solid #dfe2e5;
   padding: 0.6rem 1rem;
   text-align: left;
 }
 
-th {
+.markdown-body th {
   background-color: #f6f8fa;
 }
 
-/* Images */
-img {
+/*
+=========================
+Images
+=========================
+*/
+
+.markdown-body img {
   max-width: 100%;
   height: auto;
   display: block;
