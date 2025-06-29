@@ -44,7 +44,7 @@ Headings
 }
 
 .markdown-body h1 {
-  font-size: 2.1rem;
+  font-size: 2rem;
   border-bottom: 1px solid #eaecef;
   padding-bottom: 0.5rem;
 }
@@ -56,11 +56,11 @@ Headings
 }
 
 .markdown-body h3 {
-  font-size: 1.5rem;
+  font-size: 1.4rem;
 }
 
 .markdown-body h4 {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
 }
 
 .markdown-body h5 {
@@ -121,6 +121,40 @@ Paragraphs
 
 /*
 =========================
+Details Box
+=========================
+*/
+
+.markdown-body details {
+  background-color: transparent;
+  border: 1px solid #dadde1;
+  border-radius: 6px;
+}
+
+.markdown-body details > * {
+  margin: 0 1rem;
+}
+
+.markdown-body details > :first-child:not(summary) {
+  margin-top: 1rem;
+}
+
+.markdown-body details > :last-child:not(summary) {
+  margin-bottom: 1rem;
+}
+
+.markdown-body details > summary {
+  cursor: pointer;
+  padding: 0.6rem 0;
+  border-bottom: none;
+}
+
+.markdown-body details[open] > summary {
+  border-bottom: 1px solid #dadde1;
+}
+
+/*
+=========================
 Code Blocks
 =========================
 */
@@ -170,43 +204,43 @@ Code Blocks
   & > pre {
     background-color: transparent;
     margin: 0;
+  }
 
-    & > code {
-      display: table;
+  & > pre > code {
+    display: table;
 
-      & > span[data-highlighted-line] {
-        margin: 0 -1rem;
-        padding: 0rem 1rem;
-        background-color: #0000001a;
-      }
+    & > span[data-highlighted-line] {
+      margin: 0 -1rem;
+      padding: 0rem 1rem;
+      background-color: #0000001a;
     }
+  }
 
-    /* With line numbers */
-    & > code[data-line-numbers] {
-      counter-reset: line;
+  /* With line numbers */
+  & > pre > code[data-line-numbers] {
+    counter-reset: line;
 
-      & > [data-line]::before {
-        display: inline-block;
-        width: 12px;
-        margin-right: 1rem;
-        color: gray;
-        text-align: right;
-        content: counter(line);
-        counter-increment: line;
-      }
+    & > [data-line]::before {
+      display: inline-block;
+      width: 12px;
+      margin-right: 1rem;
+      color: gray;
+      text-align: right;
+      content: counter(line);
+      counter-increment: line;
     }
+  }
 
-    code[data-line-numbers-max-digits="2"] > [data-line]::before {
-      width: 1.25rem;
-    }
+  & > pre > code[data-line-numbers-max-digits="2"] > [data-line]::before {
+    width: 1.25rem;
+  }
 
-    code[data-line-numbers-max-digits="3"] > [data-line]::before {
-      width: 1.75rem;
-    }
+  & > pre > code[data-line-numbers-max-digits="3"] > [data-line]::before {
+    width: 1.75rem;
+  }
 
-    code[data-line-numbers-max-digits="4"] > [data-line]::before {
-      width: 2.25rem;
-    }
+  & > pre > code[data-line-numbers-max-digits="4"] > [data-line]::before {
+    width: 2.25rem;
   }
 }
 
