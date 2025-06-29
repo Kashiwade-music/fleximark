@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import renderMarkdownToHtml from "./remark/renderMarkdownToHtml.mjs";
 
-const previewMarkdown = async () => {
+const previewMarkdown = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;
   const doc = editor?.document;
 
@@ -13,7 +13,7 @@ const previewMarkdown = async () => {
   }
 
   try {
-    const html = await renderMarkdownToHtml(doc.getText());
+    const html = await renderMarkdownToHtml(doc.getText(), context);
     showPreviewPanel(html);
   } catch (err) {
     vscode.window.showErrorMessage(

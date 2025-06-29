@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import * as fs from "fs/promises";
+import marknotecss from "./marknote.css";
 
 /**
  * Returns the default content for the marknote.css file.
  * This CSS can be used as a base styling.
  */
 export function getDefaultMarknoteCss(): string {
-  return `/* Default marknote.css */
-/* Customize your styles here */`;
+  return marknotecss;
 }
 
 /**

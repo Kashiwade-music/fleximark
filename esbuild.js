@@ -41,6 +41,9 @@ async function main() {
 			/* add to the end of plugins array */
 			esbuildProblemMatcherPlugin,
 		],
+		loader: {
+			".css": "text",
+		}
 	});
 	if (watch) {
 		await ctx.watch();

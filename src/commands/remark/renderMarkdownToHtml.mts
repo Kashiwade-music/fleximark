@@ -9,8 +9,15 @@ import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
+import {
+  readGlobalMarknoteCss,
+  readWorkspaceMarknoteCss,
+} from "../css/index.mjs";
 
-const renderMarkdownToHtml = async (markdown: string): Promise<string> => {
+const renderMarkdownToHtml = async (
+  markdown: string,
+  context: vscode.ExtensionContext
+): Promise<string> => {
   const file = await unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -24,31 +31,15 @@ const renderMarkdownToHtml = async (markdown: string): Promise<string> => {
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown);
 
-  return wrapHtml(String(file));
+  return wrapHtml(String(file), context);
 };
 
-const wrapHtml = async (body: string): Promise<string> => {
-  const globalStoragePath = path.join(
-    vscode.env.appRoot,
-    "User",
-    "globalStorage",
-    "marknote.css"
-  );
-
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const workspaceCssPath = workspaceFolder
-    ? path.join(workspaceFolder, ".marknote", "marknote.css")
-    : null;
-
-  const readCss = (filePath: string | null): string => {
-    if (filePath && fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, "utf-8");
-    }
-    return "";
-  };
-
-  const globalCss = readCss(globalStoragePath);
-  const workspaceCss = readCss(workspaceCssPath);
+const wrapHtml = async (
+  body: string,
+  context: vscode.ExtensionContext
+): Promise<string> => {
+  const globalCss = readGlobalMarknoteCss(context);
+  const workspaceCss = readWorkspaceMarknoteCss();
 
   return `
 <!DOCTYPE html>
