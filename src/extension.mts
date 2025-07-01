@@ -6,13 +6,24 @@ import exportHtml from "./commands/exportHtml.mjs";
 import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mjs";
 import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
 import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
+import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
+import * as playwright from "playwright";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
   // This line of code will only be executed once when your extension is activated
   console.log('Congratulations, your extension "marknote" is now active!');
-  saveMarknoteCssToGlobalStorage(context);
+
+  // ==========================
+  //
+  // Initial setup
+  //
+  // ==========================
+
+  if (!isGlobalMarknoteCssExists(context)) {
+    saveMarknoteCssToGlobalStorage(context);
+  }
 
   // ==========================
   //

@@ -11,6 +11,24 @@ export function getDefaultMarknoteCss(): string {
 }
 
 /**
+ * Checks whether the global marknote.css file exists in the extension's global storage.
+ *
+ * @param context - The extension context containing the globalStorageUri.
+ * @returns A promise that resolves to true if the file exists, or false otherwise.
+ */
+export async function isGlobalMarknoteCssExists(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  const cssPath = vscode.Uri.joinPath(context.globalStorageUri, "marknote.css");
+  try {
+    await fs.access(cssPath.fsPath);
+    return true; // ファイルが存在する場合
+  } catch (err) {
+    return false; // ファイルが存在しない場合
+  }
+}
+
+/**
  * Reads the marknote.css file from the extension's global storage.
  * If the file does not exist, returns the default CSS content and attempts to create it.
  *
