@@ -7,7 +7,6 @@ import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mj
 import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
 import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
-import * as playwright from "playwright";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -25,6 +24,9 @@ export function activate(context: vscode.ExtensionContext) {
     saveMarknoteCssToGlobalStorage(context);
   }
 
+  // if in Dev, comment out the next line
+  saveMarknoteCssToGlobalStorage(context);
+
   // ==========================
   //
   // Global variables
@@ -35,7 +37,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   const updatePreview = async (doc: vscode.TextDocument) => {
     if (panel && doc.languageId === "markdown") {
-      const html = await renderMarkdownToHtml(doc.getText(), context);
+      const html = await renderMarkdownToHtml(
+        doc.getText(),
+        context,
+        panel.webview
+      );
       panel.webview.html = html;
     }
   };
@@ -78,7 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("marknote.exportHtml", async () => {
-      await exportHtml(context);
+      await exportHtml(context, panel?.webview);
     })
   );
 

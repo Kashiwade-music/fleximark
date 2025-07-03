@@ -401,3 +401,14 @@ Images
   display: block;
   margin: 1rem 0;
 }
+
+/*
+=========================
+ABC.js
+=========================
+*/
+
+.markdown-body .score g.color {
+  stroke: red;
+  fill: red;
+}

@@ -3,6 +3,7 @@
 out/**
 node_modules/**
 src/**
+media/** 
 .gitignore
 .yarnrc
 esbuild.js

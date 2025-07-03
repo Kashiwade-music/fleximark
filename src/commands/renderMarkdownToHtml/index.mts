@@ -18,7 +18,8 @@ import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 
 const renderMarkdownToHtml = async (
   markdown: string,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  webview: vscode.Webview
 ): Promise<string> => {
   const file = await unified()
     .use(remarkParse)
@@ -37,15 +38,42 @@ const renderMarkdownToHtml = async (
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown);
 
-  return wrapHtml(String(file), context);
+  return wrapHtml(String(file), context, webview);
 };
 
 const wrapHtml = async (
   body: string,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  webview: vscode.Webview
 ): Promise<string> => {
   const globalCss = await readGlobalMarknoteCss(context);
   const workspaceCss = await readWorkspaceMarknoteCss();
+
+  const abcjsScriptsUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "media",
+      "abcjsScripts.js"
+    )
+  );
+  const abdjsCssUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "media",
+      "abcjs@6.5.1_abcjs-audio.min.css"
+    )
+  );
+
+  const mermaidScriptsUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "media",
+      "mermaidScripts.js"
+    )
+  );
 
   return `
 <!DOCTYPE html>
@@ -54,10 +82,13 @@ const wrapHtml = async (
   <meta charset="UTF-8">
   <title>Preview</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <link rel="stylesheet" href="${abdjsCssUri}">
   <style>
     ${globalCss}
     ${workspaceCss}
   </style>
+  <script src="${abcjsScriptsUri}"></script>
+  <script src="${mermaidScriptsUri}"></script>
 </head>
 <body>
   <div class="markdown-body">

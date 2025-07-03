@@ -77,6 +77,7 @@
     "npm": "11.4.2"
   },
   "dependencies": {
+    "abcjs": "^6.5.1",
     "rehype-katex": "^7.0.1",
     "rehype-pretty-code": "^0.14.1",
     "rehype-stringify": "^10.0.1",

@@ -13,8 +13,21 @@ const previewMarkdown = async (context: vscode.ExtensionContext) => {
   }
 
   try {
-    const html = await renderMarkdownToHtml(doc.getText(), context);
-    return showPreviewPanel(html);
+    const panel = vscode.window.createWebviewPanel(
+      "markdownPreview",
+      "Markdown Preview",
+      vscode.ViewColumn.Beside,
+      { enableScripts: true }
+    );
+
+    const html = await renderMarkdownToHtml(
+      doc.getText(),
+      context,
+      panel.webview
+    );
+
+    panel.webview.html = html;
+    return panel;
   } catch (err) {
     vscode.window.showErrorMessage(
       "Markdown のプレビュー生成中にエラーが発生しました。"
@@ -22,19 +35,6 @@ const previewMarkdown = async (context: vscode.ExtensionContext) => {
     console.error(err);
     return;
   }
-};
-
-const showPreviewPanel = (htmlContent: string) => {
-  const panel = vscode.window.createWebviewPanel(
-    "markdownPreview",
-    "Markdown Preview",
-    vscode.ViewColumn.Beside,
-    { enableScripts: true }
-  );
-
-  panel.webview.html = htmlContent;
-
-  return panel;
 };
 
 export default previewMarkdown;
