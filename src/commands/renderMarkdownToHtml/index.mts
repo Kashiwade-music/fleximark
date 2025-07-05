@@ -68,6 +68,15 @@ const wrapHtml = async (
     )
   );
 
+  const katexCssUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "media",
+      "katex@0.16.22_katex.min.css"
+    )
+  );
+
   const mermaidScriptsUri = webview.asWebviewUri(
     vscode.Uri.joinPath(
       context.extensionUri,
@@ -83,7 +92,7 @@ const wrapHtml = async (
 <head>
   <meta charset="UTF-8">
   <title>Preview</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <link rel="stylesheet" href="${katexCssUri}">
   <link rel="stylesheet" href="${abdjsCssUri}">
   <style>
     ${globalCss}
@@ -114,9 +123,6 @@ const wrapHtml = async (
   <div class="markdown-body">
     ${body}
   </div>
-  <script>
-    console.log("Markdown Preview loaded");
-  </script>
 </body>
 </html>
 `;

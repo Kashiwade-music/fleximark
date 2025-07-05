@@ -48,7 +48,7 @@ function extractYouTubeVideoId(url: string): string | null {
   }
 }
 
-function getResponsiveYouTubeEmbed(videoId: string): string {
+function getIframeYouTubeEmbed(videoId: string): string {
   return `
     <div style="position: relative; width: 100%; padding-bottom: 56.25%;">
       <iframe 
@@ -77,7 +77,13 @@ function getLazyYouTubeEmbed(videoId: string): string {
   `.trim();
 }
 
-const remarkYouTube: Plugin = () => {
+interface RemarkYouTubeOptions {
+  mode?: "lazy" | "iframe";
+}
+
+const remarkYouTube: Plugin<[RemarkYouTubeOptions?]> = (options = {}) => {
+  const { mode = "lazy" } = options;
+
   return (tree: Node) => {
     visit(
       tree,

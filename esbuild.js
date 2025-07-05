@@ -67,13 +67,11 @@ async function main() {
 	});
 
 	// Script for Webview build
-	const mediaEntryPoints = [
-		'media/abcjsScripts.mts',
-		'media/mermaidScripts.mts',
-	];
-
 	const mediaCtx = await esbuild.context({
-		entryPoints: mediaEntryPoints,
+		entryPoints: [
+			'media/abcjsScripts.mts',
+			'media/mermaidScripts.mts',
+		],
 		bundle: true,
 		format: 'iife',
 		platform: 'browser',
