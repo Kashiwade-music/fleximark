@@ -71,8 +71,6 @@
     "esbuild": "^0.25.3",
     "eslint": "^9.25.1",
     "npm-run-all": "^4.1.5",
-    "trusted-types": "^2.0.0",
-    "type-fest": "^4.41.0",
     "typescript": "^5.8.3"
   },
   "volta": {
@@ -80,7 +78,6 @@
     "npm": "11.4.2"
   },
   "dependencies": {
-    "@terrastruct/d2": "^0.1.23",
     "abcjs": "^6.5.1",
     "mermaid": "^11.8.0",
     "rehype-katex": "^7.0.1",
