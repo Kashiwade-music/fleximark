@@ -64,17 +64,12 @@ const wrapHtml = async (
       context.extensionUri,
       "dist",
       "media",
-      "abcjs@6.5.1_abcjs-audio.min.css"
+      "abcjs-audio.min.css"
     )
   );
 
   const katexCssUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      context.extensionUri,
-      "dist",
-      "media",
-      "katex@0.16.22_katex.min.css"
-    )
+    vscode.Uri.joinPath(context.extensionUri, "dist", "media", "katex.min.css")
   );
 
   const mermaidScriptsUri = webview.asWebviewUri(

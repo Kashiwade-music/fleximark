@@ -25,23 +25,6 @@ const esbuildProblemMatcherPlugin = {
 	},
 };
 
-async function copyAllCssFiles(srcDir, destDir) {
-	const entries = await fs.readdir(srcDir, { withFileTypes: true });
-
-	for (const entry of entries) {
-		const srcPath = path.join(srcDir, entry.name);
-		const destPath = path.join(destDir, entry.name);
-
-		if (entry.isDirectory()) {
-			await copyAllCssFiles(srcPath, destPath);
-		} else if (entry.isFile() && entry.name.endsWith('.css')) {
-			await fs.mkdir(path.dirname(destPath), { recursive: true });
-			await fs.copyFile(srcPath, destPath);
-			console.log(`✔ Copied: ${srcPath} → ${destPath}`);
-		}
-	}
-}
-
 async function main() {
 	// Extension build
 	const extensionCtx = await esbuild.context({
@@ -82,7 +65,27 @@ async function main() {
 	});
 
 	const copyAssets = async () => {
-		await copyAllCssFiles('media', 'dist/media');
+		// dist/media を事前に作成しておく（無くてもOKなように recursive: true）
+		const mediaDir = path.join(__dirname, 'dist', 'media');
+		await fs.mkdir(mediaDir, { recursive: true });
+
+		// node_modules/abcjs/abcjs-audio.css
+		const abcjsAudioCssPath = path.join(__dirname, 'node_modules', 'abcjs', 'abcjs-audio.css');
+		const abcjsAudioDestPath = path.join(mediaDir, 'abcjs-audio.css');
+		await fs.copyFile(abcjsAudioCssPath, abcjsAudioDestPath);
+
+		// node_modules/katex/dist/katex.min.css
+		const katexCssPath = path.join(__dirname, 'node_modules', 'katex', 'dist', 'katex.min.css');
+		const katexDestPath = path.join(mediaDir, 'katex.min.css');
+		await fs.copyFile(katexCssPath, katexDestPath);
+
+		// node_modules/katex/dist/fonts
+		const katexFontsSrcPath = path.join(__dirname, 'node_modules', 'katex', 'dist', 'fonts');
+		const katexFontsDestPath = path.join(mediaDir, 'fonts');
+		await fs.mkdir(katexFontsDestPath, { recursive: true });
+		await fs.cp(katexFontsSrcPath, katexFontsDestPath, { recursive: true });
+
+		console.log('✔ Copied assets to dist/media');
 	};
 
 	if (watch) {
@@ -94,6 +97,7 @@ async function main() {
 		await extensionCtx.dispose();
 		await mediaCtx.rebuild();
 		await mediaCtx.dispose();
+		await copyAssets();
 	}
 }
 
