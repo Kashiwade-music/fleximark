@@ -7,5 +7,6 @@
   "HTML exported to {htmlFilePath}": "HTML exported to {htmlFilePath}",
   "Failed to export HTML: {err}": "Failed to export HTML: {err}",
   "Created .marknote directory and marknote.css file in the workspace.": "Created .marknote directory and marknote.css file in the workspace.",
-  "Failed to create .marknote directory or marknote.css file.": "Failed to create .marknote directory or marknote.css file."
+  "Failed to create .marknote directory or marknote.css file.": "Failed to create .marknote directory or marknote.css file.",
+  "marknote.css not found in global storage, returning default content.": "marknote.css not found in global storage, returning default content."
 }
