@@ -64,7 +64,7 @@ const wrapHtml = async (
       context.extensionUri,
       "dist",
       "media",
-      "abcjs-audio.min.css"
+      "abcjs-audio.css"
     )
   );
 
