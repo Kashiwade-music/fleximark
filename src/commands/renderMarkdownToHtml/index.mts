@@ -20,7 +20,7 @@ import remarkYouTube from "./reamarkYouTube.mjs";
 const renderMarkdownToHtml = async (
   markdown: string,
   context: vscode.ExtensionContext,
-  webview: vscode.Webview
+  webview?: vscode.Webview
 ): Promise<string> => {
   const file = await unified()
     .use(remarkParse)
@@ -40,10 +40,57 @@ const renderMarkdownToHtml = async (
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown);
 
-  return wrapHtml(String(file), context, webview);
+  if (!webview) {
+    return wrapHtml(String(file), context);
+  } else {
+    return wrapHtmlWithVscodeUri(String(file), context, webview);
+  }
 };
 
 const wrapHtml = async (
+  body: string,
+  context: vscode.ExtensionContext
+): Promise<string> => {
+  const globalCss = await readGlobalMarknoteCss(context);
+  const workspaceCss = await readWorkspaceMarknoteCss();
+
+  const abcjsScriptsUri = "dist/media/abcjsScripts.js";
+  const abdjsCssUri = "dist/media/abcjs-audio.css";
+
+  const katexCssUri = "dist/media/katex.min.css";
+
+  const mermaidScriptsUri = "dist/media/mermaidScripts.js";
+
+  const youtubePlaceholderScriptsUri =
+    "dist/media/youtubePlaceholderScripts.js";
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Preview</title>
+
+  <link rel="stylesheet" href="${katexCssUri}">
+  <link rel="stylesheet" href="${abdjsCssUri}">
+  <style>
+    ${globalCss}
+    ${workspaceCss}
+  </style>
+  <script src="${abcjsScriptsUri}"></script>
+  <script src="${mermaidScriptsUri}"></script>
+  <script src="${youtubePlaceholderScriptsUri}"></script>
+</head>
+<body>
+  <div class="markdown-body">
+    ${body}
+  </div>
+</body>
+</html>
+`;
+};
+
+const wrapHtmlWithVscodeUri = async (
   body: string,
   context: vscode.ExtensionContext,
   webview: vscode.Webview
