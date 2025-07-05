@@ -1,23 +1,13 @@
 import * as vscode from "vscode";
 import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 
-const exportHtml = async (
-  context: vscode.ExtensionContext,
-  webview?: vscode.Webview
-) => {
+const exportHtml = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;
   const doc = editor?.document;
 
   if (!editor || !doc || doc.languageId !== "markdown") {
     vscode.window.showErrorMessage(
-      "Markdown ファイルがアクティブである必要があります。"
-    );
-    return;
-  }
-
-  if (!webview) {
-    vscode.window.showErrorMessage(
-      "Webview が利用できません。プレビューを開いてからエクスポートしてください。"
+      vscode.l10n.t("The Markdown file must be active.")
     );
     return;
   }
@@ -29,13 +19,17 @@ const exportHtml = async (
 
     const uri = vscode.Uri.file(htmlFilePath);
     const enc = new TextEncoder();
-    const html = await renderMarkdownToHtml(doc.getText(), context, webview);
+    const html = await renderMarkdownToHtml(doc.getText(), context);
     const uint8array = enc.encode(html);
 
     await vscode.workspace.fs.writeFile(uri, uint8array);
-    vscode.window.showInformationMessage(`HTML exported to ${htmlFilePath}`);
+    vscode.window.showInformationMessage(
+      vscode.l10n.t("HTML exported to {htmlFilePath}", { htmlFilePath })
+    );
   } catch (err) {
-    vscode.window.showErrorMessage(`Failed to export HTML: ${err}`);
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("Failed to export HTML: {err}", { err: String(err) })
+    );
   }
 };
 

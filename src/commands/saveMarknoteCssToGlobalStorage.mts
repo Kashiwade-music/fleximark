@@ -18,13 +18,12 @@ async function saveMarknoteCssToGlobalStorage(
     await fs.mkdir(context.globalStorageUri.fsPath, { recursive: true });
     await fs.writeFile(cssPath.fsPath, cssContent, "utf8");
     vscode.window.showInformationMessage(
-      "marknote.css has been saved to global storage."
+      vscode.l10n.t("marknote.css has been saved to global storage.")
     );
   } catch (err) {
     vscode.window.showErrorMessage(
-      "Failed to save marknote.css to global storage."
+      vscode.l10n.t("Failed to save marknote.css to global storage.")
     );
-    console.error("Failed to save marknote.css to global storage:", err);
   }
 }
 

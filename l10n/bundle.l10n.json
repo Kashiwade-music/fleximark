@@ -1,0 +1,11 @@
+{
+  "The Markdown preview has opened at [http://localhost:{port}](http://localhost:{port}).": "The Markdown preview has opened at [http://localhost:{port}](http://localhost:{port}).",
+  "marknote.css has been saved to global storage.": "marknote.css has been saved to global storage.",
+  "Failed to save marknote.css to global storage.": "Failed to save marknote.css to global storage.",
+  "The Markdown file must be active.": "The Markdown file must be active.",
+  "An error occurred while preparing the Markdown preview.": "An error occurred while preparing the Markdown preview.",
+  "HTML exported to {htmlFilePath}": "HTML exported to {htmlFilePath}",
+  "Failed to export HTML: {err}": "Failed to export HTML: {err}",
+  "Created .marknote directory and marknote.css file in the workspace.": "Created .marknote directory and marknote.css file in the workspace.",
+  "Failed to create .marknote directory or marknote.css file.": "Failed to create .marknote directory or marknote.css file."
+}

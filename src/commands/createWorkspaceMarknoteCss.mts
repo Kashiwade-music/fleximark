@@ -33,13 +33,16 @@ async function createWorkspaceMarknoteCss(
     await fs.mkdir(marknoteDir.fsPath, { recursive: true });
     await fs.writeFile(workspaceCssPath.fsPath, commentContent, "utf8");
     vscode.window.showInformationMessage(
-      "Created .marknote directory and marknote.css file in the workspace."
+      vscode.l10n.t(
+        "Created .marknote directory and marknote.css file in the workspace."
+      )
     );
   } catch (err) {
     vscode.window.showErrorMessage(
-      "Failed to create .marknote directory or marknote.css file."
+      vscode.l10n.t(
+        "Failed to create .marknote directory or marknote.css file."
+      )
     );
-    console.error("Failed to create workspace marknote.css:", err);
   }
 }
 

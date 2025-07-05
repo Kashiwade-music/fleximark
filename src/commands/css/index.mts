@@ -45,11 +45,11 @@ export async function readGlobalMarknoteCss(
   } catch (err) {
     // ファイルが存在しない場合はデフォルトの内容を返す
     vscode.window.showWarningMessage(
-      "marknote.css not found in global storage, returning default content."
+      vscode.l10n.t(
+        "marknote.css not found in global storage, returning default content."
+      )
     );
-    console.warn(
-      "marknote.css not found in global storage, returning default content."
-    );
+
     return getDefaultMarknoteCss();
   }
 }

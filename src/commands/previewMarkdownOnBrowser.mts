@@ -8,7 +8,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
 
   if (!editor || !doc || doc.languageId !== "markdown") {
     vscode.window.showErrorMessage(
-      "Markdown ファイルがアクティブである必要があります。"
+      vscode.l10n.t("The Markdown file must be active.")
     );
     return;
   }
@@ -21,7 +21,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     return { app, html };
   } catch (err) {
     vscode.window.showErrorMessage(
-      "Markdown のプレビュー生成中にエラーが発生しました。"
+      vscode.l10n.t("An error occurred while preparing the Markdown preview.")
     );
     console.error(err);
     return;
