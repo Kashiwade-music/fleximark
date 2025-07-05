@@ -41,13 +41,13 @@ const renderMarkdownToHtml = async (
     .process(markdown);
 
   if (!webview) {
-    return wrapHtml(String(file), context);
+    return wrapHtmlForBrowser(String(file), context);
   } else {
-    return wrapHtmlWithVscodeUri(String(file), context, webview);
+    return wrapHtmlForVscode(String(file), context, webview);
   }
 };
 
-const wrapHtml = async (
+const wrapHtmlForBrowser = async (
   body: string,
   context: vscode.ExtensionContext
 ): Promise<string> => {
@@ -63,6 +63,11 @@ const wrapHtml = async (
 
   const youtubePlaceholderScriptsUri =
     "dist/media/youtubePlaceholderScripts.js";
+
+  const port =
+    (vscode.workspace
+      .getConfiguration("marknote")
+      .get<number>("browserPreviewPort") || 3000) + 1;
 
   return `
 <!DOCTYPE html>
@@ -80,6 +85,40 @@ const wrapHtml = async (
   <script src="${abcjsScriptsUri}"></script>
   <script src="${mermaidScriptsUri}"></script>
   <script src="${youtubePlaceholderScriptsUri}"></script>
+
+  <script>
+    const socket = new WebSocket("ws://localhost:${port}");
+
+    socket.addEventListener("message", (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "reload") {
+        location.reload();
+      } else if (data.type === "update") {
+        const { selector, newHTML } = data;
+
+        if (selector && newHTML) {
+          const target = document.querySelector(selector);
+          console.log(target);
+          if (target) {
+            target.innerHTML = newHTML;
+          }
+        }
+      }
+    });
+
+    socket.addEventListener("open", () => {
+      console.log("WebSocket connected");
+    });
+
+    socket.addEventListener("close", () => {
+      console.log("WebSocket disconnected");
+    });
+
+    socket.addEventListener("error", (err) => {
+      console.error("WebSocket error:", err);
+    });
+  </script>
 </head>
 <body>
   <div class="markdown-body">
@@ -90,7 +129,7 @@ const wrapHtml = async (
 `;
 };
 
-const wrapHtmlWithVscodeUri = async (
+const wrapHtmlForVscode = async (
   body: string,
   context: vscode.ExtensionContext,
   webview: vscode.Webview

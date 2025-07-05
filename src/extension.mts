@@ -9,12 +9,13 @@ import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
 import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
 import express, { Express, Request, Response } from "express";
+import WebSocket, { WebSocketServer } from "ws";
+import { findFirstDiff } from "./commands/utils/diffHTML.mjs";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-  // This line of code will only be executed once when your extension is activated
-  console.log('Congratulations, your extension "marknote" is now active!');
+  console.log("Marknote extension activated.");
 
   // ==========================
   //
@@ -41,17 +42,77 @@ export function activate(context: vscode.ExtensionContext) {
   // Express app for Markdown Preview in Browser
   let app: Express | undefined;
   let appHtml = "";
+  let wss: WebSocketServer | undefined;
+  let clients: Set<WebSocket> = new Set();
 
-  const updatePreview = async (doc: vscode.TextDocument) => {
+  const updateVscodePreview = async (doc: vscode.TextDocument) => {
     if (doc.languageId !== "markdown") return;
 
-    const html = await renderMarkdownToHtml(
-      doc.getText(),
-      context,
-      panel?.webview
-    );
-    if (panel) panel.webview.html = html;
-    if (app) appHtml = html;
+    if (panel) {
+      const html = await renderMarkdownToHtml(
+        doc.getText(),
+        context,
+        panel?.webview
+      );
+
+      panel.webview.html = html;
+    }
+  };
+
+  const updateBrowserPreview = async (
+    doc: vscode.TextDocument,
+    shouldAllReload: boolean = false
+  ) => {
+    if (doc.languageId !== "markdown") return;
+
+    if (app) {
+      const html = await renderMarkdownToHtml(doc.getText(), context);
+
+      if (shouldAllReload) {
+        // If shouldAllReload is true, replace the entire HTML
+        appHtml = html;
+        if (wss) {
+          for (const client of clients) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(
+                JSON.stringify({
+                  type: "reload",
+                })
+              );
+            }
+          }
+        }
+      } else {
+        // Otherwise, find the first diff and update only that part
+        // This is useful for live updates without reloading the entire page
+
+        const diff = findFirstDiff(appHtml, html);
+        appHtml = html;
+
+        if (wss) {
+          // Broadcast the new HTML to all connected WebSocket clients
+          for (const client of clients) {
+            if (client.readyState === WebSocket.OPEN) {
+              console.log(
+                "Sending update to client:",
+                JSON.stringify({
+                  type: "update",
+                  selector: diff?.selector,
+                  newHTML: diff?.newHTML,
+                })
+              );
+              client.send(
+                JSON.stringify({
+                  type: "update",
+                  selector: diff?.selector,
+                  newHTML: diff?.newHTML,
+                })
+              );
+            }
+          }
+        }
+      }
+    }
   };
 
   // ==========================
@@ -60,7 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
   //
   // ==========================
 
-  const startBrowserPreviewServer = (app: Express, html: string) => {
+  const startBrowserPreviewServer = (app: Express) => {
     const port =
       vscode.workspace
         .getConfiguration("marknote")
@@ -77,6 +138,14 @@ export function activate(context: vscode.ExtensionContext) {
         )
       );
       vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
+    });
+
+    wss = new WebSocketServer({ port: port + 1 });
+    wss.on("connection", (ws) => {
+      clients.add(ws);
+      ws.on("close", () => {
+        clients.delete(ws);
+      });
     });
   };
 
@@ -98,13 +167,23 @@ export function activate(context: vscode.ExtensionContext) {
           .get<string>("defaultPreviewMode") || "vscode";
 
       if (mode === "vscode") {
-        panel = await previewMarkdown(context);
-        panel?.onDidDispose(() => (panel = undefined));
+        if (!panel) {
+          panel = await previewMarkdown(context);
+          panel?.onDidDispose(() => (panel = undefined));
+        }
       } else if (mode === "browser") {
-        const result = await previewMarkdownOnBrowser(context);
-        if (result) {
-          ({ app, html: appHtml } = result);
-          startBrowserPreviewServer(app, appHtml);
+        if (!app) {
+          const result = await previewMarkdownOnBrowser(context);
+          if (result) {
+            ({ app, html: appHtml } = result);
+            startBrowserPreviewServer(app);
+          }
+        } else {
+          const port =
+            vscode.workspace
+              .getConfiguration("marknote")
+              .get<number>("browserPreviewPort") || 3000;
+          vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
         }
       }
     })
@@ -114,10 +193,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "marknote.previewMarkdownOnVscode",
       async () => {
-        panel = await previewMarkdown(context);
-        panel?.onDidDispose(() => {
-          panel = undefined;
-        });
+        if (!panel) {
+          panel = await previewMarkdown(context);
+          panel?.onDidDispose(() => {
+            panel = undefined;
+          });
+        }
       }
     )
   );
@@ -126,10 +207,18 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "marknote.previewMarkdownOnBrowser",
       async () => {
-        const result = await previewMarkdownOnBrowser(context);
-        if (result) {
-          ({ app, html: appHtml } = result);
-          startBrowserPreviewServer(app, appHtml);
+        if (!app) {
+          const result = await previewMarkdownOnBrowser(context);
+          if (result) {
+            ({ app, html: appHtml } = result);
+            startBrowserPreviewServer(app);
+          }
+        } else {
+          const port =
+            vscode.workspace
+              .getConfiguration("marknote")
+              .get<number>("browserPreviewPort") || 3000;
+          vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
         }
       }
     )
@@ -160,12 +249,16 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(
-      (editor) => editor && updatePreview(editor.document)
-    ),
-    vscode.workspace.onDidChangeTextDocument((event) =>
-      updatePreview(event.document)
-    )
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor && editor.document.languageId === "markdown") {
+        updateVscodePreview(editor.document);
+        updateBrowserPreview(editor.document, true);
+      }
+    }),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      updateVscodePreview(event.document);
+      updateBrowserPreview(event.document, true);
+    })
   );
 }
 
