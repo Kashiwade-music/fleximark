@@ -81,12 +81,33 @@ const wrapHtml = async (
     )
   );
 
+  const youtubePlaceholderScriptsUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "media",
+      "youtubePlaceholderScripts.js"
+    )
+  );
+
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Preview</title>
+
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; 
+            img-src ${webview.cspSource} https:;
+            script-src ${webview.cspSource};
+            font-src ${webview.cspSource};
+            frame-src https://www.youtube.com https://www.youtube-nocookie.com;
+            style-src ${webview.cspSource} 'unsafe-inline' https:;
+            connect-src https://paulrosen.github.io;"
+  />
+
   <link rel="stylesheet" href="${katexCssUri}">
   <link rel="stylesheet" href="${abdjsCssUri}">
   <style>
@@ -95,24 +116,7 @@ const wrapHtml = async (
   </style>
   <script src="${abcjsScriptsUri}"></script>
   <script src="${mermaidScriptsUri}"></script>
-
-  <script>
-    document.addEventListener("click", (e) => {
-      const placeholder = e.target.closest(".youtube-placeholder");
-      if (!placeholder) return;
-
-      const videoId = placeholder.dataset.videoId;
-      const iframe = document.createElement("iframe");
-      iframe.src = "https://www.youtube.com/embed/" + videoId + "?autoplay=1";
-      iframe.style = "position: absolute; top: 0; left: 0; width: 100%; height: 100%;";
-      iframe.setAttribute("frameborder", "0");
-      iframe.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture");
-      iframe.setAttribute("allowfullscreen", "true");
-
-      placeholder.innerHTML = "";
-      placeholder.appendChild(iframe);
-    });
-  </script>
+  <script src="${youtubePlaceholderScriptsUri}"></script>
 </head>
 <body>
   <div class="markdown-body">
