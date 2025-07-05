@@ -85,19 +85,19 @@ class TimingCallbackState {
 }
 
 const timingCallbacksStateArray: TimingCallbackState[] = [];
-let isRendered = false;
+let isRenderedABC = false;
 
 window.addEventListener("load", () => {
   console.log("ページが完全に読み込まれました");
-  render();
+  renderABC();
 });
 
-function render(): void {
-  if (isRendered) return;
+function renderABC(): void {
+  if (isRenderedABC) return;
   console.log("レンダリング中");
 
   const preElements = document.querySelectorAll(
-    'pre[data-language="abcjs"]'
+    'pre[data-language="abc"]'
   ) as NodeListOf<HTMLPreElement>;
 
   preElements.forEach((preElement, idx) => {
@@ -178,5 +178,5 @@ function render(): void {
     resetButton?.addEventListener("click", reset);
   });
 
-  isRendered = true;
+  isRenderedABC = true;
 }
