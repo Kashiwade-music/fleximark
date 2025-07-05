@@ -15,6 +15,7 @@ import remarkDirective from "remark-directive";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
+import remarkYouTube from "./reamarkYouTube.mjs";
 
 const renderMarkdownToHtml = async (
   markdown: string,
@@ -23,6 +24,7 @@ const renderMarkdownToHtml = async (
 ): Promise<string> => {
   const file = await unified()
     .use(remarkParse)
+    .use(remarkYouTube)
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkDirective)
@@ -89,6 +91,24 @@ const wrapHtml = async (
   </style>
   <script src="${abcjsScriptsUri}"></script>
   <script src="${mermaidScriptsUri}"></script>
+
+  <script>
+    document.addEventListener("click", (e) => {
+      const placeholder = e.target.closest(".youtube-placeholder");
+      if (!placeholder) return;
+
+      const videoId = placeholder.dataset.videoId;
+      const iframe = document.createElement("iframe");
+      iframe.src = "https://www.youtube.com/embed/" + videoId + "?autoplay=1";
+      iframe.style = "position: absolute; top: 0; left: 0; width: 100%; height: 100%;";
+      iframe.setAttribute("frameborder", "0");
+      iframe.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture");
+      iframe.setAttribute("allowfullscreen", "true");
+
+      placeholder.innerHTML = "";
+      placeholder.appendChild(iframe);
+    });
+  </script>
 </head>
 <body>
   <div class="markdown-body">

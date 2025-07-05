@@ -404,6 +404,20 @@ Images
 
 /*
 =========================
+Embed
+=========================
+*/
+
+.markdown-body .embed-content {
+  margin: 0 0 1rem;
+
+  & .youtube-placeholder > img {
+    margin: 0;
+  }
+}
+
+/*
+=========================
 ABC.js
 =========================
 */

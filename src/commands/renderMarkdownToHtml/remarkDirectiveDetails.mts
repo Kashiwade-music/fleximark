@@ -3,8 +3,6 @@ import { visit } from "unist-util-visit";
 import { ContainerDirective } from "mdast-util-directive";
 import { Node } from "unist";
 
-const ALLOWED_TYPES = ["info", "tip", "warning", "danger"] as const;
-
 const remarkDirectiveDetails: Plugin = () => {
   return (tree: Node) => {
     visit(tree, (node: Node) => {

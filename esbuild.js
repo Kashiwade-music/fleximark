@@ -69,7 +69,6 @@ async function main() {
 	// Script for Webview build
 	const mediaEntryPoints = [
 		'media/abcjsScripts.mts',
-		'media/d2Scripts.mts',
 		'media/mermaidScripts.mts',
 	];
 
