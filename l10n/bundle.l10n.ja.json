@@ -1,0 +1,12 @@
+{
+  "The Markdown preview has opened at http://localhost:{port}.": "Markdownプレビューが http://localhost:{port} で開かれました。",
+  "marknote.css has been saved to global storage.": "marknote.css がグローバルストレージに保存されました。",
+  "Failed to save marknote.css to global storage.": "marknote.css のグローバルストレージへの保存に失敗しました。",
+  "The Markdown file must be active.": "Markdownファイルをアクティブにする必要があります。",
+  "An error occurred while preparing the Markdown preview.": "Markdownプレビューの準備中にエラーが発生しました。",
+  "HTML exported to {htmlFilePath}": "HTMLが {htmlFilePath} にエクスポートされました。",
+  "Failed to export HTML: {err}": "HTMLのエクスポートに失敗しました：{err}",
+  "Created .marknote directory and marknote.css file in the workspace.": "ワークスペースに .marknote ディレクトリと marknote.css ファイルを作成しました。",
+  "Failed to create .marknote directory or marknote.css file.": ".marknote ディレクトリまたは marknote.css ファイルの作成に失敗しました。",
+  "marknote.css not found in global storage, returning default content.": "グローバルストレージに marknote.css が見つかりません。デフォルトの内容を返します。"
+}

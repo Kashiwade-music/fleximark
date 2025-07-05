@@ -1,0 +1,12 @@
+{
+  "command.previewMarkdown": "Preview Markdown (Default)",
+  "command.previewMarkdownOnVscode": "Preview in VSCode",
+  "command.previewMarkdownOnBrowser": "Preview in Browser",
+  "command.exportHtml": "Export as HTML",
+  "command.createWorkspaceMarknoteCss": "Generate Workspace CSS",
+  "command.resetGlobalMarknoteCss": "Reset Global CSS",
+
+  "configuration.title": "MarkNote",
+  "configuration.defaultPreviewMode.description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'.",
+  "configuration.browserPreviewPort.description": "Port number for the browser preview server."
+}

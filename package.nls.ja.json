@@ -1,0 +1,12 @@
+{
+  "command.previewMarkdown": "Markdownをプレビュー（デフォルト）",
+  "command.previewMarkdownOnVscode": "MarkdownをVSCodeでプレビュー",
+  "command.previewMarkdownOnBrowser": "Markdownをブラウザでプレビュー",
+  "command.exportHtml": "MarkdownをHTMLとしてエクスポート",
+  "command.createWorkspaceMarknoteCss": "ワークスペースCSSを生成",
+  "command.resetGlobalMarknoteCss": "グローバルCSSをリセット",
+
+  "configuration.title": "MarkNote",
+  "configuration.defaultPreviewMode.description": "Markdownファイルのデフォルトプレビューモード。「vscode」または「browser」から選択します。",
+  "configuration.browserPreviewPort.description": "ブラウザプレビューサーバーのポート番号です。"
+}

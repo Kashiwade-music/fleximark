@@ -15,33 +15,33 @@
     "commands": [
       {
         "command": "marknote.previewMarkdown",
-        "title": "Preview Markdown by default",
+        "title": "%command.previewMarkdown%",
         "category": "MarkNote",
         "icon": "$(eye)"
       },
       {
         "command": "marknote.previewMarkdownOnVscode",
-        "title": "Preview Markdown on VSCode",
+        "title": "%command.previewMarkdownOnVscode%",
         "category": "MarkNote"
       },
       {
         "command": "marknote.previewMarkdownOnBrowser",
-        "title": "Preview Markdown on Browser",
+        "title": "%command.previewMarkdownOnBrowser%",
         "category": "MarkNote"
       },
       {
         "command": "marknote.exportHtml",
-        "title": "Export Markdown as HTML",
+        "title": "%command.exportHtml%",
         "category": "MarkNote"
       },
       {
         "command": "marknote.createWorkspaceMarknoteCss",
-        "title": "Create Workspace marknote.css",
+        "title": "%command.createWorkspaceMarknoteCss%",
         "category": "MarkNote"
       },
       {
         "command": "marknote.resetGlobalMarknoteCss",
-        "title": "Reset Global marknote.css",
+        "title": "%command.resetGlobalMarknoteCss%",
         "category": "MarkNote"
       }
     ],
@@ -55,7 +55,7 @@
       ]
     },
     "configuration": {
-      "title": "MarkNote",
+      "title": "%configuration.title%",
       "type": "object",
       "properties": {
         "marknote.defaultPreviewMode": {
@@ -65,12 +65,12 @@
             "vscode",
             "browser"
           ],
-          "description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'."
+          "description": "%configuration.defaultPreviewMode.description%"
         },
         "marknote.browserPreviewPort": {
           "type": "number",
           "default": 3000,
-          "description": "Port number for the browser preview server."
+          "description": "%configuration.browserPreviewPort.description%"
         }
       }
     }
