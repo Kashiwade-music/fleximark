@@ -66,6 +66,10 @@ const wrapHtml = async (
     )
   );
 
+  const d2ScriptsUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(context.extensionUri, "dist", "media", "d2Scripts.js")
+  );
+
   const mermaidScriptsUri = webview.asWebviewUri(
     vscode.Uri.joinPath(
       context.extensionUri,
@@ -88,6 +92,7 @@ const wrapHtml = async (
     ${workspaceCss}
   </style>
   <script src="${abcjsScriptsUri}"></script>
+  
   <script src="${mermaidScriptsUri}"></script>
 </head>
 <body>
