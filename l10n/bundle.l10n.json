@@ -1,5 +1,5 @@
 {
-  "The Markdown preview has opened at [http://localhost:{port}](http://localhost:{port}).": "The Markdown preview has opened at [http://localhost:{port}](http://localhost:{port}).",
+  "The Markdown preview has opened at http://localhost:{port}.": "The Markdown preview has opened at http://localhost:{port}.",
   "marknote.css has been saved to global storage.": "marknote.css has been saved to global storage.",
   "Failed to save marknote.css to global storage.": "Failed to save marknote.css to global storage.",
   "The Markdown file must be active.": "The Markdown file must be active.",

@@ -72,7 +72,7 @@ export function activate(context: vscode.ExtensionContext) {
     app.listen(port, () => {
       vscode.window.showInformationMessage(
         vscode.l10n.t(
-          "The Markdown preview has opened at [http://localhost:{port}](http://localhost:{port}).",
+          "The Markdown preview has opened at http://localhost:{port}.",
           { port }
         )
       );
