@@ -10,10 +10,20 @@ interface HDataNode extends Node {
   };
 }
 
-const remarkLineNumber: Plugin = () => {
+interface RemarkLineNumberOptions {
+  isNeedDataLineNumber?: boolean;
+}
+
+const remarkLineNumber: Plugin<[RemarkLineNumberOptions?]> = (options = {}) => {
+  const { isNeedDataLineNumber = true } = options;
+
   return (tree: Node) => {
     visit(tree, "root", (node: Root) => {
       if (!node.children) return;
+      if (!isNeedDataLineNumber) {
+        // If data-line-number is not needed, return early
+        return;
+      }
 
       node.children.forEach((child: HDataNode) => {
         child.data ??= {};

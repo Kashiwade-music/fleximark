@@ -24,7 +24,8 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
       doc.getText(),
       context,
       undefined,
-      true
+      true,
+      false
     );
     const uint8array = enc.encode(res.html);
 

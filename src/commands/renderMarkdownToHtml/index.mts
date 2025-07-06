@@ -46,7 +46,8 @@ export const renderMarkdownToHtml = async (
   markdown: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
-  forExportToFile = false
+  forExportToFile = false,
+  isNeedDataLineNumber = true
 ): Promise<RenderResult> => {
   const processor = unified()
     .use(remarkParse)
@@ -57,7 +58,7 @@ export const renderMarkdownToHtml = async (
     .use(remarkDirectiveAdmonitions)
     .use(remarkDirectiveDetails)
     .use(remarkDirectiveTabs)
-    .use(remarkLineNumber)
+    .use(remarkLineNumber, { isNeedDataLineNumber })
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
