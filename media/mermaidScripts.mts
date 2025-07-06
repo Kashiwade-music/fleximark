@@ -1,14 +1,12 @@
 import mermaid from "mermaid";
 
-let isRenderedMermaid = false;
-
 window.addEventListener("load", () => {
   renderMermaid();
 });
 
-function renderMermaid(): void {
-  if (isRenderedMermaid) return;
+window.renderMermaid = renderMermaid;
 
+function renderMermaid(): void {
   const figures = document.querySelectorAll(
     "figure[data-rehype-pretty-code-figure]"
   );
@@ -39,6 +37,4 @@ function renderMermaid(): void {
   // mermaid描画
   mermaid.initialize({ startOnLoad: false });
   mermaid.run();
-
-  isRenderedMermaid = true;
 }

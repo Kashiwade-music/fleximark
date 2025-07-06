@@ -27,11 +27,13 @@ const remarkDirectiveTabs: Plugin = () => {
           child.type === "containerDirective" && child.name === "tab"
       );
 
-      const uid = objectToHash({
-        totalTabs,
-        rootName: root.name,
-        token: "EPj1fuyZ1V",
-      });
+      const uid =
+        "tab-" +
+        objectToHash({
+          totalTabs,
+          rootName: root.name,
+          token: "EPj1fuyZ1V",
+        });
       const inputs = generateTabInputs(tabDirectives.length, uid);
       const labels = generateTabLabels(tabDirectives, uid);
       const contents = generateTabContents(tabDirectives, uid);
@@ -39,6 +41,8 @@ const remarkDirectiveTabs: Plugin = () => {
 
       // @ts-ignore
       root.children = [...inputs, labels, contents, styles];
+
+      totalTabs++;
     });
   };
 };

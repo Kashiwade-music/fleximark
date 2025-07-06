@@ -16,11 +16,13 @@ interface ReloadMessage {
 
 type ServerMessage = EditMessage | ReloadMessage;
 
-// @ts-ignore
 const socket = new WebSocket(window.webSocketUrl);
 
 socket.addEventListener("message", (event: MessageEvent) => {
   const data: ServerMessage = JSON.parse(event.data);
+
+  // debug log
+  console.log("Received message:", JSON.stringify(data, null, 2));
 
   if (data.type === "reload") {
     location.reload();
@@ -76,6 +78,21 @@ socket.addEventListener("message", (event: MessageEvent) => {
         console.warn(`Unknown operation: ${operation}`);
       }
     });
+
+    // if data.htmlEditScript contains ABC or Mermaid, re-render them
+    const isABC = data.htmlEditScript.some((edit) =>
+      edit.newHTML.includes('data-language="abc"')
+    );
+    const isMermaid = data.htmlEditScript.some((edit) =>
+      edit.newHTML.includes('data-language="mermaid"')
+    );
+
+    if (isABC) {
+      window.renderABC();
+    }
+    if (isMermaid) {
+      window.renderMermaid();
+    }
   }
 });
 

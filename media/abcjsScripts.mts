@@ -1,7 +1,18 @@
 import abcjs, { EventCallbackReturn, NoteTimingEvent } from "abcjs";
 
+async function sha256Hex(abcText: string) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(abcText);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hashHex;
+}
+
 class TimingCallbackState {
-  id: number;
+  id: string;
   visualObj: any[];
   lastEls: HTMLElement[][] = [];
   isRunning: boolean = false;
@@ -10,7 +21,7 @@ class TimingCallbackState {
   cursor: SVGLineElement;
   timingCallback: any;
 
-  constructor(id: number, visualObj: any[]) {
+  constructor(id: string, visualObj: any[]) {
     this.id = id;
     this.visualObj = visualObj;
     this.cursor = this.createCursor();
@@ -84,21 +95,21 @@ class TimingCallbackState {
   }
 }
 
-const timingCallbacksStateArray: TimingCallbackState[] = [];
-let isRenderedABC = false;
+const timingCallbacksStateArray: { [hash: string]: TimingCallbackState } = {};
 
 window.addEventListener("load", () => {
   renderABC();
 });
 
-function renderABC(): void {
-  if (isRenderedABC) return;
+// @ts-ignore
+window.renderABC = renderABC;
 
+function renderABC(): void {
   const preElements = document.querySelectorAll(
     'pre[data-language="abc"]'
   ) as NodeListOf<HTMLPreElement>;
 
-  preElements.forEach((preElement, idx) => {
+  preElements.forEach(async (preElement) => {
     // ABC記譜テキストの抽出
     const codeElement = preElement.querySelector("code");
     if (!codeElement) return;
@@ -109,15 +120,18 @@ function renderABC(): void {
     });
     const abcText = abcLines.join("\n");
 
+    // ハッシュを生成
+    const hash = await sha256Hex(abcText);
+
     // 元のpreを破壊してdiv.scoreとdiv.audioを挿入
     const scoreDiv = document.createElement("div");
     scoreDiv.className = "score";
-    scoreDiv.id = "score" + idx;
+    scoreDiv.id = "score" + hash;
     scoreDiv.innerHTML = abcText;
 
     const audioDiv = document.createElement("div");
     audioDiv.className = "audio";
-    audioDiv.id = "audio" + idx;
+    audioDiv.id = "audio" + hash;
 
     // preを削除し、代わりにscoreDivとaudioDivを挿入
     const parent = preElement.parentElement;
@@ -130,18 +144,18 @@ function renderABC(): void {
     });
     const synthControl = new abcjs.synth.SynthController();
 
-    synthControl.load("#audio" + idx, null, {
+    synthControl.load("#audio" + hash, null, {
       displayRestart: true,
       displayPlay: true,
       displayProgress: true,
     });
     synthControl.setTune(visualObj[0], false);
 
-    const timingState = new TimingCallbackState(idx, visualObj);
-    timingCallbacksStateArray.push(timingState);
+    const timingState = new TimingCallbackState(hash, visualObj);
+    timingCallbacksStateArray[hash] = timingState;
 
     const startStop = () => {
-      const state = timingCallbacksStateArray[idx];
+      const state = timingCallbacksStateArray[hash];
       if (state.stoppedByEnd) {
         state.stoppedByEnd = false;
         state.stoppedByPause = false;
@@ -160,21 +174,19 @@ function renderABC(): void {
     };
 
     const reset = () => {
-      const state = timingCallbacksStateArray[idx];
+      const state = timingCallbacksStateArray[hash];
       state.timingCallback.reset();
       state.isRunning = false;
     };
 
     const startButton = document.querySelector(
-      `#audio${idx} > div > button.abcjs-midi-start.abcjs-btn`
+      `#audio${hash} > div > button.abcjs-midi-start.abcjs-btn`
     );
     startButton?.addEventListener("click", startStop);
 
     const resetButton = document.querySelector(
-      `#audio${idx} > div > button.abcjs-midi-reset.abcjs-btn`
+      `#audio${hash} > div > button.abcjs-midi-reset.abcjs-btn`
     );
     resetButton?.addEventListener("click", reset);
   });
-
-  isRenderedABC = true;
 }
