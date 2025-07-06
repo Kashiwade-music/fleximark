@@ -1,4 +1,4 @@
-import { Root } from "hast";
+import { Root, RootContent } from "hast";
 import crypto from "crypto";
 import { toHtml } from "hast-util-to-html";
 
@@ -10,19 +10,27 @@ export interface HtmlEditScript {
   newHTML: string;
 }
 
-export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
+export interface FindDiffResult {
+  editScripts: HtmlEditScript[];
+  propertiesArray: object[];
+}
+
+export function findDiff(beforeHast: Root, afterHast: Root) {
   const { hashArray: beforeHashedArray } = createHashedObjectMap(
     beforeHast.children
   );
-  const { hashMap: afterHashedMap, hashArray: afterHashedArray } =
-    createHashedObjectMap(afterHast.children);
+  const {
+    hashMap: afterHashedMap,
+    hashArray: afterHashedArray,
+    dataLineArray: afterDataLineArray,
+  } = createHashedObjectMap(afterHast.children);
 
   let editScripts = levenshteinEditScript(beforeHashedArray, afterHashedArray);
 
   editScripts = editScripts.map((edit) => {
-    const node = afterHashedMap[edit.newHTMLHash];
-    const newHTML = node
-      ? toHtml(node, { allowDangerousHtml: true })
+    const content = afterHashedMap[edit.newHTMLHash];
+    const newHTML = content
+      ? toHtml(content, { allowDangerousHtml: true })
       : undefined;
 
     return {
@@ -31,14 +39,16 @@ export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
     };
   });
 
-  return editScripts;
+  return { editScripts, dataLineArray: afterDataLineArray };
 }
 
-type HashMap<T> = { [hash: string]: T };
+type HashMap = { [hash: string]: RootContent };
+type DataLineArray = { "data-line-number"?: string }[];
 
-function createHashedObjectMap<T>(items: T[]) {
-  const hashMap: HashMap<T> = {};
+function createHashedObjectMap(items: RootContent[]) {
+  const hashMap: HashMap = {};
   const hashArray: string[] = [];
+  const dataLineArray: DataLineArray = [];
 
   items.forEach((item) => {
     // item が { type: "text", value: "\n" } ならスキップ
@@ -51,13 +61,23 @@ function createHashedObjectMap<T>(items: T[]) {
       return;
     }
 
+    // reset properties from the item
+    const properties = (item as any).properties || {};
+    const dataLineNumber = properties["data-line-number"];
+    if (dataLineNumber !== undefined) {
+      dataLineArray.push({ "data-line-number": dataLineNumber });
+      delete properties["data-line-number"];
+    } else {
+      dataLineArray.push({});
+    }
+
     const dataToHash = `${JSON.stringify(item)}`;
     const hash = crypto.createHash("sha256").update(dataToHash).digest("hex");
     hashMap[hash] = item;
     hashArray.push(hash);
   });
 
-  return { hashMap, hashArray };
+  return { hashMap, hashArray, dataLineArray };
 }
 
 function levenshteinEditScript(

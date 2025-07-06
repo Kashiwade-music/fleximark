@@ -112,6 +112,7 @@ const remarkYouTube: Plugin<[RemarkYouTubeOptions?]> = (options = {}) => {
               className: "embed-content youtube-embed",
             },
           },
+          position: node.position,
         };
 
         // replace the paragraph with the HTML node

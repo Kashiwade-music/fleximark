@@ -16,7 +16,8 @@ import remarkDirective from "remark-directive";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
-import remarkYouTube from "./reamarkYouTube.mjs";
+import remarkLineNumber from "./remarkLineNumber.mjs";
+import remarkYouTube from "./remarkYouTube.mjs";
 import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 
 import {
@@ -56,6 +57,7 @@ export const renderMarkdownToHtml = async (
     .use(remarkDirectiveAdmonitions)
     .use(remarkDirectiveDetails)
     .use(remarkDirectiveTabs)
+    .use(remarkLineNumber)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {

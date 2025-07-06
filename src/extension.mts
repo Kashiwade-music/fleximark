@@ -89,8 +89,10 @@ export function activate(context: vscode.ExtensionContext) {
         // Otherwise, find the first diff and update only that part
         // This is useful for live updates without reloading the entire page
 
-        // @ts-ignore
-        const htmlEditScript = findDiff(appHast, res.hast);
+        const { editScripts: htmlEditScript, dataLineArray } = findDiff(
+          appHast,
+          res.hast
+        );
         appHtml = res.html;
         appHast = res.hast;
 
@@ -98,8 +100,10 @@ export function activate(context: vscode.ExtensionContext) {
           // Broadcast the new HTML to all connected WebSocket clients
           for (const client of clients) {
             if (client.readyState === WebSocket.OPEN) {
-              console.log({ type: "edit", htmlEditScript });
-              client.send(JSON.stringify({ type: "edit", htmlEditScript }));
+              console.log({ type: "edit", dataLineArray, htmlEditScript });
+              client.send(
+                JSON.stringify({ type: "edit", dataLineArray, htmlEditScript })
+              );
             }
           }
         }
@@ -250,6 +254,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeTextDocument((event) => {
       updateVscodePreview(event.document);
       updateBrowserPreview(event.document);
+    }),
+    vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
+      console.log(JSON.stringify(event, null, 2));
     })
   );
 }

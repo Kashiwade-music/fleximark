@@ -5,8 +5,13 @@ interface HtmlEditScript {
   newHTML: string;
 }
 
+interface DataLine {
+  "data-line-number"?: string;
+}
+
 interface EditMessage {
   type: "edit";
+  dataLineArray: DataLine[];
   htmlEditScript: HtmlEditScript[];
 }
 
@@ -76,6 +81,14 @@ socket.addEventListener("message", (event: MessageEvent) => {
         }
       } else {
         console.warn(`Unknown operation: ${operation}`);
+      }
+    });
+
+    // Update the data-line-number attributes
+    data.dataLineArray.forEach((dataLine, index) => {
+      const element = container.children[index];
+      if (element && dataLine["data-line-number"]) {
+        element.setAttribute("data-line-number", dataLine["data-line-number"]);
       }
     });
 
