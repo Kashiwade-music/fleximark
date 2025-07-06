@@ -3,10 +3,10 @@ import express from "express";
 import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
-  const editor = vscode.window.activeTextEditor;
-  const doc = editor?.document;
+  const editorPanel = vscode.window.activeTextEditor;
+  const doc = editorPanel?.document;
 
-  if (!editor || !doc || doc.languageId !== "markdown") {
+  if (!editorPanel || !doc || doc.languageId !== "markdown") {
     vscode.window.showErrorMessage(
       vscode.l10n.t("The Markdown file must be active.")
     );
@@ -18,7 +18,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     app.use(express.static(context.extensionPath));
     const res = await renderMarkdownToHtml(doc.getText(), context);
 
-    return { app, ...res };
+    return { app, editorPanel, ...res };
   } catch (err) {
     vscode.window.showErrorMessage(
       vscode.l10n.t("An error occurred while preparing the Markdown preview.")
