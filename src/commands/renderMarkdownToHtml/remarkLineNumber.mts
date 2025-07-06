@@ -1,7 +1,7 @@
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
-import { Node, Parent } from "unist";
-import { Paragraph, Html, Root } from "mdast";
+import { Node } from "unist";
+import { Root } from "mdast";
 
 interface HDataNode extends Node {
   data?: {

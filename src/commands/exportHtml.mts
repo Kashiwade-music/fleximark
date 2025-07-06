@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
-import { t } from "@vscode/l10n";
 
 const exportHtml = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;
