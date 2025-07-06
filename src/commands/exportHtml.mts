@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
+import { t } from "@vscode/l10n";
 
 const exportHtml = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;
@@ -19,7 +20,12 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
 
     const uri = vscode.Uri.file(htmlFilePath);
     const enc = new TextEncoder();
-    const res = await renderMarkdownToHtml(doc.getText(), context);
+    const res = await renderMarkdownToHtml(
+      doc.getText(),
+      context,
+      undefined,
+      true
+    );
     const uint8array = enc.encode(res.html);
 
     await vscode.workspace.fs.writeFile(uri, uint8array);

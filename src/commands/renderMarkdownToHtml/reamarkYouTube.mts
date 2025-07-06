@@ -1,9 +1,7 @@
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { Node, Parent } from "unist";
-import { Paragraph, Root, Link, Html } from "mdast";
-import { get } from "http";
-import { log } from "console";
+import { Paragraph, Html } from "mdast";
 
 function extractYouTubeVideoId(url: string): string | null {
   try {
