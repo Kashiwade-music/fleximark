@@ -2,7 +2,14 @@ import crypto from "crypto";
 import { toHtml } from "hast-util-to-html";
 import type { Root, RootContent } from "hast";
 
-// Represents a change between two HTML trees
+/**
+ * Represents a single edit operation needed to transform one HTML tree into another.
+ *
+ * @property index - The position in the original HTML tree where the edit should be applied.
+ * @property operation - The type of change: 'insert', 'delete', or 'update'.
+ * @property newHTMLHash - SHA-256 hash of the new HTML node content (used for identification).
+ * @property newHTML - Serialized HTML string corresponding to the new content being inserted or updated.
+ */
 export interface HtmlEditScript {
   index: number;
   operation: "insert" | "delete" | "update";
@@ -10,14 +17,28 @@ export interface HtmlEditScript {
   newHTML: string;
 }
 
-// Result of HTML diffing
+/**
+ * Structure returned by the `findDiff` function.
+ *
+ * @property editScripts - List of operations (insertions, deletions, updates) required to transform the input HTML tree.
+ * @property dataLineArray - Metadata for each node, including extracted line numbers for traceability.
+ */
 export interface FindDiffResult {
   editScripts: HtmlEditScript[];
   dataLineArray: Array<Record<string, string>>;
 }
 
 /**
- * Computes the diff between two HAST trees.
+ * Computes the difference between two HAST (Hypertext Abstract Syntax Tree) trees,
+ * producing a list of edit operations and relevant metadata for transforming one tree into another.
+ *
+ * This function compares the SHA-256 hash of each node's serialized content, computes the minimal set
+ * of edits (inserts, deletes, updates) using a Levenshtein distance approach, and returns the full HTML
+ * strings for each changed node.
+ *
+ * @param beforeTree - The original HAST tree.
+ * @param afterTree - The updated HAST tree to compare against.
+ * @returns An object containing the edit script (list of diffs) and associated node metadata.
  */
 export function findDiff(beforeTree: Root, afterTree: Root): FindDiffResult {
   const { hashArray: beforeHashes } = hashHastContent(beforeTree.children);
@@ -46,7 +67,18 @@ type HashMap = Record<string, RootContent>;
 type LineMetadataArray = Array<Record<string, string>>;
 
 /**
- * Hashes each HAST node and collects relevant metadata.
+ * Generates SHA-256 hashes for each node in the HAST tree and extracts line number metadata.
+ *
+ * The function:
+ * - Ignores ignorable nodes (e.g., pure newline text).
+ * - Extracts and removes `data-line-number` metadata from each node.
+ * - Serializes each node into a string and hashes it for structural comparison.
+ *
+ * @param nodes - Array of `RootContent` nodes (e.g., paragraphs, elements, text).
+ * @returns An object containing:
+ *   - `hashMap`: A map of each node's hash to the actual node.
+ *   - `hashArray`: An ordered list of hashes representing the node sequence.
+ *   - `dataLineArray`: Extracted metadata for each node (e.g., line numbers).
  */
 function hashHastContent(nodes: RootContent[]) {
   const hashMap: HashMap = {};
@@ -72,7 +104,11 @@ function hashHastContent(nodes: RootContent[]) {
 }
 
 /**
- * Returns true if the node is a pure newline text node (to be ignored).
+ * Determines whether a HAST node should be ignored when computing diffs.
+ * Specifically filters out pure newline text nodes which are often irrelevant to structural diffs.
+ *
+ * @param node - A single HAST node.
+ * @returns `true` if the node is a newline-only text node, `false` otherwise.
  */
 function isIgnorableTextNode(node: RootContent): boolean {
   return (
@@ -84,7 +120,11 @@ function isIgnorableTextNode(node: RootContent): boolean {
 }
 
 /**
- * Extracts and removes `data-line-number` from properties object.
+ * Extracts the `data-line-number` property from a node's properties object
+ * and removes it from the original properties to avoid contaminating the node's serialized hash.
+ *
+ * @param properties - A node's attribute/properties object.
+ * @returns An object containing only the extracted `data-line-number`, if found.
  */
 function extractAndRemoveLineNumber(
   properties: Record<string, unknown>
@@ -98,7 +138,13 @@ function extractAndRemoveLineNumber(
 }
 
 /**
- * Computes Levenshtein-based edit script between two sequences of hash strings.
+ * Uses a dynamic programming algorithm based on Levenshtein distance to compute
+ * the minimum sequence of operations (insert, delete, update) required to transform
+ * one array of hash strings into another.
+ *
+ * @param source - Array of SHA-256 hashes representing the original tree nodes.
+ * @param target - Array of SHA-256 hashes representing the updated tree nodes.
+ * @returns A list of edit operations (`HtmlEditScript`) required to convert `source` into `target`.
  */
 function computeEditScript(
   source: string[],
@@ -115,7 +161,7 @@ function computeEditScript(
     () => Array(n + 1).fill("none")
   );
 
-  // Initialize DP tables
+  // Initialize base cases
   for (let i = 0; i <= m; i++) {
     dp[i][0] = i;
     ops[i][0] = "delete";
@@ -126,7 +172,7 @@ function computeEditScript(
   }
   ops[0][0] = "none";
 
-  // Compute edit distances
+  // Fill DP and operation matrices
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       if (source[i - 1] === target[j - 1]) {
@@ -150,7 +196,7 @@ function computeEditScript(
     }
   }
 
-  // Backtrack to generate edit script
+  // Backtrack through the DP matrix to produce the actual edit script
   const edits: HtmlEditScript[] = [];
   let i = m;
   let j = n;
