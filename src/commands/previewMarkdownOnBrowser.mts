@@ -16,9 +16,9 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
   try {
     const app = express();
     app.use(express.static(context.extensionPath));
-    const html = await renderMarkdownToHtml(doc.getText(), context);
+    const res = await renderMarkdownToHtml(doc.getText(), context);
 
-    return { app, html };
+    return { app, ...res };
   } catch (err) {
     vscode.window.showErrorMessage(
       vscode.l10n.t("An error occurred while preparing the Markdown preview.")

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { unified } from "unified";
+import { Root } from "hast";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -16,13 +17,14 @@ import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 import remarkYouTube from "./reamarkYouTube.mjs";
+import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 
-const renderMarkdownToHtml = async (
+export const renderMarkdownToHtml = async (
   markdown: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview
-): Promise<string> => {
-  const file = await unified()
+): Promise<{ html: string; hast: Root }> => {
+  const processor = unified()
     .use(remarkParse)
     .use(remarkYouTube)
     .use(remarkGfm)
@@ -37,14 +39,38 @@ const renderMarkdownToHtml = async (
       theme: "github-light-default",
       keepBackground: false,
     })
-    .use(rehypeStringify, { allowDangerousHtml: true })
-    .process(markdown);
+    .use(rehypeRemovePosition);
 
-  if (!webview) {
-    return wrapHtmlForBrowser(String(file), context);
-  } else {
-    return wrapHtmlForVscode(String(file), context, webview);
-  }
+  // Markdown を中間AST (HAST) まで変換
+  const hast = (await processor.run(processor.parse(markdown))) as Root;
+
+  // output as plaintext file for debugging
+  const debugFilePath = vscode.Uri.joinPath(
+    context.extensionUri,
+    "dist",
+    "debug",
+    "debug-hast.json"
+  );
+  await vscode.workspace.fs.writeFile(
+    debugFilePath,
+    new TextEncoder().encode(JSON.stringify(hast, null, 2))
+  );
+
+  // HTML に変換
+  const htmlProcessor = processor().use(rehypeStringify, {
+    allowDangerousHtml: true,
+  });
+
+  const htmlString = String(htmlProcessor.stringify(hast));
+
+  const html = webview
+    ? await wrapHtmlForVscode(htmlString, context, webview)
+    : await wrapHtmlForBrowser(htmlString, context);
+
+  return {
+    html,
+    hast,
+  };
 };
 
 const wrapHtmlForBrowser = async (
@@ -94,16 +120,8 @@ const wrapHtmlForBrowser = async (
 
       if (data.type === "reload") {
         location.reload();
-      } else if (data.type === "update") {
-        const { selector, newHTML } = data;
-
-        if (selector && newHTML) {
-          const target = document.querySelector(selector);
-          console.log(target);
-          if (target) {
-            target.innerHTML = newHTML;
-          }
-        }
+      } else if (data.type === "edit") {
+        console.log("Received edit command:", data);
       }
     });
 

@@ -20,13 +20,13 @@ const previewMarkdown = async (context: vscode.ExtensionContext) => {
       { enableScripts: true }
     );
 
-    const html = await renderMarkdownToHtml(
+    const res = await renderMarkdownToHtml(
       doc.getText(),
       context,
       panel.webview
     );
 
-    panel.webview.html = html;
+    panel.webview.html = res.html;
     return panel;
   } catch (err) {
     vscode.window.showErrorMessage(

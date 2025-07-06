@@ -2,9 +2,16 @@ import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { ContainerDirective } from "mdast-util-directive";
 import { Node, Parent } from "unist";
-import { generateRandomString } from "../utils/rand.mjs";
+import crypto from "crypto";
+
+function objectToHash(obj: object): string {
+  const jsonString = JSON.stringify(obj, Object.keys(obj).sort());
+  return crypto.createHash("sha256").update(jsonString).digest("hex");
+}
 
 const remarkDirectiveTabs: Plugin = () => {
+  let totalTabs = 0;
+
   return (tree: Node) => {
     visit(tree, "containerDirective", (node: Node, index, parent) => {
       const root = node as ContainerDirective;
@@ -20,7 +27,11 @@ const remarkDirectiveTabs: Plugin = () => {
           child.type === "containerDirective" && child.name === "tab"
       );
 
-      const uid = `tab-${generateRandomString(8)}`;
+      const uid = objectToHash({
+        totalTabs,
+        rootName: root.name,
+        token: "EPj1fuyZ1V",
+      });
       const inputs = generateTabInputs(tabDirectives.length, uid);
       const labels = generateTabLabels(tabDirectives, uid);
       const contents = generateTabContents(tabDirectives, uid);

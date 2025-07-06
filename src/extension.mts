@@ -10,7 +10,8 @@ import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
 import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
 import express, { Express, Request, Response } from "express";
 import WebSocket, { WebSocketServer } from "ws";
-import { findFirstDiff } from "./commands/utils/diffHTML.mjs";
+import { findDiff } from "./commands/utils/diffHTML.mjs";
+import { Root } from "hast";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -41,7 +42,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Express app for Markdown Preview in Browser
   let app: Express | undefined;
-  let appHtml = "";
+  let appHtml: string | undefined;
+  let appHast: Root | undefined;
   let wss: WebSocketServer | undefined;
   let clients: Set<WebSocket> = new Set();
 
@@ -49,13 +51,13 @@ export function activate(context: vscode.ExtensionContext) {
     if (doc.languageId !== "markdown") return;
 
     if (panel) {
-      const html = await renderMarkdownToHtml(
+      const res = await renderMarkdownToHtml(
         doc.getText(),
         context,
         panel?.webview
       );
 
-      panel.webview.html = html;
+      panel.webview.html = res.html;
     }
   };
 
@@ -66,11 +68,12 @@ export function activate(context: vscode.ExtensionContext) {
     if (doc.languageId !== "markdown") return;
 
     if (app) {
-      const html = await renderMarkdownToHtml(doc.getText(), context);
+      const res = await renderMarkdownToHtml(doc.getText(), context);
 
-      if (shouldAllReload) {
+      if (shouldAllReload || !appHast || !appHtml) {
         // If shouldAllReload is true, replace the entire HTML
-        appHtml = html;
+        appHtml = res.html;
+        appHast = res.hast;
         if (wss) {
           for (const client of clients) {
             if (client.readyState === WebSocket.OPEN) {
@@ -86,8 +89,10 @@ export function activate(context: vscode.ExtensionContext) {
         // Otherwise, find the first diff and update only that part
         // This is useful for live updates without reloading the entire page
 
-        const diff = findFirstDiff(appHtml, html);
-        appHtml = html;
+        // @ts-ignore
+        const htmlEditScript = findDiff(appHast, res.hast);
+        appHtml = res.html;
+        appHast = res.hast;
 
         if (wss) {
           // Broadcast the new HTML to all connected WebSocket clients
@@ -95,19 +100,9 @@ export function activate(context: vscode.ExtensionContext) {
             if (client.readyState === WebSocket.OPEN) {
               console.log(
                 "Sending update to client:",
-                JSON.stringify({
-                  type: "update",
-                  selector: diff?.selector,
-                  newHTML: diff?.newHTML,
-                })
+                JSON.stringify({ type: "edit", ...htmlEditScript })
               );
-              client.send(
-                JSON.stringify({
-                  type: "update",
-                  selector: diff?.selector,
-                  newHTML: diff?.newHTML,
-                })
-              );
+              client.send(JSON.stringify({ type: "edit", ...htmlEditScript }));
             }
           }
         }
@@ -175,7 +170,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!app) {
           const result = await previewMarkdownOnBrowser(context);
           if (result) {
-            ({ app, html: appHtml } = result);
+            ({ app, html: appHtml, hast: appHast } = result);
             startBrowserPreviewServer(app);
           }
         } else {
@@ -257,7 +252,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       updateVscodePreview(event.document);
-      updateBrowserPreview(event.document, true);
+      updateBrowserPreview(event.document);
     })
   );
 }

@@ -1,97 +1,121 @@
-import { Window, Element, Node, Text } from "happy-dom";
+import { Root } from "hast";
+import crypto from "crypto";
+import { toHtml } from "hast-util-to-html";
 
-export interface DiffResult {
-  selector: string;
-  newHTML: string;
+// html edit script for HTML diffing
+export interface HtmlEditScript {
+  index: number;
+  operation: "insert" | "delete" | "update";
+  newHTMLHash: string;
+  newHTML?: string;
 }
 
-export function findFirstDiff(
-  beforeHTML: string,
-  afterHTML: string
-): DiffResult | null {
-  const windowBefore = new Window();
-  const windowAfter = new Window();
+export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
+  const beforeHashedMap = createHashedObjectMap(beforeHast.children);
+  const afterHashedMap = createHashedObjectMap(afterHast.children);
 
-  const docBefore = windowBefore.document;
-  const docAfter = windowAfter.document;
+  let editScripts = levenshteinEditScript(
+    Object.keys(beforeHashedMap),
+    Object.keys(afterHashedMap)
+  );
 
-  docBefore.body.innerHTML = beforeHTML;
-  docAfter.body.innerHTML = afterHTML;
+  editScripts = editScripts.map((edit) => {
+    const node = afterHashedMap[edit.newHTMLHash];
+    const newHTML = node ? toHtml(node) : undefined;
 
-  const beforeRoot = docBefore.body;
-  const afterRoot = docAfter.body;
+    return {
+      ...edit,
+      newHTML,
+    };
+  });
 
-  const result = compareNodes(beforeRoot, afterRoot);
-  if (!result) return null;
-
-  const { node } = result;
-
-  return {
-    selector: getSelector(node),
-    newHTML: node.outerHTML,
-  };
+  return editScripts;
 }
 
-function compareNodes(nodeA: Node, nodeB: Node): { node: Element } | null {
-  if (nodeA.nodeType !== nodeB.nodeType) {
-    return nodeB instanceof Element ? { node: nodeB } : null;
-  }
+type HashMap<T> = { [hash: string]: T };
 
-  if (nodeA instanceof Text && nodeB instanceof Text) {
-    if (nodeA.data !== nodeB.data) {
-      return nodeB.parentElement ? { node: nodeB.parentElement } : null;
+function createHashedObjectMap<T>(items: T[]): HashMap<T> {
+  const map: HashMap<T> = {};
+
+  items.forEach((item, index) => {
+    const dataToHash = `${JSON.stringify(item)}`;
+    const hash = crypto.createHash("sha256").update(dataToHash).digest("hex");
+    map[hash] = item;
+  });
+
+  return map;
+}
+
+function levenshteinEditScript(
+  source: string[],
+  target: string[]
+): HtmlEditScript[] {
+  const m = source.length;
+  const n = target.length;
+
+  // DPテーブルの初期化
+  const dp: number[][] = Array.from({ length: m + 1 }, () =>
+    Array(n + 1).fill(0)
+  );
+  const op: ("none" | "insert" | "delete" | "update")[][] = Array.from(
+    { length: m + 1 },
+    () => Array(n + 1).fill("none")
+  );
+
+  for (let i = 0; i <= m; i++) (dp[i][0] = i), (op[i][0] = "delete");
+  for (let j = 0; j <= n; j++) (dp[0][j] = j), (op[0][j] = "insert");
+  op[0][0] = "none";
+
+  // DPテーブルの構築
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (source[i - 1] === target[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+        op[i][j] = "none";
+      } else {
+        const del = dp[i - 1][j] + 1;
+        const ins = dp[i][j - 1] + 1;
+        const sub = dp[i - 1][j - 1] + 1;
+
+        dp[i][j] = Math.min(del, ins, sub);
+
+        if (dp[i][j] === sub) op[i][j] = "update";
+        else if (dp[i][j] === ins) op[i][j] = "insert";
+        else op[i][j] = "delete";
+      }
     }
-    return null;
   }
 
-  if (!(nodeA instanceof Element) || !(nodeB instanceof Element)) {
-    return null;
-  }
+  // 編集コマンドのバックトラック
+  const edits: HtmlEditScript[] = [];
+  let i = m,
+    j = n;
 
-  if (nodeA.tagName !== nodeB.tagName) {
-    return { node: nodeB };
-  }
-
-  const attrA = nodeA.attributes;
-  const attrB = nodeB.attributes;
-
-  if (attrA.length !== attrB.length) {
-    return { node: nodeB };
-  }
-
-  for (const name of nodeA.getAttributeNames()) {
-    const valA = nodeA.getAttribute(name);
-    const valB = nodeB.getAttribute(name);
-    if (valA !== valB) {
-      return { node: nodeB };
+  while (i > 0 || j > 0) {
+    const operation = op[i][j];
+    if (operation === "none") {
+      i--;
+      j--;
+    } else if (operation === "update") {
+      edits.unshift({
+        index: i - 1,
+        operation: "update",
+        newHTMLHash: target[j - 1],
+      });
+      i--;
+      j--;
+    } else if (operation === "insert") {
+      edits.unshift({
+        index: i,
+        operation: "insert",
+        newHTMLHash: target[j - 1],
+      });
+      j--;
+    } else if (operation === "delete") {
+      edits.unshift({ index: i - 1, operation: "delete", newHTMLHash: "" });
+      i--;
     }
   }
 
-  const childrenA = Array.from(nodeA.childNodes);
-  const childrenB = Array.from(nodeB.childNodes);
-
-  if (childrenA.length !== childrenB.length) {
-    return { node: nodeB };
-  }
-
-  for (let i = 0; i < childrenA.length; i++) {
-    const diff = compareNodes(childrenA[i], childrenB[i]);
-    if (diff) return diff;
-  }
-
-  return null;
-}
-
-function getSelector(el: Element): string {
-  if (!el.parentElement || el === el.ownerDocument?.body) {
-    return "body";
-  }
-
-  const siblings = Array.from(el.parentElement.children);
-  const index = siblings.indexOf(el) + 1;
-
-  const parentSelector = getSelector(el.parentElement);
-  const tag = el.tagName.toLowerCase();
-
-  return `${parentSelector} > ${tag}:nth-child(${index})`;
+  return edits;
 }
