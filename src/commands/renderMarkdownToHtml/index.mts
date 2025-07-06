@@ -1,4 +1,7 @@
 import * as vscode from "vscode";
+import * as path from "path";
+import * as fs from "fs";
+
 import { unified } from "unified";
 import { Root } from "hast";
 import remarkParse from "remark-parse";
@@ -8,25 +11,30 @@ import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
-import {
-  readGlobalMarknoteCss,
-  readWorkspaceMarknoteCss,
-} from "../css/index.mjs";
+
 import remarkDirective from "remark-directive";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 import remarkYouTube from "./reamarkYouTube.mjs";
 import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
-import * as path from "path";
-import * as fs from "fs";
+
+import {
+  readGlobalMarknoteCss,
+  readWorkspaceMarknoteCss,
+} from "../css/index.mjs";
+
+type RenderResult = {
+  html: string;
+  hast: Root;
+};
 
 export const renderMarkdownToHtml = async (
   markdown: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
-  forExportToFile: boolean = false
-): Promise<{ html: string; hast: Root }> => {
+  forExportToFile = false
+): Promise<RenderResult> => {
   const processor = unified()
     .use(remarkParse)
     .use(remarkYouTube, { mode: webview ? "lazy" : "iframe" })
@@ -44,10 +52,9 @@ export const renderMarkdownToHtml = async (
     })
     .use(rehypeRemovePosition);
 
-  // Markdown を中間AST (HAST) まで変換
   const hast = (await processor.run(processor.parse(markdown))) as Root;
 
-  // output as plaintext file for debugging
+  // Debug output for inspection
   const debugFilePath = vscode.Uri.joinPath(
     context.extensionUri,
     "dist",
@@ -59,58 +66,65 @@ export const renderMarkdownToHtml = async (
     new TextEncoder().encode(JSON.stringify(hast, null, 2))
   );
 
-  // HTML に変換
-  const htmlProcessor = processor().use(rehypeStringify, {
+  // Convert HAST to HTML
+  const html = await convertToHtml(hast, context, webview, forExportToFile);
+  return { html, hast };
+};
+
+async function convertToHtml(
+  hast: Root,
+  context: vscode.ExtensionContext,
+  webview?: vscode.Webview,
+  forExportToFile?: boolean
+): Promise<string> {
+  const htmlProcessor = unified().use(rehypeStringify, {
     allowDangerousHtml: true,
   });
 
-  const htmlString = String(htmlProcessor.stringify(hast));
+  const htmlBody = String(htmlProcessor.stringify(hast));
 
-  const html = webview
-    ? await wrapHtmlForVscode(htmlString, context, webview)
-    : forExportToFile
-    ? await wrapHtmlForFile(htmlString, context)
-    : await wrapHtmlForBrowser(htmlString, context);
+  if (webview) {
+    return wrapHtmlForVscode(htmlBody, context, webview);
+  }
 
-  return {
-    html,
-    hast,
-  };
-};
+  return forExportToFile
+    ? wrapHtmlForFile(htmlBody, context)
+    : wrapHtmlForBrowser(htmlBody, context);
+}
 
-const wrapHtmlForBrowser = async (
+// -- Wrapping Functions -------------------------------------------------------
+
+async function wrapHtmlForBrowser(
   body: string,
   context: vscode.ExtensionContext
-): Promise<string> => {
-  const globalCss = await readGlobalMarknoteCss(context);
-  const workspaceCss = await readWorkspaceMarknoteCss();
-
-  const abcjsScriptsUri = "dist/media/abcjsScripts.js";
-  const abdjsCssUri = "dist/media/abcjs-audio.css";
-
-  const katexCssUri = "dist/media/katex.min.css";
-
-  const mermaidScriptsUri = "dist/media/mermaidScripts.js";
-
-  const webSocketScriptsUri = "dist/media/webSocketScripts.js";
-
-  const youtubePlaceholderScriptsUri =
-    "dist/media/youtubePlaceholderScripts.js";
+): Promise<string> {
+  const [globalCss, workspaceCss] = await Promise.all([
+    readGlobalMarknoteCss(context),
+    readWorkspaceMarknoteCss(),
+  ]);
 
   const port =
     (vscode.workspace
       .getConfiguration("marknote")
       .get<number>("browserPreviewPort") || 3000) + 1;
 
+  const assets = {
+    katexCss: "dist/media/katex.min.css",
+    abcjsCss: "dist/media/abcjs-audio.css",
+    abcjsJs: "dist/media/abcjsScripts.js",
+    mermaidJs: "dist/media/mermaidScripts.js",
+    webSocketJs: "dist/media/webSocketScripts.js",
+    youtubeJs: "dist/media/youtubePlaceholderScripts.js",
+  };
+
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Preview</title>
-
-  <link rel="stylesheet" href="${katexCssUri}">
-  <link rel="stylesheet" href="${abdjsCssUri}">
+  <link rel="stylesheet" href="${assets.katexCss}" />
+  <link rel="stylesheet" href="${assets.abcjsCss}" />
   <style>
     ${globalCss}
     ${workspaceCss}
@@ -118,11 +132,10 @@ const wrapHtmlForBrowser = async (
   <script>
     window.webSocketUrl = "ws://localhost:${port}";
   </script>
-
-  <script src="${abcjsScriptsUri}"></script>
-  <script src="${mermaidScriptsUri}"></script>
-  <script src="${webSocketScriptsUri}"></script>
-  <script src="${youtubePlaceholderScriptsUri}"></script>
+  <script src="${assets.abcjsJs}"></script>
+  <script src="${assets.mermaidJs}"></script>
+  <script src="${assets.webSocketJs}"></script>
+  <script src="${assets.youtubeJs}"></script>
 </head>
 <body>
   <div class="markdown-body">
@@ -131,43 +144,45 @@ const wrapHtmlForBrowser = async (
 </body>
 </html>
 `;
-};
+}
 
-const wrapHtmlForFile = async (
+async function wrapHtmlForFile(
   body: string,
   context: vscode.ExtensionContext
-): Promise<string> => {
-  const globalCss = await readGlobalMarknoteCss(context);
-  const workspaceCss = await readWorkspaceMarknoteCss();
+): Promise<string> {
+  const [globalCss, workspaceCss] = await Promise.all([
+    readGlobalMarknoteCss(context),
+    readWorkspaceMarknoteCss(),
+  ]);
 
-  // 各ファイルのパスを解決して中身を読み込む
-  const mediaPath = context.asAbsolutePath("dist/media");
+  const mediaDir = context.asAbsolutePath("dist/media");
+  const readAsset = (file: string) =>
+    fs.promises.readFile(path.join(mediaDir, file), "utf8");
 
-  const readFileAsString = async (relativePath: string) => {
-    const absolutePath = path.join(mediaPath, relativePath);
-    return fs.promises.readFile(absolutePath, "utf8");
-  };
+  const [abcjsScripts, abcjsCss, mermaidScripts, youtubeScripts] =
+    await Promise.all([
+      readAsset("abcjsScripts.js"),
+      readAsset("abcjs-audio.css"),
+      readAsset("mermaidScripts.js"),
+      readAsset("youtubePlaceholderScripts.js"),
+    ]);
 
-  const abcjsScripts = await readFileAsString("abcjsScripts.js");
-  const abdjsCss = await readFileAsString("abcjs-audio.css");
-  const mermaidScripts = await readFileAsString("mermaidScripts.js");
-  const youtubePlaceholderScripts = await readFileAsString(
-    "youtubePlaceholderScripts.js"
+  // Copy KaTeX resources to storage
+  const katexCssUri = vscode.Uri.joinPath(
+    context.globalStorageUri,
+    "katex.min.css"
   );
+  const katexFontsUri = vscode.Uri.joinPath(context.globalStorageUri, "fonts");
 
-  // KaTeXについてはCSSとFontファイルをcontext.globalStorageUriにコピー
-  // dist\media\katex.min.css -> context.globalStorageUri\katex.min.css
-  // dist\media\fonts -> context.globalStorageUri\fonts
-
-  vscode.workspace.fs.copy(
+  await vscode.workspace.fs.copy(
     vscode.Uri.joinPath(context.extensionUri, "dist", "media", "katex.min.css"),
-    vscode.Uri.joinPath(context.globalStorageUri, "katex.min.css"),
+    katexCssUri,
     { overwrite: true }
   );
 
-  vscode.workspace.fs.copy(
+  await vscode.workspace.fs.copy(
     vscode.Uri.joinPath(context.extensionUri, "dist", "media", "fonts"),
-    vscode.Uri.joinPath(context.globalStorageUri, "fonts"),
+    katexFontsUri,
     { overwrite: true }
   );
 
@@ -175,26 +190,17 @@ const wrapHtmlForFile = async (
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Preview</title>
-
-  <link rel="stylesheet" href="file://${context.globalStorageUri.fsPath}/katex.min.css">
-
+  <link rel="stylesheet" href="file://${katexCssUri.fsPath}" />
   <style>
-    ${abdjsCss}
+    ${abcjsCss}
     ${globalCss}
     ${workspaceCss}
   </style>
-
-  <script>
-    ${abcjsScripts}
-  </script>
-  <script>
-    ${mermaidScripts}
-  </script>
-  <script>
-    ${youtubePlaceholderScripts}
-  </script>
+  <script>${abcjsScripts}</script>
+  <script>${mermaidScripts}</script>
+  <script>${youtubeScripts}</script>
 </head>
 <body>
   <div class="markdown-body">
@@ -203,82 +209,56 @@ const wrapHtmlForFile = async (
 </body>
 </html>
 `;
-};
+}
 
-const wrapHtmlForVscode = async (
+async function wrapHtmlForVscode(
   body: string,
   context: vscode.ExtensionContext,
   webview: vscode.Webview
-): Promise<string> => {
-  const globalCss = await readGlobalMarknoteCss(context);
-  const workspaceCss = await readWorkspaceMarknoteCss();
+): Promise<string> {
+  const [globalCss, workspaceCss] = await Promise.all([
+    readGlobalMarknoteCss(context),
+    readWorkspaceMarknoteCss(),
+  ]);
 
-  const abcjsScriptsUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      context.extensionUri,
-      "dist",
-      "media",
-      "abcjsScripts.js"
-    )
-  );
-  const abdjsCssUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      context.extensionUri,
-      "dist",
-      "media",
-      "abcjs-audio.css"
-    )
-  );
+  const resourceUri = (file: string) =>
+    webview.asWebviewUri(
+      vscode.Uri.joinPath(context.extensionUri, "dist", "media", file)
+    );
 
-  const katexCssUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(context.extensionUri, "dist", "media", "katex.min.css")
-  );
-
-  const mermaidScriptsUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      context.extensionUri,
-      "dist",
-      "media",
-      "mermaidScripts.js"
-    )
-  );
-
-  const youtubePlaceholderScriptsUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      context.extensionUri,
-      "dist",
-      "media",
-      "youtubePlaceholderScripts.js"
-    )
-  );
+  const assets = {
+    katexCss: resourceUri("katex.min.css"),
+    abcjsCss: resourceUri("abcjs-audio.css"),
+    abcjsJs: resourceUri("abcjsScripts.js"),
+    mermaidJs: resourceUri("mermaidScripts.js"),
+    youtubeJs: resourceUri("youtubePlaceholderScripts.js"),
+  };
 
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Preview</title>
 
-  <meta
-    http-equiv="Content-Security-Policy"
-    content="default-src 'none'; 
-            img-src ${webview.cspSource} https:;
-            script-src ${webview.cspSource};
-            font-src ${webview.cspSource};
-            frame-src https://www.youtube.com https://www.youtube-nocookie.com;
-            style-src ${webview.cspSource} 'unsafe-inline' https:;
-            connect-src https://paulrosen.github.io;"
-  />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 img-src ${webview.cspSource} https:;
+                 script-src ${webview.cspSource};
+                 font-src ${webview.cspSource};
+                 frame-src https://www.youtube.com https://www.youtube-nocookie.com;
+                 style-src ${webview.cspSource} 'unsafe-inline' https:;
+                 connect-src https://paulrosen.github.io;" />
 
-  <link rel="stylesheet" href="${katexCssUri}">
-  <link rel="stylesheet" href="${abdjsCssUri}">
+  <link rel="stylesheet" href="${assets.katexCss}" />
+  <link rel="stylesheet" href="${assets.abcjsCss}" />
   <style>
     ${globalCss}
     ${workspaceCss}
   </style>
-  <script src="${abcjsScriptsUri}"></script>
-  <script src="${mermaidScriptsUri}"></script>
-  <script src="${youtubePlaceholderScriptsUri}"></script>
+  <script src="${assets.abcjsJs}"></script>
+  <script src="${assets.mermaidJs}"></script>
+  <script src="${assets.youtubeJs}"></script>
 </head>
 <body>
   <div class="markdown-body">
@@ -287,6 +267,6 @@ const wrapHtmlForVscode = async (
 </body>
 </html>
 `;
-};
+}
 
 export default renderMarkdownToHtml;
