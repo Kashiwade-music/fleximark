@@ -29,7 +29,7 @@ export const renderMarkdownToHtml = async (
 ): Promise<{ html: string; hast: Root }> => {
   const processor = unified()
     .use(remarkParse)
-    .use(remarkYouTube)
+    .use(remarkYouTube, { mode: webview ? "lazy" : "iframe" })
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkDirective)

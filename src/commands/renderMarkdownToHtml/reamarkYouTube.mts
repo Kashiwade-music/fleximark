@@ -2,6 +2,7 @@ import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { Node, Parent } from "unist";
 import { Paragraph, Html } from "mdast";
+import { get } from "http";
 
 function extractYouTubeVideoId(url: string): string | null {
   try {
@@ -98,7 +99,10 @@ const remarkYouTube: Plugin<[RemarkYouTubeOptions?]> = (options = {}) => {
         if (!videoId) return;
 
         // exchange Paragraph to Html
-        const htmlContent = getLazyYouTubeEmbed(videoId);
+        const htmlContent =
+          mode === "lazy"
+            ? getLazyYouTubeEmbed(videoId)
+            : getIframeYouTubeEmbed(videoId);
         const htmlNode: Html = {
           type: "html",
           value: htmlContent,
