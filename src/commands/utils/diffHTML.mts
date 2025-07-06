@@ -21,7 +21,9 @@ export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
 
   editScripts = editScripts.map((edit) => {
     const node = afterHashedMap[edit.newHTMLHash];
-    const newHTML = node ? toHtml(node) : undefined;
+    const newHTML = node
+      ? toHtml(node, { allowDangerousHtml: true })
+      : undefined;
 
     return {
       ...edit,
