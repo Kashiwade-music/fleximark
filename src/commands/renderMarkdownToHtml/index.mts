@@ -87,6 +87,8 @@ const wrapHtmlForBrowser = async (
 
   const mermaidScriptsUri = "dist/media/mermaidScripts.js";
 
+  const webSocketScriptsUri = "dist/media/webSocketScripts.js";
+
   const youtubePlaceholderScriptsUri =
     "dist/media/youtubePlaceholderScripts.js";
 
@@ -108,35 +110,14 @@ const wrapHtmlForBrowser = async (
     ${globalCss}
     ${workspaceCss}
   </style>
+  <script>
+    window.webSocketUrl = "ws://localhost:${port}";
+  </script>
+
   <script src="${abcjsScriptsUri}"></script>
   <script src="${mermaidScriptsUri}"></script>
+  <script src="${webSocketScriptsUri}"></script>
   <script src="${youtubePlaceholderScriptsUri}"></script>
-
-  <script>
-    const socket = new WebSocket("ws://localhost:${port}");
-
-    socket.addEventListener("message", (event) => {
-      const data = JSON.parse(event.data);
-
-      if (data.type === "reload") {
-        location.reload();
-      } else if (data.type === "edit") {
-        console.log("Received edit command:", data);
-      }
-    });
-
-    socket.addEventListener("open", () => {
-      console.log("WebSocket connected");
-    });
-
-    socket.addEventListener("close", () => {
-      console.log("WebSocket disconnected");
-    });
-
-    socket.addEventListener("error", (err) => {
-      console.error("WebSocket error:", err);
-    });
-  </script>
 </head>
 <body>
   <div class="markdown-body">

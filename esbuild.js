@@ -54,6 +54,7 @@ async function main() {
 		entryPoints: [
 			'media/abcjsScripts.mts',
 			'media/mermaidScripts.mts',
+			'media/webSocketScripts.mts',
 			'media/youtubePlaceholderScripts.mts'
 		],
 		bundle: true,

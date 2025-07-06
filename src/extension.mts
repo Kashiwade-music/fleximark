@@ -94,15 +94,15 @@ export function activate(context: vscode.ExtensionContext) {
         appHtml = res.html;
         appHast = res.hast;
 
-        if (wss) {
+        if (wss && htmlEditScript.length > 0) {
           // Broadcast the new HTML to all connected WebSocket clients
           for (const client of clients) {
             if (client.readyState === WebSocket.OPEN) {
               console.log(
                 "Sending update to client:",
-                JSON.stringify({ type: "edit", ...htmlEditScript })
+                JSON.stringify({ type: "edit", htmlEditScript })
               );
-              client.send(JSON.stringify({ type: "edit", ...htmlEditScript }));
+              client.send(JSON.stringify({ type: "edit", htmlEditScript }));
             }
           }
         }

@@ -7,17 +7,17 @@ export interface HtmlEditScript {
   index: number;
   operation: "insert" | "delete" | "update";
   newHTMLHash: string;
-  newHTML?: string;
+  newHTML: string;
 }
 
 export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
-  const beforeHashedMap = createHashedObjectMap(beforeHast.children);
-  const afterHashedMap = createHashedObjectMap(afterHast.children);
-
-  let editScripts = levenshteinEditScript(
-    Object.keys(beforeHashedMap),
-    Object.keys(afterHashedMap)
+  const { hashArray: beforeHashedArray } = createHashedObjectMap(
+    beforeHast.children
   );
+  const { hashMap: afterHashedMap, hashArray: afterHashedArray } =
+    createHashedObjectMap(afterHast.children);
+
+  let editScripts = levenshteinEditScript(beforeHashedArray, afterHashedArray);
 
   editScripts = editScripts.map((edit) => {
     const node = afterHashedMap[edit.newHTMLHash];
@@ -25,7 +25,7 @@ export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
 
     return {
       ...edit,
-      newHTML,
+      newHTML: newHTML || "",
     };
   });
 
@@ -34,16 +34,28 @@ export function findDiff(beforeHast: Root, afterHast: Root): HtmlEditScript[] {
 
 type HashMap<T> = { [hash: string]: T };
 
-function createHashedObjectMap<T>(items: T[]): HashMap<T> {
-  const map: HashMap<T> = {};
+function createHashedObjectMap<T>(items: T[]) {
+  const hashMap: HashMap<T> = {};
+  const hashArray: string[] = [];
 
-  items.forEach((item, index) => {
+  items.forEach((item) => {
+    // item が { type: "text", value: "\n" } ならスキップ
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      (item as any).type === "text" &&
+      (item as any).value === "\n"
+    ) {
+      return;
+    }
+
     const dataToHash = `${JSON.stringify(item)}`;
     const hash = crypto.createHash("sha256").update(dataToHash).digest("hex");
-    map[hash] = item;
+    hashMap[hash] = item;
+    hashArray.push(hash);
   });
 
-  return map;
+  return { hashMap, hashArray };
 }
 
 function levenshteinEditScript(
@@ -101,6 +113,7 @@ function levenshteinEditScript(
         index: i - 1,
         operation: "update",
         newHTMLHash: target[j - 1],
+        newHTML: "",
       });
       i--;
       j--;
@@ -109,10 +122,16 @@ function levenshteinEditScript(
         index: i,
         operation: "insert",
         newHTMLHash: target[j - 1],
+        newHTML: "",
       });
       j--;
     } else if (operation === "delete") {
-      edits.unshift({ index: i - 1, operation: "delete", newHTMLHash: "" });
+      edits.unshift({
+        index: i - 1,
+        operation: "delete",
+        newHTMLHash: "",
+        newHTML: "",
+      });
       i--;
     }
   }

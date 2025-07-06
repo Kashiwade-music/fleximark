@@ -88,13 +88,11 @@ const timingCallbacksStateArray: TimingCallbackState[] = [];
 let isRenderedABC = false;
 
 window.addEventListener("load", () => {
-  console.log("ページが完全に読み込まれました");
   renderABC();
 });
 
 function renderABC(): void {
   if (isRenderedABC) return;
-  console.log("レンダリング中");
 
   const preElements = document.querySelectorAll(
     'pre[data-language="abc"]'
