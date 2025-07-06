@@ -205,7 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!app) {
           const result = await previewMarkdownOnBrowser(context);
           if (result) {
-            ({ app, html: appHtml } = result);
+            ({ app, html: appHtml, hast: appHast } = result);
             startBrowserPreviewServer(app);
           }
         } else {
