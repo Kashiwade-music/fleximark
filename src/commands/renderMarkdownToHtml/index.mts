@@ -29,6 +29,18 @@ type RenderResult = {
   hast: Root;
 };
 
+/**
+ * Renders Markdown input into HTML, producing both a HAST (Hypertext Abstract Syntax Tree)
+ * and final HTML output. Supports extended syntax like GitHub-flavored Markdown (GFM),
+ * math via KaTeX, custom directives (admonitions, tabs, details), YouTube embeds,
+ * and syntax highlighting.
+ *
+ * @param markdown - The raw Markdown string to be rendered.
+ * @param context - VS Code extension context for accessing resources and workspace.
+ * @param webview - Optional webview object used when rendering HTML for VS Code preview.
+ * @param forExportToFile - Flag indicating whether the rendering is intended for file export.
+ * @returns A Promise resolving to an object containing both rendered HTML and HAST.
+ */
 export const renderMarkdownToHtml = async (
   markdown: string,
   context: vscode.ExtensionContext,
@@ -71,6 +83,19 @@ export const renderMarkdownToHtml = async (
   return { html, hast };
 };
 
+/**
+ * Converts a given HAST tree into a final HTML string.
+ * Depending on context, wraps the HTML appropriately for:
+ * - VS Code webview
+ * - File export (with assets)
+ * - Browser preview
+ *
+ * @param hast - The HAST object to stringify and wrap.
+ * @param context - The extension context, used to access resources.
+ * @param webview - Optional webview instance, if rendering inside VS Code.
+ * @param forExportToFile - Optional flag for export-specific output.
+ * @returns A Promise resolving to the final HTML string.
+ */
 async function convertToHtml(
   hast: Root,
   context: vscode.ExtensionContext,
@@ -92,8 +117,18 @@ async function convertToHtml(
     : wrapHtmlForBrowser(htmlBody, context);
 }
 
-// -- Wrapping Functions -------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Wrapping Functions
+// -----------------------------------------------------------------------------
 
+/**
+ * Wraps HTML content with required scripts and styles for in-browser preview.
+ * Includes CSS from global and workspace config and embeds required scripts.
+ *
+ * @param body - The HTML body content to embed.
+ * @param context - Extension context to read configuration and resources.
+ * @returns A Promise resolving to the complete HTML document as a string.
+ */
 async function wrapHtmlForBrowser(
   body: string,
   context: vscode.ExtensionContext
@@ -146,6 +181,14 @@ async function wrapHtmlForBrowser(
 `;
 }
 
+/**
+ * Wraps HTML body content for file export. Includes inline CSS and JS,
+ * and copies necessary assets (KaTeX fonts, styles) to the global storage path.
+ *
+ * @param body - The HTML content to wrap.
+ * @param context - Extension context for accessing assets and writing files.
+ * @returns A Promise resolving to the complete file-ready HTML string.
+ */
 async function wrapHtmlForFile(
   body: string,
   context: vscode.ExtensionContext
@@ -211,6 +254,16 @@ async function wrapHtmlForFile(
 `;
 }
 
+/**
+ * Wraps HTML content for use inside a VS Code Webview.
+ * Applies CSP (Content Security Policy), sets up resource URIs,
+ * and injects required JS/CSS for enhanced Markdown features.
+ *
+ * @param body - The raw HTML content.
+ * @param context - Extension context to resolve asset paths.
+ * @param webview - VS Code Webview for URI resolution and CSP.
+ * @returns A complete HTML document string tailored for Webview usage.
+ */
 async function wrapHtmlForVscode(
   body: string,
   context: vscode.ExtensionContext,
