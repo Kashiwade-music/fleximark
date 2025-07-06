@@ -12,7 +12,7 @@ interface DataLine {
 interface EditMessage {
   type: "edit";
   dataLineArray: DataLine[];
-  htmlEditScript: HtmlEditScript[];
+  editScripts: HtmlEditScript[];
 }
 
 interface ReloadMessage {
@@ -46,7 +46,7 @@ socket.addEventListener("message", (event: MessageEvent) => {
 
     let indexOffset = 0;
 
-    data.htmlEditScript.forEach((edit: HtmlEditScript) => {
+    data.editScripts.forEach((edit: HtmlEditScript) => {
       const { index, operation, newHTML } = edit;
 
       const temp = document.createElement("div");
@@ -93,10 +93,10 @@ socket.addEventListener("message", (event: MessageEvent) => {
     });
 
     // if data.htmlEditScript contains ABC or Mermaid, re-render them
-    const isABC = data.htmlEditScript.some((edit) =>
+    const isABC = data.editScripts.some((edit) =>
       edit.newHTML.includes('data-language="abc"')
     );
-    const isMermaid = data.htmlEditScript.some((edit) =>
+    const isMermaid = data.editScripts.some((edit) =>
       edit.newHTML.includes('data-language="mermaid"')
     );
 

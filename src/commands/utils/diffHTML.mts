@@ -1,8 +1,8 @@
-import { Root, RootContent } from "hast";
 import crypto from "crypto";
 import { toHtml } from "hast-util-to-html";
+import type { Root, RootContent } from "hast";
 
-// html edit script for HTML diffing
+// Represents a change between two HTML trees
 export interface HtmlEditScript {
   index: number;
   operation: "insert" | "delete" | "update";
@@ -10,151 +10,187 @@ export interface HtmlEditScript {
   newHTML: string;
 }
 
+// Result of HTML diffing
 export interface FindDiffResult {
   editScripts: HtmlEditScript[];
-  propertiesArray: object[];
+  dataLineArray: Array<Record<string, string>>;
 }
 
-export function findDiff(beforeHast: Root, afterHast: Root) {
-  const { hashArray: beforeHashedArray } = createHashedObjectMap(
-    beforeHast.children
-  );
+/**
+ * Computes the diff between two HAST trees.
+ */
+export function findDiff(beforeTree: Root, afterTree: Root): FindDiffResult {
+  const { hashArray: beforeHashes } = hashHastContent(beforeTree.children);
   const {
-    hashMap: afterHashedMap,
-    hashArray: afterHashedArray,
-    dataLineArray: afterDataLineArray,
-  } = createHashedObjectMap(afterHast.children);
+    hashMap: afterHashMap,
+    hashArray: afterHashes,
+    dataLineArray: lineMetadata,
+  } = hashHastContent(afterTree.children);
 
-  let editScripts = levenshteinEditScript(beforeHashedArray, afterHashedArray);
+  let editScripts = computeEditScript(beforeHashes, afterHashes);
 
+  // Attach rendered HTML for inserts/updates
   editScripts = editScripts.map((edit) => {
-    const content = afterHashedMap[edit.newHTMLHash];
-    const newHTML = content
-      ? toHtml(content, { allowDangerousHtml: true })
-      : undefined;
+    const contentNode = afterHashMap[edit.newHTMLHash];
+    const html = contentNode
+      ? toHtml(contentNode, { allowDangerousHtml: true })
+      : "";
 
-    return {
-      ...edit,
-      newHTML: newHTML || "",
-    };
+    return { ...edit, newHTML: html };
   });
 
-  return { editScripts, dataLineArray: afterDataLineArray };
+  return { editScripts, dataLineArray: lineMetadata };
 }
 
-type HashMap = { [hash: string]: RootContent };
-type DataLineArray = { "data-line-number"?: string }[];
+type HashMap = Record<string, RootContent>;
+type LineMetadataArray = Array<Record<string, string>>;
 
-function createHashedObjectMap(items: RootContent[]) {
+/**
+ * Hashes each HAST node and collects relevant metadata.
+ */
+function hashHastContent(nodes: RootContent[]) {
   const hashMap: HashMap = {};
   const hashArray: string[] = [];
-  const dataLineArray: DataLineArray = [];
+  const dataLineArray: LineMetadataArray = [];
 
-  items.forEach((item) => {
-    // item が { type: "text", value: "\n" } ならスキップ
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      (item as any).type === "text" &&
-      (item as any).value === "\n"
-    ) {
-      return;
-    }
+  for (const node of nodes) {
+    if (isIgnorableTextNode(node)) continue;
 
-    // reset properties from the item
-    const properties = (item as any).properties || {};
-    const dataLineNumber = properties["data-line-number"];
-    if (dataLineNumber !== undefined) {
-      dataLineArray.push({ "data-line-number": dataLineNumber });
-      delete properties["data-line-number"];
-    } else {
-      dataLineArray.push({});
-    }
+    const properties = (node as any).properties ?? {};
+    const lineInfo = extractAndRemoveLineNumber(properties);
 
-    const dataToHash = `${JSON.stringify(item)}`;
-    const hash = crypto.createHash("sha256").update(dataToHash).digest("hex");
-    hashMap[hash] = item;
+    dataLineArray.push(lineInfo);
+
+    const serialized = JSON.stringify(node);
+    const hash = crypto.createHash("sha256").update(serialized).digest("hex");
+
+    hashMap[hash] = node;
     hashArray.push(hash);
-  });
+  }
 
   return { hashMap, hashArray, dataLineArray };
 }
 
-function levenshteinEditScript(
+/**
+ * Returns true if the node is a pure newline text node (to be ignored).
+ */
+function isIgnorableTextNode(node: RootContent): boolean {
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    (node as any).type === "text" &&
+    (node as any).value === "\n"
+  );
+}
+
+/**
+ * Extracts and removes `data-line-number` from properties object.
+ */
+function extractAndRemoveLineNumber(
+  properties: Record<string, unknown>
+): Record<string, string> {
+  const lineNumber = properties["data-line-number"];
+  if (typeof lineNumber === "string") {
+    delete properties["data-line-number"];
+    return { "data-line-number": lineNumber };
+  }
+  return {};
+}
+
+/**
+ * Computes Levenshtein-based edit script between two sequences of hash strings.
+ */
+function computeEditScript(
   source: string[],
   target: string[]
 ): HtmlEditScript[] {
   const m = source.length;
   const n = target.length;
 
-  // DPテーブルの初期化
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     Array(n + 1).fill(0)
   );
-  const op: ("none" | "insert" | "delete" | "update")[][] = Array.from(
+  const ops: ("none" | "insert" | "delete" | "update")[][] = Array.from(
     { length: m + 1 },
     () => Array(n + 1).fill("none")
   );
 
-  for (let i = 0; i <= m; i++) (dp[i][0] = i), (op[i][0] = "delete");
-  for (let j = 0; j <= n; j++) (dp[0][j] = j), (op[0][j] = "insert");
-  op[0][0] = "none";
+  // Initialize DP tables
+  for (let i = 0; i <= m; i++) {
+    dp[i][0] = i;
+    ops[i][0] = "delete";
+  }
+  for (let j = 0; j <= n; j++) {
+    dp[0][j] = j;
+    ops[0][j] = "insert";
+  }
+  ops[0][0] = "none";
 
-  // DPテーブルの構築
+  // Compute edit distances
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       if (source[i - 1] === target[j - 1]) {
         dp[i][j] = dp[i - 1][j - 1];
-        op[i][j] = "none";
+        ops[i][j] = "none";
       } else {
-        const del = dp[i - 1][j] + 1;
-        const ins = dp[i][j - 1] + 1;
-        const sub = dp[i - 1][j - 1] + 1;
+        const deleteCost = dp[i - 1][j] + 1;
+        const insertCost = dp[i][j - 1] + 1;
+        const updateCost = dp[i - 1][j - 1] + 1;
 
-        dp[i][j] = Math.min(del, ins, sub);
+        dp[i][j] = Math.min(deleteCost, insertCost, updateCost);
 
-        if (dp[i][j] === sub) op[i][j] = "update";
-        else if (dp[i][j] === ins) op[i][j] = "insert";
-        else op[i][j] = "delete";
+        if (dp[i][j] === updateCost) {
+          ops[i][j] = "update";
+        } else if (dp[i][j] === insertCost) {
+          ops[i][j] = "insert";
+        } else {
+          ops[i][j] = "delete";
+        }
       }
     }
   }
 
-  // 編集コマンドのバックトラック
+  // Backtrack to generate edit script
   const edits: HtmlEditScript[] = [];
-  let i = m,
-    j = n;
+  let i = m;
+  let j = n;
 
   while (i > 0 || j > 0) {
-    const operation = op[i][j];
-    if (operation === "none") {
-      i--;
-      j--;
-    } else if (operation === "update") {
-      edits.unshift({
-        index: i - 1,
-        operation: "update",
-        newHTMLHash: target[j - 1],
-        newHTML: "",
-      });
-      i--;
-      j--;
-    } else if (operation === "insert") {
-      edits.unshift({
-        index: i,
-        operation: "insert",
-        newHTMLHash: target[j - 1],
-        newHTML: "",
-      });
-      j--;
-    } else if (operation === "delete") {
-      edits.unshift({
-        index: i - 1,
-        operation: "delete",
-        newHTMLHash: "",
-        newHTML: "",
-      });
-      i--;
+    const operation = ops[i][j];
+
+    switch (operation) {
+      case "none":
+        i--;
+        j--;
+        break;
+      case "update":
+        edits.unshift({
+          index: i - 1,
+          operation: "update",
+          newHTMLHash: target[j - 1],
+          newHTML: "",
+        });
+        i--;
+        j--;
+        break;
+      case "insert":
+        edits.unshift({
+          index: i,
+          operation: "insert",
+          newHTMLHash: target[j - 1],
+          newHTML: "",
+        });
+        j--;
+        break;
+      case "delete":
+        edits.unshift({
+          index: i - 1,
+          operation: "delete",
+          newHTMLHash: "",
+          newHTML: "",
+        });
+        i--;
+        break;
     }
   }
 
