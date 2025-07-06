@@ -170,6 +170,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (mode === "vscode") {
         if (!panel) {
           panel = await previewMarkdown(context);
+          panel?.webview.onDidReceiveMessage((message) => {
+            console.log("Received message from webview:", message);
+
+            if (message.type === "preview-scroll") {
+              const pos = new vscode.Position(message.line, 0);
+              vscode.window.activeTextEditor?.revealRange(
+                new vscode.Range(pos, pos),
+                vscode.TextEditorRevealType.AtTop
+              );
+            }
+          });
           panel?.onDidDispose(() => (panel = undefined));
         }
       } else if (mode === "browser") {
@@ -196,6 +207,15 @@ export function activate(context: vscode.ExtensionContext) {
       async () => {
         if (!panel) {
           panel = await previewMarkdown(context);
+          panel?.webview.onDidReceiveMessage((message) => {
+            if (message.type === "preview-scroll") {
+              const pos = new vscode.Position(message.line, 0);
+              vscode.window.activeTextEditor?.revealRange(
+                new vscode.Range(pos, pos),
+                vscode.TextEditorRevealType.AtTop
+              );
+            }
+          });
           panel?.onDidDispose(() => {
             panel = undefined;
           });
@@ -261,7 +281,14 @@ export function activate(context: vscode.ExtensionContext) {
       updateBrowserPreview(event.document);
     }),
     vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
-      console.log(JSON.stringify(event, null, 2));
+      const firstVisibleLine = event.visibleRanges[0]?.start.line ?? 1;
+
+      console.log("First visible line:", firstVisibleLine);
+
+      panel?.webview.postMessage({
+        type: "editor-scroll",
+        line: firstVisibleLine,
+      });
     })
   );
 }

@@ -287,6 +287,7 @@ async function wrapHtmlForVscode(
     abcjsCss: resourceUri("abcjs-audio.css"),
     abcjsJs: resourceUri("abcjsScripts.js"),
     mermaidJs: resourceUri("mermaidScripts.js"),
+    vscodeScrollJs: resourceUri("vscodeWebviewScrollScripts.js"),
     youtubeJs: resourceUri("youtubePlaceholderScripts.js"),
   };
 
@@ -314,6 +315,7 @@ async function wrapHtmlForVscode(
   </style>
   <script src="${assets.abcjsJs}"></script>
   <script src="${assets.mermaidJs}"></script>
+  <script src="${assets.vscodeScrollJs}"></script>
   <script src="${assets.youtubeJs}"></script>
 </head>
 <body>
