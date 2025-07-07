@@ -11,8 +11,37 @@ import WebSocket, { WebSocketServer } from "ws";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
 import { Root } from "hast";
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+// ==========================
+//
+// Global State
+//
+// ==========================
+
+interface ScrollState {
+  enabled: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const timerMS = 600;
+
+const globalState = {
+  webviewPanel: undefined as vscode.WebviewPanel | undefined,
+  editorPanel: undefined as vscode.TextEditor | undefined,
+  editorScrollFromWebview: {
+    enabled: true,
+    timer: null as ReturnType<typeof setTimeout> | null,
+  } as ScrollState,
+  editorScrollFromBrowser: {
+    enabled: true,
+    timer: null as ReturnType<typeof setTimeout> | null,
+  } as ScrollState,
+  app: undefined as Express | undefined,
+  appHtml: undefined as string | undefined,
+  appHast: undefined as Root | undefined,
+  wss: undefined as WebSocketServer | undefined,
+  clients: new Set<WebSocket>(),
+};
+
 export function activate(context: vscode.ExtensionContext) {
   console.log("Marknote extension activated.");
 
@@ -28,22 +57,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   // if in Dev, comment out the next line
   saveMarknoteCssToGlobalStorage(context);
-
-  // ==========================
-  //
-  // Global State
-  //
-  // ==========================
-
-  const globalState = {
-    webviewPanel: undefined as vscode.WebviewPanel | undefined,
-    editorPanel: undefined as vscode.TextEditor | undefined,
-    app: undefined as Express | undefined,
-    appHtml: undefined as string | undefined,
-    appHast: undefined as Root | undefined,
-    wss: undefined as WebSocketServer | undefined,
-    clients: new Set<WebSocket>(),
-  };
 
   // ==========================
   //
@@ -127,6 +140,29 @@ export function activate(context: vscode.ExtensionContext) {
     globalState.wss.on("connection", (ws) => {
       globalState.clients.add(ws);
       ws.on("close", () => globalState.clients.delete(ws));
+      ws.on("message", (msg) => {
+        if (typeof msg !== "string") return;
+        const parsedMsg = JSON.parse(msg);
+
+        if (parsedMsg.type === "preview-scroll") {
+          if (!globalState.editorScrollFromBrowser.enabled) return;
+
+          if (globalState.editorScrollFromWebview.timer) {
+            clearTimeout(globalState.editorScrollFromWebview.timer);
+          }
+
+          globalState.editorScrollFromWebview.enabled = false;
+          globalState.editorScrollFromWebview.timer = setTimeout(() => {
+            globalState.editorScrollFromWebview.enabled = true;
+          }, timerMS);
+
+          const position = new vscode.Position(parsedMsg.line, 0);
+          globalState.editorPanel?.revealRange(
+            new vscode.Range(position, position),
+            vscode.TextEditorRevealType.AtTop
+          );
+        }
+      });
     });
   };
 
@@ -192,8 +228,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     globalState.webviewPanel.webview.onDidReceiveMessage((msg) => {
       if (msg.type === "preview-scroll") {
+        if (!globalState.editorScrollFromWebview.enabled) return;
+
+        if (globalState.editorScrollFromBrowser.timer) {
+          clearTimeout(globalState.editorScrollFromBrowser.timer);
+        }
+
+        globalState.editorScrollFromBrowser.enabled = false;
+        globalState.editorScrollFromBrowser.timer = setTimeout(() => {
+          globalState.editorScrollFromWebview.enabled = true;
+        }, timerMS);
+
         const position = new vscode.Position(msg.line, 0);
-        vscode.window.activeTextEditor?.revealRange(
+        globalState.editorPanel?.revealRange(
           new vscode.Range(position, position),
           vscode.TextEditorRevealType.AtTop
         );
@@ -245,6 +292,24 @@ export function activate(context: vscode.ExtensionContext) {
       }),
 
       vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
+        if (globalState.editorPanel !== event.textEditor) return;
+
+        if (globalState.editorScrollFromWebview.timer) {
+          clearTimeout(globalState.editorScrollFromWebview.timer);
+        }
+        if (globalState.editorScrollFromBrowser.timer) {
+          clearTimeout(globalState.editorScrollFromBrowser.timer);
+        }
+
+        globalState.editorScrollFromWebview.enabled = false;
+        globalState.editorScrollFromBrowser.enabled = false;
+        globalState.editorScrollFromWebview.timer = setTimeout(() => {
+          globalState.editorScrollFromWebview.enabled = true;
+        }, timerMS);
+        globalState.editorScrollFromBrowser.timer = setTimeout(() => {
+          globalState.editorScrollFromBrowser.enabled = true;
+        }, timerMS);
+
         const firstLine = event.visibleRanges[0]?.start.line ?? 1;
         globalState.webviewPanel?.webview.postMessage({
           type: "editor-scroll",
