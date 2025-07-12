@@ -1,0 +1,54 @@
+{
+  // ノートはカテゴリによって整理されます。
+  // 必要に応じて、いくつでもカテゴリを追加できます。
+  // カテゴリはツリー構造で整理されます。
+  // ノートはこのカテゴリ構造に基づいた場所に保存されます。
+  "fleximark.noteCategories": {
+    "General": {
+      "Daily Notes": {},
+      "Progress Report": {}
+    },
+    "Tips": {
+      "Programming": {
+        "Python": {},
+        "JavaScript": {}
+      },
+      "Life": {}
+    }
+  },
+
+  // ノートのファイル名に付ける接頭辞や接尾辞をカスタマイズできます。
+  // ${CURRENT_YEAR}、${CURRENT_MONTH}、${CURRENT_DATE} のような変数を使って、
+  // 現在の日付を動的にファイル名に含めることができます。
+  "fleximark.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
+  "fleximark.noteFileNameSuffix": "",
+
+  // テンプレートはノートの内容を生成するために使います。
+  // 必要に応じて、いくつでもテンプレートを追加できます。
+  // テンプレート内ではタブストップを使用して、カーソルを順番に移動できます。
+  // 詳しくは https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax を参照してください。
+  "fleximark.noteTemplates": {
+    "default": [
+      "# ${1:first tabstop}",
+      "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+      "",
+      "## ${2:second tabstop}"
+    ],
+    "Template 2": ["# Title", "## Subtitle", "### Subsubtitle"]
+  },
+
+  // VSCodeの標準機能で、画像をMarkdownノートに貼り付けられます。
+  // 以下の設定を使えば、たとえばノートが `./path/to/your/note.md` にある場合、
+  // 画像は `./attachments/path/to/your/note/` に保存されます。
+  // 設定項目の詳細は下記のページを参照してください。
+  // https://code.visualstudio.com/updates/v1_79#_copy-external-media-files-into-workspace-on-drop-or-paste-for-markdown
+  "markdown.copyFiles.destination": {
+    "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
+  },
+
+  // Markdownのデフォルトプレビュー方式を指定します。
+  // "browser" を指定することで、Markdownを開いたときの目のアイコンをクリックすると、
+  // ブラウザでプレビューが開くようになります。
+  // セキュリティ上の理由から、グローバルの設定を "browser" に変更するのはおすすめしません。
+  "fleximark.defaultPreviewMode": "browser"
+}

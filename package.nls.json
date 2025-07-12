@@ -1,0 +1,18 @@
+{
+  "command.previewMarkdown": "Preview Markdown (Default)",
+  "command.previewMarkdownOnVscode": "Preview in VSCode",
+  "command.previewMarkdownOnBrowser": "Preview in Browser",
+  "command.exportHtml": "Export as HTML",
+  "command.createWorkspaceFleximarkCss": "Generate Workspace CSS",
+  "command.resetGlobalFleximarkCss": "Reset Global CSS",
+  "command.createNote": "Create New Note",
+  "command.initializeWorkspace": "Initialize Workspace as Note Taking Directory",
+
+  "configuration.title": "FlexiMark",
+  "configuration.defaultPreviewMode.description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'.",
+  "configuration.browserPreviewPort.description": "Port number for the browser preview server.",
+  "configuration.noteCategories.description": "A category tree for selecting when creating a new note.",
+  "configuration.noteFileNamePrefix.description": "Template string to prefix a notebook name",
+  "configuration.noteFileNameSuffix.description": "Template string to suffix a notebook name",
+  "configuration.noteTemplates.description": "Template used when creating a new note"
+}

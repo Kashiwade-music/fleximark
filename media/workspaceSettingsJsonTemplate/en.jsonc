@@ -1,0 +1,54 @@
+{
+  // Notes are organized by category.
+  // You can add as many categories as needed.
+  // Categories are structured as a tree.
+  // Notes are saved according to this category structure.
+  "fleximark.noteCategories": {
+    "General": {
+      "Daily Notes": {},
+      "Progress Report": {}
+    },
+    "Tips": {
+      "Programming": {
+        "Python": {},
+        "JavaScript": {}
+      },
+      "Life": {}
+    }
+  },
+
+  // You can customize the prefix and suffix of note filenames.
+  // Use variables like ${CURRENT_YEAR}, ${CURRENT_MONTH}, and ${CURRENT_DATE}
+  // to dynamically include the current date in the filename.
+  "fleximark.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
+  "fleximark.noteFileNameSuffix": "",
+
+  // Templates are used to generate note content.
+  // You can create as many templates as needed.
+  // Tabstops can be used in templates to navigate between placeholders.
+  // See https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax for details.
+  "fleximark.noteTemplates": {
+    "default": [
+      "# ${1:first tabstop}",
+      "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+      "",
+      "## ${2:second tabstop}"
+    ],
+    "Template 2": ["# Title", "## Subtitle", "### Subsubtitle"]
+  },
+
+  // You can paste images into Markdown notes using built-in VSCode features.
+  // With the following setting, if a note is at `./path/to/your/note.md`,
+  // images will be saved to `./attachments/path/to/your/note/`.
+  // See the following page for more details:
+  // https://code.visualstudio.com/updates/v1_79#_copy-external-media-files-into-workspace-on-drop-or-paste-for-markdown
+  "markdown.copyFiles.destination": {
+    "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
+  },
+
+  // Specifies the default preview method for Markdown.
+  // If set to "browser", clicking the eye icon when viewing Markdown
+  // will open the preview in your browser.
+  // For security reasons, setting the global default to "browser" is not recommended.
+  "fleximark.defaultPreviewMode": "browser"
+}

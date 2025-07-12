@@ -54,6 +54,8 @@ async function main() {
 		entryPoints: [
 			'media/abcjsScripts.mts',
 			'media/mermaidScripts.mts',
+			'media/vscodeWebviewScrollScripts.mts',
+			'media/webSocketScripts.mts',
 			'media/youtubePlaceholderScripts.mts'
 		],
 		bundle: true,
@@ -66,27 +68,45 @@ async function main() {
 	});
 
 	const copyAssets = async () => {
-		// dist/media を事前に作成しておく（無くてもOKなように recursive: true）
-		const mediaDir = path.join(__dirname, 'dist', 'media');
-		await fs.mkdir(mediaDir, { recursive: true });
+		try {
+			const mediaDir = path.join(__dirname, 'dist', 'media');
+			await fs.mkdir(mediaDir, { recursive: true });
 
-		// node_modules/abcjs/abcjs-audio.css
-		const abcjsAudioCssPath = path.join(__dirname, 'node_modules', 'abcjs', 'abcjs-audio.css');
-		const abcjsAudioDestPath = path.join(mediaDir, 'abcjs-audio.css');
-		await fs.copyFile(abcjsAudioCssPath, abcjsAudioDestPath);
+			const assets = [
+				{
+					src: path.join(__dirname, 'media', 'workspaceSettingsJsonTemplate'),
+					dest: path.join(mediaDir, 'workspaceSettingsJsonTemplate'),
+				},
+				{
+					src: path.join(__dirname, 'node_modules', 'abcjs', 'abcjs-audio.css'),
+					dest: path.join(mediaDir, 'abcjs-audio.css'),
+				},
+				{
+					src: path.join(__dirname, 'node_modules', 'katex', 'dist', 'katex.min.css'),
+					dest: path.join(mediaDir, 'katex.min.css'),
+				},
+				{
+					src: path.join(__dirname, 'node_modules', 'katex', 'dist', 'fonts'),
+					dest: path.join(mediaDir, 'fonts'),
+				},
+			];
 
-		// node_modules/katex/dist/katex.min.css
-		const katexCssPath = path.join(__dirname, 'node_modules', 'katex', 'dist', 'katex.min.css');
-		const katexDestPath = path.join(mediaDir, 'katex.min.css');
-		await fs.copyFile(katexCssPath, katexDestPath);
+			for (const { src, dest } of assets) {
+				const stat = await fs.stat(src);
+				if (stat.isDirectory()) {
+					await fs.mkdir(dest, { recursive: true });
+					await fs.cp(src, dest, { recursive: true });
+				} else if (stat.isFile()) {
+					await fs.copyFile(src, dest);
+				} else {
+					console.warn(`Skipping unknown type: ${src}`);
+				}
+			}
 
-		// node_modules/katex/dist/fonts
-		const katexFontsSrcPath = path.join(__dirname, 'node_modules', 'katex', 'dist', 'fonts');
-		const katexFontsDestPath = path.join(mediaDir, 'fonts');
-		await fs.mkdir(katexFontsDestPath, { recursive: true });
-		await fs.cp(katexFontsSrcPath, katexFontsDestPath, { recursive: true });
-
-		console.log('✔ Copied assets to dist/media');
+			console.log('Assets successfully copied to dist/media');
+		} catch (error) {
+			console.error('Failed to copy assets:', error);
+		}
 	};
 
 	if (watch) {
