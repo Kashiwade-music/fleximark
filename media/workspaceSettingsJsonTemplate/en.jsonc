@@ -1,0 +1,48 @@
+{
+  // Notes are organized by category.
+  // You can add as many categories as needed.
+  // Categories are structured hierarchically.
+  // Notes are saved within this category structure.
+  "marknote.noteCategories": {
+    "General": {
+      "Daily Notes": {},
+      "Progress Report": {}
+    },
+    "Tips": {
+      "Programming": {
+        "Python": {},
+        "JavaScript": {}
+      },
+      "Life": {}
+    }
+  },
+
+  // You can customize prefixes and suffixes for note filenames.
+  // Variables like ${CURRENT_YEAR}, ${CURRENT_MONTH}, and ${CURRENT_DATE}
+  // allow dynamic insertion of the current date into filenames.
+  "marknote.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
+  "marknote.noteFileNameSuffix": "",
+
+  // Templates are used to generate note content.
+  // Add as many templates as you like.
+  // Use tabstops to navigate through placeholders.
+  // For details, see: https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax
+  "marknote.noteTemplates": {
+    "default": [
+      "# ${1:first tabstop}",
+      "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+      "",
+      "## ${2:second tabstop}"
+    ],
+    "Template 2": ["# Title", "## Subtitle", "### Subsubtitle"]
+  },
+
+  // VSCode's built-in feature allows pasting images into Markdown notes.
+  // With the settings below, for example, if a note is at `./path/to/your/note.md`,
+  // images will be saved to `./attachments/path/to/your/note/`.
+  // For details, see:
+  // https://code.visualstudio.com/updates/v1_79#_copy-external-media-files-into-workspace-on-drop-or-paste-for-markdown
+  "markdown.copyFiles.destination": {
+    "**/*.md": "attachments/${documentRelativeDirname}/${documentBaseName}/"
+  }
+}

@@ -3,12 +3,20 @@ import * as path from "path";
 import * as fs from "fs";
 
 const getSettingsJsonString = async (context: vscode.ExtensionContext) => {
-  return await fs.promises.readFile(
-    context.asAbsolutePath(
-      path.join("dist", "media", "workspaceSettingsJsonTemplate.jsonc")
-    ),
-    "utf8"
+  const uiLanguage = vscode.env.language;
+  const basePath = context.asAbsolutePath(
+    path.join("dist", "media", "workspaceSettingsJsonTemplate")
   );
+
+  const targetPath = path.join(basePath, `${uiLanguage}.jsonc`);
+  const fallbackPath = path.join(basePath, `en.jsonc`);
+
+  try {
+    await fs.promises.access(targetPath, fs.constants.F_OK);
+    return await fs.promises.readFile(targetPath, "utf8");
+  } catch {
+    return await fs.promises.readFile(fallbackPath, "utf8");
+  }
 };
 
 const initializeWorkspace = async (context: vscode.ExtensionContext) => {

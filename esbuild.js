@@ -70,13 +70,12 @@ async function main() {
 	const copyAssets = async () => {
 		try {
 			const mediaDir = path.join(__dirname, 'dist', 'media');
-			await fs.mkdir(mediaDir, { recursive: true }); // Ensure the output directory exists
+			await fs.mkdir(mediaDir, { recursive: true });
 
-			// Define asset source and destination paths
 			const assets = [
 				{
-					src: path.join(__dirname, 'media', 'workspaceSettingsJsonTemplate.jsonc'),
-					dest: path.join(mediaDir, 'workspaceSettingsJsonTemplate.jsonc'),
+					src: path.join(__dirname, 'media', 'workspaceSettingsJsonTemplate'),
+					dest: path.join(mediaDir, 'workspaceSettingsJsonTemplate'),
 				},
 				{
 					src: path.join(__dirname, 'node_modules', 'abcjs', 'abcjs-audio.css'),
@@ -86,18 +85,23 @@ async function main() {
 					src: path.join(__dirname, 'node_modules', 'katex', 'dist', 'katex.min.css'),
 					dest: path.join(mediaDir, 'katex.min.css'),
 				},
+				{
+					src: path.join(__dirname, 'node_modules', 'katex', 'dist', 'fonts'),
+					dest: path.join(mediaDir, 'fonts'),
+				},
 			];
 
-			// Copy individual files
 			for (const { src, dest } of assets) {
-				await fs.copyFile(src, dest);
+				const stat = await fs.stat(src);
+				if (stat.isDirectory()) {
+					await fs.mkdir(dest, { recursive: true });
+					await fs.cp(src, dest, { recursive: true });
+				} else if (stat.isFile()) {
+					await fs.copyFile(src, dest);
+				} else {
+					console.warn(`Skipping unknown type: ${src}`);
+				}
 			}
-
-			// Copy KaTeX font directory
-			const katexFontsSrc = path.join(__dirname, 'node_modules', 'katex', 'dist', 'fonts');
-			const katexFontsDest = path.join(mediaDir, 'fonts');
-			await fs.mkdir(katexFontsDest, { recursive: true });
-			await fs.cp(katexFontsSrc, katexFontsDest, { recursive: true });
 
 			console.log('Assets successfully copied to dist/media');
 		} catch (error) {
