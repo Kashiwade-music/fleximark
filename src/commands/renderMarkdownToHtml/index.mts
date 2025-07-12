@@ -26,25 +26,36 @@ import {
   readWorkspaceMarknoteCss,
 } from "../css/index.mjs";
 
-export type RenderResult = {
+type RenderResult = {
   html: string;
   hast: Root;
 };
 
 /**
- * Renders Markdown to HTML and HAST, supporting:
- * - GFM
- * - KaTeX for math
- * - Custom directives (admonitions, tabs, details)
- * - YouTube embeds
- * - Line numbers and syntax highlighting
+ * Renders raw Markdown into an HTML string and a HAST tree using a pipeline of unified processors.
+ *
+ * After processing, the HAST is serialized to an HTML string using one of three target wrappers:
+ * - Webview context (`wrapHtmlForVscode`)
+ * - File export (`wrapHtmlForFile`)
+ * - Browser preview (`wrapHtmlForBrowser`)
+ *
+ * A debug JSON file is also written to disk to inspect the generated HAST.
+ *
+ * @async
+ * @function
+ * @param {string} markdown - The raw Markdown input string to render.
+ * @param {vscode.ExtensionContext} context - The VS Code extension context, used for resolving extension assets.
+ * @param {vscode.Webview} [webview] - Optional webview object. If provided, rendering will be scoped for secure VS Code webviews.
+ * @param {boolean} [forExportToFile=false] - If `true`, formats the output HTML for saving to file, including local asset copying.
+ * @param {boolean} [isNeedDataLineNumber=true] - If `true`, line number attributes (`data-line`) will be added to the output.
+ * @returns {Promise<RenderResult>} A promise resolving to an object containing the final HTML and its corresponding HAST.
  */
 export async function renderMarkdownToHtml(
   markdown: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
-  forExportToFile = false,
-  isNeedDataLineNumber = true
+  forExportToFile: boolean = false,
+  isNeedDataLineNumber: boolean = true
 ): Promise<RenderResult> {
   const processor = unified()
     .use(remarkParse)
@@ -67,23 +78,30 @@ export async function renderMarkdownToHtml(
   const hast = (await processor.run(processor.parse(markdown))) as Root;
 
   // Write debug file for inspection
-  const debugFileUri = vscode.Uri.joinPath(
-    context.extensionUri,
-    "dist",
-    "debug",
-    "debug-hast.json"
-  );
-  await vscode.workspace.fs.writeFile(
-    debugFileUri,
-    new TextEncoder().encode(JSON.stringify(hast, null, 2))
-  );
+  // const debugFileUri = vscode.Uri.joinPath(
+  //   context.extensionUri,
+  //   "dist",
+  //   "debug",
+  //   "debug-hast.json"
+  // );
+  // await vscode.workspace.fs.writeFile(
+  //   debugFileUri,
+  //   new TextEncoder().encode(JSON.stringify(hast, null, 2))
+  // );
 
   const html = await convertToHtml(hast, context, webview, forExportToFile);
   return { html, hast };
 }
 
 /**
- * Converts HAST tree to final HTML document.
+ * Converts the provided HAST tree into an HTML document string, optionally wrapped for different platforms (webview, browser, or file).
+ *
+ * @async
+ * @param {Root} hast - The HAST tree generated from the Markdown source.
+ * @param {vscode.ExtensionContext} context - The VS Code extension context.
+ * @param {vscode.Webview} [webview] - Optional webview object to wrap output for secure use in VS Code.
+ * @param {boolean} [forExportToFile] - If true, formats the HTML for writing to a standalone file with embedded styles and scripts.
+ * @returns {Promise<string>} A promise resolving to the fully rendered HTML string.
  */
 async function convertToHtml(
   hast: Root,
@@ -106,6 +124,14 @@ async function convertToHtml(
 // HTML Wrapping Utilities
 // -----------------------------------------------------------------------------
 
+/**
+ * Wraps the HTML body in a full document with scripts and styles tailored for direct browser preview.
+ *
+ * @async
+ * @param {string} body - The main HTML body content.
+ * @param {vscode.ExtensionContext} context - The extension context used to read configuration and resources.
+ * @returns {Promise<string>} A complete HTML document string for browser usage.
+ */
 async function wrapHtmlForBrowser(
   body: string,
   context: vscode.ExtensionContext
@@ -150,6 +176,15 @@ async function wrapHtmlForBrowser(
 </html>`;
 }
 
+/**
+ * Wraps the HTML body in a complete HTML document optimized for exporting to file.
+ * This includes inlining styles, embedding scripts, and copying required KaTeX fonts.
+ *
+ * @async
+ * @param {string} body - The HTML body content to wrap.
+ * @param {vscode.ExtensionContext} context - The extension context used for locating assets.
+ * @returns {Promise<string>} A fully-wrapped HTML document ready for file export.
+ */
 async function wrapHtmlForFile(
   body: string,
   context: vscode.ExtensionContext
@@ -207,6 +242,16 @@ async function wrapHtmlForFile(
 </html>`;
 }
 
+/**
+ * Wraps the HTML body in a secure document for VS Code's Webview API.
+ * Applies strict CSP (Content Security Policy) headers and rewrites asset URIs with `asWebviewUri`.
+ *
+ * @async
+ * @param {string} body - The HTML body content to include.
+ * @param {vscode.ExtensionContext} context - VS Code extension context used for resolving resource URIs.
+ * @param {vscode.Webview} webview - The active Webview instance used for URI resolution and CSP source generation.
+ * @returns {Promise<string>} The fully formed HTML document string for the webview.
+ */
 async function wrapHtmlForVscode(
   body: string,
   context: vscode.ExtensionContext,
