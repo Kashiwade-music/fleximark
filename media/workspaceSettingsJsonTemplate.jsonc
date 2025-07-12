@@ -3,7 +3,7 @@
   // You can add as many categories as you want.
   // The categories are organized in a tree structure.
   // The categories are used to generate the path of the note.
-  "marknote.categories": {
+  "marknote.noteCategories": {
     "General": {
       "Daily Notes": {},
       "Progress Report": {}
@@ -27,7 +27,7 @@
   // You can add as many templates as you want.
   // You can use tabstops to navigate through the template.
   // See https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax
-  "marknote.templates": {
+  "marknote.noteTemplates": {
     "default": [
       "# ${1:first tabstop}",
       "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
