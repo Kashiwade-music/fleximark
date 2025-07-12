@@ -89,12 +89,12 @@
         },
         "marknote.noteFileNamePrefix": {
           "type": "string",
-          "description": "%configuration.notePrefix.description%",
+          "description": "%configuration.noteFileNamePrefix.description%",
           "default": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
         },
         "marknote.noteFileNameSuffix": {
           "type": "string",
-          "description": "%configuration.notePrefix.description%",
+          "description": "%configuration.noteFileNameSuffix.description%",
           "default": ""
         },
         "marknote.noteTemplates": {

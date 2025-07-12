@@ -12,7 +12,7 @@ import { Express, Request, Response } from "express";
 import WebSocket, { WebSocketServer } from "ws";
 import { Root } from "hast";
 import createNote from "./commands/createNote.mjs";
-import initializeWorkspace from "./commands/initializeWorkSpace.mjs";
+import initializeWorkspace from "./commands/initializeWorkspace.mjs";
 
 // Constants
 const SCROLL_THROTTLE_MS = 300;
