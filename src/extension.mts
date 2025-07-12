@@ -8,7 +8,7 @@ import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
 
-import express, { Express, Request, Response } from "express";
+import { Express, Request, Response } from "express";
 import WebSocket, { WebSocketServer } from "ws";
 import { Root } from "hast";
 
