@@ -143,14 +143,14 @@ async function openBrowserPreview(context: vscode.ExtensionContext) {
     state.appHast = result.hast;
 
     startBrowserPreviewServer(context);
+  } else {
+    const port =
+      vscode.workspace
+        .getConfiguration("marknote")
+        .get<number>("browserPreviewPort") ?? DEFAULT_PORT;
+
+    vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
   }
-
-  const port =
-    vscode.workspace
-      .getConfiguration("marknote")
-      .get<number>("browserPreviewPort") ?? DEFAULT_PORT;
-
-  vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
 }
 
 function startBrowserPreviewServer(context: vscode.ExtensionContext) {

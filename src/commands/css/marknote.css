@@ -28,6 +28,25 @@ body {
 
 /*
 =========================
+Uodate Animation 
+=========================
+*/
+
+@keyframes fadeHighlight {
+  0% {
+    background-color: rgba(160, 64, 160, 0.5);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.markdown-body .fade-highlight {
+  animation: fadeHighlight 1s ease-out forwards;
+}
+
+/*
+=========================
 Headings
 =========================
 */

@@ -195,6 +195,10 @@ function applyEditScripts(
       case "update":
         if (adjustedIndex < children.length && newElement) {
           container.replaceChild(newElement, children[adjustedIndex]);
+          newElement.classList.add("fade-highlight");
+          setTimeout(() => {
+            newElement.classList.remove("fade-highlight");
+          }, 1000);
         } else {
           console.warn(`Update failed: index ${adjustedIndex} out of bounds.`);
         }
