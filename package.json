@@ -50,8 +50,8 @@
         "category": "MarkNote"
       },
       {
-        "command": "marknote.initializeWorkSpace",
-        "title": "%command.initializeWorkSpace%",
+        "command": "marknote.initializeWorkspace",
+        "title": "%command.initializeWorkspace%",
         "category": "MarkNote"
       }
     ],

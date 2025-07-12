@@ -6,7 +6,7 @@
   "command.createWorkspaceMarknoteCss": "Generate Workspace CSS",
   "command.resetGlobalMarknoteCss": "Reset Global CSS",
   "command.createNote": "Create New Note",
-  "command.initializeWorkSpace": "Initialize Workspace as Note Taking Directory",
+  "command.initializeWorkspace": "Initialize Workspace as Note Taking Directory",
 
   "configuration.title": "MarkNote",
   "configuration.defaultPreviewMode.description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'.",

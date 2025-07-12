@@ -1,12 +1,18 @@
 {
-  "command.previewMarkdown": "Markdownをプレビュー（デフォルト）",
+  "command.previewMarkdown": "Markdownをプレビュー",
   "command.previewMarkdownOnVscode": "MarkdownをVSCodeでプレビュー",
   "command.previewMarkdownOnBrowser": "Markdownをブラウザでプレビュー",
   "command.exportHtml": "MarkdownをHTMLとしてエクスポート",
-  "command.createWorkspaceMarknoteCss": "ワークスペースCSSを生成",
+  "command.createWorkspaceMarknoteCss": "ワークスペース用CSSを生成",
   "command.resetGlobalMarknoteCss": "グローバルCSSをリセット",
+  "command.createNote": "新しいノートを作成",
+  "command.initializeWorkspace": "ワークスペースをノートディレクトリとして初期化",
 
   "configuration.title": "MarkNote",
-  "configuration.defaultPreviewMode.description": "Markdownファイルのデフォルトプレビューモード。「vscode」または「browser」から選択します。",
-  "configuration.browserPreviewPort.description": "ブラウザプレビューサーバーのポート番号です。"
+  "configuration.defaultPreviewMode.description": "Markdownファイルのデフォルトのプレビューモード。'vscode' または 'browser' を選択。",
+  "configuration.browserPreviewPort.description": "ブラウザプレビュー用サーバーのポート番号。",
+  "configuration.noteCategories.description": "新しいノートを作成する際に選択可能なカテゴリのツリー。",
+  "configuration.noteFileNamePrefix.description": "ノート名の接頭辞として使うテンプレート文字列",
+  "configuration.noteFileNameSuffix.description": "ノート名の接尾辞として使うテンプレート文字列",
+  "configuration.noteTemplates.description": "新しいノート作成時に使用するテンプレート"
 }
