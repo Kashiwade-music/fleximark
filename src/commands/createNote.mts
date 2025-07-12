@@ -157,8 +157,8 @@ async function promptFileName(): Promise<string | undefined> {
  */
 async function createNote(context: vscode.ExtensionContext): Promise<void> {
   const config = vscode.workspace.getConfiguration("marknote");
-  const categories = config.get<CategoryTree>("categories") ?? {};
-  const templates = config.get<TemplatesMap>("templates") ?? {};
+  const categories = config.get<CategoryTree>("noteCategories") ?? {};
+  const templates = config.get<TemplatesMap>("noteTemplates") ?? {};
   const noteFileNamePrefix = expandSnippetPlaceholders(
     config.get<string>("noteFileNamePrefix") ?? ""
   );

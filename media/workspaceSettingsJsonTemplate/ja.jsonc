@@ -43,6 +43,12 @@
   // 設定項目の詳細は下記のページを参照してください。
   // https://code.visualstudio.com/updates/v1_79#_copy-external-media-files-into-workspace-on-drop-or-paste-for-markdown
   "markdown.copyFiles.destination": {
-    "**/*.md": "attachments/${documentDirname}/${documentBaseName}/"
-  }
+    "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
+  },
+
+  // Markdownのデフォルトプレビュー方式を指定します。
+  // "browser" を指定することで、Markdownを開いたときの目のアイコンをクリックすると、
+  // ブラウザでプレビューが開くようになります。
+  // セキュリティ上の理由から、グローバルの設定を "browser" に変更するのはおすすめしません。
+  "marknote.defaultPreviewMode": "browser"
 }

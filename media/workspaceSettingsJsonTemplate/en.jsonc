@@ -1,8 +1,8 @@
 {
   // Notes are organized by category.
   // You can add as many categories as needed.
-  // Categories are structured hierarchically.
-  // Notes are saved within this category structure.
+  // Categories are structured as a tree.
+  // Notes are saved according to this category structure.
   "marknote.noteCategories": {
     "General": {
       "Daily Notes": {},
@@ -17,16 +17,16 @@
     }
   },
 
-  // You can customize prefixes and suffixes for note filenames.
-  // Variables like ${CURRENT_YEAR}, ${CURRENT_MONTH}, and ${CURRENT_DATE}
-  // allow dynamic insertion of the current date into filenames.
+  // You can customize the prefix and suffix of note filenames.
+  // Use variables like ${CURRENT_YEAR}, ${CURRENT_MONTH}, and ${CURRENT_DATE}
+  // to dynamically include the current date in the filename.
   "marknote.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
   "marknote.noteFileNameSuffix": "",
 
   // Templates are used to generate note content.
-  // Add as many templates as you like.
-  // Use tabstops to navigate through placeholders.
-  // For details, see: https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax
+  // You can create as many templates as needed.
+  // Tabstops can be used in templates to navigate between placeholders.
+  // See https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax for details.
   "marknote.noteTemplates": {
     "default": [
       "# ${1:first tabstop}",
@@ -37,12 +37,18 @@
     "Template 2": ["# Title", "## Subtitle", "### Subsubtitle"]
   },
 
-  // VSCode's built-in feature allows pasting images into Markdown notes.
-  // With the settings below, for example, if a note is at `./path/to/your/note.md`,
+  // You can paste images into Markdown notes using built-in VSCode features.
+  // With the following setting, if a note is at `./path/to/your/note.md`,
   // images will be saved to `./attachments/path/to/your/note/`.
-  // For details, see:
+  // See the following page for more details:
   // https://code.visualstudio.com/updates/v1_79#_copy-external-media-files-into-workspace-on-drop-or-paste-for-markdown
   "markdown.copyFiles.destination": {
-    "**/*.md": "attachments/${documentRelativeDirname}/${documentBaseName}/"
-  }
+    "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
+  },
+
+  // Specifies the default preview method for Markdown.
+  // If set to "browser", clicking the eye icon when viewing Markdown
+  // will open the preview in your browser.
+  // For security reasons, setting the global default to "browser" is not recommended.
+  "marknote.defaultPreviewMode": "browser"
 }
