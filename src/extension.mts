@@ -140,23 +140,13 @@ export function activate(context: vscode.ExtensionContext) {
     globalState.wss.on("connection", (ws) => {
       globalState.clients.add(ws);
       ws.on("close", () => globalState.clients.delete(ws));
-      ws.on("message", (msg) => {
-        if (typeof msg !== "string") return;
-        const parsedMsg = JSON.parse(msg);
 
-        if (parsedMsg.type === "preview-scroll") {
+      ws.addEventListener("message", (event) => {
+        const msg = JSON.parse(event.data as string);
+        if (msg.type === "preview-scroll") {
           if (!globalState.editorScrollFromBrowser.enabled) return;
 
-          if (globalState.editorScrollFromWebview.timer) {
-            clearTimeout(globalState.editorScrollFromWebview.timer);
-          }
-
-          globalState.editorScrollFromWebview.enabled = false;
-          globalState.editorScrollFromWebview.timer = setTimeout(() => {
-            globalState.editorScrollFromWebview.enabled = true;
-          }, timerMS);
-
-          const position = new vscode.Position(parsedMsg.line, 0);
+          const position = new vscode.Position(msg.line, 0);
           globalState.editorPanel?.revealRange(
             new vscode.Range(position, position),
             vscode.TextEditorRevealType.AtTop
@@ -229,15 +219,6 @@ export function activate(context: vscode.ExtensionContext) {
     globalState.webviewPanel.webview.onDidReceiveMessage((msg) => {
       if (msg.type === "preview-scroll") {
         if (!globalState.editorScrollFromWebview.enabled) return;
-
-        if (globalState.editorScrollFromBrowser.timer) {
-          clearTimeout(globalState.editorScrollFromBrowser.timer);
-        }
-
-        globalState.editorScrollFromBrowser.enabled = false;
-        globalState.editorScrollFromBrowser.timer = setTimeout(() => {
-          globalState.editorScrollFromWebview.enabled = true;
-        }, timerMS);
 
         const position = new vscode.Position(msg.line, 0);
         globalState.editorPanel?.revealRange(
@@ -314,6 +295,13 @@ export function activate(context: vscode.ExtensionContext) {
         globalState.webviewPanel?.webview.postMessage({
           type: "editor-scroll",
           line: firstLine,
+        });
+        globalState.wss?.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(
+              JSON.stringify({ type: "editor-scroll", line: firstLine })
+            );
+          }
         });
       })
     );
