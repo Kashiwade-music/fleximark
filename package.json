@@ -43,6 +43,16 @@
         "command": "marknote.resetGlobalMarknoteCss",
         "title": "%command.resetGlobalMarknoteCss%",
         "category": "MarkNote"
+      },
+      {
+        "command": "marknote.createNote",
+        "title": "%command.createNote%",
+        "category": "MarkNote"
+      },
+      {
+        "command": "marknote.initializeWorkSpace",
+        "title": "%command.initializeWorkSpace%",
+        "category": "MarkNote"
       }
     ],
     "menus": {
@@ -71,6 +81,33 @@
           "type": "number",
           "default": 3000,
           "description": "%configuration.browserPreviewPort.description%"
+        },
+        "marknote.noteCategories": {
+          "type": "object",
+          "description": "%configuration.noteCategories.description%",
+          "default": {}
+        },
+        "marknote.noteFileNamePrefix": {
+          "type": "string",
+          "description": "%configuration.notePrefix.description%",
+          "default": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
+        },
+        "marknote.noteFileNameSuffix": {
+          "type": "string",
+          "description": "%configuration.notePrefix.description%",
+          "default": ""
+        },
+        "marknote.noteTemplates": {
+          "type": "object",
+          "description": "%configuration.noteTemplates.description%",
+          "default": {
+            "default": [
+              "# ${1:first tabstop}",
+              "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+              "",
+              "## ${2:second tabstop}"
+            ]
+          }
         }
       }
     }

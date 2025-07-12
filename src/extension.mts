@@ -11,6 +11,7 @@ import { findDiff } from "./commands/utils/diffHTML.mjs";
 import { Express, Request, Response } from "express";
 import WebSocket, { WebSocketServer } from "ws";
 import { Root } from "hast";
+import createNote from "./commands/createNote.mjs";
 
 // Constants
 const SCROLL_THROTTLE_MS = 300;
@@ -93,6 +94,10 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("marknote.resetGlobalMarknoteCss", () =>
       saveMarknoteCssToGlobalStorage(context)
+    ),
+
+    vscode.commands.registerCommand("marknote.createNote", () =>
+      createNote(context)
     )
   );
 }
