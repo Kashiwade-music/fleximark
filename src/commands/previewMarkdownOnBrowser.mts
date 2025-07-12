@@ -13,9 +13,18 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     return;
   }
 
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(doc.uri);
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("The Markdown file must be in a workspace folder.")
+    );
+    return;
+  }
+
   try {
     const app = express();
     app.use(express.static(context.extensionPath));
+    app.use(express.static(workspaceFolder.uri.fsPath));
     const res = await renderMarkdownToHtml(doc.getText(), context);
 
     return { app, editorPanel, ...res };
