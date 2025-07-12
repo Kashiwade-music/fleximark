@@ -22,6 +22,7 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
 
     const res = await renderMarkdownToHtml(
       doc.getText(),
+      doc.uri.fsPath,
       context,
       webviewPanel.webview
     );

@@ -220,6 +220,7 @@ async function updateWebviewPreview(
 
   const result = await renderMarkdownToHtml(
     document.getText(),
+    document.uri.fsPath,
     context,
     state.webviewPanel.webview
   );
@@ -233,7 +234,11 @@ async function updateBrowserPreview(
 ) {
   if (document.languageId !== "markdown" || !state.app) return;
 
-  const result = await renderMarkdownToHtml(document.getText(), context);
+  const result = await renderMarkdownToHtml(
+    document.getText(),
+    document.uri.fsPath,
+    context
+  );
 
   if (fullReload || !state.appHtml || !state.appHast) {
     state.appHtml = result.html;

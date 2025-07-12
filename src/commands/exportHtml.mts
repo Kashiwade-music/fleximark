@@ -21,6 +21,7 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
     const enc = new TextEncoder();
     const res = await renderMarkdownToHtml(
       doc.getText(),
+      doc.uri.fsPath,
       context,
       undefined,
       true,

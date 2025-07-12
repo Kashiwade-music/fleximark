@@ -44,6 +44,7 @@ type RenderResult = {
  * @async
  * @function
  * @param {string} markdown - The raw Markdown input string to render.
+ * @param {string} markdownAbsPath - The absolute path to the Markdown file, used for resolving relative assets.
  * @param {vscode.ExtensionContext} context - The VS Code extension context, used for resolving extension assets.
  * @param {vscode.Webview} [webview] - Optional webview object. If provided, rendering will be scoped for secure VS Code webviews.
  * @param {boolean} [forExportToFile=false] - If `true`, formats the output HTML for saving to file, including local asset copying.
@@ -52,6 +53,7 @@ type RenderResult = {
  */
 export async function renderMarkdownToHtml(
   markdown: string,
+  markdownAbsPath: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
   forExportToFile: boolean = false,
@@ -89,7 +91,13 @@ export async function renderMarkdownToHtml(
   //   new TextEncoder().encode(JSON.stringify(hast, null, 2))
   // );
 
-  const html = await convertToHtml(hast, context, webview, forExportToFile);
+  const html = await convertToHtml(
+    hast,
+    markdownAbsPath,
+    context,
+    webview,
+    forExportToFile
+  );
   return { html, hast };
 }
 
@@ -98,6 +106,7 @@ export async function renderMarkdownToHtml(
  *
  * @async
  * @param {Root} hast - The HAST tree generated from the Markdown source.
+ * @param {string} markdownAbsPath - The absolute path to the Markdown file, used for resolving relative assets.
  * @param {vscode.ExtensionContext} context - The VS Code extension context.
  * @param {vscode.Webview} [webview] - Optional webview object to wrap output for secure use in VS Code.
  * @param {boolean} [forExportToFile] - If true, formats the HTML for writing to a standalone file with embedded styles and scripts.
@@ -105,6 +114,7 @@ export async function renderMarkdownToHtml(
  */
 async function convertToHtml(
   hast: Root,
+  markdownAbsPath: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
   forExportToFile?: boolean
@@ -114,7 +124,8 @@ async function convertToHtml(
   });
   const htmlBody = String(htmlProcessor.stringify(hast));
 
-  if (webview) return wrapHtmlForVscode(htmlBody, context, webview);
+  if (webview)
+    return wrapHtmlForVscode(htmlBody, markdownAbsPath, context, webview);
   if (forExportToFile) return wrapHtmlForFile(htmlBody, context);
 
   return wrapHtmlForBrowser(htmlBody, context);
@@ -242,18 +253,53 @@ async function wrapHtmlForFile(
 </html>`;
 }
 
+function rewriteImgSrcWithWebviewUri(
+  html: string,
+  markdownAbsPath: string,
+  webview: vscode.Webview
+): string {
+  return html.replace(
+    /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/g,
+    (match, src) => {
+      try {
+        // ローカルファイルパスのみに限定する（file:/// または 絶対パス）
+        if (src.startsWith("http") || src.startsWith("data:")) {
+          return match; // 外部URLやbase64はそのまま
+        }
+
+        console.log(src);
+
+        const localPath = path.isAbsolute(src)
+          ? src
+          : vscode.Uri.joinPath(
+              vscode.Uri.file(path.dirname(markdownAbsPath)),
+              src
+            ).fsPath;
+
+        const uri = webview.asWebviewUri(vscode.Uri.file(localPath));
+        return match.replace(src, uri.toString(true));
+      } catch (err) {
+        console.error(`Failed to rewrite img src for: ${src}`, err);
+        return match;
+      }
+    }
+  );
+}
+
 /**
  * Wraps the HTML body in a secure document for VS Code's Webview API.
  * Applies strict CSP (Content Security Policy) headers and rewrites asset URIs with `asWebviewUri`.
  *
  * @async
  * @param {string} body - The HTML body content to include.
+ * @param {string} markdownAbsPath - The absolute path to the Markdown file, used for resolving relative assets.
  * @param {vscode.ExtensionContext} context - VS Code extension context used for resolving resource URIs.
  * @param {vscode.Webview} webview - The active Webview instance used for URI resolution and CSP source generation.
  * @returns {Promise<string>} The fully formed HTML document string for the webview.
  */
 async function wrapHtmlForVscode(
   body: string,
+  markdownAbsPath: string,
   context: vscode.ExtensionContext,
   webview: vscode.Webview
 ): Promise<string> {
@@ -299,7 +345,11 @@ async function wrapHtmlForVscode(
   <script src="${assets.youtubeJs}"></script>
 </head>
 <body>
-  <div class="markdown-body">${body}</div>
+  <div class="markdown-body">${rewriteImgSrcWithWebviewUri(
+    body,
+    markdownAbsPath,
+    webview
+  )}</div>
 </body>
 </html>`;
 }

@@ -25,7 +25,11 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     const app = express();
     app.use(express.static(context.extensionPath));
     app.use(express.static(workspaceFolder.uri.fsPath));
-    const res = await renderMarkdownToHtml(doc.getText(), context);
+    const res = await renderMarkdownToHtml(
+      doc.getText(),
+      doc.uri.fsPath,
+      context
+    );
 
     return { app, editorPanel, ...res };
   } catch (err) {
