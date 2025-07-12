@@ -1,54 +1,51 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
-
 import { unified } from "unified";
 import { Root } from "hast";
+
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
+import remarkDirective from "remark-directive";
+
 import rehypeKatex from "rehype-katex";
 import rehypePrettyCode from "rehype-pretty-code";
 import rehypeStringify from "rehype-stringify";
+import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 
-import remarkDirective from "remark-directive";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 import remarkLineNumber from "./remarkLineNumber.mjs";
 import remarkYouTube from "./remarkYouTube.mjs";
-import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 
 import {
   readGlobalMarknoteCss,
   readWorkspaceMarknoteCss,
 } from "../css/index.mjs";
 
-type RenderResult = {
+export type RenderResult = {
   html: string;
   hast: Root;
 };
 
 /**
- * Renders Markdown input into HTML, producing both a HAST (Hypertext Abstract Syntax Tree)
- * and final HTML output. Supports extended syntax like GitHub-flavored Markdown (GFM),
- * math via KaTeX, custom directives (admonitions, tabs, details), YouTube embeds,
- * and syntax highlighting.
- *
- * @param markdown - The raw Markdown string to be rendered.
- * @param context - VS Code extension context for accessing resources and workspace.
- * @param webview - Optional webview object used when rendering HTML for VS Code preview.
- * @param forExportToFile - Flag indicating whether the rendering is intended for file export.
- * @returns A Promise resolving to an object containing both rendered HTML and HAST.
+ * Renders Markdown to HTML and HAST, supporting:
+ * - GFM
+ * - KaTeX for math
+ * - Custom directives (admonitions, tabs, details)
+ * - YouTube embeds
+ * - Line numbers and syntax highlighting
  */
-export const renderMarkdownToHtml = async (
+export async function renderMarkdownToHtml(
   markdown: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
   forExportToFile = false,
   isNeedDataLineNumber = true
-): Promise<RenderResult> => {
+): Promise<RenderResult> {
   const processor = unified()
     .use(remarkParse)
     .use(remarkYouTube, { mode: webview ? "lazy" : "iframe" })
@@ -69,35 +66,24 @@ export const renderMarkdownToHtml = async (
 
   const hast = (await processor.run(processor.parse(markdown))) as Root;
 
-  // Debug output for inspection
-  const debugFilePath = vscode.Uri.joinPath(
+  // Write debug file for inspection
+  const debugFileUri = vscode.Uri.joinPath(
     context.extensionUri,
     "dist",
     "debug",
     "debug-hast.json"
   );
   await vscode.workspace.fs.writeFile(
-    debugFilePath,
+    debugFileUri,
     new TextEncoder().encode(JSON.stringify(hast, null, 2))
   );
 
-  // Convert HAST to HTML
   const html = await convertToHtml(hast, context, webview, forExportToFile);
   return { html, hast };
-};
+}
 
 /**
- * Converts a given HAST tree into a final HTML string.
- * Depending on context, wraps the HTML appropriately for:
- * - VS Code webview
- * - File export (with assets)
- * - Browser preview
- *
- * @param hast - The HAST object to stringify and wrap.
- * @param context - The extension context, used to access resources.
- * @param webview - Optional webview instance, if rendering inside VS Code.
- * @param forExportToFile - Optional flag for export-specific output.
- * @returns A Promise resolving to the final HTML string.
+ * Converts HAST tree to final HTML document.
  */
 async function convertToHtml(
   hast: Root,
@@ -108,30 +94,18 @@ async function convertToHtml(
   const htmlProcessor = unified().use(rehypeStringify, {
     allowDangerousHtml: true,
   });
-
   const htmlBody = String(htmlProcessor.stringify(hast));
 
-  if (webview) {
-    return wrapHtmlForVscode(htmlBody, context, webview);
-  }
+  if (webview) return wrapHtmlForVscode(htmlBody, context, webview);
+  if (forExportToFile) return wrapHtmlForFile(htmlBody, context);
 
-  return forExportToFile
-    ? wrapHtmlForFile(htmlBody, context)
-    : wrapHtmlForBrowser(htmlBody, context);
+  return wrapHtmlForBrowser(htmlBody, context);
 }
 
 // -----------------------------------------------------------------------------
-// Wrapping Functions
+// HTML Wrapping Utilities
 // -----------------------------------------------------------------------------
 
-/**
- * Wraps HTML content with required scripts and styles for in-browser preview.
- * Includes CSS from global and workspace config and embeds required scripts.
- *
- * @param body - The HTML body content to embed.
- * @param context - Extension context to read configuration and resources.
- * @returns A Promise resolving to the complete HTML document as a string.
- */
 async function wrapHtmlForBrowser(
   body: string,
   context: vscode.ExtensionContext
@@ -163,35 +137,19 @@ async function wrapHtmlForBrowser(
   <title>Preview</title>
   <link rel="stylesheet" href="${assets.katexCss}" />
   <link rel="stylesheet" href="${assets.abcjsCss}" />
-  <style>
-    ${globalCss}
-    ${workspaceCss}
-  </style>
-  <script>
-    window.webSocketUrl = "ws://localhost:${port}";
-  </script>
+  <style>${globalCss}${workspaceCss}</style>
+  <script>window.webSocketUrl = "ws://localhost:${port}";</script>
   <script src="${assets.abcjsJs}"></script>
   <script src="${assets.mermaidJs}"></script>
   <script src="${assets.webSocketJs}"></script>
   <script src="${assets.youtubeJs}"></script>
 </head>
 <body>
-  <div class="markdown-body">
-    ${body}
-  </div>
+  <div class="markdown-body">${body}</div>
 </body>
-</html>
-`;
+</html>`;
 }
 
-/**
- * Wraps HTML body content for file export. Includes inline CSS and JS,
- * and copies necessary assets (KaTeX fonts, styles) to the global storage path.
- *
- * @param body - The HTML content to wrap.
- * @param context - Extension context for accessing assets and writing files.
- * @returns A Promise resolving to the complete file-ready HTML string.
- */
 async function wrapHtmlForFile(
   body: string,
   context: vscode.ExtensionContext
@@ -213,7 +171,6 @@ async function wrapHtmlForFile(
       readAsset("youtubePlaceholderScripts.js"),
     ]);
 
-  // Copy KaTeX resources to storage
   const katexCssUri = vscode.Uri.joinPath(
     context.globalStorageUri,
     "katex.min.css"
@@ -239,34 +196,17 @@ async function wrapHtmlForFile(
   <meta charset="UTF-8" />
   <title>Preview</title>
   <link rel="stylesheet" href="file://${katexCssUri.fsPath}" />
-  <style>
-    ${abcjsCss}
-    ${globalCss}
-    ${workspaceCss}
-  </style>
+  <style>${abcjsCss}${globalCss}${workspaceCss}</style>
   <script>${abcjsScripts}</script>
   <script>${mermaidScripts}</script>
   <script>${youtubeScripts}</script>
 </head>
 <body>
-  <div class="markdown-body">
-    ${body}
-  </div>
+  <div class="markdown-body">${body}</div>
 </body>
-</html>
-`;
+</html>`;
 }
 
-/**
- * Wraps HTML content for use inside a VS Code Webview.
- * Applies CSP (Content Security Policy), sets up resource URIs,
- * and injects required JS/CSS for enhanced Markdown features.
- *
- * @param body - The raw HTML content.
- * @param context - Extension context to resolve asset paths.
- * @param webview - VS Code Webview for URI resolution and CSP.
- * @returns A complete HTML document string tailored for Webview usage.
- */
 async function wrapHtmlForVscode(
   body: string,
   context: vscode.ExtensionContext,
@@ -277,18 +217,18 @@ async function wrapHtmlForVscode(
     readWorkspaceMarknoteCss(),
   ]);
 
-  const resourceUri = (file: string) =>
+  const getUri = (file: string) =>
     webview.asWebviewUri(
       vscode.Uri.joinPath(context.extensionUri, "dist", "media", file)
     );
 
   const assets = {
-    katexCss: resourceUri("katex.min.css"),
-    abcjsCss: resourceUri("abcjs-audio.css"),
-    abcjsJs: resourceUri("abcjsScripts.js"),
-    mermaidJs: resourceUri("mermaidScripts.js"),
-    vscodeScrollJs: resourceUri("vscodeWebviewScrollScripts.js"),
-    youtubeJs: resourceUri("youtubePlaceholderScripts.js"),
+    katexCss: getUri("katex.min.css"),
+    abcjsCss: getUri("abcjs-audio.css"),
+    abcjsJs: getUri("abcjsScripts.js"),
+    mermaidJs: getUri("mermaidScripts.js"),
+    vscodeScrollJs: getUri("vscodeWebviewScrollScripts.js"),
+    youtubeJs: getUri("youtubePlaceholderScripts.js"),
   };
 
   return `
@@ -297,7 +237,6 @@ async function wrapHtmlForVscode(
 <head>
   <meta charset="UTF-8" />
   <title>Preview</title>
-
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none';
                  img-src ${webview.cspSource} https:;
@@ -306,25 +245,18 @@ async function wrapHtmlForVscode(
                  frame-src https://www.youtube.com https://www.youtube-nocookie.com;
                  style-src ${webview.cspSource} 'unsafe-inline' https:;
                  connect-src https://paulrosen.github.io;" />
-
   <link rel="stylesheet" href="${assets.katexCss}" />
   <link rel="stylesheet" href="${assets.abcjsCss}" />
-  <style>
-    ${globalCss}
-    ${workspaceCss}
-  </style>
+  <style>${globalCss}${workspaceCss}</style>
   <script src="${assets.abcjsJs}"></script>
   <script src="${assets.mermaidJs}"></script>
   <script src="${assets.vscodeScrollJs}"></script>
   <script src="${assets.youtubeJs}"></script>
 </head>
 <body>
-  <div class="markdown-body">
-    ${body}
-  </div>
+  <div class="markdown-body">${body}</div>
 </body>
-</html>
-`;
+</html>`;
 }
 
 export default renderMarkdownToHtml;
