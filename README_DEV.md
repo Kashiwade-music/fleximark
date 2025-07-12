@@ -1,4 +1,4 @@
-# MarkNote
+# FlexiMark
 
 ## Pack
 

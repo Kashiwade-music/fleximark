@@ -3,7 +3,7 @@
   // 必要に応じて、いくつでもカテゴリを追加できます。
   // カテゴリはツリー構造で整理されます。
   // ノートはこのカテゴリ構造に基づいた場所に保存されます。
-  "marknote.noteCategories": {
+  "fleximark.noteCategories": {
     "General": {
       "Daily Notes": {},
       "Progress Report": {}
@@ -20,14 +20,14 @@
   // ノートのファイル名に付ける接頭辞や接尾辞をカスタマイズできます。
   // ${CURRENT_YEAR}、${CURRENT_MONTH}、${CURRENT_DATE} のような変数を使って、
   // 現在の日付を動的にファイル名に含めることができます。
-  "marknote.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
-  "marknote.noteFileNameSuffix": "",
+  "fleximark.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
+  "fleximark.noteFileNameSuffix": "",
 
   // テンプレートはノートの内容を生成するために使います。
   // 必要に応じて、いくつでもテンプレートを追加できます。
   // テンプレート内ではタブストップを使用して、カーソルを順番に移動できます。
   // 詳しくは https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax を参照してください。
-  "marknote.noteTemplates": {
+  "fleximark.noteTemplates": {
     "default": [
       "# ${1:first tabstop}",
       "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
@@ -50,5 +50,5 @@
   // "browser" を指定することで、Markdownを開いたときの目のアイコンをクリックすると、
   // ブラウザでプレビューが開くようになります。
   // セキュリティ上の理由から、グローバルの設定を "browser" に変更するのはおすすめしません。
-  "marknote.defaultPreviewMode": "browser"
+  "fleximark.defaultPreviewMode": "browser"
 }

@@ -1,15 +1,15 @@
 {
   "The Markdown preview has opened at http://localhost:{port}.": "The Markdown preview has opened at http://localhost:{port}.",
-  "marknote.css has been saved to global storage.": "marknote.css has been saved to global storage.",
-  "Failed to save marknote.css to global storage.": "Failed to save marknote.css to global storage.",
+  "fleximark.css has been saved to global storage.": "fleximark.css has been saved to global storage.",
+  "Failed to save fleximark.css to global storage.": "Failed to save fleximark.css to global storage.",
   "The Markdown file must be active.": "The Markdown file must be active.",
   "An error occurred while preparing the Markdown preview.": "An error occurred while preparing the Markdown preview.",
   "Please open a workspace before initializing.": "Please open a workspace before initializing.",
   "A .vscode directory already exists. Do you want to overwrite it?": "A .vscode directory already exists. Do you want to overwrite it?",
   "HTML exported to {htmlFilePath}": "HTML exported to {htmlFilePath}",
   "Failed to export HTML: {err}": "Failed to export HTML: {err}",
-  "Created .marknote directory and marknote.css file in the workspace.": "Created .marknote directory and marknote.css file in the workspace.",
-  "Failed to create .marknote directory or marknote.css file.": "Failed to create .marknote directory or marknote.css file.",
+  "Created .fleximark directory and fleximark.css file in the workspace.": "Created .fleximark directory and fleximark.css file in the workspace.",
+  "Failed to create .fleximark directory or fleximark.css file.": "Failed to create .fleximark directory or fleximark.css file.",
   "No categories defined. Please add them in .vscode/settings.json.": "No categories defined. Please add them in .vscode/settings.json.",
   "Category selection was cancelled.": "Category selection was cancelled.",
   "Invalid category structure for selected category.": "Invalid category structure for selected category.",
@@ -19,5 +19,5 @@
   "Invalid template format for '{0}'. Expected an array of strings.": "Invalid template format for '{0}'. Expected an array of strings.",
   "Please open a workspace before creating a note.": "Please open a workspace before creating a note.",
   "A note with that name already exists.": "A note with that name already exists.",
-  "marknote.css not found in global storage, returning default content.": "marknote.css not found in global storage, returning default content."
+  "fleximark.css not found in global storage, returning default content.": "fleximark.css not found in global storage, returning default content."
 }

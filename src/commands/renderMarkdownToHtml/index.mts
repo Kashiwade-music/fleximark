@@ -22,8 +22,8 @@ import remarkLineNumber from "./remarkLineNumber.mjs";
 import remarkYouTube from "./remarkYouTube.mjs";
 
 import {
-  readGlobalMarknoteCss,
-  readWorkspaceMarknoteCss,
+  readGlobalFleximarkCss,
+  readWorkspaceFleximarkCss,
 } from "../css/index.mjs";
 
 type RenderResult = {
@@ -148,13 +148,13 @@ async function wrapHtmlForBrowser(
   context: vscode.ExtensionContext
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
-    readGlobalMarknoteCss(context),
-    readWorkspaceMarknoteCss(),
+    readGlobalFleximarkCss(context),
+    readWorkspaceFleximarkCss(),
   ]);
 
   const port =
     (vscode.workspace
-      .getConfiguration("marknote")
+      .getConfiguration("fleximark")
       .get<number>("browserPreviewPort") || 3000) + 1;
 
   const assets = {
@@ -201,8 +201,8 @@ async function wrapHtmlForFile(
   context: vscode.ExtensionContext
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
-    readGlobalMarknoteCss(context),
-    readWorkspaceMarknoteCss(),
+    readGlobalFleximarkCss(context),
+    readWorkspaceFleximarkCss(),
   ]);
 
   const mediaDir = context.asAbsolutePath("dist/media");
@@ -304,8 +304,8 @@ async function wrapHtmlForVscode(
   webview: vscode.Webview
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
-    readGlobalMarknoteCss(context),
-    readWorkspaceMarknoteCss(),
+    readGlobalFleximarkCss(context),
+    readWorkspaceFleximarkCss(),
   ]);
 
   const getUri = (file: string) =>

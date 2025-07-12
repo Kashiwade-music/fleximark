@@ -2,10 +2,10 @@ import * as vscode from "vscode";
 import previewMarkdownOnVscode from "./commands/previewMarkdownOnVscode.mjs";
 import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
 import exportHtml from "./commands/exportHtml.mjs";
-import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mjs";
-import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
+import createWorkspaceFleximarkCss from "./commands/createWorkspaceFleximarkCss.mjs";
+import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
 import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
-import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
+import { isGlobalFleximarkCssExists } from "./commands/css/index.mjs";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
 
 import { Express, Request, Response } from "express";
@@ -46,14 +46,14 @@ const state: GlobalExtensionState = {
 // Activation
 // ---------------------------------------------
 export function activate(context: vscode.ExtensionContext) {
-  console.log("Marknote extension activated.");
+  console.log("Fleximark extension activated.");
 
-  if (!isGlobalMarknoteCssExists(context)) {
-    saveMarknoteCssToGlobalStorage(context);
+  if (!isGlobalFleximarkCssExists(context)) {
+    saveFleximarkCssToGlobalStorage(context);
   }
 
   // if in Dev, comment out the next line
-  saveMarknoteCssToGlobalStorage(context);
+  saveFleximarkCssToGlobalStorage(context);
 
   registerCommands(context);
   registerEventListeners(context);
@@ -66,10 +66,10 @@ function registerCommands(context: vscode.ExtensionContext) {
   const { subscriptions } = context;
 
   subscriptions.push(
-    vscode.commands.registerCommand("marknote.previewMarkdown", async () => {
+    vscode.commands.registerCommand("fleximark.previewMarkdown", async () => {
       const mode =
         vscode.workspace
-          .getConfiguration("marknote")
+          .getConfiguration("fleximark")
           .get<string>("defaultPreviewMode") ?? "vscode";
 
       mode === "vscode"
@@ -77,31 +77,32 @@ function registerCommands(context: vscode.ExtensionContext) {
         : openBrowserPreview(context);
     }),
 
-    vscode.commands.registerCommand("marknote.previewMarkdownOnVscode", () =>
+    vscode.commands.registerCommand("fleximark.previewMarkdownOnVscode", () =>
       openWebviewPreview(context)
     ),
 
-    vscode.commands.registerCommand("marknote.previewMarkdownOnBrowser", () =>
+    vscode.commands.registerCommand("fleximark.previewMarkdownOnBrowser", () =>
       openBrowserPreview(context)
     ),
 
-    vscode.commands.registerCommand("marknote.exportHtml", () =>
+    vscode.commands.registerCommand("fleximark.exportHtml", () =>
       exportHtml(context)
     ),
 
-    vscode.commands.registerCommand("marknote.createWorkspaceMarknoteCss", () =>
-      createWorkspaceMarknoteCss(context)
+    vscode.commands.registerCommand(
+      "fleximark.createWorkspaceFleximarkCss",
+      () => createWorkspaceFleximarkCss(context)
     ),
 
-    vscode.commands.registerCommand("marknote.resetGlobalMarknoteCss", () =>
-      saveMarknoteCssToGlobalStorage(context)
+    vscode.commands.registerCommand("fleximark.resetGlobalFleximarkCss", () =>
+      saveFleximarkCssToGlobalStorage(context)
     ),
 
-    vscode.commands.registerCommand("marknote.createNote", () =>
+    vscode.commands.registerCommand("fleximark.createNote", () =>
       createNote(context)
     ),
 
-    vscode.commands.registerCommand("marknote.initializeWorkspace", () =>
+    vscode.commands.registerCommand("fleximark.initializeWorkspace", () =>
       initializeWorkspace(context)
     )
   );
@@ -156,7 +157,7 @@ async function openBrowserPreview(context: vscode.ExtensionContext) {
   } else {
     const port =
       vscode.workspace
-        .getConfiguration("marknote")
+        .getConfiguration("fleximark")
         .get<number>("browserPreviewPort") ?? DEFAULT_PORT;
 
     vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
@@ -167,7 +168,7 @@ function startBrowserPreviewServer(context: vscode.ExtensionContext) {
   const app = state.app!;
   const port =
     vscode.workspace
-      .getConfiguration("marknote")
+      .getConfiguration("fleximark")
       .get<number>("browserPreviewPort") ?? DEFAULT_PORT;
 
   app.get("/", (_req: Request, res: Response) => {

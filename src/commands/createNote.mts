@@ -156,7 +156,7 @@ async function promptFileName(): Promise<string | undefined> {
  * Main entry point for creating a new markdown note.
  */
 async function createNote(context: vscode.ExtensionContext): Promise<void> {
-  const config = vscode.workspace.getConfiguration("marknote");
+  const config = vscode.workspace.getConfiguration("fleximark");
   const categories = config.get<CategoryTree>("noteCategories") ?? {};
   const templates = config.get<TemplatesMap>("noteTemplates") ?? {};
   const noteFileNamePrefix = expandSnippetPlaceholders(

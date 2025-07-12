@@ -1,12 +1,14 @@
 {
-  "name": "marknote",
-  "displayName": "marknote",
+  "name": "fleximark",
+  "displayName": "fleximark",
   "description": "super flexible markdown note for VSCode",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "publisher": "Kashiwade",
   "engines": {
     "vscode": "^1.101.0"
   },
   "categories": [
+    "Notebooks",
     "Other"
   ],
   "activationEvents": [],
@@ -14,51 +16,51 @@
   "contributes": {
     "commands": [
       {
-        "command": "marknote.previewMarkdown",
+        "command": "fleximark.previewMarkdown",
         "title": "%command.previewMarkdown%",
-        "category": "MarkNote",
+        "category": "FlexiMark",
         "icon": "$(eye)"
       },
       {
-        "command": "marknote.previewMarkdownOnVscode",
+        "command": "fleximark.previewMarkdownOnVscode",
         "title": "%command.previewMarkdownOnVscode%",
-        "category": "MarkNote"
+        "category": "FlexiMark"
       },
       {
-        "command": "marknote.previewMarkdownOnBrowser",
+        "command": "fleximark.previewMarkdownOnBrowser",
         "title": "%command.previewMarkdownOnBrowser%",
-        "category": "MarkNote"
+        "category": "FlexiMark"
       },
       {
-        "command": "marknote.exportHtml",
+        "command": "fleximark.exportHtml",
         "title": "%command.exportHtml%",
-        "category": "MarkNote"
+        "category": "FlexiMark"
       },
       {
-        "command": "marknote.createWorkspaceMarknoteCss",
-        "title": "%command.createWorkspaceMarknoteCss%",
-        "category": "MarkNote"
+        "command": "fleximark.createWorkspaceFleximarkCss",
+        "title": "%command.createWorkspaceFleximarkCss%",
+        "category": "FlexiMark"
       },
       {
-        "command": "marknote.resetGlobalMarknoteCss",
-        "title": "%command.resetGlobalMarknoteCss%",
-        "category": "MarkNote"
+        "command": "fleximark.resetGlobalFleximarkCss",
+        "title": "%command.resetGlobalFleximarkCss%",
+        "category": "FlexiMark"
       },
       {
-        "command": "marknote.createNote",
+        "command": "fleximark.createNote",
         "title": "%command.createNote%",
-        "category": "MarkNote"
+        "category": "FlexiMark"
       },
       {
-        "command": "marknote.initializeWorkspace",
+        "command": "fleximark.initializeWorkspace",
         "title": "%command.initializeWorkspace%",
-        "category": "MarkNote"
+        "category": "FlexiMark"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "marknote.previewMarkdown",
+          "command": "fleximark.previewMarkdown",
           "group": "navigation",
           "when": "editorLangId == markdown"
         }
@@ -68,7 +70,7 @@
       "title": "%configuration.title%",
       "type": "object",
       "properties": {
-        "marknote.defaultPreviewMode": {
+        "fleximark.defaultPreviewMode": {
           "type": "string",
           "default": "vscode",
           "enum": [
@@ -77,27 +79,27 @@
           ],
           "description": "%configuration.defaultPreviewMode.description%"
         },
-        "marknote.browserPreviewPort": {
+        "fleximark.browserPreviewPort": {
           "type": "number",
           "default": 3000,
           "description": "%configuration.browserPreviewPort.description%"
         },
-        "marknote.noteCategories": {
+        "fleximark.noteCategories": {
           "type": "object",
           "description": "%configuration.noteCategories.description%",
           "default": {}
         },
-        "marknote.noteFileNamePrefix": {
+        "fleximark.noteFileNamePrefix": {
           "type": "string",
           "description": "%configuration.noteFileNamePrefix.description%",
           "default": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
         },
-        "marknote.noteFileNameSuffix": {
+        "fleximark.noteFileNameSuffix": {
           "type": "string",
           "description": "%configuration.noteFileNameSuffix.description%",
           "default": ""
         },
-        "marknote.noteTemplates": {
+        "fleximark.noteTemplates": {
           "type": "object",
           "description": "%configuration.noteTemplates.description%",
           "default": {

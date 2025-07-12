@@ -1,30 +1,33 @@
 import * as vscode from "vscode";
 import * as fs from "fs/promises";
-import { getDefaultMarknoteCss } from "./css/index.mjs";
+import { getDefaultFleximarkCss } from "./css/index.mjs";
 
 /**
- * Saves the default marknote.css file to the extension's global storage directory.
+ * Saves the default fleximark.css file to the extension's global storage directory.
  * This is typically used during initial activation or first install.
  *
  * @param context - The extension context containing the globalStorageUri.
  */
-async function saveMarknoteCssToGlobalStorage(
+async function saveFleximarkCssToGlobalStorage(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  const cssContent = getDefaultMarknoteCss();
-  const cssPath = vscode.Uri.joinPath(context.globalStorageUri, "marknote.css");
+  const cssContent = getDefaultFleximarkCss();
+  const cssPath = vscode.Uri.joinPath(
+    context.globalStorageUri,
+    "fleximark.css"
+  );
 
   try {
     await fs.mkdir(context.globalStorageUri.fsPath, { recursive: true });
     await fs.writeFile(cssPath.fsPath, cssContent, "utf8");
     vscode.window.showInformationMessage(
-      vscode.l10n.t("marknote.css has been saved to global storage.")
+      vscode.l10n.t("fleximark.css has been saved to global storage.")
     );
   } catch (err) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("Failed to save marknote.css to global storage.")
+      vscode.l10n.t("Failed to save fleximark.css to global storage.")
     );
   }
 }
 
-export default saveMarknoteCssToGlobalStorage;
+export default saveFleximarkCssToGlobalStorage;

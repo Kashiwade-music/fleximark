@@ -3,7 +3,7 @@
   // You can add as many categories as needed.
   // Categories are structured as a tree.
   // Notes are saved according to this category structure.
-  "marknote.noteCategories": {
+  "fleximark.noteCategories": {
     "General": {
       "Daily Notes": {},
       "Progress Report": {}
@@ -20,14 +20,14 @@
   // You can customize the prefix and suffix of note filenames.
   // Use variables like ${CURRENT_YEAR}, ${CURRENT_MONTH}, and ${CURRENT_DATE}
   // to dynamically include the current date in the filename.
-  "marknote.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
-  "marknote.noteFileNameSuffix": "",
+  "fleximark.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
+  "fleximark.noteFileNameSuffix": "",
 
   // Templates are used to generate note content.
   // You can create as many templates as needed.
   // Tabstops can be used in templates to navigate between placeholders.
   // See https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax for details.
-  "marknote.noteTemplates": {
+  "fleximark.noteTemplates": {
     "default": [
       "# ${1:first tabstop}",
       "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
@@ -50,5 +50,5 @@
   // If set to "browser", clicking the eye icon when viewing Markdown
   // will open the preview in your browser.
   // For security reasons, setting the global default to "browser" is not recommended.
-  "marknote.defaultPreviewMode": "browser"
+  "fleximark.defaultPreviewMode": "browser"
 }
