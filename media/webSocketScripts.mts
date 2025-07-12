@@ -1,6 +1,12 @@
+// ----------------------
+// Types & Interfaces
+// ----------------------
+
+type OperationType = "insert" | "delete" | "update";
+
 interface HtmlEditScript {
   index: number;
-  operation: "insert" | "delete" | "update";
+  operation: OperationType;
   newHTMLHash: string;
   newHTML: string;
 }
@@ -36,122 +42,24 @@ interface ScrollState {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const timerMS = 600;
+// ----------------------
+// Constants & State
+// ----------------------
 
-const globalState = {
+const SCROLL_THROTTLE_MS = 300;
+
+const state = {
   editorScrollFromVscode: {
     enabled: true,
-    timer: null as ReturnType<typeof setTimeout> | null,
+    timer: null,
   } as ScrollState,
 };
 
+// ----------------------
+// Event Listeners
+// ----------------------
+
 const socket = new WebSocket(window.webSocketUrl);
-
-socket.addEventListener("message", (event: MessageEvent) => {
-  const data: ServerMessage = JSON.parse(event.data);
-
-  // debug log
-  console.log("Received message:", JSON.stringify(data, null, 2));
-
-  if (data.type === "reload") {
-    location.reload();
-    return;
-  }
-
-  if (data.type === "edit") {
-    const container =
-      document.querySelector<HTMLDivElement>("div.markdown-body");
-    if (!container) {
-      console.warn("No .markdown-body element found.");
-      return;
-    }
-
-    const children = container.children;
-
-    let indexOffset = 0;
-
-    data.editScripts.forEach((edit: HtmlEditScript) => {
-      const { index, operation, newHTML } = edit;
-
-      const temp = document.createElement("div");
-      temp.innerHTML = newHTML;
-      const newElement = temp.firstElementChild;
-
-      if (operation === "update") {
-        if (index + indexOffset < children.length && newElement) {
-          container.replaceChild(newElement, children[index + indexOffset]);
-        } else {
-          console.warn(
-            `Update failed: index ${index + indexOffset} out of bounds.`
-          );
-        }
-      } else if (operation === "insert") {
-        if (newElement) {
-          if (index + indexOffset >= children.length) {
-            container.appendChild(newElement);
-          } else {
-            container.insertBefore(newElement, children[index + indexOffset]);
-          }
-          indexOffset++;
-        }
-      } else if (operation === "delete") {
-        if (index + indexOffset < children.length) {
-          container.removeChild(children[index + indexOffset]);
-          indexOffset--;
-        } else {
-          console.warn(
-            `Delete failed: index ${index + indexOffset} out of bounds.`
-          );
-        }
-      } else {
-        console.warn(`Unknown operation: ${operation}`);
-      }
-    });
-
-    // Update the data-line-number attributes
-    data.dataLineArray.forEach((dataLine, index) => {
-      const element = container.children[index];
-      if (element && dataLine["data-line-number"]) {
-        element.setAttribute("data-line-number", dataLine["data-line-number"]);
-      }
-    });
-
-    // if data.htmlEditScript contains ABC or Mermaid, re-render them
-    const isABC = data.editScripts.some((edit) =>
-      edit.newHTML.includes('data-language="abc"')
-    );
-    const isMermaid = data.editScripts.some((edit) =>
-      edit.newHTML.includes('data-language="mermaid"')
-    );
-
-    if (isABC) {
-      window.renderABC();
-    }
-    if (isMermaid) {
-      window.renderMermaid();
-    }
-
-    return;
-  }
-
-  if (data.type === "editor-scroll") {
-    if (!globalState.editorScrollFromVscode.enabled) return;
-
-    const targetLine = data.line;
-
-    const elements =
-      document.querySelectorAll<HTMLElement>("[data-line-number]");
-    const targetElement = Array.from(elements).find((el) => {
-      const lineAttr = el.dataset.lineNumber;
-      return lineAttr ? parseInt(lineAttr, 10) >= targetLine : false;
-    });
-
-    if (targetElement) {
-      targetElement.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-    return;
-  }
-});
 
 socket.addEventListener("open", () => {
   console.log("WebSocket connected");
@@ -165,35 +73,180 @@ socket.addEventListener("error", (err: Event) => {
   console.error("WebSocket error:", err);
 });
 
-// スクロール時に位置を通知
+socket.addEventListener("message", (event: MessageEvent) => {
+  const data: ServerMessage = JSON.parse(event.data);
+
+  console.log("Received message:", JSON.stringify(data, null, 2));
+
+  switch (data.type) {
+    case "reload":
+      location.reload();
+      break;
+
+    case "edit":
+      handleEditMessage(data);
+      break;
+
+    case "editor-scroll":
+      handleEditorScroll(data.line);
+      break;
+
+    default:
+      console.warn("Unhandled message type:", (data as any).type);
+  }
+});
+
+// Notify VSCode on scroll (Preview → Editor)
 document.addEventListener(
   "scroll",
   () => {
-    if (globalState.editorScrollFromVscode.timer) {
-      clearTimeout(globalState.editorScrollFromVscode.timer);
-    }
-    globalState.editorScrollFromVscode.enabled = false;
-    globalState.editorScrollFromVscode.timer = setTimeout(() => {
-      globalState.editorScrollFromVscode.enabled = true;
-    }, timerMS);
+    throttleScrollSync();
 
-    const elements =
-      document.querySelectorAll<HTMLElement>("[data-line-number]");
-    const visibleElement = Array.from(elements).find((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.top >= 0;
-    });
+    const firstVisibleElement = getFirstVisibleLineElement();
+    if (!firstVisibleElement?.dataset.lineNumber) return;
 
-    if (visibleElement && visibleElement.dataset.lineNumber) {
-      const line = parseInt(visibleElement.dataset.lineNumber, 10);
-      const message: PreviewScrollMessage = {
-        type: "preview-scroll",
-        line,
-      };
-      console.log("Sending scroll message:", message);
+    const line = parseInt(firstVisibleElement.dataset.lineNumber, 10);
 
-      socket.send(JSON.stringify(message));
-    }
+    const message: PreviewScrollMessage = {
+      type: "preview-scroll",
+      line,
+    };
+
+    socket.send(JSON.stringify(message));
   },
   true
 );
+
+// ----------------------
+// Message Handlers
+// ----------------------
+
+function handleEditMessage(message: EditMessage): void {
+  const container = document.querySelector<HTMLDivElement>("div.markdown-body");
+  if (!container) {
+    console.warn("No .markdown-body element found.");
+    return;
+  }
+
+  applyEditScripts(container, message.editScripts);
+  updateDataLineAttributes(container, message.dataLineArray);
+  reRenderSpecialBlocks(message.editScripts);
+}
+
+function handleEditorScroll(targetLine: number): void {
+  if (!state.editorScrollFromVscode.enabled) return;
+
+  const targetElement = findLineElementAtOrAfter(targetLine);
+
+  if (targetElement) {
+    targetElement.scrollIntoView({ behavior: "auto", block: "start" });
+  }
+}
+
+function throttleScrollSync(): void {
+  if (state.editorScrollFromVscode.timer) {
+    clearTimeout(state.editorScrollFromVscode.timer);
+  }
+
+  state.editorScrollFromVscode.enabled = false;
+
+  state.editorScrollFromVscode.timer = setTimeout(() => {
+    state.editorScrollFromVscode.enabled = true;
+  }, SCROLL_THROTTLE_MS);
+}
+
+// ----------------------
+// DOM Utilities
+// ----------------------
+
+function findLineElementAtOrAfter(line: number): HTMLElement | undefined {
+  const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
+
+  return Array.from(elements).find((el) => {
+    const lineAttr = el.dataset.lineNumber;
+    return lineAttr ? parseInt(lineAttr, 10) >= line : false;
+  });
+}
+
+function getFirstVisibleLineElement(): HTMLElement | undefined {
+  const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
+
+  return Array.from(elements).find((el) => {
+    const rect = el.getBoundingClientRect();
+    return rect.top >= 0;
+  });
+}
+
+function applyEditScripts(
+  container: HTMLElement,
+  scripts: HtmlEditScript[]
+): void {
+  const children = container.children;
+  let indexOffset = 0;
+
+  scripts.forEach(({ index, operation, newHTML }) => {
+    const temp = document.createElement("div");
+    temp.innerHTML = newHTML;
+    const newElement = temp.firstElementChild;
+
+    const adjustedIndex = index + indexOffset;
+
+    switch (operation) {
+      case "update":
+        if (adjustedIndex < children.length && newElement) {
+          container.replaceChild(newElement, children[adjustedIndex]);
+        } else {
+          console.warn(`Update failed: index ${adjustedIndex} out of bounds.`);
+        }
+        break;
+
+      case "insert":
+        if (newElement) {
+          if (adjustedIndex >= children.length) {
+            container.appendChild(newElement);
+          } else {
+            container.insertBefore(newElement, children[adjustedIndex]);
+          }
+          indexOffset++;
+        }
+        break;
+
+      case "delete":
+        if (adjustedIndex < children.length) {
+          container.removeChild(children[adjustedIndex]);
+          indexOffset--;
+        } else {
+          console.warn(`Delete failed: index ${adjustedIndex} out of bounds.`);
+        }
+        break;
+
+      default:
+        console.warn(`Unknown operation: ${operation}`);
+    }
+  });
+}
+
+function updateDataLineAttributes(
+  container: HTMLElement,
+  dataLines: DataLine[]
+): void {
+  dataLines.forEach((dataLine, idx) => {
+    const element = container.children[idx];
+    if (element && dataLine["data-line-number"]) {
+      element.setAttribute("data-line-number", dataLine["data-line-number"]);
+    }
+  });
+}
+
+function reRenderSpecialBlocks(scripts: HtmlEditScript[]): void {
+  const needsABC = scripts.some((edit) =>
+    edit.newHTML.includes('data-language="abc"')
+  );
+
+  const needsMermaid = scripts.some((edit) =>
+    edit.newHTML.includes('data-language="mermaid"')
+  );
+
+  if (needsABC) window.renderABC?.();
+  if (needsMermaid) window.renderMermaid?.();
+}

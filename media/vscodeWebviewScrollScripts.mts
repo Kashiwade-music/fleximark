@@ -1,20 +1,16 @@
+// ----------------------
+// VSCode API
+// ----------------------
+
 declare const acquireVsCodeApi: () => {
-  postMessage: (message: any) => void;
+  postMessage: (message: unknown) => void;
 };
 
-interface ScrollState {
-  enabled: boolean;
-  timer: ReturnType<typeof setTimeout> | null;
-}
+const vscode = acquireVsCodeApi();
 
-const timerMS = 600;
-
-const globalState = {
-  editorScrollFromVscode: {
-    enabled: true,
-    timer: null as ReturnType<typeof setTimeout> | null,
-  } as ScrollState,
-};
+// ----------------------
+// Types & Interfaces
+// ----------------------
 
 interface ScrollMessage {
   type: "editor-scroll";
@@ -26,56 +22,102 @@ interface PreviewScrollMessage {
   line: number;
 }
 
-const vscode = acquireVsCodeApi();
+interface ScrollState {
+  enabled: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+}
 
-// スクロールを受け取って反映
+// ----------------------
+// Constants & State
+// ----------------------
+
+const SCROLL_THROTTLE_MS = 300;
+
+const state = {
+  editorScrollFromVscode: {
+    enabled: true,
+    timer: null,
+  } as ScrollState,
+};
+
+// ----------------------
+// Event Listeners
+// ----------------------
+
+// Handle messages from VSCode (Editor → Preview)
 window.addEventListener("message", (event: MessageEvent<ScrollMessage>) => {
-  const msg = event.data;
-  if (msg.type === "editor-scroll") {
-    if (!globalState.editorScrollFromVscode.enabled) return;
+  const message = event.data;
 
-    const targetLine = msg.line;
-
-    const elements =
-      document.querySelectorAll<HTMLElement>("[data-line-number]");
-    const targetElement = Array.from(elements).find((el) => {
-      const lineAttr = el.dataset.lineNumber;
-      return lineAttr ? parseInt(lineAttr, 10) >= targetLine : false;
-    });
-
-    if (targetElement) {
-      targetElement.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+  if (message.type === "editor-scroll") {
+    handleEditorScroll(message.line);
   }
 });
 
-// スクロール時に位置を通知
+// Notify VSCode on scroll (Preview → Editor)
 document.addEventListener(
   "scroll",
   () => {
-    if (globalState.editorScrollFromVscode.timer) {
-      clearTimeout(globalState.editorScrollFromVscode.timer);
-    }
-    globalState.editorScrollFromVscode.enabled = false;
-    globalState.editorScrollFromVscode.timer = setTimeout(() => {
-      globalState.editorScrollFromVscode.enabled = true;
-    }, timerMS);
+    throttleScrollSync();
 
-    const elements =
-      document.querySelectorAll<HTMLElement>("[data-line-number]");
-    const visibleElement = Array.from(elements).find((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.top >= 0;
-    });
+    const firstVisibleElement = getFirstVisibleLineElement();
+    if (!firstVisibleElement?.dataset.lineNumber) return;
 
-    if (visibleElement && visibleElement.dataset.lineNumber) {
-      const line = parseInt(visibleElement.dataset.lineNumber, 10);
-      const message: PreviewScrollMessage = {
-        type: "preview-scroll",
-        line,
-      };
-      vscode.postMessage(message);
-    }
+    const line = parseInt(firstVisibleElement.dataset.lineNumber, 10);
+
+    const message: PreviewScrollMessage = {
+      type: "preview-scroll",
+      line,
+    };
+
+    vscode.postMessage(message);
   },
   true
 );
+
+// ----------------------
+// Message Handlers
+// ----------------------
+
+function handleEditorScroll(targetLine: number): void {
+  if (!state.editorScrollFromVscode.enabled) return;
+
+  const targetElement = findLineElementAtOrAfter(targetLine);
+
+  if (targetElement) {
+    targetElement.scrollIntoView({ behavior: "auto", block: "start" });
+  }
+}
+
+function throttleScrollSync(): void {
+  if (state.editorScrollFromVscode.timer) {
+    clearTimeout(state.editorScrollFromVscode.timer);
+  }
+
+  state.editorScrollFromVscode.enabled = false;
+
+  state.editorScrollFromVscode.timer = setTimeout(() => {
+    state.editorScrollFromVscode.enabled = true;
+  }, SCROLL_THROTTLE_MS);
+}
+
+// ----------------------
+// DOM Utilities
+// ----------------------
+
+function findLineElementAtOrAfter(line: number): HTMLElement | undefined {
+  const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
+
+  return Array.from(elements).find((el) => {
+    const lineAttr = el.dataset.lineNumber;
+    return lineAttr ? parseInt(lineAttr, 10) >= line : false;
+  });
+}
+
+function getFirstVisibleLineElement(): HTMLElement | undefined {
+  const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
+
+  return Array.from(elements).find((el) => {
+    const rect = el.getBoundingClientRect();
+    return rect.top >= 0;
+  });
+}

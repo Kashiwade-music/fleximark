@@ -1,55 +1,50 @@
 import * as vscode from "vscode";
 import previewMarkdownOnVscode from "./commands/previewMarkdownOnVscode.mjs";
+import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
 import exportHtml from "./commands/exportHtml.mjs";
 import createWorkspaceMarknoteCss from "./commands/createWorkspaceMarknoteCss.mjs";
 import saveMarknoteCssToGlobalStorage from "./commands/saveMarknoteCssToGlobalStorage.mjs";
 import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import { isGlobalMarknoteCssExists } from "./commands/css/index.mjs";
-import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
+import { findDiff } from "./commands/utils/diffHTML.mjs";
+
 import express, { Express, Request, Response } from "express";
 import WebSocket, { WebSocketServer } from "ws";
-import { findDiff } from "./commands/utils/diffHTML.mjs";
 import { Root } from "hast";
 
-// ==========================
-//
-// Global State
-//
-// ==========================
+// Constants
+const SCROLL_THROTTLE_MS = 300;
+const DEFAULT_PORT = 3000;
 
+// State Interfaces
 interface ScrollState {
   enabled: boolean;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const timerMS = 600;
+interface GlobalExtensionState {
+  webviewPanel?: vscode.WebviewPanel;
+  editorPanel?: vscode.TextEditor;
+  editorScrollFromWebview: ScrollState;
+  editorScrollFromBrowser: ScrollState;
+  app?: Express;
+  appHtml?: string;
+  appHast?: Root;
+  wss?: WebSocketServer;
+  clients: Set<WebSocket>;
+}
 
-const globalState = {
-  webviewPanel: undefined as vscode.WebviewPanel | undefined,
-  editorPanel: undefined as vscode.TextEditor | undefined,
-  editorScrollFromWebview: {
-    enabled: true,
-    timer: null as ReturnType<typeof setTimeout> | null,
-  } as ScrollState,
-  editorScrollFromBrowser: {
-    enabled: true,
-    timer: null as ReturnType<typeof setTimeout> | null,
-  } as ScrollState,
-  app: undefined as Express | undefined,
-  appHtml: undefined as string | undefined,
-  appHast: undefined as Root | undefined,
-  wss: undefined as WebSocketServer | undefined,
+const state: GlobalExtensionState = {
+  editorScrollFromWebview: { enabled: true, timer: null },
+  editorScrollFromBrowser: { enabled: true, timer: null },
   clients: new Set<WebSocket>(),
 };
 
+// ---------------------------------------------
+// Activation
+// ---------------------------------------------
 export function activate(context: vscode.ExtensionContext) {
   console.log("Marknote extension activated.");
-
-  // ==========================
-  //
-  // Initial setup
-  //
-  // ==========================
 
   if (!isGlobalMarknoteCssExists(context)) {
     saveMarknoteCssToGlobalStorage(context);
@@ -58,264 +53,247 @@ export function activate(context: vscode.ExtensionContext) {
   // if in Dev, comment out the next line
   saveMarknoteCssToGlobalStorage(context);
 
-  // ==========================
-  //
-  // Preview Update Functions
-  //
-  // ==========================
+  registerCommands(context);
+  registerEventListeners(context);
+}
 
-  const updateVscodePreview = async (doc: vscode.TextDocument) => {
-    if (doc.languageId !== "markdown" || !globalState.webviewPanel) return;
+// ---------------------------------------------
+// Command Registration
+// ---------------------------------------------
+function registerCommands(context: vscode.ExtensionContext) {
+  const { subscriptions } = context;
 
-    const res = await renderMarkdownToHtml(
-      doc.getText(),
-      context,
-      globalState.webviewPanel.webview
-    );
-    globalState.webviewPanel.webview.html = res.html;
-  };
+  subscriptions.push(
+    vscode.commands.registerCommand("marknote.previewMarkdown", async () => {
+      const mode =
+        vscode.workspace
+          .getConfiguration("marknote")
+          .get<string>("defaultPreviewMode") ?? "vscode";
 
-  const updateBrowserPreview = async (
-    doc: vscode.TextDocument,
-    fullReload = false
-  ) => {
-    if (doc.languageId !== "markdown" || !globalState.app) return;
+      mode === "vscode"
+        ? openWebviewPreview(context)
+        : openBrowserPreview(context);
+    }),
 
-    const result = await renderMarkdownToHtml(doc.getText(), context);
+    vscode.commands.registerCommand("marknote.previewMarkdownOnVscode", () =>
+      openWebviewPreview(context)
+    ),
 
-    if (fullReload || !globalState.appHtml || !globalState.appHast) {
-      globalState.appHtml = result.html;
-      globalState.appHast = result.hast;
-      broadcastMessage({ type: "reload" });
-    } else {
-      const { editScripts, dataLineArray } = findDiff(
-        globalState.appHast,
-        result.hast
+    vscode.commands.registerCommand("marknote.previewMarkdownOnBrowser", () =>
+      openBrowserPreview(context)
+    ),
+
+    vscode.commands.registerCommand("marknote.exportHtml", () =>
+      exportHtml(context)
+    ),
+
+    vscode.commands.registerCommand("marknote.createWorkspaceMarknoteCss", () =>
+      createWorkspaceMarknoteCss(context)
+    ),
+
+    vscode.commands.registerCommand("marknote.resetGlobalMarknoteCss", () =>
+      saveMarknoteCssToGlobalStorage(context)
+    )
+  );
+}
+
+// ---------------------------------------------
+// Webview Preview
+// ---------------------------------------------
+async function openWebviewPreview(context: vscode.ExtensionContext) {
+  if (state.webviewPanel) return;
+
+  const result = await previewMarkdownOnVscode(context);
+  if (!result) return;
+
+  const { webviewPanel, editorPanel } = result;
+
+  state.webviewPanel = webviewPanel;
+  state.editorPanel = editorPanel;
+
+  webviewPanel.onDidDispose(() => {
+    state.webviewPanel = undefined;
+  });
+
+  webviewPanel.webview.onDidReceiveMessage((msg) => {
+    if (
+      msg.type === "preview-scroll" &&
+      state.editorScrollFromWebview.enabled
+    ) {
+      const position = new vscode.Position(msg.line, 0);
+      editorPanel?.revealRange(
+        new vscode.Range(position, position),
+        vscode.TextEditorRevealType.AtTop
       );
-      globalState.appHtml = result.html;
-      globalState.appHast = result.hast;
-
-      if (editScripts.length > 0) {
-        broadcastMessage({ type: "edit", editScripts, dataLineArray });
-      }
     }
-  };
+  });
+}
 
-  const broadcastMessage = (message: object) => {
-    if (!globalState.wss) return;
-    for (const client of globalState.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(message));
-      }
-    }
-  };
+// ---------------------------------------------
+// Browser Preview
+// ---------------------------------------------
+async function openBrowserPreview(context: vscode.ExtensionContext) {
+  if (!state.app) {
+    const result = await previewMarkdownOnBrowser(context);
+    if (!result) return;
 
-  // ==========================
-  //
-  // Browser Preview Server
-  //
-  // ==========================
+    state.app = result.app;
+    state.editorPanel = result.editorPanel;
+    state.appHtml = result.html;
+    state.appHast = result.hast;
 
-  const startBrowserPreviewServer = (expressApp: Express) => {
-    const port =
-      vscode.workspace
-        .getConfiguration("marknote")
-        .get<number>("browserPreviewPort") ?? 3000;
+    startBrowserPreviewServer(context);
+  }
 
-    expressApp.get("/", (_req: Request, res: Response) => {
-      res.send(globalState.appHtml);
-    });
+  const port =
+    vscode.workspace
+      .getConfiguration("marknote")
+      .get<number>("browserPreviewPort") ?? DEFAULT_PORT;
 
-    expressApp.listen(port, () => {
-      vscode.window.showInformationMessage(
-        vscode.l10n.t(
-          "The Markdown preview has opened at http://localhost:{port}.",
-          { port }
-        )
-      );
-      vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
-    });
+  vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
+}
 
-    globalState.wss = new WebSocketServer({ port: port + 1 });
-    globalState.wss.on("connection", (ws) => {
-      globalState.clients.add(ws);
-      ws.on("close", () => globalState.clients.delete(ws));
+function startBrowserPreviewServer(context: vscode.ExtensionContext) {
+  const app = state.app!;
+  const port =
+    vscode.workspace
+      .getConfiguration("marknote")
+      .get<number>("browserPreviewPort") ?? DEFAULT_PORT;
 
-      ws.addEventListener("message", (event) => {
-        const msg = JSON.parse(event.data as string);
-        if (msg.type === "preview-scroll") {
-          if (!globalState.editorScrollFromBrowser.enabled) return;
+  app.get("/", (_req: Request, res: Response) => {
+    res.send(state.appHtml);
+  });
 
-          const position = new vscode.Position(msg.line, 0);
-          globalState.editorPanel?.revealRange(
-            new vscode.Range(position, position),
-            vscode.TextEditorRevealType.AtTop
-          );
+  app.listen(port, () => {
+    vscode.window.showInformationMessage(
+      vscode.l10n.t(
+        "The Markdown preview has opened at http://localhost:{port}.",
+        {
+          port,
         }
-      });
-    });
-  };
-
-  // ==========================
-  //
-  // Register commands
-  //
-  // ==========================
-
-  const registerCommands = () => {
-    const { subscriptions } = context;
-
-    subscriptions.push(
-      vscode.commands.registerCommand("marknote.previewMarkdown", async () => {
-        const mode =
-          vscode.workspace
-            .getConfiguration("marknote")
-            .get<string>("defaultPreviewMode") ?? "vscode";
-        if (mode === "vscode") {
-          openVscodePreview();
-        } else {
-          await openBrowserPreview();
-        }
-      }),
-
-      vscode.commands.registerCommand(
-        "marknote.previewMarkdownOnVscode",
-        openVscodePreview
-      ),
-
-      vscode.commands.registerCommand(
-        "marknote.previewMarkdownOnBrowser",
-        openBrowserPreview
-      ),
-
-      vscode.commands.registerCommand("marknote.exportHtml", () =>
-        exportHtml(context)
-      ),
-
-      vscode.commands.registerCommand(
-        "marknote.createWorkspaceMarknoteCss",
-        () => createWorkspaceMarknoteCss(context)
-      ),
-
-      vscode.commands.registerCommand("marknote.resetGlobalMarknoteCss", () =>
-        saveMarknoteCssToGlobalStorage(context)
       )
     );
-  };
+    vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
+  });
 
-  const openVscodePreview = async () => {
-    if (globalState.webviewPanel) return;
+  const wss = new WebSocketServer({ port: port + 1 });
+  state.wss = wss;
 
-    const res = await previewMarkdownOnVscode(context);
-    if (!res) return;
+  wss.on("connection", (ws) => {
+    state.clients.add(ws);
+    ws.on("close", () => state.clients.delete(ws));
 
-    globalState.webviewPanel = res.webviewPanel;
-    globalState.editorPanel = res.editorPanel;
-
-    globalState.webviewPanel.onDidDispose(
-      () => (globalState.webviewPanel = undefined)
-    );
-
-    globalState.webviewPanel.webview.onDidReceiveMessage((msg) => {
-      if (msg.type === "preview-scroll") {
-        if (!globalState.editorScrollFromWebview.enabled) return;
-
+    ws.on("message", (data) => {
+      const msg = JSON.parse(data.toString());
+      if (
+        msg.type === "preview-scroll" &&
+        state.editorScrollFromBrowser.enabled
+      ) {
         const position = new vscode.Position(msg.line, 0);
-        globalState.editorPanel?.revealRange(
+        state.editorPanel?.revealRange(
           new vscode.Range(position, position),
           vscode.TextEditorRevealType.AtTop
         );
       }
     });
-  };
-
-  const openBrowserPreview = async () => {
-    if (!globalState.app) {
-      const result = await previewMarkdownOnBrowser(context);
-      if (!result) return;
-      ({
-        app: globalState.app,
-        editorPanel: globalState.editorPanel,
-        html: globalState.appHtml,
-        hast: globalState.appHast,
-      } = result);
-      startBrowserPreviewServer(globalState.app);
-    } else {
-      const port =
-        vscode.workspace
-          .getConfiguration("marknote")
-          .get<number>("browserPreviewPort") ?? 3000;
-      vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
-    }
-  };
-
-  // ==========================
-  //
-  // Event Listeners
-  //
-  // ==========================
-
-  const registerEventListeners = () => {
-    const { subscriptions } = context;
-
-    subscriptions.push(
-      vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (editor?.document.languageId === "markdown") {
-          globalState.editorPanel = editor;
-          updateVscodePreview(editor.document);
-          updateBrowserPreview(editor.document, true);
-        }
-      }),
-
-      vscode.workspace.onDidChangeTextDocument(({ document }) => {
-        updateVscodePreview(document);
-        updateBrowserPreview(document);
-      }),
-
-      vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
-        if (globalState.editorPanel !== event.textEditor) return;
-
-        if (globalState.editorScrollFromWebview.timer) {
-          clearTimeout(globalState.editorScrollFromWebview.timer);
-        }
-        if (globalState.editorScrollFromBrowser.timer) {
-          clearTimeout(globalState.editorScrollFromBrowser.timer);
-        }
-
-        globalState.editorScrollFromWebview.enabled = false;
-        globalState.editorScrollFromBrowser.enabled = false;
-        globalState.editorScrollFromWebview.timer = setTimeout(() => {
-          globalState.editorScrollFromWebview.enabled = true;
-        }, timerMS);
-        globalState.editorScrollFromBrowser.timer = setTimeout(() => {
-          globalState.editorScrollFromBrowser.enabled = true;
-        }, timerMS);
-
-        const firstLine = event.visibleRanges[0]?.start.line ?? 1;
-        globalState.webviewPanel?.webview.postMessage({
-          type: "editor-scroll",
-          line: firstLine,
-        });
-        globalState.wss?.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(
-              JSON.stringify({ type: "editor-scroll", line: firstLine })
-            );
-          }
-        });
-      })
-    );
-  };
-
-  // ==========================
-  //
-  // Bootstrap
-  //
-  // ==========================
-
-  registerCommands();
-  registerEventListeners();
+  });
 }
 
-// This method is called when your extension is deactivated
+// ---------------------------------------------
+// Live Preview Updates
+// ---------------------------------------------
+async function updateWebviewPreview(
+  document: vscode.TextDocument,
+  context: vscode.ExtensionContext
+) {
+  if (document.languageId !== "markdown" || !state.webviewPanel) return;
+
+  const result = await renderMarkdownToHtml(
+    document.getText(),
+    context,
+    state.webviewPanel.webview
+  );
+  state.webviewPanel.webview.html = result.html;
+}
+
+async function updateBrowserPreview(
+  document: vscode.TextDocument,
+  context: vscode.ExtensionContext,
+  fullReload = false
+) {
+  if (document.languageId !== "markdown" || !state.app) return;
+
+  const result = await renderMarkdownToHtml(document.getText(), context);
+
+  if (fullReload || !state.appHtml || !state.appHast) {
+    state.appHtml = result.html;
+    state.appHast = result.hast;
+    broadcastToClients({ type: "reload" });
+  } else {
+    const { editScripts, dataLineArray } = findDiff(state.appHast, result.hast);
+    state.appHtml = result.html;
+    state.appHast = result.hast;
+
+    if (editScripts.length > 0) {
+      broadcastToClients({ type: "edit", editScripts, dataLineArray });
+    }
+  }
+}
+
+function broadcastToClients(message: object) {
+  state.wss?.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
+
+// ---------------------------------------------
+// Event Listeners
+// ---------------------------------------------
+function registerEventListeners(context: vscode.ExtensionContext) {
+  const { subscriptions } = context;
+
+  subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor?.document.languageId === "markdown") {
+        state.editorPanel = editor;
+        updateWebviewPreview(editor.document, context);
+        updateBrowserPreview(editor.document, context, true);
+      }
+    }),
+
+    vscode.workspace.onDidChangeTextDocument(({ document }) => {
+      updateWebviewPreview(document, context);
+      updateBrowserPreview(document, context);
+    }),
+
+    vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
+      if (event.textEditor !== state.editorPanel) return;
+
+      clearTimeout(state.editorScrollFromWebview.timer!);
+      clearTimeout(state.editorScrollFromBrowser.timer!);
+
+      state.editorScrollFromWebview.enabled = false;
+      state.editorScrollFromBrowser.enabled = false;
+
+      state.editorScrollFromWebview.timer = setTimeout(() => {
+        state.editorScrollFromWebview.enabled = true;
+      }, SCROLL_THROTTLE_MS);
+
+      state.editorScrollFromBrowser.timer = setTimeout(() => {
+        state.editorScrollFromBrowser.enabled = true;
+      }, SCROLL_THROTTLE_MS);
+
+      const line = event.visibleRanges[0]?.start.line ?? 0;
+
+      state.webviewPanel?.webview.postMessage({ type: "editor-scroll", line });
+      broadcastToClients({ type: "editor-scroll", line });
+    })
+  );
+}
+
+// ---------------------------------------------
+// Deactivation
+// ---------------------------------------------
 export function deactivate() {}
