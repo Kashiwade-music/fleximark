@@ -2,7 +2,7 @@
   "name": "fleximark",
   "displayName": "fleximark",
   "description": "Flexible Markdown Preview and Note-Taking for VSCode",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "Kashiwade",
   "engines": {
     "vscode": "^1.101.0"
