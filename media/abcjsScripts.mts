@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import abcjs, { EventCallbackReturn, NoteTimingEvent } from "abcjs";
 
 async function sha256Hex(abcText: string) {
@@ -15,9 +16,9 @@ class TimingCallbackState {
   id: string;
   visualObj: any[];
   lastEls: HTMLElement[][] = [];
-  isRunning: boolean = false;
-  stoppedByPause: boolean = false;
-  stoppedByEnd: boolean = false;
+  isRunning = false;
+  stoppedByPause = false;
+  stoppedByEnd = false;
   cursor: SVGLineElement;
   timingCallback: any;
 
@@ -35,7 +36,7 @@ class TimingCallbackState {
     const svg = document.querySelector(`#score${this.id} svg`) as SVGSVGElement;
     const cursor = document.createElementNS(
       "http://www.w3.org/2000/svg",
-      "line"
+      "line",
     );
     cursor.setAttribute("class", "abcjs-cursor");
     cursor.setAttributeNS(null, "x1", "0");
@@ -51,7 +52,8 @@ class TimingCallbackState {
     totalBeats: number,
     _lastMoment: any,
     position: { left: number; top: number; height: number },
-    _debugInfo: any
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _debugInfo: any,
   ): void {
     let x1: number, x2: number, y1: number, y2: number;
     if (currentBeat === totalBeats) {
@@ -88,25 +90,24 @@ class TimingCallbackState {
 
   private colorElements(els: HTMLElement[][]): void {
     this.lastEls.forEach((group) =>
-      group.forEach((el) => el.classList.remove("color"))
+      group.forEach((el) => el.classList.remove("color")),
     );
     els.forEach((group) => group.forEach((el) => el.classList.add("color")));
     this.lastEls = els;
   }
 }
 
-const timingCallbacksStateArray: { [hash: string]: TimingCallbackState } = {};
+const timingCallbacksStateArray: Record<string, TimingCallbackState> = {};
 
 window.addEventListener("load", () => {
   renderABC();
 });
 
-// @ts-ignore
 window.renderABC = renderABC;
 
 function renderABC(): void {
   const preElements = document.querySelectorAll(
-    'pre[data-language="abc"]'
+    'pre[data-language="abc"]',
   ) as NodeListOf<HTMLPreElement>;
 
   preElements.forEach(async (preElement) => {
@@ -180,12 +181,12 @@ function renderABC(): void {
     };
 
     const startButton = document.querySelector(
-      `#audio${hash} > div > button.abcjs-midi-start.abcjs-btn`
+      `#audio${hash} > div > button.abcjs-midi-start.abcjs-btn`,
     );
     startButton?.addEventListener("click", startStop);
 
     const resetButton = document.querySelector(
-      `#audio${hash} > div > button.abcjs-midi-reset.abcjs-btn`
+      `#audio${hash} > div > button.abcjs-midi-reset.abcjs-btn`,
     );
     resetButton?.addEventListener("click", reset);
   });
