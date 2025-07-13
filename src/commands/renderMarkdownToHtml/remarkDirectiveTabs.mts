@@ -1,7 +1,7 @@
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { ContainerDirective } from "mdast-util-directive";
-import { Node, Parent } from "unist";
+import { Node } from "unist";
 import crypto from "crypto";
 
 function objectToHash(obj: object): string {
@@ -13,7 +13,7 @@ const remarkDirectiveTabs: Plugin = () => {
   let totalTabs = 0;
 
   return (tree: Node) => {
-    visit(tree, "containerDirective", (node: Node, index, parent) => {
+    visit(tree, "containerDirective", (node: Node) => {
       const root = node as ContainerDirective;
 
       if (root.name !== "tabs") return;
@@ -39,7 +39,7 @@ const remarkDirectiveTabs: Plugin = () => {
       const contents = generateTabContents(tabDirectives, uid);
       const styles = generateTabStyles(tabDirectives.length, uid);
 
-      // @ts-ignore
+      // @ts-expect-error keep flexibility for future changes
       root.children = [...inputs, labels, contents, styles];
 
       totalTabs++;

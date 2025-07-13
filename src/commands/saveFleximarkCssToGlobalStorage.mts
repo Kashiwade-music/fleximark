@@ -23,7 +23,7 @@ async function saveFleximarkCssToGlobalStorage(
     vscode.window.showInformationMessage(
       vscode.l10n.t("fleximark.css has been saved to global storage.")
     );
-  } catch (err) {
+  } catch {
     vscode.window.showErrorMessage(
       vscode.l10n.t("Failed to save fleximark.css to global storage.")
     );

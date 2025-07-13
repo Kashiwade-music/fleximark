@@ -37,7 +37,7 @@ async function createWorkspaceFleximarkCss(
         "Created .fleximark directory and fleximark.css file in the workspace."
       )
     );
-  } catch (err) {
+  } catch {
     vscode.window.showErrorMessage(
       vscode.l10n.t(
         "Failed to create .fleximark directory or fleximark.css file."

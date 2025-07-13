@@ -2,7 +2,6 @@ import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { Node, Parent } from "unist";
 import { Paragraph, Html } from "mdast";
-import { get } from "http";
 
 function extractYouTubeVideoId(url: string): string | null {
   try {
@@ -42,7 +41,7 @@ function extractYouTubeVideoId(url: string): string | null {
     }
 
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }

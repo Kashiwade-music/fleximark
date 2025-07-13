@@ -45,7 +45,9 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
     if (yesNo !== "Yes") {
       return;
     }
-  } catch (e) {}
+  } catch {
+    // .vscode directory does not exist, continue
+  }
 
   await vscode.workspace.fs.createDirectory(
     vscode.Uri.file(path.join(workspacePath, "attachments"))

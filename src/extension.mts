@@ -65,9 +65,11 @@ function registerCommands(context: vscode.ExtensionContext) {
           .getConfiguration("fleximark")
           .get<string>("defaultPreviewMode") ?? "vscode";
 
-      mode === "vscode"
-        ? openWebviewPreview(context)
-        : openBrowserPreview(context);
+      if (mode === "vscode") {
+        openWebviewPreview(context);
+      } else {
+        openBrowserPreview(context);
+      }
     }),
 
     vscode.commands.registerCommand("fleximark.previewMarkdownOnVscode", () =>
@@ -91,9 +93,7 @@ function registerCommands(context: vscode.ExtensionContext) {
       saveFleximarkCssToGlobalStorage(context)
     ),
 
-    vscode.commands.registerCommand("fleximark.createNote", () =>
-      createNote(context)
-    ),
+    vscode.commands.registerCommand("fleximark.createNote", () => createNote()),
 
     vscode.commands.registerCommand("fleximark.initializeWorkspace", () =>
       initializeWorkspace(context)
@@ -153,7 +153,7 @@ async function openBrowserPreview(context: vscode.ExtensionContext) {
     state.appHtml = result.html;
     state.appHast = result.hast;
 
-    startBrowserPreviewServer(context);
+    startBrowserPreviewServer();
   } else {
     const port =
       vscode.workspace
@@ -164,8 +164,16 @@ async function openBrowserPreview(context: vscode.ExtensionContext) {
   }
 }
 
-function startBrowserPreviewServer(context: vscode.ExtensionContext) {
-  const app = state.app!;
+function startBrowserPreviewServer() {
+  const app = state.app;
+
+  if (!app) {
+    vscode.window.showErrorMessage(
+      vscode.l10n.t("Browser preview server is not initialized.")
+    );
+    return;
+  }
+
   const port =
     vscode.workspace
       .getConfiguration("fleximark")
@@ -329,4 +337,9 @@ function registerEventListeners(context: vscode.ExtensionContext) {
 // ---------------------------------------------
 // Deactivation
 // ---------------------------------------------
-export function deactivate() {}
+export function deactivate() {
+  console.log("Fleximark extension deactivated.");
+  state.webviewPanel?.dispose();
+  state.wss?.close();
+  state.clients.clear();
+}

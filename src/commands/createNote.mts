@@ -6,9 +6,7 @@ interface CategoryTree {
   [key: string]: CategoryTree | Record<string, never>;
 }
 
-interface TemplatesMap {
-  [key: string]: string[];
-}
+type TemplatesMap = Record<string, string[]>;
 
 /**
  * Prompts the user to select a nested category path.
@@ -155,7 +153,7 @@ async function promptFileName(): Promise<string | undefined> {
 /**
  * Main entry point for creating a new markdown note.
  */
-async function createNote(context: vscode.ExtensionContext): Promise<void> {
+async function createNote(): Promise<void> {
   const config = vscode.workspace.getConfiguration("fleximark");
   const categories = config.get<CategoryTree>("noteCategories") ?? {};
   const templates = config.get<TemplatesMap>("noteTemplates") ?? {};

@@ -9,7 +9,7 @@ const rehypeRemovePosition: Plugin<[], Root> = () => {
   return (tree: Root) => {
     visit(tree, (node: Node) => {
       if ("position" in node) {
-        delete (node as any).position;
+        delete node.position;
       }
     });
   };

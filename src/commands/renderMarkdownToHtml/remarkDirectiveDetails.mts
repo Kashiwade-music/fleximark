@@ -78,9 +78,9 @@ const remarkDirectiveDetails: Plugin = () => {
         // set the final children array
 
         directive.children = [
-          // @ts-ignore
+          // @ts-expect-error keep flexibility for future changes
           ...(titleNode ? [titleNode] : []),
-          // @ts-ignore
+          // @ts-expect-error keep flexibility for future changes
           contentWrapper,
         ];
       }

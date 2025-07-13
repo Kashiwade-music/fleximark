@@ -6,7 +6,7 @@ import { Root } from "mdast";
 interface HDataNode extends Node {
   data?: {
     hName?: string;
-    hProperties?: Record<string, any>;
+    hProperties?: Record<string, unknown>;
   };
 }
 

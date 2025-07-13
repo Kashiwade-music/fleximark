@@ -26,7 +26,7 @@ export async function isGlobalFleximarkCssExists(
   try {
     await fs.access(cssPath.fsPath);
     return true; // ファイルが存在する場合
-  } catch (err) {
+  } catch {
     return false; // ファイルが存在しない場合
   }
 }
@@ -48,8 +48,7 @@ export async function readGlobalFleximarkCss(
   try {
     const content = await fs.readFile(cssPath.fsPath, "utf8");
     return content;
-  } catch (err) {
-    // ファイルが存在しない場合はデフォルトの内容を返す
+  } catch {
     vscode.window.showWarningMessage(
       vscode.l10n.t(
         "fleximark.css not found in global storage, returning default content."

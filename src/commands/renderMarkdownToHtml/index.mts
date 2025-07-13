@@ -26,10 +26,10 @@ import {
   readWorkspaceFleximarkCss,
 } from "../css/index.mjs";
 
-type RenderResult = {
+interface RenderResult {
   html: string;
   hast: Root;
-};
+}
 
 /**
  * Renders raw Markdown into an HTML string and a HAST tree using a pipeline of unified processors.
@@ -56,8 +56,8 @@ export async function renderMarkdownToHtml(
   markdownAbsPath: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
-  forExportToFile: boolean = false,
-  isNeedDataLineNumber: boolean = true
+  forExportToFile = false,
+  isNeedDataLineNumber = true
 ): Promise<RenderResult> {
   const processor = unified()
     .use(remarkParse)

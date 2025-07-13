@@ -25,7 +25,7 @@ export interface HtmlEditScript {
  */
 export interface FindDiffResult {
   editScripts: HtmlEditScript[];
-  dataLineArray: Array<Record<string, string>>;
+  dataLineArray: Record<string, string>[];
 }
 
 /**
@@ -64,7 +64,7 @@ export function findDiff(beforeTree: Root, afterTree: Root): FindDiffResult {
 }
 
 type HashMap = Record<string, RootContent>;
-type LineMetadataArray = Array<Record<string, string>>;
+type LineMetadataArray = Record<string, string>[];
 
 /**
  * Generates SHA-256 hashes for each node in the HAST tree and extracts line number metadata.
@@ -88,7 +88,14 @@ function hashHastContent(nodes: RootContent[]) {
   for (const node of nodes) {
     if (isIgnorableTextNode(node)) continue;
 
-    const properties = (node as any).properties ?? {};
+    const hasProperties = !(
+      node.type === "comment" ||
+      node.type === "doctype" ||
+      node.type === "text" ||
+      node.type === "raw"
+    );
+
+    const properties = hasProperties ? node.properties : {};
     const lineInfo = extractAndRemoveLineNumber(properties);
 
     dataLineArray.push(lineInfo);
@@ -114,8 +121,8 @@ function isIgnorableTextNode(node: RootContent): boolean {
   return (
     typeof node === "object" &&
     node !== null &&
-    (node as any).type === "text" &&
-    (node as any).value === "\n"
+    node.type === "text" &&
+    node.value === "\n"
   );
 }
 

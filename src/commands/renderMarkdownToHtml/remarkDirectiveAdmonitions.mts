@@ -1,20 +1,44 @@
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 import { ContainerDirective } from "mdast-util-directive";
-import { Node } from "unist";
+import { Paragraph, Node, Data } from "mdast";
 
 const ALLOWED_TYPES = ["info", "tip", "warning", "danger"] as const;
 type AllowedType = (typeof ALLOWED_TYPES)[number];
 
+export interface ExtendedContainerDirective {
+  /**
+   * Node type of container directive.
+   */
+  type: "containerDirective";
+
+  /**
+   * Directive name.
+   */
+  name: string;
+
+  /**
+   * Directive attributes.
+   */
+  attributes?: Record<string, string | null | undefined> | null | undefined;
+
+  /**
+   * Children of container directive.
+   */
+  children: Node[];
+
+  /**
+   * Data associated with the mdast container directive.
+   */
+  data?: Data | undefined;
+}
+
 const remarkDirectiveAdmonitions: Plugin = () => {
   return (tree: Node) => {
-    visit(tree, (node: Node) => {
-      if (
-        node.type === "containerDirective" &&
-        ALLOWED_TYPES.includes((node as ContainerDirective).name as AllowedType)
-      ) {
+    visit(tree, "containerDirective", (node: ContainerDirective) => {
+      if (ALLOWED_TYPES.includes(node.name as AllowedType)) {
         // set parent
-        const directive = node as ContainerDirective;
+        const directive = node as ExtendedContainerDirective;
         directive.data ??= {};
         directive.data.hName = "div";
         directive.data.hProperties = {
@@ -25,7 +49,7 @@ const remarkDirectiveAdmonitions: Plugin = () => {
         let titleNode = null;
         const contentNodes = [];
 
-        for (const child of directive.children) {
+        for (const child of node.children) {
           if (
             child.type === "paragraph" &&
             child.data?.directiveLabel === true
@@ -70,7 +94,7 @@ const remarkDirectiveAdmonitions: Plugin = () => {
                   directive.name.slice(1),
               },
             ],
-          };
+          } as Paragraph;
         } else {
           titleNode.children.unshift({
             type: "html",
@@ -80,7 +104,7 @@ const remarkDirectiveAdmonitions: Plugin = () => {
 
         // wrap contentNodes in a single admonition-content div
         const contentWrapper = {
-          type: "div",
+          type: "containerDiv",
           data: {
             hName: "div",
             hProperties: {
@@ -91,11 +115,8 @@ const remarkDirectiveAdmonitions: Plugin = () => {
         };
 
         // set the final children array
-
         directive.children = [
-          // @ts-ignore
           ...(titleNode ? [titleNode] : []),
-          // @ts-ignore
           contentWrapper,
         ];
       }
