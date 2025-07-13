@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="doc/logo.webp" alt="FlexiMark Logo" height="150"/>
+  <img src="assets/logo.webp" alt="FlexiMark Logo" height="150"/>
   <h1>FlexiMark</h1>
   <p><strong>Next-Level Markdown Preview and Note-Taking for VSCode</strong></p>
 
