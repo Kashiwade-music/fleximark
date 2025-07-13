@@ -94,10 +94,8 @@ document.addEventListener(
       return;
     }
 
-    const firstVisibleElement = getFirstVisibleLineElement();
-    if (!firstVisibleElement?.dataset.lineNumber) return;
-
-    const line = parseInt(firstVisibleElement.dataset.lineNumber, 10);
+    const line = estimateVisibleLineNumber();
+    if (line === undefined) return;
 
     const message: PreviewScrollMessage = {
       type: "preview-scroll",
@@ -188,13 +186,58 @@ function handleEditorScroll(targetLine: number): void {
 // DOM Utilities
 // ----------------------
 
-function getFirstVisibleLineElement(): HTMLElement | undefined {
-  const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
+function estimateVisibleLineNumber(): number | undefined {
+  const rawElements = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-line-number]"),
+  );
 
-  return Array.from(elements).find((el) => {
-    const rect = el.getBoundingClientRect();
-    return rect.top >= 0;
-  });
+  const elementsWithLine = rawElements
+    .map((el) => {
+      const lineAttr = el.dataset.lineNumber;
+      if (lineAttr === undefined) return undefined;
+
+      const line = parseInt(lineAttr, 10);
+      if (isNaN(line)) return undefined;
+
+      return { el, line };
+    })
+    .filter(
+      (entry): entry is { el: HTMLElement; line: number } =>
+        entry !== undefined,
+    );
+
+  if (elementsWithLine.length === 0) return undefined;
+
+  let lower: { el: HTMLElement; line: number } | undefined = undefined;
+  let upper: { el: HTMLElement; line: number } | undefined = undefined;
+
+  for (const entry of elementsWithLine) {
+    const rect = entry.el.getBoundingClientRect();
+    if (rect.top <= 0) {
+      if (!lower || entry.line > lower.line) {
+        lower = entry;
+      }
+    } else {
+      if (!upper || entry.line < upper.line) {
+        upper = entry;
+      }
+    }
+  }
+
+  if (lower && upper) {
+    const lowerRect = lower.el.getBoundingClientRect();
+    const upperRect = upper.el.getBoundingClientRect();
+    const deltaTop = upperRect.top - lowerRect.top;
+
+    if (deltaTop === 0) {
+      return lower.line;
+    }
+
+    const ratio = (0 - lowerRect.top) / deltaTop;
+    return Math.round(lower.line + ratio * (upper.line - lower.line));
+  }
+
+  return lower?.line ?? upper?.line;
 }
 
 function applyEditScripts(
