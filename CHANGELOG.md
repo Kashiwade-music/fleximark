@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/Kashiwade-music/fleximark/compare/v0.2.0...v0.2.1) (2025-07-13)
+
+
+### Bug Fixes
+
+* code block syntac style was broken ([c282dc9](https://github.com/Kashiwade-music/fleximark/commit/c282dc91b28cd1f92aa5e32562f47d85fb4fc2cf))
+
 # [0.2.0](https://github.com/Kashiwade-music/fleximark/compare/v0.1.3...v0.2.0) (2025-07-13)
 
 
