@@ -6,6 +6,7 @@ import rehypePrettyCode from "rehype-pretty-code";
 import rehypeRaw from "rehype-raw";
 import rehypeStringify from "rehype-stringify";
 import remarkDirective from "remark-directive";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -59,6 +60,7 @@ export async function renderMarkdownToHtml(
 ): Promise<RenderResult> {
   const processor = unified()
     .use(remarkParse)
+    .use(remarkFrontmatter)
     .use(remarkYouTube, { mode: webview ? "lazy" : "iframe" })
     .use(remarkGfm)
     .use(remarkMath)
