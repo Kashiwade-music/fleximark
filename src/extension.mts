@@ -53,7 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   // if in Dev, comment out the next line
-  saveFleximarkCssToGlobalStorage(context);
+  // saveFleximarkCssToGlobalStorage(context);
 
   registerCommands(context);
   registerEventListeners(context);
@@ -301,7 +301,7 @@ function registerEventListeners(context: vscode.ExtensionContext) {
         state.editorScrollFromBrowser.enabled = true;
       }, SCROLL_THROTTLE_MS);
 
-      const line = event.visibleRanges[0]?.start.line ?? 0;
+      const line = (event.visibleRanges[0]?.start.line ?? 0) + 1;
 
       state.webviewPanel?.webview.postMessage({ type: "editor-scroll", line });
       broadcastToClients({ type: "editor-scroll", line });
