@@ -22,22 +22,12 @@ interface PreviewScrollMessage {
   line: number;
 }
 
-interface ScrollState {
-  enabled: boolean;
-  timer: ReturnType<typeof setTimeout> | null;
-}
-
 // ----------------------
 // Constants & State
 // ----------------------
 
-const SCROLL_THROTTLE_MS = 300;
-
 const state = {
-  editorScrollFromVscode: {
-    enabled: true,
-    timer: null,
-  } as ScrollState,
+  isVscodeScrollProcessing: false,
 };
 
 // ----------------------
@@ -57,7 +47,10 @@ window.addEventListener("message", (event: MessageEvent<ScrollMessage>) => {
 document.addEventListener(
   "scroll",
   () => {
-    throttleScrollSync();
+    if (state.isVscodeScrollProcessing) {
+      state.isVscodeScrollProcessing = false;
+      return;
+    }
 
     const firstVisibleElement = getFirstVisibleLineElement();
     if (!firstVisibleElement?.dataset.lineNumber) return;
@@ -79,25 +72,13 @@ document.addEventListener(
 // ----------------------
 
 function handleEditorScroll(targetLine: number): void {
-  if (!state.editorScrollFromVscode.enabled) return;
+  state.isVscodeScrollProcessing = true;
 
   const targetElement = findLineElementAtOrAfter(targetLine);
 
   if (targetElement) {
     targetElement.scrollIntoView({ behavior: "auto", block: "start" });
   }
-}
-
-function throttleScrollSync(): void {
-  if (state.editorScrollFromVscode.timer) {
-    clearTimeout(state.editorScrollFromVscode.timer);
-  }
-
-  state.editorScrollFromVscode.enabled = false;
-
-  state.editorScrollFromVscode.timer = setTimeout(() => {
-    state.editorScrollFromVscode.enabled = true;
-  }, SCROLL_THROTTLE_MS);
 }
 
 // ----------------------

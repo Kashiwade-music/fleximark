@@ -27,8 +27,8 @@ interface ScrollState {
 interface GlobalExtensionState {
   webviewPanel?: vscode.WebviewPanel;
   editorPanel?: vscode.TextEditor;
-  editorScrollFromWebview: ScrollState;
-  editorScrollFromBrowser: ScrollState;
+  isWebviewScrollProcessing: boolean;
+  isBrowserScrollProcessing: boolean;
   app?: Express;
   appHtml?: string;
   appHast?: Root;
@@ -37,8 +37,8 @@ interface GlobalExtensionState {
 }
 
 const state: GlobalExtensionState = {
-  editorScrollFromWebview: { enabled: true, timer: null },
-  editorScrollFromBrowser: { enabled: true, timer: null },
+  isWebviewScrollProcessing: false,
+  isBrowserScrollProcessing: false,
   clients: new Set<WebSocket>(),
 };
 
@@ -53,7 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   // if in Dev, comment out the next line
-  // saveFleximarkCssToGlobalStorage(context);
+  saveFleximarkCssToGlobalStorage(context);
 
   registerCommands(context);
   registerEventListeners(context);
@@ -127,10 +127,9 @@ async function openWebviewPreview(context: vscode.ExtensionContext) {
   });
 
   webviewPanel.webview.onDidReceiveMessage((msg) => {
-    if (
-      msg.type === "preview-scroll" &&
-      state.editorScrollFromWebview.enabled
-    ) {
+    if (msg.type === "preview-scroll") {
+      state.isWebviewScrollProcessing = true;
+
       const position = new vscode.Position(msg.line, 0);
       editorPanel?.revealRange(
         new vscode.Range(position, position),
@@ -196,10 +195,9 @@ function startBrowserPreviewServer(context: vscode.ExtensionContext) {
 
     ws.on("message", (data) => {
       const msg = JSON.parse(data.toString());
-      if (
-        msg.type === "preview-scroll" &&
-        state.editorScrollFromBrowser.enabled
-      ) {
+      if (msg.type === "preview-scroll") {
+        state.isBrowserScrollProcessing = true;
+
         const position = new vscode.Position(msg.line, 0);
         state.editorPanel?.revealRange(
           new vscode.Range(position, position),
@@ -287,21 +285,24 @@ function registerEventListeners(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
       if (event.textEditor !== state.editorPanel) return;
 
-      clearTimeout(state.editorScrollFromWebview.timer!);
-      clearTimeout(state.editorScrollFromBrowser.timer!);
-
-      state.editorScrollFromWebview.enabled = false;
-      state.editorScrollFromBrowser.enabled = false;
-
-      state.editorScrollFromWebview.timer = setTimeout(() => {
-        state.editorScrollFromWebview.enabled = true;
-      }, SCROLL_THROTTLE_MS);
-
-      state.editorScrollFromBrowser.timer = setTimeout(() => {
-        state.editorScrollFromBrowser.enabled = true;
-      }, SCROLL_THROTTLE_MS);
-
       const line = (event.visibleRanges[0]?.start.line ?? 0) + 1;
+
+      if (state.isWebviewScrollProcessing) {
+        state.isWebviewScrollProcessing = false;
+
+        broadcastToClients({ type: "editor-scroll", line });
+        return;
+      }
+
+      if (state.isBrowserScrollProcessing) {
+        state.isBrowserScrollProcessing = false;
+
+        state.webviewPanel?.webview.postMessage({
+          type: "editor-scroll",
+          line,
+        });
+        return;
+      }
 
       state.webviewPanel?.webview.postMessage({ type: "editor-scroll", line });
       broadcastToClients({ type: "editor-scroll", line });

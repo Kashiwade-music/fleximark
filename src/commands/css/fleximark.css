@@ -34,7 +34,7 @@ Update Animation
 
 @keyframes fadeHighlightOverlay {
   0% {
-    background-color: rgba(160, 64, 160, 0.5);
+    background-color: rgba(160, 64, 160, 0.25);
   }
   100% {
     background-color: transparent;
