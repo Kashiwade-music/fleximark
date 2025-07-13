@@ -19,8 +19,8 @@ async function promptCategoryPath(categories: CategoryTree): Promise<string> {
     if (categoryKeys.length === 0) {
       vscode.window.showErrorMessage(
         vscode.l10n.t(
-          "No categories defined. Please add them in .vscode/settings.json."
-        )
+          "No categories defined. Please add them in .vscode/settings.json.",
+        ),
       );
       return "";
     }
@@ -32,7 +32,7 @@ async function promptCategoryPath(categories: CategoryTree): Promise<string> {
 
     if (!selected) {
       vscode.window.showWarningMessage(
-        vscode.l10n.t("Category selection was cancelled.")
+        vscode.l10n.t("Category selection was cancelled."),
       );
       return "";
     }
@@ -40,7 +40,7 @@ async function promptCategoryPath(categories: CategoryTree): Promise<string> {
     const subTree = categories[selected];
     if (typeof subTree !== "object" || subTree === null) {
       vscode.window.showErrorMessage(
-        vscode.l10n.t("Invalid category structure for selected category.")
+        vscode.l10n.t("Invalid category structure for selected category."),
       );
       return "";
     }
@@ -57,7 +57,7 @@ async function promptCategoryPath(categories: CategoryTree): Promise<string> {
   } catch (error) {
     console.error("Error in promptCategoryPath:", error);
     vscode.window.showErrorMessage(
-      vscode.l10n.t("An unexpected error occurred: {0}", String(error))
+      vscode.l10n.t("An unexpected error occurred: {0}", String(error)),
     );
     return "";
   }
@@ -67,7 +67,7 @@ async function promptCategoryPath(categories: CategoryTree): Promise<string> {
  * Prompts the user to select a template and returns its content as a SnippetString.
  */
 async function promptTemplateSelection(
-  templates: TemplatesMap
+  templates: TemplatesMap,
 ): Promise<vscode.SnippetString | null> {
   try {
     const templateNames = Object.keys(templates);
@@ -75,8 +75,8 @@ async function promptTemplateSelection(
     if (templateNames.length === 0) {
       vscode.window.showErrorMessage(
         vscode.l10n.t(
-          "No templates defined. Please add them in .vscode/settings.json."
-        )
+          "No templates defined. Please add them in .vscode/settings.json.",
+        ),
       );
       return null;
     }
@@ -88,7 +88,7 @@ async function promptTemplateSelection(
 
     if (!selected) {
       vscode.window.showWarningMessage(
-        vscode.l10n.t("Template selection was cancelled.")
+        vscode.l10n.t("Template selection was cancelled."),
       );
       return null;
     }
@@ -98,8 +98,8 @@ async function promptTemplateSelection(
       vscode.window.showErrorMessage(
         vscode.l10n.t(
           "Invalid template format for '{0}'. Expected an array of strings.",
-          selected
-        )
+          selected,
+        ),
       );
       return null;
     }
@@ -109,7 +109,7 @@ async function promptTemplateSelection(
   } catch (error) {
     console.error("Error in promptTemplateSelection:", error);
     vscode.window.showErrorMessage(
-      vscode.l10n.t("An unexpected error occurred: {0}", String(error))
+      vscode.l10n.t("An unexpected error occurred: {0}", String(error)),
     );
     return null;
   }
@@ -158,10 +158,10 @@ async function createNote(): Promise<void> {
   const categories = config.get<CategoryTree>("noteCategories") ?? {};
   const templates = config.get<TemplatesMap>("noteTemplates") ?? {};
   const noteFileNamePrefix = expandSnippetPlaceholders(
-    config.get<string>("noteFileNamePrefix") ?? ""
+    config.get<string>("noteFileNamePrefix") ?? "",
   );
   const noteFileNameSuffix = expandSnippetPlaceholders(
-    config.get<string>("noteFileNameSuffix") ?? ""
+    config.get<string>("noteFileNameSuffix") ?? "",
   );
 
   const categoryPath = await promptCategoryPath(categories);
@@ -182,7 +182,7 @@ async function createNote(): Promise<void> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders?.length) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("Please open a workspace before creating a note.")
+      vscode.l10n.t("Please open a workspace before creating a note."),
     );
     return;
   }
@@ -192,15 +192,15 @@ async function createNote(): Promise<void> {
   const noteUri = vscode.Uri.file(
     path.join(
       noteDir,
-      `${noteFileNamePrefix}${fileName}${noteFileNameSuffix}.md`
-    )
+      `${noteFileNamePrefix}${fileName}${noteFileNameSuffix}.md`,
+    ),
   );
 
   await ensureDirectoryExists(noteDir);
 
   if (await fileExists(noteUri)) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("A note with that name already exists.")
+      vscode.l10n.t("A note with that name already exists."),
     );
     return;
   }

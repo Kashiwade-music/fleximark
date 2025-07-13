@@ -121,7 +121,7 @@ const remarkYouTube: Plugin<[RemarkYouTubeOptions?]> = (options = {}) => {
           // If index is null, append the HTML node to the parent
           parent.children.push(htmlNode);
         }
-      }
+      },
     );
   };
 };

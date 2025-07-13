@@ -18,13 +18,14 @@ import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
-import remarkLineNumber from "./remarkLineNumber.mjs";
 import remarkYouTube from "./remarkYouTube.mjs";
 
 import {
   readGlobalFleximarkCss,
   readWorkspaceFleximarkCss,
 } from "../css/index.mjs";
+import rehypeRaw from "rehype-raw";
+import rehypeLineNumber from "./rehypeLineNumber.mjs";
 
 interface RenderResult {
   html: string;
@@ -57,7 +58,7 @@ export async function renderMarkdownToHtml(
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
   forExportToFile = false,
-  isNeedDataLineNumber = true
+  isNeedDataLineNumber = true,
 ): Promise<RenderResult> {
   const processor = unified()
     .use(remarkParse)
@@ -68,16 +69,19 @@ export async function renderMarkdownToHtml(
     .use(remarkDirectiveAdmonitions)
     .use(remarkDirectiveDetails)
     .use(remarkDirectiveTabs)
-    .use(remarkLineNumber, { isNeedDataLineNumber })
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
       theme: "github-light-default",
       keepBackground: false,
     })
+    .use(rehypeLineNumber, { isNeedDataLineNumber })
     .use(rehypeRemovePosition);
 
   const hast = (await processor.run(processor.parse(markdown))) as Root;
+
+  console.log(hast);
 
   // Write debug file for inspection
   // const debugFileUri = vscode.Uri.joinPath(
@@ -96,7 +100,7 @@ export async function renderMarkdownToHtml(
     markdownAbsPath,
     context,
     webview,
-    forExportToFile
+    forExportToFile,
   );
   return { html, hast };
 }
@@ -117,7 +121,7 @@ async function convertToHtml(
   markdownAbsPath: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,
-  forExportToFile?: boolean
+  forExportToFile?: boolean,
 ): Promise<string> {
   const htmlProcessor = unified().use(rehypeStringify, {
     allowDangerousHtml: true,
@@ -145,7 +149,7 @@ async function convertToHtml(
  */
 async function wrapHtmlForBrowser(
   body: string,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     readGlobalFleximarkCss(context),
@@ -198,7 +202,7 @@ async function wrapHtmlForBrowser(
  */
 async function wrapHtmlForFile(
   body: string,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     readGlobalFleximarkCss(context),
@@ -219,20 +223,20 @@ async function wrapHtmlForFile(
 
   const katexCssUri = vscode.Uri.joinPath(
     context.globalStorageUri,
-    "katex.min.css"
+    "katex.min.css",
   );
   const katexFontsUri = vscode.Uri.joinPath(context.globalStorageUri, "fonts");
 
   await vscode.workspace.fs.copy(
     vscode.Uri.joinPath(context.extensionUri, "dist", "media", "katex.min.css"),
     katexCssUri,
-    { overwrite: true }
+    { overwrite: true },
   );
 
   await vscode.workspace.fs.copy(
     vscode.Uri.joinPath(context.extensionUri, "dist", "media", "fonts"),
     katexFontsUri,
-    { overwrite: true }
+    { overwrite: true },
   );
 
   return `
@@ -256,7 +260,7 @@ async function wrapHtmlForFile(
 function rewriteImgSrcWithWebviewUri(
   html: string,
   markdownAbsPath: string,
-  webview: vscode.Webview
+  webview: vscode.Webview,
 ): string {
   return html.replace(
     /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/g,
@@ -273,7 +277,7 @@ function rewriteImgSrcWithWebviewUri(
           ? src
           : vscode.Uri.joinPath(
               vscode.Uri.file(path.dirname(markdownAbsPath)),
-              src
+              src,
             ).fsPath;
 
         const uri = webview.asWebviewUri(vscode.Uri.file(localPath));
@@ -282,7 +286,7 @@ function rewriteImgSrcWithWebviewUri(
         console.error(`Failed to rewrite img src for: ${src}`, err);
         return match;
       }
-    }
+    },
   );
 }
 
@@ -301,7 +305,7 @@ async function wrapHtmlForVscode(
   body: string,
   markdownAbsPath: string,
   context: vscode.ExtensionContext,
-  webview: vscode.Webview
+  webview: vscode.Webview,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     readGlobalFleximarkCss(context),
@@ -310,7 +314,7 @@ async function wrapHtmlForVscode(
 
   const getUri = (file: string) =>
     webview.asWebviewUri(
-      vscode.Uri.joinPath(context.extensionUri, "dist", "media", file)
+      vscode.Uri.joinPath(context.extensionUri, "dist", "media", file),
     );
 
   const assets = {
@@ -348,7 +352,7 @@ async function wrapHtmlForVscode(
   <div class="markdown-body">${rewriteImgSrcWithWebviewUri(
     body,
     markdownAbsPath,
-    webview
+    webview,
   )}</div>
 </body>
 </html>`;

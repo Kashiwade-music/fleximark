@@ -8,7 +8,7 @@ import * as fs from "fs/promises";
  * @param context - The extension context used to locate the global fleximark.css path.
  */
 async function createWorkspaceFleximarkCss(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<void> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders) return;
@@ -18,7 +18,7 @@ async function createWorkspaceFleximarkCss(
   const workspaceCssPath = vscode.Uri.joinPath(fleximarkDir, "fleximark.css");
   const globalCssPath = vscode.Uri.joinPath(
     context.globalStorageUri,
-    "fleximark.css"
+    "fleximark.css",
   );
 
   const commentContent = `/* 
@@ -34,14 +34,14 @@ async function createWorkspaceFleximarkCss(
     await fs.writeFile(workspaceCssPath.fsPath, commentContent, "utf8");
     vscode.window.showInformationMessage(
       vscode.l10n.t(
-        "Created .fleximark directory and fleximark.css file in the workspace."
-      )
+        "Created .fleximark directory and fleximark.css file in the workspace.",
+      ),
     );
   } catch {
     vscode.window.showErrorMessage(
       vscode.l10n.t(
-        "Failed to create .fleximark directory or fleximark.css file."
-      )
+        "Failed to create .fleximark directory or fleximark.css file.",
+      ),
     );
   }
 }

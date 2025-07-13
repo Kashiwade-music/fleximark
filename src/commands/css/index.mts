@@ -17,11 +17,11 @@ export function getDefaultFleximarkCss(): string {
  * @returns A promise that resolves to true if the file exists, or false otherwise.
  */
 export async function isGlobalFleximarkCssExists(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<boolean> {
   const cssPath = vscode.Uri.joinPath(
     context.globalStorageUri,
-    "fleximark.css"
+    "fleximark.css",
   );
   try {
     await fs.access(cssPath.fsPath);
@@ -39,11 +39,11 @@ export async function isGlobalFleximarkCssExists(
  * @returns The content of the fleximark.css file as a string.
  */
 export async function readGlobalFleximarkCss(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<string> {
   const cssPath = vscode.Uri.joinPath(
     context.globalStorageUri,
-    "fleximark.css"
+    "fleximark.css",
   );
   try {
     const content = await fs.readFile(cssPath.fsPath, "utf8");
@@ -51,8 +51,8 @@ export async function readGlobalFleximarkCss(
   } catch {
     vscode.window.showWarningMessage(
       vscode.l10n.t(
-        "fleximark.css not found in global storage, returning default content."
-      )
+        "fleximark.css not found in global storage, returning default content.",
+      ),
     );
 
     return getDefaultFleximarkCss();
@@ -73,7 +73,7 @@ export async function readWorkspaceFleximarkCss(): Promise<string> {
   const cssPath = vscode.Uri.joinPath(
     workspaceUri,
     ".fleximark",
-    "fleximark.css"
+    "fleximark.css",
   );
 
   try {

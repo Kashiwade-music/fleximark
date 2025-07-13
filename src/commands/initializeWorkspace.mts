@@ -5,7 +5,7 @@ import * as fs from "fs";
 const getSettingsJsonString = async (context: vscode.ExtensionContext) => {
   const uiLanguage = vscode.env.language;
   const basePath = context.asAbsolutePath(
-    path.join("dist", "media", "workspaceSettingsJsonTemplate")
+    path.join("dist", "media", "workspaceSettingsJsonTemplate"),
   );
 
   const targetPath = path.join(basePath, `${uiLanguage}.jsonc`);
@@ -24,7 +24,7 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   const workspace = vscode.workspace.workspaceFolders;
   if (!workspace) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("Please open a workspace before initializing.")
+      vscode.l10n.t("Please open a workspace before initializing."),
     );
     return;
   }
@@ -33,14 +33,14 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   const workspacePath = workspace[0].uri.fsPath;
   try {
     await vscode.workspace.fs.stat(
-      vscode.Uri.file(path.join(workspacePath, ".vscode"))
+      vscode.Uri.file(path.join(workspacePath, ".vscode")),
     );
     const yesNo = await vscode.window.showInformationMessage(
       vscode.l10n.t(
-        "A .vscode directory already exists. Do you want to overwrite it?"
+        "A .vscode directory already exists. Do you want to overwrite it?",
       ),
       "Yes",
-      "No"
+      "No",
     );
     if (yesNo !== "Yes") {
       return;
@@ -50,20 +50,20 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   }
 
   await vscode.workspace.fs.createDirectory(
-    vscode.Uri.file(path.join(workspacePath, "attachments"))
+    vscode.Uri.file(path.join(workspacePath, "attachments")),
   );
 
   // create file and open
   const file = vscode.Uri.file(
-    path.join(workspacePath, ".vscode", "settings.json")
+    path.join(workspacePath, ".vscode", "settings.json"),
   );
   await vscode.workspace.fs.writeFile(
     file,
-    Buffer.from(await getSettingsJsonString(context))
+    Buffer.from(await getSettingsJsonString(context)),
   );
 
   await vscode.window.showTextDocument(
-    await vscode.workspace.openTextDocument(file)
+    await vscode.workspace.openTextDocument(file),
   );
 };
 

@@ -7,7 +7,7 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
 
   if (!editorPanel || !doc || doc.languageId !== "markdown") {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("The Markdown file must be active.")
+      vscode.l10n.t("The Markdown file must be active."),
     );
     return;
   }
@@ -17,21 +17,21 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
       "markdownPreview",
       "Markdown Preview",
       vscode.ViewColumn.Beside,
-      { enableScripts: true }
+      { enableScripts: true },
     );
 
     const res = await renderMarkdownToHtml(
       doc.getText(),
       doc.uri.fsPath,
       context,
-      webviewPanel.webview
+      webviewPanel.webview,
     );
 
     webviewPanel.webview.html = res.html;
     return { webviewPanel, editorPanel };
   } catch {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("An error occurred while preparing the Markdown preview.")
+      vscode.l10n.t("An error occurred while preparing the Markdown preview."),
     );
     return;
   }

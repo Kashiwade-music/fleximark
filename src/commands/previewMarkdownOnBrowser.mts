@@ -9,7 +9,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
 
   if (!editorPanel || !doc || doc.languageId !== "markdown") {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("The Markdown file must be active.")
+      vscode.l10n.t("The Markdown file must be active."),
     );
     return;
   }
@@ -17,7 +17,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(doc.uri);
   if (!workspaceFolder) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("The Markdown file must be in a workspace folder.")
+      vscode.l10n.t("The Markdown file must be in a workspace folder."),
     );
     return;
   }
@@ -30,13 +30,13 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     const res = await renderMarkdownToHtml(
       doc.getText(),
       doc.uri.fsPath,
-      context
+      context,
     );
 
     return { app, editorPanel, ...res };
   } catch (err) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("An error occurred while preparing the Markdown preview.")
+      vscode.l10n.t("An error occurred while preparing the Markdown preview."),
     );
     console.error(err);
     return;

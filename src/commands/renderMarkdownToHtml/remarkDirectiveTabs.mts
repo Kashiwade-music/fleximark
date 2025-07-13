@@ -24,7 +24,7 @@ const remarkDirectiveTabs: Plugin = () => {
 
       const tabDirectives: ContainerDirective[] = root.children.filter(
         (child): child is ContainerDirective =>
-          child.type === "containerDirective" && child.name === "tab"
+          child.type === "containerDirective" && child.name === "tab",
       );
 
       const uid =
@@ -83,7 +83,7 @@ function extractTabLabel(tab: ContainerDirective): string | null {
 
 function generateTabContents(
   tabs: ContainerDirective[],
-  prefix: string
+  prefix: string,
 ): ContainerDirective {
   return {
     type: "containerDirective",
@@ -92,7 +92,7 @@ function generateTabContents(
     children: tabs.map((tab, i) => {
       const id = `${prefix}-${i}`;
       const contentChildren = tab.children.filter(
-        (child) => !(child.type === "paragraph" && child.data?.directiveLabel)
+        (child) => !(child.type === "paragraph" && child.data?.directiveLabel),
       );
 
       return {

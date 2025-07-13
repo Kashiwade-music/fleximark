@@ -73,31 +73,31 @@ function registerCommands(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand("fleximark.previewMarkdownOnVscode", () =>
-      openWebviewPreview(context)
+      openWebviewPreview(context),
     ),
 
     vscode.commands.registerCommand("fleximark.previewMarkdownOnBrowser", () =>
-      openBrowserPreview(context)
+      openBrowserPreview(context),
     ),
 
     vscode.commands.registerCommand("fleximark.exportHtml", () =>
-      exportHtml(context)
+      exportHtml(context),
     ),
 
     vscode.commands.registerCommand(
       "fleximark.createWorkspaceFleximarkCss",
-      () => createWorkspaceFleximarkCss(context)
+      () => createWorkspaceFleximarkCss(context),
     ),
 
     vscode.commands.registerCommand("fleximark.resetGlobalFleximarkCss", () =>
-      saveFleximarkCssToGlobalStorage(context)
+      saveFleximarkCssToGlobalStorage(context),
     ),
 
     vscode.commands.registerCommand("fleximark.createNote", () => createNote()),
 
     vscode.commands.registerCommand("fleximark.initializeWorkspace", () =>
-      initializeWorkspace(context)
-    )
+      initializeWorkspace(context),
+    ),
   );
 }
 
@@ -134,7 +134,7 @@ async function openWebviewPreview(context: vscode.ExtensionContext) {
       const position = new vscode.Position(msg.line, 0);
       editorPanel?.revealRange(
         new vscode.Range(position, position),
-        vscode.TextEditorRevealType.AtTop
+        vscode.TextEditorRevealType.AtTop,
       );
     }
   });
@@ -169,7 +169,7 @@ function startBrowserPreviewServer() {
 
   if (!app) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("Browser preview server is not initialized.")
+      vscode.l10n.t("Browser preview server is not initialized."),
     );
     return;
   }
@@ -189,8 +189,8 @@ function startBrowserPreviewServer() {
         "The Markdown preview has opened at http://localhost:{port}.",
         {
           port,
-        }
-      )
+        },
+      ),
     );
     vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
   });
@@ -218,7 +218,7 @@ function startBrowserPreviewServer() {
         const position = new vscode.Position(msg.line, 0);
         state.editorPanel?.revealRange(
           new vscode.Range(position, position),
-          vscode.TextEditorRevealType.AtTop
+          vscode.TextEditorRevealType.AtTop,
         );
       }
     });
@@ -230,7 +230,7 @@ function startBrowserPreviewServer() {
 // ---------------------------------------------
 async function updateWebviewPreview(
   document: vscode.TextDocument,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ) {
   if (document.languageId !== "markdown" || !state.webviewPanel) return;
 
@@ -238,7 +238,7 @@ async function updateWebviewPreview(
     document.getText(),
     document.uri.fsPath,
     context,
-    state.webviewPanel.webview
+    state.webviewPanel.webview,
   );
   state.webviewPanel.webview.html = result.html;
 }
@@ -246,14 +246,14 @@ async function updateWebviewPreview(
 async function updateBrowserPreview(
   document: vscode.TextDocument,
   context: vscode.ExtensionContext,
-  fullReload = false
+  fullReload = false,
 ) {
   if (document.languageId !== "markdown" || !state.app) return;
 
   const result = await renderMarkdownToHtml(
     document.getText(),
     document.uri.fsPath,
-    context
+    context,
   );
 
   if (fullReload || !state.appHtml || !state.appHast) {
@@ -330,7 +330,7 @@ function registerEventListeners(context: vscode.ExtensionContext) {
 
       state.webviewPanel?.webview.postMessage({ type: "editor-scroll", line });
       broadcastToClients({ type: "editor-scroll", line });
-    })
+    }),
   );
 }
 

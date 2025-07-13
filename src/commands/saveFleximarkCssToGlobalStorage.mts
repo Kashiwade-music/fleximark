@@ -9,23 +9,23 @@ import { getDefaultFleximarkCss } from "./css/index.mjs";
  * @param context - The extension context containing the globalStorageUri.
  */
 async function saveFleximarkCssToGlobalStorage(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<void> {
   const cssContent = getDefaultFleximarkCss();
   const cssPath = vscode.Uri.joinPath(
     context.globalStorageUri,
-    "fleximark.css"
+    "fleximark.css",
   );
 
   try {
     await fs.mkdir(context.globalStorageUri.fsPath, { recursive: true });
     await fs.writeFile(cssPath.fsPath, cssContent, "utf8");
     vscode.window.showInformationMessage(
-      vscode.l10n.t("fleximark.css has been saved to global storage.")
+      vscode.l10n.t("fleximark.css has been saved to global storage."),
     );
   } catch {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("Failed to save fleximark.css to global storage.")
+      vscode.l10n.t("Failed to save fleximark.css to global storage."),
     );
   }
 }

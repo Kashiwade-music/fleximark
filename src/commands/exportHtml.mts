@@ -7,7 +7,7 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
 
   if (!editor || !doc || doc.languageId !== "markdown") {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("The Markdown file must be active.")
+      vscode.l10n.t("The Markdown file must be active."),
     );
     return;
   }
@@ -25,17 +25,17 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
       context,
       undefined,
       true,
-      false
+      false,
     );
     const uint8array = enc.encode(res.html);
 
     await vscode.workspace.fs.writeFile(uri, uint8array);
     vscode.window.showInformationMessage(
-      vscode.l10n.t("HTML exported to {htmlFilePath}", { htmlFilePath })
+      vscode.l10n.t("HTML exported to {htmlFilePath}", { htmlFilePath }),
     );
   } catch (err) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t("Failed to export HTML: {err}", { err: String(err) })
+      vscode.l10n.t("Failed to export HTML: {err}", { err: String(err) }),
     );
   }
 };

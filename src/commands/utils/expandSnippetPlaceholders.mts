@@ -75,7 +75,7 @@ export function expandSnippetPlaceholders(input: string): string {
   return input.replace(/\$\{[A-Z_]+\}/g, (match) =>
     Object.prototype.hasOwnProperty.call(replacements, match)
       ? String(replacements[match])
-      : match
+      : match,
   );
 }
 

@@ -134,7 +134,7 @@ function isIgnorableTextNode(node: RootContent): boolean {
  * @returns An object containing only the extracted `data-line-number`, if found.
  */
 function extractAndRemoveLineNumber(
-  properties: Record<string, unknown>
+  properties: Record<string, unknown>,
 ): Record<string, string> {
   const lineNumber = properties["data-line-number"];
   if (typeof lineNumber === "string") {
@@ -155,17 +155,17 @@ function extractAndRemoveLineNumber(
  */
 function computeEditScript(
   source: string[],
-  target: string[]
+  target: string[],
 ): HtmlEditScript[] {
   const m = source.length;
   const n = target.length;
 
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    Array(n + 1).fill(0)
+    Array(n + 1).fill(0),
   );
   const ops: ("none" | "insert" | "delete" | "update")[][] = Array.from(
     { length: m + 1 },
-    () => Array(n + 1).fill("none")
+    () => Array(n + 1).fill("none"),
   );
 
   // Initialize base cases
