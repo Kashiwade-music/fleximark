@@ -128,25 +128,65 @@ function handleEditMessage(message: EditMessage): void {
 function handleEditorScroll(targetLine: number): void {
   state.isVscodeScrollProcessing = true;
 
-  const targetElement = findLineElementAtOrAfter(targetLine);
+  const elements = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-line-number]"),
+  );
 
-  if (targetElement) {
-    targetElement.scrollIntoView({ behavior: "auto", block: "start" });
+  let lowerElement: HTMLElement | undefined;
+  let upperElement: HTMLElement | undefined;
+  let lowerLine: number | undefined;
+  let upperLine: number | undefined;
+
+  for (const el of elements) {
+    const lineAttr = el.dataset.lineNumber;
+    if (!lineAttr) continue;
+
+    const line = parseInt(lineAttr, 10);
+    if (isNaN(line)) continue;
+
+    if (line === targetLine) {
+      el.scrollIntoView({ behavior: "auto", block: "start" });
+      return;
+    }
+
+    if (line < targetLine) {
+      if (lowerLine === undefined || line > lowerLine) {
+        lowerLine = line;
+        lowerElement = el;
+      }
+    } else if (line > targetLine) {
+      if (upperLine === undefined || line < upperLine) {
+        upperLine = line;
+        upperElement = el;
+      }
+    }
+  }
+
+  if (
+    lowerElement &&
+    upperElement &&
+    lowerLine !== undefined &&
+    upperLine !== undefined
+  ) {
+    const ratio = (targetLine - lowerLine) / (upperLine - lowerLine);
+
+    const lowerRect = lowerElement.getBoundingClientRect();
+    const upperRect = upperElement.getBoundingClientRect();
+
+    const targetY =
+      lowerRect.top + ratio * (upperRect.top - lowerRect.top) + window.scrollY;
+
+    window.scrollTo({ top: targetY, behavior: "auto" });
+  } else if (lowerElement) {
+    lowerElement.scrollIntoView({ behavior: "auto", block: "start" });
+  } else if (upperElement) {
+    upperElement.scrollIntoView({ behavior: "auto", block: "start" });
   }
 }
 
 // ----------------------
 // DOM Utilities
 // ----------------------
-
-function findLineElementAtOrAfter(line: number): HTMLElement | undefined {
-  const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
-
-  return Array.from(elements).find((el) => {
-    const lineAttr = el.dataset.lineNumber;
-    return lineAttr ? parseInt(lineAttr, 10) >= line : false;
-  });
-}
 
 function getFirstVisibleLineElement(): HTMLElement | undefined {
   const elements = document.querySelectorAll<HTMLElement>("[data-line-number]");
