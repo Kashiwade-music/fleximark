@@ -1,3 +1,12 @@
+# [0.2.0](https://github.com/Kashiwade-music/fleximark/compare/v0.1.3...v0.2.0) (2025-07-13)
+
+
+### Features
+
+* handling frontmatter ([2c52491](https://github.com/Kashiwade-music/fleximark/commit/2c52491b6abaf4a579d206e66cd69de00078cdc9))
+* improve line estimation for scrolling behavior in editor ([62d4362](https://github.com/Kashiwade-music/fleximark/commit/62d4362b019953b4fca4c1b0396540f6cd88d0dd))
+* improve scrolling behavior in editor for line navigation ([e5f3f33](https://github.com/Kashiwade-music/fleximark/commit/e5f3f33372620f4e4f31a2ed93e95b6ec93c352e))
+
 ## [0.1.3](https://github.com/Kashiwade-music/fleximark/compare/v0.1.2...v0.1.3) (2025-07-13)
 
 
