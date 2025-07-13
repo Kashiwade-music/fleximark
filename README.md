@@ -78,7 +78,7 @@ Found a bug or have a feature request? [Open an issue](#) or submit a pull reque
 
 ## 📄 License
 
-MIT License. See [LICENSE](LICENSE) for more details.
+MIT License. See [LICENSE](./LICENSE) for more details.
 
 ---
 

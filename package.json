@@ -20,6 +20,10 @@
     "browser"
   ],
   "icon": "assets/logo_icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kashiwade-music/fleximark.git"
+  },
   "preview": true,
   "activationEvents": [],
   "main": "./dist/extension.cjs",
@@ -171,7 +175,6 @@
     "@vscode/l10n": "^0.0.18",
     "abcjs": "^6.5.1",
     "express": "^5.1.0",
-    "happy-dom": "^18.0.1",
     "mermaid": "^11.8.0",
     "rehype-katex": "^7.0.1",
     "rehype-pretty-code": "^0.14.1",
