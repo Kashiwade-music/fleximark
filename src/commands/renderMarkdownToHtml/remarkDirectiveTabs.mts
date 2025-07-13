@@ -1,8 +1,8 @@
-import { Plugin } from "unified";
-import { visit } from "unist-util-visit";
-import { ContainerDirective } from "mdast-util-directive";
-import { Node } from "unist";
 import crypto from "crypto";
+import { ContainerDirective } from "mdast-util-directive";
+import { Plugin } from "unified";
+import { Node } from "unist";
+import { visit } from "unist-util-visit";
 
 function objectToHash(obj: object): string {
   const jsonString = JSON.stringify(obj, Object.keys(obj).sort());

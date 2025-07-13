@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+
 import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const exportHtml = async (context: vscode.ExtensionContext) => {

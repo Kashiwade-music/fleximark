@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+
 import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {

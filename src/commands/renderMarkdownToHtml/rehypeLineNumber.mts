@@ -1,6 +1,6 @@
+import { Root, RootContent } from "hast";
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
-import { Root, RootContent } from "hast";
 
 interface RehypeLineNumberOptions {
   isNeedDataLineNumber?: boolean;

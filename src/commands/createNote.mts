@@ -1,5 +1,6 @@
-import * as vscode from "vscode";
 import * as path from "path";
+import * as vscode from "vscode";
+
 import expandSnippetPlaceholders from "./utils/expandSnippetPlaceholders.mjs";
 
 interface CategoryTree {

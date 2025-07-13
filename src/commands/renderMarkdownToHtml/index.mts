@@ -1,31 +1,28 @@
-import * as vscode from "vscode";
-import * as path from "path";
 import * as fs from "fs";
-import { unified } from "unified";
 import { Root } from "hast";
-
-import remarkParse from "remark-parse";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkRehype from "remark-rehype";
-import remarkDirective from "remark-directive";
-
+import * as path from "path";
 import rehypeKatex from "rehype-katex";
 import rehypePrettyCode from "rehype-pretty-code";
+import rehypeRaw from "rehype-raw";
 import rehypeStringify from "rehype-stringify";
-import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
-
-import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
-import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
-import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
-import remarkYouTube from "./remarkYouTube.mjs";
+import remarkDirective from "remark-directive";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
+import { unified } from "unified";
+import * as vscode from "vscode";
 
 import {
   readGlobalFleximarkCss,
   readWorkspaceFleximarkCss,
 } from "../css/index.mjs";
-import rehypeRaw from "rehype-raw";
 import rehypeLineNumber from "./rehypeLineNumber.mjs";
+import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
+import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
+import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
+import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
+import remarkYouTube from "./remarkYouTube.mjs";
 
 interface RenderResult {
   html: string;

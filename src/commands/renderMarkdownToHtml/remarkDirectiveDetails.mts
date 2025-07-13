@@ -1,7 +1,7 @@
-import { Plugin } from "unified";
-import { visit } from "unist-util-visit";
 import { ContainerDirective } from "mdast-util-directive";
+import { Plugin } from "unified";
 import { Node } from "unist";
+import { visit } from "unist-util-visit";
 
 const remarkDirectiveDetails: Plugin = () => {
   return (tree: Node) => {

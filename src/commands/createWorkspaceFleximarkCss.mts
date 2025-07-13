@@ -1,5 +1,5 @@
-import * as vscode from "vscode";
 import * as fs from "fs/promises";
+import * as vscode from "vscode";
 
 /**
  * Creates a `.fleximark` directory in the workspace and places a fleximark.css file inside.

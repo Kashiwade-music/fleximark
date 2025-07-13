@@ -1,6 +1,6 @@
+import { Node, Root } from "hast";
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
-import { Root, Node } from "hast";
 
 /**
  * rehype plugin to remove all `position` properties from nodes.

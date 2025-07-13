@@ -1,7 +1,8 @@
-import * as vscode from "vscode";
 import express from "express";
-import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 import path from "path";
+import * as vscode from "vscode";
+
+import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
   const editorPanel = vscode.window.activeTextEditor;

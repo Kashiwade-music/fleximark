@@ -1,7 +1,7 @@
+import { Data, Node, Paragraph } from "mdast";
+import { ContainerDirective } from "mdast-util-directive";
 import { Plugin } from "unified";
 import { visit } from "unist-util-visit";
-import { ContainerDirective } from "mdast-util-directive";
-import { Paragraph, Node, Data } from "mdast";
 
 const ALLOWED_TYPES = ["info", "tip", "warning", "danger"] as const;
 type AllowedType = (typeof ALLOWED_TYPES)[number];

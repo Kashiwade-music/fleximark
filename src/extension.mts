@@ -1,18 +1,18 @@
-import * as vscode from "vscode";
-import previewMarkdownOnVscode from "./commands/previewMarkdownOnVscode.mjs";
-import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
-import exportHtml from "./commands/exportHtml.mjs";
-import createWorkspaceFleximarkCss from "./commands/createWorkspaceFleximarkCss.mjs";
-import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
-import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
-import { isGlobalFleximarkCssExists } from "./commands/css/index.mjs";
-import { findDiff } from "./commands/utils/diffHTML.mjs";
-
 import { Express, Request, Response } from "express";
-import WebSocket, { WebSocketServer } from "ws";
 import { Root } from "hast";
+import * as vscode from "vscode";
+import WebSocket, { WebSocketServer } from "ws";
+
 import createNote from "./commands/createNote.mjs";
+import createWorkspaceFleximarkCss from "./commands/createWorkspaceFleximarkCss.mjs";
+import { isGlobalFleximarkCssExists } from "./commands/css/index.mjs";
+import exportHtml from "./commands/exportHtml.mjs";
 import initializeWorkspace from "./commands/initializeWorkspace.mjs";
+import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
+import previewMarkdownOnVscode from "./commands/previewMarkdownOnVscode.mjs";
+import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
+import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
+import { findDiff } from "./commands/utils/diffHTML.mjs";
 
 // Constants
 const DEFAULT_PORT = 3000;

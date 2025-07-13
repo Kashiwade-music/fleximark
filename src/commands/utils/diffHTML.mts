@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import { toHtml } from "hast-util-to-html";
 import type { Root, RootContent } from "hast";
+import { toHtml } from "hast-util-to-html";
 
 /**
  * Represents a single edit operation needed to transform one HTML tree into another.
