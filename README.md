@@ -67,6 +67,20 @@ Available via the [VSCode Marketplace](#) or install manually:
 code --install-extension kashiwade.fleximark
 ```
 
+## 🚀 Getting Started
+
+1. **Set up a new workspace** for your FlexiMark notes.
+
+   > If you're migrating from the VSCode Note Taking Extension, use the [Migration Tool](https://github.com/Kashiwade-music/fleximark-migration-tool) to carry over your existing notes.
+
+2. Open the **VSCode Command Palette** and run:
+   `FlexiMark: Initialize Workspace as Note Taking Directory`
+
+3. Customize your note categories in the generated configuration file.
+
+4. Start writing! Use the Command Palette and select:
+   `FlexiMark: Create New Note`
+
 ## 📚 Documentation
 
 Detailed guides, configuration options, and templates are available in the [Wiki](#).

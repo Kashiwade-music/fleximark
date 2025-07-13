@@ -5,12 +5,13 @@ Reset
 */
 
 html {
-  font-size: 16px;
+  font-size: 16.5px;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
-    Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   color: #1a1a1a;
   line-height: 1.6;
   background-color: #ffffff;
@@ -82,7 +83,7 @@ Headings
 }
 
 .markdown-body h2 {
-  font-size: 1.8rem;
+  font-size: 1.7rem;
   border-bottom: 1px solid #eaecef;
   padding-bottom: 0.5rem;
 }
@@ -112,7 +113,7 @@ Paragraphs
 */
 
 .markdown-body p {
-  margin: 0 0 1rem;
+  margin: 0.5rem 0;
 }
 
 /* Links */
@@ -140,8 +141,8 @@ Paragraphs
 .markdown-body blockquote {
   color: #6a737d;
   border-left: 4px solid #dfe2e5;
-  padding: 0.5rem 1rem;
-  margin: 1rem 0;
+  padding: 0.1rem 1rem;
+  margin: 0.5rem 0;
   background-color: #f9f9f9;
 }
 
@@ -315,8 +316,8 @@ Code Blocks
 
 .markdown-body pre,
 .markdown-body code {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier,
-    monospace;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
   background-color: #f6f8fa;
   color: inherit;
 }
