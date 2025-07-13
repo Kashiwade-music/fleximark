@@ -69,12 +69,12 @@ export async function renderMarkdownToHtml(
     .use(remarkDirectiveDetails)
     .use(remarkDirectiveTabs)
     .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeRaw)
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
       theme: "github-light-default",
       keepBackground: false,
     })
+    .use(rehypeRaw)
     .use(rehypeLineNumber, { isNeedDataLineNumber })
     .use(rehypeRemovePosition);
 
