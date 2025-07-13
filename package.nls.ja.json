@@ -11,6 +11,7 @@
   "configuration.title": "FlexiMark",
   "configuration.defaultPreviewMode.description": "Markdownファイルのデフォルトのプレビューモード。'vscode' または 'browser' を選択。",
   "configuration.browserPreviewPort.description": "ブラウザプレビュー用サーバーのポート番号。",
+  "configuration.shouldSyncScroll.description": "エディターとプレビュー間のスクロール同期の有効または無効。",
   "configuration.noteCategories.description": "新しいノートを作成する際に選択可能なカテゴリのツリー。",
   "configuration.noteFileNamePrefix.description": "ノート名の接頭辞として使うテンプレート文字列",
   "configuration.noteFileNameSuffix.description": "ノート名の接尾辞として使うテンプレート文字列",

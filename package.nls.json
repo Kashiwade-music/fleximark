@@ -11,6 +11,7 @@
   "configuration.title": "FlexiMark",
   "configuration.defaultPreviewMode.description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'.",
   "configuration.browserPreviewPort.description": "Port number for the browser preview server.",
+  "configuration.shouldSyncScroll.description": "Enable or disable scroll synchronization between the editor and the preview.",
   "configuration.noteCategories.description": "A category tree for selecting when creating a new note.",
   "configuration.noteFileNamePrefix.description": "Template string to prefix a notebook name",
   "configuration.noteFileNameSuffix.description": "Template string to suffix a notebook name",

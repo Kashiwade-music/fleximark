@@ -15,14 +15,7 @@ import createNote from "./commands/createNote.mjs";
 import initializeWorkspace from "./commands/initializeWorkspace.mjs";
 
 // Constants
-const SCROLL_THROTTLE_MS = 300;
 const DEFAULT_PORT = 3000;
-
-// State Interfaces
-interface ScrollState {
-  enabled: boolean;
-  timer: ReturnType<typeof setTimeout> | null;
-}
 
 interface GlobalExtensionState {
   webviewPanel?: vscode.WebviewPanel;
@@ -128,6 +121,14 @@ async function openWebviewPreview(context: vscode.ExtensionContext) {
 
   webviewPanel.webview.onDidReceiveMessage((msg) => {
     if (msg.type === "preview-scroll") {
+      if (
+        vscode.workspace
+          .getConfiguration("fleximark")
+          .get<boolean>("shouldSyncScroll") === false
+      ) {
+        return;
+      }
+
       state.isWebviewScrollProcessing = true;
 
       const position = new vscode.Position(msg.line, 0);
@@ -196,6 +197,14 @@ function startBrowserPreviewServer(context: vscode.ExtensionContext) {
     ws.on("message", (data) => {
       const msg = JSON.parse(data.toString());
       if (msg.type === "preview-scroll") {
+        if (
+          vscode.workspace
+            .getConfiguration("fleximark")
+            .get<boolean>("shouldSyncScroll") === false
+        ) {
+          return;
+        }
+
         state.isBrowserScrollProcessing = true;
 
         const position = new vscode.Position(msg.line, 0);
@@ -284,6 +293,13 @@ function registerEventListeners(context: vscode.ExtensionContext) {
 
     vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
       if (event.textEditor !== state.editorPanel) return;
+      if (
+        vscode.workspace
+          .getConfiguration("fleximark")
+          .get<boolean>("shouldSyncScroll") === false
+      ) {
+        return;
+      }
 
       const line = (event.visibleRanges[0]?.start.line ?? 0) + 1;
 

@@ -94,6 +94,11 @@
           "default": 3000,
           "description": "%configuration.browserPreviewPort.description%"
         },
+        "fleximark.shouldSyncScroll": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.shouldSyncScroll.description%"
+        },
         "fleximark.noteCategories": {
           "type": "object",
           "description": "%configuration.noteCategories.description%",
