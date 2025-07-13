@@ -29,7 +29,7 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
     );
 
     webviewPanel.webview.html = res.html;
-    return { webviewPanel, editorPanel };
+    return { webviewPanel, editorPanel, ...res };
   } catch {
     vscode.window.showErrorMessage(
       vscode.l10n.t("An error occurred while preparing the Markdown preview."),

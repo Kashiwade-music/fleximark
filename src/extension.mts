@@ -22,6 +22,8 @@ interface GlobalExtensionState {
   editorPanel?: vscode.TextEditor;
   isWebviewScrollProcessing: boolean;
   isBrowserScrollProcessing: boolean;
+  webviewHtml?: string;
+  webviewHast?: Root;
   app?: Express;
   appHtml?: string;
   appHast?: Root;
@@ -114,6 +116,8 @@ async function openWebviewPreview(context: vscode.ExtensionContext) {
 
   state.webviewPanel = webviewPanel;
   state.editorPanel = editorPanel;
+  state.webviewHtml = result.html;
+  state.webviewHast = result.hast;
 
   webviewPanel.onDidDispose(() => {
     state.webviewPanel = undefined;
@@ -231,6 +235,7 @@ function startBrowserPreviewServer() {
 async function updateWebviewPreview(
   document: vscode.TextDocument,
   context: vscode.ExtensionContext,
+  fullReload = false,
 ) {
   if (document.languageId !== "markdown" || !state.webviewPanel) return;
 
@@ -240,7 +245,27 @@ async function updateWebviewPreview(
     context,
     state.webviewPanel.webview,
   );
-  state.webviewPanel.webview.html = result.html;
+
+  if (fullReload || !state.webviewHtml || !state.webviewHast) {
+    state.webviewHtml = result.html;
+    state.webviewHast = result.hast;
+    state.webviewPanel.webview.html = result.html;
+  } else {
+    const { editScripts, dataLineArray } = findDiff(
+      state.webviewHast,
+      result.hast,
+    );
+    state.webviewHtml = result.html;
+    state.webviewHast = result.hast;
+
+    if (editScripts.length > 0) {
+      state.webviewPanel?.webview.postMessage({
+        type: "edit",
+        editScripts,
+        dataLineArray,
+      });
+    }
+  }
 }
 
 async function updateBrowserPreview(
@@ -289,7 +314,7 @@ function registerEventListeners(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor?.document.languageId === "markdown") {
         state.editorPanel = editor;
-        updateWebviewPreview(editor.document, context);
+        updateWebviewPreview(editor.document, context, true);
         updateBrowserPreview(editor.document, context, true);
       }
     }),

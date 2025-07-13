@@ -8,7 +8,7 @@ window.renderMermaid = renderMermaid;
 
 function renderMermaid(): void {
   const figures = document.querySelectorAll(
-    "figure[data-rehype-pretty-code-figure]"
+    "figure[data-rehype-pretty-code-figure]",
   );
 
   figures.forEach((figure) => {
@@ -20,7 +20,7 @@ function renderMermaid(): void {
 
     // mermaidコードを抽出
     const lines = Array.from(code.querySelectorAll("span[data-line]")).map(
-      (span) => span.textContent || ""
+      (span) => span.textContent || "",
     );
     const mermaidCode = lines.join("\n");
 

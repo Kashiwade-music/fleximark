@@ -3,7 +3,7 @@ document.addEventListener("click", (e: MouseEvent) => {
   if (!(target instanceof HTMLElement)) return;
 
   const placeholder = target.closest(
-    ".youtube-placeholder"
+    ".youtube-placeholder",
   ) as HTMLElement | null;
   if (!placeholder) return;
 
@@ -23,7 +23,7 @@ document.addEventListener("click", (e: MouseEvent) => {
   iframe.setAttribute("frameborder", "0");
   iframe.setAttribute(
     "allow",
-    "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+    "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
   );
   iframe.setAttribute("allowfullscreen", "true");
 

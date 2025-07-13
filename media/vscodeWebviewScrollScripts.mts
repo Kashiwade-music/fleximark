@@ -12,6 +12,25 @@ const vscode = acquireVsCodeApi();
 // Types & Interfaces
 // ----------------------
 
+type OperationType = "insert" | "delete" | "update";
+
+interface HtmlEditScript {
+  index: number;
+  operation: OperationType;
+  newHTMLHash: string;
+  newHTML: string;
+}
+
+interface DataLine {
+  "data-line-number"?: string;
+}
+
+interface EditMessage {
+  type: "edit";
+  dataLineArray: DataLine[];
+  editScripts: HtmlEditScript[];
+}
+
 interface ScrollMessage {
   type: "editor-scroll";
   line: number;
@@ -21,6 +40,8 @@ interface PreviewScrollMessage {
   type: "preview-scroll";
   line: number;
 }
+
+type ServerMessage = EditMessage | ScrollMessage;
 
 // ----------------------
 // Constants & State
@@ -35,11 +56,25 @@ const state = {
 // ----------------------
 
 // Handle messages from VSCode (Editor → Preview)
-window.addEventListener("message", (event: MessageEvent<ScrollMessage>) => {
-  const message = event.data;
+window.addEventListener("message", (event: MessageEvent<ServerMessage>) => {
+  const data = event.data;
 
-  if (message.type === "editor-scroll") {
-    handleEditorScroll(message.line);
+  switch (data.type) {
+    case "edit":
+      handleEditMessage(data);
+      break;
+
+    case "editor-scroll":
+      handleEditorScroll(data.line);
+      break;
+
+    default:
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      console.warn("Unhandled message type:", (data as any).type);
+  }
+
+  if (data.type === "editor-scroll") {
+    handleEditorScroll(data.line);
   }
 });
 
@@ -64,12 +99,24 @@ document.addEventListener(
 
     vscode.postMessage(message);
   },
-  true
+  true,
 );
 
 // ----------------------
 // Message Handlers
 // ----------------------
+
+function handleEditMessage(message: EditMessage): void {
+  const container = document.querySelector<HTMLDivElement>("div.markdown-body");
+  if (!container) {
+    console.warn("No .markdown-body element found.");
+    return;
+  }
+
+  applyEditScripts(container, message.editScripts);
+  updateDataLineAttributes(container, message.dataLineArray);
+  reRenderSpecialBlocks(message.editScripts);
+}
 
 function handleEditorScroll(targetLine: number): void {
   state.isVscodeScrollProcessing = true;
@@ -101,4 +148,82 @@ function getFirstVisibleLineElement(): HTMLElement | undefined {
     const rect = el.getBoundingClientRect();
     return rect.top >= 0;
   });
+}
+
+function applyEditScripts(
+  container: HTMLElement,
+  scripts: HtmlEditScript[],
+): void {
+  const children = container.children;
+  let indexOffset = 0;
+
+  scripts.forEach(({ index, operation, newHTML }) => {
+    const temp = document.createElement("div");
+    temp.innerHTML = newHTML;
+    const newElement = temp.firstElementChild;
+
+    const adjustedIndex = index + indexOffset;
+
+    switch (operation) {
+      case "update":
+        if (adjustedIndex < children.length && newElement) {
+          container.replaceChild(newElement, children[adjustedIndex]);
+          newElement.classList.add("fade-highlight");
+          setTimeout(() => {
+            newElement.classList.remove("fade-highlight");
+          }, 1000);
+        } else {
+          console.warn(`Update failed: index ${adjustedIndex} out of bounds.`);
+        }
+        break;
+
+      case "insert":
+        if (newElement) {
+          if (adjustedIndex >= children.length) {
+            container.appendChild(newElement);
+          } else {
+            container.insertBefore(newElement, children[adjustedIndex]);
+          }
+          indexOffset++;
+        }
+        break;
+
+      case "delete":
+        if (adjustedIndex < children.length) {
+          container.removeChild(children[adjustedIndex]);
+          indexOffset--;
+        } else {
+          console.warn(`Delete failed: index ${adjustedIndex} out of bounds.`);
+        }
+        break;
+
+      default:
+        console.warn(`Unknown operation: ${operation}`);
+    }
+  });
+}
+
+function updateDataLineAttributes(
+  container: HTMLElement,
+  dataLines: DataLine[],
+): void {
+  dataLines.forEach((dataLine, idx) => {
+    const element = container.children[idx];
+    if (element && dataLine["data-line-number"]) {
+      element.setAttribute("data-line-number", dataLine["data-line-number"]);
+    }
+  });
+}
+
+function reRenderSpecialBlocks(scripts: HtmlEditScript[]): void {
+  const needsABC = scripts.some((edit) =>
+    edit.newHTML.includes('data-language="abc"'),
+  );
+
+  const needsMermaid = scripts.some((edit) =>
+    edit.newHTML.includes('data-language="mermaid"'),
+  );
+
+  if (needsABC) window.renderABC?.();
+  if (needsMermaid) window.renderMermaid?.();
 }

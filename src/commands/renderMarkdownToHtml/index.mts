@@ -78,8 +78,6 @@ export async function renderMarkdownToHtml(
 
   const hast = (await processor.run(processor.parse(markdown))) as Root;
 
-  console.log(hast);
-
   // Write debug file for inspection
   // const debugFileUri = vscode.Uri.joinPath(
   //   context.extensionUri,

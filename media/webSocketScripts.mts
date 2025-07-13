@@ -66,8 +66,6 @@ socket.addEventListener("error", (err: Event) => {
 socket.addEventListener("message", (event: MessageEvent) => {
   const data: ServerMessage = JSON.parse(event.data);
 
-  console.log("Received message:", JSON.stringify(data, null, 2));
-
   switch (data.type) {
     case "reload":
       location.reload();
@@ -82,6 +80,7 @@ socket.addEventListener("message", (event: MessageEvent) => {
       break;
 
     default:
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       console.warn("Unhandled message type:", (data as any).type);
   }
 });
@@ -107,7 +106,7 @@ document.addEventListener(
 
     socket.send(JSON.stringify(message));
   },
-  true
+  true,
 );
 
 // ----------------------
@@ -160,7 +159,7 @@ function getFirstVisibleLineElement(): HTMLElement | undefined {
 
 function applyEditScripts(
   container: HTMLElement,
-  scripts: HtmlEditScript[]
+  scripts: HtmlEditScript[],
 ): void {
   const children = container.children;
   let indexOffset = 0;
@@ -213,7 +212,7 @@ function applyEditScripts(
 
 function updateDataLineAttributes(
   container: HTMLElement,
-  dataLines: DataLine[]
+  dataLines: DataLine[],
 ): void {
   dataLines.forEach((dataLine, idx) => {
     const element = container.children[idx];
@@ -225,11 +224,11 @@ function updateDataLineAttributes(
 
 function reRenderSpecialBlocks(scripts: HtmlEditScript[]): void {
   const needsABC = scripts.some((edit) =>
-    edit.newHTML.includes('data-language="abc"')
+    edit.newHTML.includes('data-language="abc"'),
   );
 
   const needsMermaid = scripts.some((edit) =>
-    edit.newHTML.includes('data-language="mermaid"')
+    edit.newHTML.includes('data-language="mermaid"'),
   );
 
   if (needsABC) window.renderABC?.();
