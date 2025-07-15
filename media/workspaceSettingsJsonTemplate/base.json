@@ -1,0 +1,34 @@
+{
+  "fleximark.noteCategories": {
+    "General": {
+      "Daily Notes": {},
+      "Progress Report": {}
+    },
+    "Tips": {
+      "Programming": {
+        "Python": {},
+        "JavaScript": {}
+      },
+      "Life": {}
+    }
+  },
+
+  "fleximark.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
+  "fleximark.noteFileNameSuffix": "",
+
+  "fleximark.noteTemplates": {
+    "default": [
+      "# ${1:first tabstop}",
+      "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+      "",
+      "## ${2:second tabstop}"
+    ],
+    "Template 2": ["# Title", "## Subtitle", "### Subsubtitle"]
+  },
+
+  "markdown.copyFiles.destination": {
+    "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
+  },
+
+  "fleximark.defaultPreviewMode": "browser"
+}
