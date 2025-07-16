@@ -51,6 +51,61 @@ const genSettingsJson = async (
 
 export default genSettingsJson;
 
+function parseJsonc(jsonString: string): any {
+  let result = "";
+  let inString = false;
+  let inSingleLineComment = false;
+  let inMultiLineComment = false;
+  let prevChar = "";
+
+  for (let i = 0; i < jsonString.length; i++) {
+    const char = jsonString[i];
+    const nextChar = jsonString[i + 1];
+
+    if (inSingleLineComment) {
+      if (char === "\n") {
+        inSingleLineComment = false;
+        result += char;
+      }
+      continue;
+    }
+
+    if (inMultiLineComment) {
+      if (char === "*" && nextChar === "/") {
+        inMultiLineComment = false;
+        i++; // skip '/'
+      }
+      continue;
+    }
+
+    if (!inString && char === "/" && nextChar === "/") {
+      inSingleLineComment = true;
+      i++; // skip next '/'
+      continue;
+    }
+
+    if (!inString && char === "/" && nextChar === "*") {
+      inMultiLineComment = true;
+      i++; // skip next '*'
+      continue;
+    }
+
+    if (char === '"' && prevChar !== "\\") {
+      inString = !inString;
+    }
+
+    result += char;
+    prevChar = char;
+  }
+
+  try {
+    return JSON.parse(result);
+  } catch (error) {
+    console.error("Failed to parse JSONC:", error);
+    return {};
+  }
+}
+
 function loadJsonIfExists(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) {
     return null;
@@ -58,7 +113,7 @@ function loadJsonIfExists(filePath: string): Record<string, unknown> | null {
 
   try {
     const data = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(data) as Record<string, unknown>;
+    return parseJsonc(data) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -101,13 +156,19 @@ function addCommentsToJson(
   comments: Record<string, string[]>,
 ): string[] {
   const result: string[] = [];
+  let isFirstMatch = true;
 
   for (const line of jsonLines) {
     const match = line.match(/^(\s*)"([^"]+)":/);
     if (match) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const [_, indent, key] = match;
-      comments[key]?.forEach((commentLine) => {
+      comments[key]?.forEach((commentLine, index) => {
+        if (index === 0 && !isFirstMatch) {
+          // Add a blank line before the first comment
+          result.push("");
+          isFirstMatch = false;
+        }
         result.push(`${indent}// ${commentLine}`);
       });
     }

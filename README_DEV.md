@@ -3,7 +3,7 @@
 ## Pack
 
 ```
-npx @vscode/vsce package 
+npx @vscode/vsce package
 ```
 
 ## l10n

@@ -10,35 +10,39 @@
   </p>
 </div>
 
-
 ## 🚀 Overview
 
 **FlexiMark** is a powerful, extensible Markdown toolkit for Visual Studio Code that redefines what Markdown editing and previewing can be.
 
-With seamless live preview capabilities both *inside VSCode* and *in your web browser*, FlexiMark gives you complete freedom over customization, interactivity, and style — using the full power of JavaScript.
+With seamless live preview capabilities both _inside VSCode_ and _in your web browser_, FlexiMark gives you complete freedom over customization, interactivity, and style — using the full power of JavaScript.
 
 Whether you're a developer, writer, student, or researcher, FlexiMark is designed to supercharge your Markdown experience — especially for taking structured, rich notes.
 
 ## ✨ Key Features
 
 ### 🔁 **Live Preview**
+
 - **VSCode Live Preview**: View your Markdown instantly as you type.
 - **Web Browser Preview**: Render your Markdown in any browser, powered by JavaScript.
   - Use custom scripts, libraries, and styling freely.
   - Unmatched flexibility for interactive content and rendering.
 
 ### 🗂️ **Smart Note-Taking System**
+
 - Designed for Markdown-based note-taking.
 - Auto-generate **customizable directory structures** based on your category tree.
 - Create Markdown notes effortlessly, exactly where they belong.
 
 ### 🧩 **Flexible File Generation**
+
 - Configure **prefixes and suffixes** for filenames.
 - Choose from **multiple, customizable templates** when creating new notes.
 - Get organized without the overhead.
 
 ### 🧪 **Enhanced Markdown Syntax**
+
 Built on GitHub Flavored Markdown (GFM) with powerful extensions:
+
 - **Admonitions / Alerts**: Notes, warnings, tips, and more.
 - **Tabbed Content**: Organize information cleanly.
 - **Mermaid Diagrams**: Flowcharts, sequence diagrams, and more.
@@ -47,9 +51,9 @@ Built on GitHub Flavored Markdown (GFM) with powerful extensions:
   - Supports **real-time preview** and playback.
 
 ### 📤 **Export to HTML**
+
 - Convert your Markdown files into standalone HTML.
 - Apply **custom styles** for beautiful, shareable documents.
-
 
 ## 🧰 Ideal For
 
@@ -57,7 +61,6 @@ Built on GitHub Flavored Markdown (GFM) with powerful extensions:
 - Writers and researchers building structured content.
 - Musicians using abc notation.
 - Anyone wanting a smarter, more interactive Markdown workflow.
-
 
 ## 📦 Installation
 
@@ -96,4 +99,4 @@ MIT License. See [LICENSE](./LICENSE) for more details.
 
 ---
 
-FlexiMark — *Take Markdown Notes. Preview Your Way.*
+FlexiMark — _Take Markdown Notes. Preview Your Way._

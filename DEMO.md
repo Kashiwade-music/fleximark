@@ -20,10 +20,15 @@
 ### 結果
 
 # h1
+
 ## h2
+
 ### h3
+
 #### h4
+
 ##### h5
+
 ###### h6
 
 ## 数式
@@ -43,6 +48,7 @@ $$
 ### 結果
 
 文中に挿入するなら$e^{jx} = \cos x + j \sin x$のように。
+
 $$
 \begin{aligned}
     \cos x &= \sum_{n=0}^{\infty} \frac{(-1)^{n}}{(2n)!}x^{2n} \\
@@ -55,17 +61,17 @@ $$
 ### 書き方
 
 ```js showLineNumbers title="add.js" {3}
-const add = (a, b) => a + b
-add(2, 3) // 5
-add(4, 5) // 9
+const add = (a, b) => a + b;
+add(2, 3); // 5
+add(4, 5); // 9
 ```
 
 ### 結果
 
 ```js showLineNumbers title="add.js" {3}
-const add = (a, b) => a + b
-add(2, 3) // 5
-add(4, 5) // 9
+const add = (a, b) => a + b;
+add(2, 3); // 5
+add(4, 5); // 9
 ```
 
 ## iframe生成
@@ -81,6 +87,7 @@ https://youtu.be/G1W3aroArqY
 ```
 
 ### 結果
+
 https://www.youtube.com/watch?v=G1W3aroArqY
 
 https://youtu.be/G1W3aroArqY?si=ikN7z2VwhoprUT8M
@@ -90,7 +97,7 @@ https://youtu.be/G1W3aroArqY
 ## Admonition・Alert記法
 
 :::::tabs
-  ::::tab[info]
+::::tab[info]
 
     ### 書き方
 
@@ -130,9 +137,9 @@ https://youtu.be/G1W3aroArqY
     **Markdownの書式**も使えます。
     :::
 
-  ::::
+::::
 
-  ::::tab[tip]
+::::tab[tip]
 
     ### 書き方
 
@@ -172,9 +179,9 @@ https://youtu.be/G1W3aroArqY
     **Markdownの書式**も使えます。
     :::
 
-  ::::
+::::
 
-  ::::tab[warning]
+::::tab[warning]
 
     ### 書き方
 
@@ -214,9 +221,9 @@ https://youtu.be/G1W3aroArqY
     **Markdownの書式**も使えます。
     :::
 
-  ::::
+::::
 
-  ::::tab[danger]
+::::tab[danger]
 
     ### 書き方
 
@@ -256,7 +263,7 @@ https://youtu.be/G1W3aroArqY
     **Markdownの書式**も使えます。
     :::
 
-  ::::
+::::
 
 :::::
 
@@ -292,23 +299,25 @@ https://youtu.be/G1W3aroArqY
 
 ::::tabs
 
-  :::tab[タブ1のタイトル]
-  タブ1の内容がここに表示されます。
-  複数行でもOKです。
-  - リストも
-  - 書けます
+:::tab[タブ1のタイトル]
+タブ1の内容がここに表示されます。
+複数行でもOKです。
 
-  **Markdownの書式**も使えます。
-  :::
+- リストも
+- 書けます
 
-  :::tab[タブ2のタイトル]
-  タブ2の内容がここに表示されます。
-  複数行でもOKです。
-  - リストも
-  - 書けます
+**Markdownの書式**も使えます。
+:::
 
-  **Markdownの書式**も使えます。
-  :::
+:::tab[タブ2のタイトル]
+タブ2の内容がここに表示されます。
+複数行でもOKです。
+
+- リストも
+- 書けます
+
+**Markdownの書式**も使えます。
+:::
 
 ::::
 
@@ -316,57 +325,69 @@ https://youtu.be/G1W3aroArqY
 
 :::::tabs
 
-  ::::tab[推奨]
+::::tab[推奨]
 
-  ### 書き方
+### 書き方
 
-  ```plaintext
-  :::details
-    折りたたまれていた内容がここに表示されます。
-    複数行でもOKです。
-    - リストも
-    - 書けます
+```plaintext
+:::details
+  折りたたまれていた内容がここに表示されます。
+  複数行でもOKです。
+  - リストも
+  - 書けます
 
-    **Markdownの書式**も使えます。
-  :::
+  **Markdownの書式**も使えます。
+:::
 
-  :::details[タイトル付]
-    折りたたまれていた内容がここに表示されます。
-    複数行でもOKです。
-    - リストも
-    - 書けます
+:::details[タイトル付]
+  折りたたまれていた内容がここに表示されます。
+  複数行でもOKです。
+  - リストも
+  - 書けます
 
-    **Markdownの書式**も使えます。
-  :::
-  ```
+  **Markdownの書式**も使えます。
+:::
+```
 
-  ### 結果
+### 結果
 
-  :::details
-    折りたたまれていた内容がここに表示されます。
-    複数行でもOKです。
-    - リストも
-    - 書けます
+:::details
+折りたたまれていた内容がここに表示されます。
+複数行でもOKです。- リストも - 書けます
 
     **Markdownの書式**も使えます。
-  :::
 
-  :::details[タイトル付]
-    折りたたまれていた内容がここに表示されます。
-    複数行でもOKです。
-    - リストも
-    - 書けます
+:::
+
+:::details[タイトル付]
+折りたたまれていた内容がここに表示されます。
+複数行でもOKです。- リストも - 書けます
 
     **Markdownの書式**も使えます。
-  :::
 
-  ::::
+:::
 
-  :::tab[HTML版]
+::::
 
-  ### 書き方
+:::tab[HTML版]
 
-  ```plaintext
+### 書き方
+
+```plaintext
+<details>
+  <summary>ここをクリックして展開</summary>
+
+  折りたたまれていた内容がここに表示されます。
+  複数行でもOKです。
+  - リストも
+  - 書けます
+
+  **Markdownの書式**も使えます。
+</details>
+```
+
+### 結果
+
   <details>
     <summary>ここをクリックして展開</summary>
 
@@ -376,23 +397,10 @@ https://youtu.be/G1W3aroArqY
     - 書けます
 
     **Markdownの書式**も使えます。
-  </details>
-  ```
 
-  ### 結果
-
-  <details>
-    <summary>ここをクリックして展開</summary>
-
-    折りたたまれていた内容がここに表示されます。
-    複数行でもOKです。
-    - リストも
-    - 書けます
-
-    **Markdownの書式**も使えます。
   </details>
 
-  :::
+:::
 
 :::::
 

@@ -1,23 +1,7 @@
-import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-const getSettingsJsonString = async (context: vscode.ExtensionContext) => {
-  const uiLanguage = vscode.env.language;
-  const basePath = context.asAbsolutePath(
-    path.join("dist", "media", "workspaceSettingsJsonTemplate"),
-  );
-
-  const targetPath = path.join(basePath, `${uiLanguage}.jsonc`);
-  const fallbackPath = path.join(basePath, `en.jsonc`);
-
-  try {
-    await fs.promises.access(targetPath, fs.constants.F_OK);
-    return await fs.promises.readFile(targetPath, "utf8");
-  } catch {
-    return await fs.promises.readFile(fallbackPath, "utf8");
-  }
-};
+import genSettingsJson from "./genSettingsJson/index.mjs";
 
 const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   // check if workspace is open
@@ -59,7 +43,7 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   );
   await vscode.workspace.fs.writeFile(
     file,
-    Buffer.from(await getSettingsJsonString(context)),
+    Buffer.from(await genSettingsJson(context, workspacePath)),
   );
 
   await vscode.window.showTextDocument(
