@@ -3,6 +3,7 @@ import { Root } from "hast";
 import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
+import checkWorkspaceSettingsUpdatable from "./commands/checkWorkspaceSettingsUpdatable.mjs";
 import createNote from "./commands/createNote.mjs";
 import createWorkspaceFleximarkCss from "./commands/createWorkspaceFleximarkCss.mjs";
 import { isGlobalFleximarkCssExists } from "./commands/css/index.mjs";
@@ -12,6 +13,7 @@ import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./commands/previewMarkdownOnVscode.mjs";
 import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
+import updateWorkspaceSettings from "./commands/updateWorkspaceSettings.mjs";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
 
 // Constants
@@ -40,15 +42,19 @@ const state: GlobalExtensionState = {
 // ---------------------------------------------
 // Activation
 // ---------------------------------------------
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   console.log("Fleximark extension activated.");
 
   if (!isGlobalFleximarkCssExists(context)) {
     saveFleximarkCssToGlobalStorage(context);
   }
 
+  if (await checkWorkspaceSettingsUpdatable()) {
+    await updateWorkspaceSettings(context, true);
+  }
+
   // if in Dev, comment out the next line
-  saveFleximarkCssToGlobalStorage(context);
+  // saveFleximarkCssToGlobalStorage(context);
 
   registerCommands(context);
   registerEventListeners(context);
@@ -99,6 +105,21 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("fleximark.initializeWorkspace", () =>
       initializeWorkspace(context),
+    ),
+
+    vscode.commands.registerCommand(
+      "fleximark.checkWorkspaceSettingsUpdatable",
+      async () => {
+        const ret = await checkWorkspaceSettingsUpdatable();
+
+        if (ret) {
+          updateWorkspaceSettings(context, true);
+        }
+      },
+    ),
+
+    vscode.commands.registerCommand("fleximark.updateWorkspaceSettings", () =>
+      updateWorkspaceSettings(context),
     ),
   );
 }

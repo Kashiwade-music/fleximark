@@ -7,8 +7,11 @@
   "command.resetGlobalFleximarkCss": "グローバルCSSをリセット",
   "command.createNote": "新しいノートを作成",
   "command.initializeWorkspace": "ワークスペースをノートディレクトリとして初期化",
+  "command.checkWorkspaceSettingsUpdatable": "ワークスペース設定の更新可能性を確認",
+  "command.updateWorkspaceSettings": "ワークスペース設定を更新",
 
   "configuration.title": "FlexiMark",
+  "configuration.settingsVersion.description": "FlexiMarkの設定バージョン。更新時に変更されることがあります。",
   "configuration.defaultPreviewMode.description": "Markdownファイルのデフォルトのプレビューモード。'vscode' または 'browser' を選択。",
   "configuration.browserPreviewPort.description": "ブラウザプレビュー用サーバーのポート番号。",
   "configuration.shouldSyncScroll.description": "エディターとプレビュー間のスクロール同期の有効または無効。",

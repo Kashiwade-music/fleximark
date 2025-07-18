@@ -7,8 +7,11 @@
   "command.resetGlobalFleximarkCss": "Reset Global CSS",
   "command.createNote": "Create New Note",
   "command.initializeWorkspace": "Initialize Workspace as Note Taking Directory",
+  "command.checkWorkspaceSettingsUpdatable": "Check if Workspace Settings are Updatable",
+  "command.updateWorkspaceSettings": "Update Workspace Settings",
 
   "configuration.title": "FlexiMark",
+  "configuration.settingsVersion.description": "FlexiMark settings version. This may change when the extension is updated.",
   "configuration.defaultPreviewMode.description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'.",
   "configuration.browserPreviewPort.description": "Port number for the browser preview server.",
   "configuration.shouldSyncScroll.description": "Enable or disable scroll synchronization between the editor and the preview.",

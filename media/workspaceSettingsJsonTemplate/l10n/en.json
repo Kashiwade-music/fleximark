@@ -1,4 +1,9 @@
 {
+  "fleximark.settingsVersion.description": [
+    "This setting indicates the version of the FlexiMark workspace settings.",
+    "It is used to determine if the settings are up-to-date.",
+    "If you have an older version, you may need to update your settings."
+  ],
   "fleximark.noteCategories": [
     "Notes are organized by category.",
     "You can add as many categories as needed.",

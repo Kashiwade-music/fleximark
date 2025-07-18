@@ -69,6 +69,16 @@
         "command": "fleximark.initializeWorkspace",
         "title": "%command.initializeWorkspace%",
         "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.checkWorkspaceSettingsUpdatable",
+        "title": "%command.checkWorkspaceSettingsUpdatable%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.updateWorkspaceSettings",
+        "title": "%command.updateWorkspaceSettings%",
+        "category": "FlexiMark"
       }
     ],
     "menus": {
@@ -84,6 +94,11 @@
       "title": "%configuration.title%",
       "type": "object",
       "properties": {
+        "fleximark.settingsVersion": {
+          "type": "number",
+          "default": 1,
+          "description": "%configuration.settingsVersion.description%"
+        },
         "fleximark.defaultPreviewMode": {
           "type": "string",
           "default": "vscode",
