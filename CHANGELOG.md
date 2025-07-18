@@ -1,3 +1,10 @@
+# [0.3.0](https://github.com/Kashiwade-music/fleximark/compare/v0.2.1...v0.3.0) (2025-07-18)
+
+
+### Features
+
+* add workspace settings version management and update commands ([ec9ac81](https://github.com/Kashiwade-music/fleximark/commit/ec9ac81861e05b542674fa6b0a586db7df9c53ae))
+
 ## [0.2.1](https://github.com/Kashiwade-music/fleximark/compare/v0.2.0...v0.2.1) (2025-07-13)
 
 ### Bug Fixes
