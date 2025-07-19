@@ -3,22 +3,10 @@
   "name": "ABC Notation",
   "patterns": [
     {
-      "include": "#header_string"
+      "include": "#infofield_not_inline"
     },
     {
-      "include": "#header_numeric"
-    },
-    {
-      "include": "#header_instruction"
-    },
-    {
-      "include": "#header_macro"
-    },
-    {
-      "include": "#header_part"
-    },
-    {
-      "include": "#header_deprecated"
+      "include": "#infofield_inline"
     },
     {
       "include": "#instructions"
@@ -49,85 +37,130 @@
     }
   ],
   "repository": {
-    "header_string": {
+    "infofield_not_inline": {
       "patterns": [
         {
-          "match": "^([TCOZNGH\\+RBDFSW]:)(.*)",
+          "match": "^([ABCDFGHIKLMmNOPQRrSTUVWwXZ]:.*)",
           "captures": {
             "1": {
-              "name": "keyword"
-            },
-            "2": {
-              "name": "string"
+              "patterns": [
+                {
+                  "include": "#infofield_area"
+                },
+                {
+                  "include": "#infofield_b_to_h_o_s_t_WwZ"
+                },
+                {
+                  "include": "#infofield_instruction"
+                },
+                {
+                  "include": "#infofield_key"
+                },
+                {
+                  "include": "#infofield_unit_note_length"
+                },
+                {
+                  "include": "#infofield_meter"
+                },
+                {
+                  "include": "#infofield_macro"
+                },
+                {
+                  "include": "#infofield_notes"
+                },
+                {
+                  "include": "#infofield_part"
+                },
+                {
+                  "include": "#infofield_tempo"
+                },
+                {
+                  "include": "#infofield_rhythm"
+                },
+                {
+                  "include": "#infofield_inline_comment"
+                },
+                {
+                  "include": "#infofield_user_defined"
+                },
+                {
+                  "include": "#infofield_voice"
+                },
+                {
+                  "include": "#infofield_reference_number"
+                }
+              ]
             }
           }
         }
       ]
     },
-    "header_numeric": {
+    "infofield_inline": {
       "patterns": [
         {
-          "match": "^([XMLQK]:)(.*)",
-          "captures": {
-            "1": {
-              "name": "keyword"
-            },
-            "2": {
-              "name": "constant.numeric"
+          "patterns": [
+            {
+              "match": "(\\[)(.*?)(\\])",
+              "captures": {
+                "1": {
+                  "name": "meta"
+                },
+                "2": {
+                  "patterns": [
+                    {
+                      "include": "#infofield_instruction"
+                    },
+                    {
+                      "include": "#infofield_key"
+                    },
+                    {
+                      "include": "#infofield_unit_note_length"
+                    },
+                    {
+                      "include": "#infofield_meter"
+                    },
+                    {
+                      "include": "#infofield_macro"
+                    },
+                    {
+                      "include": "#infofield_notes"
+                    },
+                    {
+                      "include": "#infofield_part"
+                    },
+                    {
+                      "include": "#infofield_tempo"
+                    },
+                    {
+                      "include": "#infofield_rhythm"
+                    },
+                    {
+                      "include": "#infofield_inline_comment"
+                    },
+                    {
+                      "include": "#infofield_user_defined"
+                    },
+                    {
+                      "include": "#infofield_voice"
+                    },
+                    {
+                      "include": "#infofield_reference_number"
+                    }
+                  ]
+                },
+                "3": {
+                  "name": "meta"
+                }
+              }
             }
-          }
+          ]
         }
       ]
     },
-    "header_instruction": {
+    "infofield_area": {
       "patterns": [
         {
-          "match": "^([I]:)(.*)",
-          "captures": {
-            "1": {
-              "name": "keyword"
-            },
-            "2": {
-              "name": "variable"
-            }
-          }
-        }
-      ]
-    },
-    "header_macro": {
-      "patterns": [
-        {
-          "match": "^([mU]:)(.*)",
-          "captures": {
-            "1": {
-              "name": "entity.name.function"
-            },
-            "2": {
-              "name": "constant.numeric"
-            }
-          }
-        }
-      ]
-    },
-    "header_part": {
-      "patterns": [
-        {
-          "match": "^([P]:)(.*)",
-          "captures": {
-            "1": {
-              "name": "keyword.control"
-            },
-            "2": {
-              "name": "variable"
-            }
-          }
-        }
-      ]
-    },
-    "header_deprecated": {
-      "patterns": [
-        {
-          "match": "^([A]:)(.*)",
+          "match": "([A]:)(.*)",
           "captures": {
             "1": {
               "name": "keyword invalid.deprecated"
@@ -139,45 +172,206 @@
         }
       ]
     },
-    "instructions": {
+    "infofield_b_to_h_o_s_t_WwZ": {
       "patterns": [
         {
-          "match": "^%%.*",
-          "name": "entity.name.function"
-        }
-      ]
-    },
-    "comments": {
-      "patterns": [
-        {
-          "match": "^%(?!%).*",
-          "name": "comment"
-        }
-      ]
-    },
-    "inline_comments": {
-      "patterns": [
-        {
-          "match": "(\\[)(r:)(.*?)(\\])",
+          "match": "([BCDFGHOSTWwZ]:)(.*)",
           "captures": {
             "1": {
-              "name": "meta"
+              "name": "keyword"
             },
             "2": {
-              "name": "comment.content"
-            },
-            "3": {
-              "name": "comment.content"
-            },
-            "4": {
-              "name": "meta"
+              "name": "string"
             }
           }
         }
       ]
     },
-    "voice-section": {
-      "begin": "^(V:)(\\S+)?",
+    "infofield_instruction": {
+      "patterns": [
+        {
+          "match": "I:([a-zA-Z0-9\\-]+)\\s+([^\\r\\n\\[\\]]+)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "variable"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_key": {
+      "begin": "(K:)(\\S+)?",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword"
+        },
+        "2": {
+          "name": "constant.numeric"
+        }
+      },
+      "end": "(?=$)",
+      "name": "meta.voice-section",
+      "patterns": [
+        {
+          "begin": "\\s+(clef|score|sound|shift|instrument|stafflines|octave)(=)",
+          "beginCaptures": {
+            "1": {
+              "name": "variable.parameter.attribute"
+            },
+            "2": {
+              "name": "keyword.operator.assignment"
+            }
+          },
+          "end": "(?=\\s|$)",
+          "patterns": [
+            {
+              "match": "\"[^\"]*\"|”[^”]*”|[^\\s]+",
+              "name": "string.quoted.attribute-value"
+            }
+          ]
+        }
+      ]
+    },
+    "infofield_unit_note_length": {
+      "patterns": [
+        {
+          "match": "([L]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "constant.numeric"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_meter": {
+      "patterns": [
+        {
+          "match": "([M]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "constant.numeric"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_macro": {
+      "patterns": [
+        {
+          "match": "([m]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.function"
+            },
+            "2": {
+              "name": "constant.numeric"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_notes": {
+      "patterns": [
+        {
+          "match": "([N]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "string"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_part": {
+      "patterns": [
+        {
+          "match": "([P]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control"
+            },
+            "2": {
+              "name": "variable"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_tempo": {
+      "patterns": [
+        {
+          "match": "([Q]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "constant.numeric"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_rhythm": {
+      "patterns": [
+        {
+          "match": "([R]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "string"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_inline_comment": {
+      "patterns": [
+        {
+          "match": "([r]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "comment.content"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_user_defined": {
+      "patterns": [
+        {
+          "match": "([U]:)(.*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.function"
+            },
+            "2": {
+              "name": "constant.numeric"
+            }
+          }
+        }
+      ]
+    },
+    "infofield_voice": {
+      "begin": "(V:)(\\S+)?",
       "beginCaptures": {
         "1": {
           "name": "keyword.control"
@@ -209,77 +403,34 @@
         }
       ]
     },
-    "inline_header": {
+    "infofield_reference_number": {
       "patterns": [
         {
-          "match": "(\\[)([IKLMmNPQRrUV]:.*?)(\\])",
+          "match": "^([X]:)(.*)",
           "captures": {
             "1": {
-              "name": "meta"
+              "name": "keyword"
             },
             "2": {
-              "patterns": [
-                {
-                  "match": "([XMLQK]:)(.*)",
-                  "captures": {
-                    "1": {
-                      "name": "keyword"
-                    },
-                    "2": {
-                      "name": "constant.numeric"
-                    }
-                  }
-                },
-                {
-                  "match": "([TCOZNGH\\+RBDFSW]:)(.*)",
-                  "captures": {
-                    "1": {
-                      "name": "keyword"
-                    },
-                    "2": {
-                      "name": "string"
-                    }
-                  }
-                },
-                {
-                  "match": "([I]:)(.*)",
-                  "captures": {
-                    "1": {
-                      "name": "keyword"
-                    },
-                    "2": {
-                      "name": "variable"
-                    }
-                  }
-                },
-                {
-                  "match": "([mU]:)(.*)",
-                  "captures": {
-                    "1": {
-                      "name": "entity.name.function"
-                    },
-                    "2": {
-                      "name": "constant.numeric"
-                    }
-                  }
-                },
-                {
-                  "match": "([VP]:)(.*)",
-                  "captures": {
-                    "1": {
-                      "name": "keyword.control"
-                    },
-                    "2": {
-                      "name": "variable"
-                    }
-                  }
-                }
-              ]
-            },
-            "3": {
-              "name": "meta"
+              "name": "constant.numeric"
             }
           }
+        }
+      ]
+    },
+    "instructions": {
+      "patterns": [
+        {
+          "match": "^%%.*",
+          "name": "entity.name.function"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "match": "^%(?!%).*",
+          "name": "comment"
         }
       ]
     },
