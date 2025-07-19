@@ -1,6 +1,11 @@
-const esbuild = require("esbuild");
-const fs = require("fs").promises;
-const path = require("path");
+#!/usr/bin/env node
+import esbuild from "esbuild";
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
