@@ -1,3 +1,11 @@
+# [0.7.0](https://github.com/Kashiwade-music/fleximark/compare/v0.6.0...v0.7.0) (2025-07-19)
+
+
+### Features
+
+* add ABC language support with grammar definition ([419e18e](https://github.com/Kashiwade-music/fleximark/commit/419e18e86f6db668e80ac693f134cd05f3efa2fe))
+* add ABC Notation language support with syntax highlighting and configuration ([f3d8b3b](https://github.com/Kashiwade-music/fleximark/commit/f3d8b3b10df6a923b2c53f9b2b437ab6f3a05483))
+
 # [0.6.0](https://github.com/Kashiwade-music/fleximark/compare/v0.5.0...v0.6.0) (2025-07-19)
 
 
