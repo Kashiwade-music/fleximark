@@ -6,6 +6,23 @@ import parseJsonc from "./utils/parseJsonc.mjs";
 const CURRENT_SETTINGS_VERSION = 1;
 
 const checkWorkspaceSettingsUpdatable = async (): Promise<boolean> => {
+  const ret = await checkWorkspaceSettingsUpdatableImpl();
+  if (ret) {
+    // ask
+    const userResponse = await vscode.window.showInformationMessage(
+      vscode.l10n.t(
+        "The .vscode/settings.json file is outdated. Do you want to update it?",
+      ),
+      "Yes",
+      "No",
+    );
+    return userResponse === "Yes";
+  } else {
+    return false;
+  }
+};
+
+const checkWorkspaceSettingsUpdatableImpl = async (): Promise<boolean> => {
   const workspaceFolders = vscode.workspace.workspaceFolders;
 
   if (!workspaceFolders?.length) {
