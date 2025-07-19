@@ -13,6 +13,7 @@ const KeyOrder = [
   "fleximark.noteTemplates",
   "markdown.copyFiles.destination",
   "fleximark.defaultPreviewMode",
+  "[markdown]",
 ];
 
 const genSettingsJson = async (

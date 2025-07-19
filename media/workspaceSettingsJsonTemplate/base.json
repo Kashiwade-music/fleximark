@@ -32,5 +32,15 @@
     "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
   },
 
-  "fleximark.defaultPreviewMode": "browser"
+  "fleximark.defaultPreviewMode": "browser",
+
+  "[markdown]": {
+    "editor.quickSuggestions": {
+      "comments": "on",
+      "other": "on",
+      "strings": "on"
+    },
+    "editor.snippetSuggestions": "top",
+    "editor.wordWrap": "on"
+  }
 }

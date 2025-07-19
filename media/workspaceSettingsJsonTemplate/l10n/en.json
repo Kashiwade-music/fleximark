@@ -37,5 +37,10 @@
     "If set to 'browser', clicking the eye icon when viewing Markdown",
     "will open the preview in your browser.",
     "For security reasons, setting the global default to 'browser' is not recommended."
+  ],
+
+  "[markdown]": [
+    "Customize the editor settings when opening Markdown files.",
+    "FlexiMark provides dedicated snippets, so quick suggestions are enabled."
   ]
 }
