@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/Kashiwade-music/fleximark/compare/v0.5.0...v0.6.0) (2025-07-19)
+
+
+### Features
+
+* add SATB ABC template snippet for music notation support ([c7cbd80](https://github.com/Kashiwade-music/fleximark/commit/c7cbd802af6138ea615744318efb1f75f714ba2a))
+
 # [0.5.0](https://github.com/Kashiwade-music/fleximark/compare/v0.4.0...v0.5.0) (2025-07-19)
 
 
