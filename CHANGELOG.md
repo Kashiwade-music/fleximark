@@ -1,3 +1,10 @@
+# [0.4.0](https://github.com/Kashiwade-music/fleximark/compare/v0.3.0...v0.4.0) (2025-07-19)
+
+
+### Features
+
+* ask when settings.json is updatable ([#3](https://github.com/Kashiwade-music/fleximark/issues/3)) ([854fcf9](https://github.com/Kashiwade-music/fleximark/commit/854fcf96780239d7ff9b63b79095a021612abc64))
+
 # [0.3.0](https://github.com/Kashiwade-music/fleximark/compare/v0.2.1...v0.3.0) (2025-07-18)
 
 
