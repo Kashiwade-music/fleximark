@@ -1,3 +1,14 @@
+# [0.5.0](https://github.com/Kashiwade-music/fleximark/compare/v0.4.0...v0.5.0) (2025-07-19)
+
+
+### Features
+
+* add ABC snippets for Markdown support ([2c90866](https://github.com/Kashiwade-music/fleximark/commit/2c9086688d3a6702646fc0a12a8e33c76c636a03))
+* add admonition and tabs snippets for Markdown support ([c5982c6](https://github.com/Kashiwade-music/fleximark/commit/c5982c6737ead517dca05aa317edfd9611b94f01))
+* add basic support for ABC and Mermaid syntax highlighting in Markdown ([668c470](https://github.com/Kashiwade-music/fleximark/commit/668c470c46d9fcdcd16e27624754b422abdf3294))
+* add editor settings customization for Markdown snippets ([3a02e51](https://github.com/Kashiwade-music/fleximark/commit/3a02e51825c61207649dbcd15854171b3d6fc6bd))
+* enhance ABC snippets for better clarity ([ec527b7](https://github.com/Kashiwade-music/fleximark/commit/ec527b7fdf0bf29dc71102ec342eb79a5708b362))
+
 # [0.4.0](https://github.com/Kashiwade-music/fleximark/compare/v0.3.0...v0.4.0) (2025-07-19)
 
 
