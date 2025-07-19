@@ -18,6 +18,7 @@ import { findDiff } from "./commands/utils/diffHTML.mjs";
 
 // Constants
 const DEFAULT_PORT = 3000;
+declare const __DEV__: boolean; // This is set by the esbuild process
 
 interface GlobalExtensionState {
   webviewPanel?: vscode.WebviewPanel;
@@ -53,8 +54,15 @@ export async function activate(context: vscode.ExtensionContext) {
     await updateWorkspaceSettings(context, true);
   }
 
-  // if in Dev, comment out the next line
-  // saveFleximarkCssToGlobalStorage(context);
+  if (__DEV__) {
+    const message = "📢📢📢Development mode is enabled.📢📢📢";
+    vscode.window.showInformationMessage(message);
+    console.log(message);
+
+    saveFleximarkCssToGlobalStorage(context);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).testExtensionContext = context;
+  }
 
   registerCommands(context);
   registerEventListeners(context);
