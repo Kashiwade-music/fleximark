@@ -1,0 +1,30 @@
+{
+  "scopeName": "custom.markdown.admonition",
+  "injectionSelector": "L:text.html.markdown",
+  "patterns": [
+    {
+      "include": "#admonition-block"
+    }
+  ],
+  "repository": {
+    "admonition-block": {
+      "patterns": [
+        {
+          "name": "meta.admonition.block",
+          "match": "^\\s*(:{3,})(\\w+)?(?:\\[([^\\]]+)\\])?",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace"
+            },
+            "2": {
+              "name": "entity.name.namespace"
+            },
+            "3": {
+              "name": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

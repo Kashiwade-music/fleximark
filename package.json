@@ -153,6 +153,21 @@
       {
         "language": "markdown",
         "path": "./snippets/abc.json"
+      },
+      {
+        "language": "markdown",
+        "path": "./snippets/admonition.json"
+      },
+      {
+        "language": "markdown",
+        "path": "./snippets/tabs.json"
+      }
+    ],
+    "grammars": [
+      {
+        "path": "./syntaxes/markdown-admonition.json",
+        "scopeName": "custom.markdown.admonition",
+        "injectTo": ["text.html.markdown"]
       }
     ]
   },

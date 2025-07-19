@@ -1,0 +1,24 @@
+{
+  "Admonition block": {
+    "prefix": [":::admonition", ":::info", ":::tip", ":::warning", ":::danger"],
+    "body": [
+      ":::${1|info,tip,warning,danger|}",
+      "",
+      "${2:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Admonition block without title"
+  },
+  "Admonition block with title": {
+    "prefix": [":::admonition", ":::info", ":::tip", ":::warning", ":::danger"],
+    "body": [
+      ":::${1|info,tip,warning,danger|}[${2:Title}]",
+      "",
+      "${3:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Admonition block with title"
+  }
+}

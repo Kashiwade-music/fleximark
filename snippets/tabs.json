@@ -1,0 +1,17 @@
+{
+  "Tabs block": {
+    "prefix": [":::tabs", "::::tabs"],
+    "body": [
+      "::::tabs",
+      "",
+      "  :::tab[${1:Tab 1}]",
+      "",
+      "  ${2:Content}",
+      "",
+      "  :::",
+      "",
+      "::::"
+    ],
+    "description": "Insert Tabs block"
+  }
+}
