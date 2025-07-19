@@ -4,18 +4,15 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 // import * as myExtension from '../../extension';
+import * as commands_css_index from "./commands/css/index.test.mjs";
+import * as commands_genSettingsJson_index from "./commands/getSettingsJson/index.test.mjs";
 
 export interface CommandTestModule {
   suiteName: string;
   suite: () => void;
 }
 
-suite("Extension Test Suite", async () => {
-  const commands_css_index = await import("./commands/css/index.test.mjs");
-  const commands_genSettingsJson_index = await import(
-    "./commands/getSettingsJson/index.test.mjs"
-  );
-
+suite("Extension Test Suite", () => {
   suiteSetup(async () => {
     // activate the extension before running tests
     await vscode.extensions.getExtension("Kashiwade.fleximark")?.activate();

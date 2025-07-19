@@ -25,7 +25,7 @@
     "url": "https://github.com/Kashiwade-music/fleximark.git"
   },
   "preview": true,
-  "activationEvents": [],
+  "activationEvents": ["*"],
   "main": "./dist/extension.cjs",
   "contributes": {
     "commands": [
