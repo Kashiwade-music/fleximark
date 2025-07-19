@@ -49,5 +49,42 @@
       "```"
     ],
     "description": "Insert Piano-Vocal ABC Template"
+  },
+  "Insert SATB ABC Template": {
+    "prefix": "```abc satb",
+    "body": [
+      "```abc",
+      "X:1",
+      "T:${1:Title}",
+      "M:${2|4/4,3/4,6/8,12/8,2/2|}",
+      "L:${3|1/4,1/8,1/16|}",
+      "K:${4:C}",
+      "Q:${5:120}",
+      "%%staves { (S A) (T B) }",
+      "V:S name=\"Soprano\" snm=\"S\" clef=treble",
+      "V:A name=\"Alto\" snm=\"A\" clef=treble",
+      "V:T name=\"Tenor\" snm=\"T\" clef=bass octave=-1",
+      "V:B name=\"Bass\" snm=\"B\" clef=bass octave=-1",
+      "% Start of the melody",
+      "[V:S]",
+      "E F G A | B c d e |",
+      "[V:A]",
+      "C D E F | G A B c |",
+      "[V:T]",
+      "G A B c | d e f g |",
+      "[V:B]",
+      "C D E F | G A B c |",
+      "% 2-line",
+      "[V:S]",
+      "E F G A | B c d e |",
+      "[V:A]",
+      "C D E F | G A B c |",
+      "[V:T]",
+      "G A B c | d e f g |",
+      "[V:B]",
+      "C D E F | G A B c |",
+      "```"
+    ],
+    "description": "Insert SATB (Soprano, Alto, Tenor, Bass) ABC Template"
   }
 }
