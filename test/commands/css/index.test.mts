@@ -5,7 +5,7 @@ import { getDefaultFleximarkCss } from "../../../src/commands/css/index.mjs";
 
 export const suiteName = "fleximark.css Utility Tests";
 export const suite = () => {
-  vscode.window.showInformationMessage("Start fleximark.css tests.");
+  console.log("Start fleximark.css tests.");
 
   test("getDefaultFleximarkCss() should return default CSS string", () => {
     const css = getDefaultFleximarkCss();
