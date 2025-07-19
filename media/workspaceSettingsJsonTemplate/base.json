@@ -1,6 +1,5 @@
 {
   "fleximark.settingsVersion": 1,
-
   "fleximark.noteCategories": {
     "General": {
       "Daily Notes": {},
@@ -14,10 +13,8 @@
       "Life": {}
     }
   },
-
   "fleximark.noteFileNamePrefix": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_",
   "fleximark.noteFileNameSuffix": "",
-
   "fleximark.noteTemplates": {
     "default": [
       "# ${1:first tabstop}",
@@ -25,15 +22,16 @@
       "",
       "## ${2:second tabstop}"
     ],
-    "Template 2": ["# Title", "## Subtitle", "### Subsubtitle"]
+    "Template 2": [
+      "# Title",
+      "## Subtitle",
+      "### Subsubtitle"
+    ]
   },
-
   "markdown.copyFiles.destination": {
     "**/*.md": "${documentWorkspaceFolder}/attachments/${documentRelativeDirName}/${documentBaseName}/"
   },
-
   "fleximark.defaultPreviewMode": "browser",
-
   "[markdown]": {
     "editor.quickSuggestions": {
       "comments": "on",

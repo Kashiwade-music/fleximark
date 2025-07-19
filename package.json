@@ -166,6 +166,19 @@
         "path": "./snippets/tabs.json"
       }
     ],
+    "languages": [
+      {
+        "id": "abc",
+        "aliases": [
+          "ABC Notation",
+          "abc"
+        ],
+        "extensions": [
+          ".abc"
+        ],
+        "configuration": "./language-support/abc/language-configuration.json"
+      }
+    ],
     "grammars": [
       {
         "path": "./syntaxes/markdown.tmLanguage.json",
