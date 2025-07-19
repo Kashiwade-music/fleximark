@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/Kashiwade-music/fleximark/compare/v0.7.0...v0.8.0) (2025-07-19)
+
+
+### Features
+
+* update ABC language support by refining patterns and adding new infofields ([69d1aad](https://github.com/Kashiwade-music/fleximark/commit/69d1aadff7be03dc473c43951f6c629133ec8d8c))
+
 # [0.7.0](https://github.com/Kashiwade-music/fleximark/compare/v0.6.0...v0.7.0) (2025-07-19)
 
 
