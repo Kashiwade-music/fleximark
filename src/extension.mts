@@ -118,10 +118,8 @@ function registerCommands(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "fleximark.checkWorkspaceSettingsUpdatable",
       async () => {
-        const ret = await checkWorkspaceSettingsUpdatable();
-
-        if (ret) {
-          updateWorkspaceSettings(context, true);
+        if (await checkWorkspaceSettingsUpdatable()) {
+          await updateWorkspaceSettings(context, true);
         }
       },
     ),
