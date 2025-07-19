@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import console from "console";
 import esbuild from "esbuild";
 import fs from "fs/promises";
 import path from "path";
+import process from "process";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -52,6 +54,9 @@ async function main() {
     loader: {
       ".css": "text",
     },
+    define: {
+      __DEV__: production ? "false" : "true",
+    },
   });
 
   // Script for Webview build
@@ -70,6 +75,7 @@ async function main() {
     sourcemap: !production,
     outdir: "dist/media",
     logLevel: "silent",
+    plugins: [esbuildProblemMatcherPlugin],
   });
 
   const copyAssets = async () => {

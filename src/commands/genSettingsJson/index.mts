@@ -129,3 +129,18 @@ function objectToJsonLines(obj: object): string[] {
   const jsonString = JSON.stringify(obj, null, 2);
   return jsonString.split("\n");
 }
+
+declare const __DEV__: boolean; // This is set by the esbuild process
+if (__DEV__) {
+  // export for testing purposes
+  (globalThis as any).commands.genSettingsJson.loadJsonIfExists =
+    loadJsonIfExists;
+  (globalThis as any).commands.genSettingsJson.getL10nJsonPath =
+    getL10nJsonPath;
+  (globalThis as any).commands.genSettingsJson.sortObjectKeys = sortObjectKeys;
+  (globalThis as any).commands.genSettingsJson.addCommentsToJson =
+    addCommentsToJson;
+  (globalThis as any).commands.genSettingsJson.objectToJsonLines =
+    objectToJsonLines;
+  (globalThis as any).commands.genSettingsJson.KeyOrder = KeyOrder;
+}
