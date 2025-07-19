@@ -148,7 +148,13 @@
           }
         }
       }
-    }
+    },
+    "snippets": [
+      {
+        "language": "markdown",
+        "path": "./snippets/abc.json"
+      }
+    ]
   },
   "l10n": "./l10n",
   "scripts": {
