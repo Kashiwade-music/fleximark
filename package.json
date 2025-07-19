@@ -165,9 +165,25 @@
     ],
     "grammars": [
       {
-        "path": "./syntaxes/markdown-admonition.json",
+        "path": "./syntaxes/markdown.tmLanguage.json",
         "scopeName": "custom.markdown.admonition",
         "injectTo": ["text.html.markdown"]
+      },
+      {
+        "path": "./syntaxes/markdown-mermaid.tmLanguage.json",
+        "scopeName": "custom.markdown.mermaid",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.mermaid": "mermaid"
+        }
+      },
+      {
+        "path": "./syntaxes/markdown-abc.tmLanguage.json",
+        "scopeName": "custom.markdown.abc",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.abc": "abc"
+        }
       }
     ]
   },

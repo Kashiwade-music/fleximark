@@ -1,0 +1,21 @@
+{
+  "scopeName": "custom.markdown.mermaid",
+  "injectionSelector": "L:text.html.markdown",
+  "patterns": [
+    {
+      "include": "#mermaid-block"
+    }
+  ],
+  "repository": {
+    "mermaid-block": {
+      "begin": "(?i)(?<=[`~])mermaid(\\s+[^`~]*)?$",
+      "end": "(^|\\G)(?=\\s*[`~]{3,}\\s*$)",
+      "contentName": "meta.embedded.block.mermaid",
+      "patterns": [
+        {
+          "include": "source.mermaid"
+        }
+      ]
+    }
+  }
+}

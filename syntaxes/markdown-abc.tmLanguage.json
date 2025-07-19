@@ -1,0 +1,21 @@
+{
+  "scopeName": "custom.markdown.abc",
+  "injectionSelector": "L:text.html.markdown",
+  "patterns": [
+    {
+      "include": "#abc-block"
+    }
+  ],
+  "repository": {
+    "abc-block": {
+      "begin": "(?i)(?<=[`~])abc(\\s+[^`~]*)?$",
+      "end": "(^|\\G)(?=\\s*[`~]{3,}\\s*$)",
+      "contentName": "meta.embedded.block.abc",
+      "patterns": [
+        {
+          "include": "source.abc"
+        }
+      ]
+    }
+  }
+}

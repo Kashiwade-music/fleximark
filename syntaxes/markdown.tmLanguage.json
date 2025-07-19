@@ -4,6 +4,9 @@
   "patterns": [
     {
       "include": "#admonition-block"
+    },
+    {
+      "include": "#abc-block"
     }
   ],
   "repository": {
