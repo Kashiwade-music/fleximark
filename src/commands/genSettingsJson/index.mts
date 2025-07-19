@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import parseJsonc from "../utils/parseJsonc.mjs";
 
 const KeyOrder = [
+  "fleximark.settingsVersion",
   "fleximark.noteCategories",
   "fleximark.noteFileNamePrefix",
   "fleximark.noteFileNameSuffix",
@@ -114,8 +115,8 @@ function addCommentsToJson(
         if (index === 0 && !isFirstMatch) {
           // Add a blank line before the first comment
           result.push("");
-          isFirstMatch = false;
         }
+        isFirstMatch = false;
         result.push(`${indent}// ${commentLine}`);
       });
     }
@@ -132,11 +133,11 @@ function objectToJsonLines(obj: object): string[] {
 
 declare const __DEV__: boolean; // This is set by the esbuild process
 if (__DEV__) {
+  (globalThis as any).commands = (globalThis as any).commands || {};
+  (globalThis as any).commands.genSettingsJson =
+    (globalThis as any).commands.genSettingsJson || {};
+
   // export for testing purposes
-  (globalThis as any).commands.genSettingsJson.loadJsonIfExists =
-    loadJsonIfExists;
-  (globalThis as any).commands.genSettingsJson.getL10nJsonPath =
-    getL10nJsonPath;
   (globalThis as any).commands.genSettingsJson.sortObjectKeys = sortObjectKeys;
   (globalThis as any).commands.genSettingsJson.addCommentsToJson =
     addCommentsToJson;

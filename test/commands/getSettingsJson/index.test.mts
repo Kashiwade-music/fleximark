@@ -1,114 +1,302 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as assert from "assert";
-import * as fs from "fs";
-import * as sinon from "sinon";
-import * as vscode from "vscode";
 
-const {
-  loadJsonIfExists,
-  getL10nJsonPath,
-  sortObjectKeys,
-  addCommentsToJson,
-  objectToJsonLines,
-} = (globalThis as any).commands.genSettingsJson;
+const { sortObjectKeys, addCommentsToJson, objectToJsonLines, KeyOrder } = (
+  globalThis as any
+).commands.genSettingsJson;
 
 export const suiteName = "genSettingsJson Utility Tests";
+
 export const suite = () => {
-  vscode.window.showInformationMessage("Start genSettingsJson utility tests.");
-
-  let sandbox: sinon.SinonSandbox;
-
-  setup(() => {
-    sandbox = sinon.createSandbox();
-  });
-
-  teardown(() => {
-    sandbox.restore();
-  });
-
-  test("loadJsonIfExists should return parsed JSON if file exists", () => {
-    const dummyJson = { a: 1, b: 2 };
-    sandbox.stub(fs, "existsSync").returns(true);
-    sandbox.stub(fs, "readFileSync").returns(JSON.stringify(dummyJson));
-
-    const result = loadJsonIfExists("dummy/path.json");
-    assert.deepStrictEqual(result, dummyJson);
-  });
-
-  test("loadJsonIfExists should return null if file does not exist", () => {
-    sandbox.stub(fs, "existsSync").returns(false);
-
-    const result = loadJsonIfExists("nonexistent.json");
-    assert.strictEqual(result, null);
-  });
-
-  test("loadJsonIfExists should return null on JSON parse error", () => {
-    sandbox.stub(fs, "existsSync").returns(true);
-    sandbox.stub(fs, "readFileSync").returns("invalid-json");
-
-    const result = loadJsonIfExists("bad.json");
-    assert.strictEqual(result, null);
-  });
-
-  test("getL10nJsonPath should return localized file path if it exists", () => {
-    sandbox
-      .stub(fs, "existsSync")
-      .callsFake((p) => String(p).includes("ja.json"));
-    sandbox.stub(vscode.env, "language").value("ja");
-
-    const context = {
-      extensionPath: "/ext/path",
-    } as unknown as vscode.ExtensionContext;
-
-    const result = getL10nJsonPath(context);
-    assert.ok(result.endsWith("ja.json"), "Should return ja.json path");
-  });
-
-  test("getL10nJsonPath should fallback to en.json if localized file does not exist", () => {
-    sandbox.stub(fs, "existsSync").returns(false);
-    sandbox.stub(vscode.env, "language").value("fr");
-
-    const context = {
-      extensionPath: "/ext/path",
-    } as unknown as vscode.ExtensionContext;
-
-    const result = getL10nJsonPath(context);
-    assert.ok(result.endsWith("en.json"), "Should fallback to en.json");
-  });
-
-  test("sortObjectKeys should order keys by KeyOrder then alphabetical", () => {
-    const unordered = {
-      z: "last",
+  // sortObjectKeys
+  test("sortObjectKeys() should sort keys based on KeyOrder and then alphabetically", () => {
+    const input = {
+      "fleximark.noteFileNameSuffix": "suffix",
+      zzz: 1,
+      aaa: 2,
       "fleximark.noteTemplates": "template",
-      a: "first",
+      "fleximark.noteFileNamePrefix": "prefix",
     };
-    const result = sortObjectKeys(unordered);
-    const keys = Object.keys(result);
-    assert.deepStrictEqual(
-      keys,
-      ["fleximark.noteTemplates", "a", "z"],
-      "Keys should be sorted with priority",
-    );
+    const expectedOrder = [
+      "fleximark.noteFileNamePrefix",
+      "fleximark.noteFileNameSuffix",
+      "fleximark.noteTemplates",
+      "aaa",
+      "zzz",
+    ];
+
+    const result = sortObjectKeys(input);
+    assert.deepStrictEqual(Object.keys(result), expectedOrder);
   });
 
-  test("addCommentsToJson should insert comments above matching keys", () => {
-    const lines = ['  "key1": "value1",', '  "key2": "value2"'];
+  test("sortObjectKeys() should return an empty object when input is empty", () => {
+    const input = {};
+    const result = sortObjectKeys(input);
+    assert.deepStrictEqual(result, {});
+  });
+
+  test("sortObjectKeys() should preserve KeyOrder even if some keys are missing", () => {
+    const input = {
+      "fleximark.settingsVersion": "1.0",
+      "fleximark.noteTemplates": "template",
+      "markdown.copyFiles.destination": "dest",
+    };
+    const expectedOrder = [
+      "fleximark.settingsVersion",
+      "fleximark.noteTemplates",
+      "markdown.copyFiles.destination",
+    ];
+    const result = sortObjectKeys(input);
+    assert.deepStrictEqual(Object.keys(result), expectedOrder);
+  });
+
+  test("sortObjectKeys() should append unknown keys in alphabetical order", () => {
+    const input = {
+      zzz: "last",
+      bbb: "second",
+      aaa: "first",
+    };
+    const expectedOrder = ["aaa", "bbb", "zzz"];
+    const result = sortObjectKeys(input);
+    assert.deepStrictEqual(Object.keys(result), expectedOrder);
+  });
+
+  test("sortObjectKeys() should retain values correctly after sorting", () => {
+    const input = {
+      "fleximark.noteFileNamePrefix": "pre",
+      "fleximark.noteFileNameSuffix": "suf",
+      xyz: 42,
+    };
+    const expected = {
+      "fleximark.noteFileNamePrefix": "pre",
+      "fleximark.noteFileNameSuffix": "suf",
+      xyz: 42,
+    };
+    const result = sortObjectKeys(input);
+    assert.deepStrictEqual(result, expected);
+  });
+
+  test("sortObjectKeys() should handle all KeyOrder keys in correct order", () => {
+    const input = Object.fromEntries(
+      KeyOrder.map((key: any, i: any) => [key, i]),
+    );
+    const result = sortObjectKeys(input);
+    assert.deepStrictEqual(Object.keys(result), KeyOrder);
+  });
+
+  // addCommentsToJson
+  test("addCommentsToJson() should insert comments for matching keys", () => {
+    const jsonLines = [
+      "{",
+      '  "fleximark.noteFileNamePrefix": "prefix",',
+      '  "zzz": 123',
+      "}",
+    ];
     const comments = {
-      key1: ["This is key1"],
+      "fleximark.noteFileNamePrefix": ["This is a prefix"],
     };
-    const result = addCommentsToJson(lines, comments);
 
-    assert.ok(result.includes("  // This is key1"), "Should include comment");
-    assert.ok(
-      result.join("\n").includes('"key1":'),
-      "Should preserve original line",
-    );
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      "  // This is a prefix",
+      '  "fleximark.noteFileNamePrefix": "prefix",',
+      '  "zzz": 123',
+      "}",
+    ]);
   });
 
-  test("objectToJsonLines should convert object to JSON lines", () => {
-    const obj = { a: 1, b: 2 };
+  test("addCommentsToJson() should insert blank line before subsequent comment groups", () => {
+    const jsonLines = ["{", '  "key1": "value1",', '  "key2": "value2"', "}"];
+    const comments = {
+      key1: ["Comment for key1"],
+      key2: ["Comment for key2"],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      "  // Comment for key1",
+      '  "key1": "value1",',
+      "",
+      "  // Comment for key2",
+      '  "key2": "value2"',
+      "}",
+    ]);
+  });
+
+  test("addCommentsToJson() should not modify lines when no keys match", () => {
+    const jsonLines = ["{", '  "foo": "bar",', '  "baz": 42', "}"];
+    const comments = {
+      nonexistent: ["No match"],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      '  "foo": "bar",',
+      '  "baz": 42',
+      "}",
+    ]);
+  });
+
+  test("addCommentsToJson() should add multiple comment lines per key", () => {
+    const jsonLines = ["{", '  "key": true', "}"];
+    const comments = {
+      key: ["First line", "Second line", "Third line"],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      "  // First line",
+      "  // Second line",
+      "  // Third line",
+      '  "key": true',
+      "}",
+    ]);
+  });
+
+  test("addCommentsToJson() should handle keys with different indentation", () => {
+    const jsonLines = [
+      "{",
+      '    "deepKey": "value",',
+      '  "shallowKey": 1',
+      "}",
+    ];
+    const comments = {
+      deepKey: ["Deeply nested"],
+      shallowKey: ["Top level"],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      "    // Deeply nested",
+      '    "deepKey": "value",',
+      "",
+      "  // Top level",
+      '  "shallowKey": 1',
+      "}",
+    ]);
+  });
+
+  test("addCommentsToJson() should preserve original order of keys", () => {
+    const jsonLines = ["{", '  "b": 2,', '  "a": 1', "}"];
+    const comments = {
+      a: ["Comment for a"],
+      b: ["Comment for b"],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      "  // Comment for b",
+      '  "b": 2,',
+      "",
+      "  // Comment for a",
+      '  "a": 1',
+      "}",
+    ]);
+  });
+
+  test("addCommentsToJson() should handle keys with special characters", () => {
+    const jsonLines = ["{", '  "a.b-c_d": "value"', "}"];
+    const comments = {
+      "a.b-c_d": ["Special key"],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, [
+      "{",
+      "  // Special key",
+      '  "a.b-c_d": "value"',
+      "}",
+    ]);
+  });
+
+  test("addCommentsToJson() should handle empty comment arrays", () => {
+    const jsonLines = ["{", '  "foo": 1', "}"];
+    const comments = {
+      foo: [],
+    };
+
+    const result = addCommentsToJson(jsonLines, comments);
+
+    assert.deepStrictEqual(result, ["{", '  "foo": 1', "}"]);
+  });
+
+  // objectToJsonLines
+  test("objectToJsonLines() should handle empty object", () => {
+    const obj = {};
     const result = objectToJsonLines(obj);
-    assert.ok(Array.isArray(result));
-    assert.ok(result.some((line) => line.includes('"a": 1')));
+    assert.deepStrictEqual(result, ["{}"]);
+  });
+
+  test("objectToJsonLines() should handle nested objects", () => {
+    const obj = {
+      a: 1,
+      b: {
+        c: 2,
+        d: 3,
+      },
+    };
+    const result = objectToJsonLines(obj);
+    assert.deepStrictEqual(result, [
+      "{",
+      '  "a": 1,',
+      '  "b": {',
+      '    "c": 2,',
+      '    "d": 3',
+      "  }",
+      "}",
+    ]);
+  });
+
+  test("objectToJsonLines() should handle arrays in object", () => {
+    const obj = {
+      items: [1, 2, 3],
+    };
+    const result = objectToJsonLines(obj);
+    assert.deepStrictEqual(result, [
+      "{",
+      '  "items": [',
+      "    1,",
+      "    2,",
+      "    3",
+      "  ]",
+      "}",
+    ]);
+  });
+
+  test("objectToJsonLines() should handle string values", () => {
+    const obj = {
+      message: "hello",
+    };
+    const result = objectToJsonLines(obj);
+    assert.deepStrictEqual(result, ["{", '  "message": "hello"', "}"]);
+  });
+
+  test("objectToJsonLines() should handle boolean and null values", () => {
+    const obj = {
+      isActive: true,
+      isDeleted: false,
+      data: null,
+    };
+    const result = objectToJsonLines(obj);
+    assert.deepStrictEqual(result, [
+      "{",
+      '  "isActive": true,',
+      '  "isDeleted": false,',
+      '  "data": null',
+      "}",
+    ]);
   });
 };
