@@ -206,6 +206,11 @@
         "embeddedLanguages": {
           "meta.embedded.block.abc": "abc"
         }
+      },
+      {
+        "language": "abc",
+        "scopeName": "source.abc",
+        "path": "./language-support/abc/abc.tmLanguage.json"
       }
     ]
   },
