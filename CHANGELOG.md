@@ -1,3 +1,10 @@
+## [0.9.7](https://github.com/Kashiwade-music/fleximark/compare/v0.9.6...v0.9.7) (2025-07-20)
+
+
+### Bug Fixes
+
+* Fix for unwanted files included in the build artifacts ([04df0cd](https://github.com/Kashiwade-music/fleximark/commit/04df0cd6fac81872cc09a2cf0a79b82287f512ae))
+
 ## [0.9.6](https://github.com/Kashiwade-music/fleximark/compare/v0.9.5...v0.9.6) (2025-07-20)
 
 
