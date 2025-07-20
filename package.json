@@ -29,7 +29,7 @@
   },
   "preview": true,
   "activationEvents": [
-    "*"
+    "onLanguage:markdown"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {
