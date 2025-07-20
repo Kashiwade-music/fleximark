@@ -36,7 +36,7 @@
     "editor.quickSuggestions": {
       "comments": "on",
       "other": "on",
-      "strings": "on"
+      "strings": "off"
     },
     "editor.snippetSuggestions": "top",
     "editor.wordWrap": "on"
