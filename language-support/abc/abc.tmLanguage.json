@@ -40,7 +40,7 @@
     "infofield_not_inline": {
       "patterns": [
         {
-          "match": "^([ABCDFGHIKLMmNOPQRrSTUVWwXZ]:.*)",
+          "match": "^([ABCDFGHIKLMmNOPQRrSTUVWwXZ]:.*?)(%.*)?$",
           "captures": {
             "1": {
               "patterns": [
@@ -90,6 +90,9 @@
                   "include": "#infofield_reference_number"
                 }
               ]
+            },
+            "2": {
+              "name": "comment"
             }
           }
         }
@@ -438,7 +441,7 @@
       "patterns": [
         {
           "match": "\"([^\".]*)\"",
-          "name": "keyword.other.chords.abc"
+          "name": "keyword markup.italic"
         }
       ]
     },
@@ -454,7 +457,7 @@
       "patterns": [
         {
           "match": ":?\\|[:\\]]?",
-          "name": "keyword.other.bar.abc"
+          "name": "keyword.control"
         }
       ]
     },
