@@ -1,3 +1,15 @@
+# [0.9.0](https://github.com/Kashiwade-music/fleximark/compare/v0.8.0...v0.9.0) (2025-07-20)
+
+
+### Bug Fixes
+
+* instruction and expand history syntax highlight ([946fd0e](https://github.com/Kashiwade-music/fleximark/commit/946fd0e21bfe03609a3ca179930a9ad209d41488))
+
+
+### Features
+
+* add ABC completion ([8a3ce14](https://github.com/Kashiwade-music/fleximark/commit/8a3ce14db6dd8c66fca5a7e0942f653952d35e49))
+
 # [0.8.0](https://github.com/Kashiwade-music/fleximark/compare/v0.7.0...v0.8.0) (2025-07-19)
 
 
