@@ -424,8 +424,15 @@
     "instructions": {
       "patterns": [
         {
-          "match": "^%%.*",
-          "name": "entity.name.function"
+          "match": "(%%[a-zA-Z0-9\\-]+)\\s+([^\\r\\n\\[\\]]+)",
+          "captures": {
+            "1": {
+              "name": "keyword"
+            },
+            "2": {
+              "name": "variable"
+            }
+          }
         }
       ]
     },
