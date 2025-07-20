@@ -1,3 +1,10 @@
+## [0.9.1](https://github.com/Kashiwade-music/fleximark/compare/v0.9.0...v0.9.1) (2025-07-20)
+
+
+### Bug Fixes
+
+* refine regex patterns for comments ([ae6ca78](https://github.com/Kashiwade-music/fleximark/commit/ae6ca7807623a0d26b200187cddf720ea71c9ff0))
+
 # [0.9.0](https://github.com/Kashiwade-music/fleximark/compare/v0.8.0...v0.9.0) (2025-07-20)
 
 
