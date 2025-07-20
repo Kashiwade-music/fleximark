@@ -1,3 +1,11 @@
+## [0.9.5](https://github.com/Kashiwade-music/fleximark/compare/v0.9.4...v0.9.5) (2025-07-20)
+
+
+### Bug Fixes
+
+* disable unnecessary strings suggestion ([0733e4d](https://github.com/Kashiwade-music/fleximark/commit/0733e4dcbb4c70df4c0a2128fe6858815afb6eb6))
+* noteOctave not working ([8b6b7b5](https://github.com/Kashiwade-music/fleximark/commit/8b6b7b52e0b2c77ed254c52eb01e7938ad120afe))
+
 ## [0.9.4](https://github.com/Kashiwade-music/fleximark/compare/v0.9.3...v0.9.4) (2025-07-20)
 
 
