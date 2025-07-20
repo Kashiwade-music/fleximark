@@ -39,7 +39,7 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
         position,
       );
       octaveCompletion.insertText = new vscode.SnippetString(
-        "${1|'',',\\,,\\,\\,,|}",
+        "${1|'',',\\,,\\,\\,|}",
       );
       octaveCompletion.documentation = new vscode.MarkdownString(
         `Insert octave changes.
