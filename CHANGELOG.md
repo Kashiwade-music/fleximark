@@ -1,3 +1,10 @@
+## [0.9.4](https://github.com/Kashiwade-music/fleximark/compare/v0.9.3...v0.9.4) (2025-07-20)
+
+
+### Bug Fixes
+
+* abc snippets more useful ([13a92da](https://github.com/Kashiwade-music/fleximark/commit/13a92da450dc9a90f00b6a13c7bd748964916399))
+
 ## [0.9.3](https://github.com/Kashiwade-music/fleximark/compare/v0.9.2...v0.9.3) (2025-07-20)
 
 
