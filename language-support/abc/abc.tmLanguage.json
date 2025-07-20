@@ -175,7 +175,7 @@
     "infofield_b_to_h_o_s_t_WwZ": {
       "patterns": [
         {
-          "match": "([BCDFGHOSTWwZ]:)(.*)",
+          "match": "([BCDFGH\\+OSTWwZ]:)(.*)",
           "captures": {
             "1": {
               "name": "keyword"
@@ -190,7 +190,7 @@
     "infofield_instruction": {
       "patterns": [
         {
-          "match": "I:([a-zA-Z0-9\\-]+)\\s+([^\\r\\n\\[\\]]+)",
+          "match": "(I:[a-zA-Z0-9\\-]+)\\s+([^\\r\\n\\[\\]]+)",
           "captures": {
             "1": {
               "name": "keyword"
