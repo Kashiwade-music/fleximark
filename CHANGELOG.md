@@ -1,3 +1,10 @@
+## [0.9.3](https://github.com/Kashiwade-music/fleximark/compare/v0.9.2...v0.9.3) (2025-07-20)
+
+
+### Bug Fixes
+
+* improve syntax highlight ([5959c77](https://github.com/Kashiwade-music/fleximark/commit/5959c77da8f65ffee9215e7cdb871e3d8121bed9))
+
 ## [0.9.2](https://github.com/Kashiwade-music/fleximark/compare/v0.9.1...v0.9.2) (2025-07-20)
 
 
