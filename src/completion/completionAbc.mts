@@ -164,7 +164,7 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
         position.translate(0, -1),
         position,
       );
-      slursCompletion.insertText = new vscode.SnippetString(" ( $0 ) ");
+      slursCompletion.insertText = new vscode.SnippetString("($0)");
       slursCompletion.documentation = new vscode.MarkdownString(
         `Insert a slur (parentheses) around notes.
 - e.g.
@@ -181,13 +181,13 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
         position,
       );
       graceNotesCompletion.insertText = new vscode.SnippetString(
-        "${1|{/abc},{abc}|}",
+        "${1|{/CDE},{CDE}|}",
       );
       graceNotesCompletion.documentation = new vscode.MarkdownString(
         `Insert grace notes.
 - e.g.
-  - \`{/abc}\`: Grace notes with slashes.
-  - \`{abc}\`: Grace notes before the main note and after`,
+  - \`{/CDE}\`: Grace notes with slashes.
+  - \`{CDE}\`: Grace notes before the main note and after`,
       );
 
       // ===================================
@@ -199,12 +199,12 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
         position,
       );
       tripletsCompletion.insertText = new vscode.SnippetString(
-        " ${1|(3,(5,(p:q:r|} ",
+        "${1|(3,(5,(p:q:r|}",
       );
       tripletsCompletion.documentation =
         new vscode.MarkdownString(`Insert triplets.
 - e.g.
-  - \`(3 cde\`: Simple triplet
+  - \`(3 CDE\`: Simple triplet
   - \`(p:q:r \`: put *p* notes into the time of *q* for the next *r* notes`);
 
       // ===================================
@@ -226,27 +226,31 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
 
       // ===================================
 
-      const chordCompletion = new vscode.CompletionItem("\\multipleNotes");
-      chordCompletion.kind = vscode.CompletionItemKind.Function;
-      chordCompletion.range = new vscode.Range(
+      const multipleNotesCompletion = new vscode.CompletionItem(
+        "\\multipleNotes",
+      );
+      multipleNotesCompletion.kind = vscode.CompletionItemKind.Function;
+      multipleNotesCompletion.range = new vscode.Range(
         position.translate(0, -1),
         position,
       );
-      chordCompletion.insertText = new vscode.SnippetString("[$0]");
-      chordCompletion.documentation = new vscode.MarkdownString(
+      multipleNotesCompletion.insertText = new vscode.SnippetString(
+        "[${1:CEG}]",
+      );
+      multipleNotesCompletion.documentation = new vscode.MarkdownString(
         "Insert multiple notes.",
       );
 
       // ===================================
 
-      const chordSymbolCompletion = new vscode.CompletionItem("\\chordSymbol");
-      chordSymbolCompletion.kind = vscode.CompletionItemKind.Function;
-      chordSymbolCompletion.range = new vscode.Range(
+      const chordCompletion = new vscode.CompletionItem("\\chord");
+      chordCompletion.kind = vscode.CompletionItemKind.Function;
+      chordCompletion.range = new vscode.Range(
         position.translate(0, -1),
         position,
       );
-      chordSymbolCompletion.insertText = new vscode.SnippetString('"$0"');
-      chordSymbolCompletion.documentation = new vscode.MarkdownString(
+      chordCompletion.insertText = new vscode.SnippetString('"$0"');
+      chordCompletion.documentation = new vscode.MarkdownString(
         "Insert a chord symbol. You can use \\chordAccidental and \\chordType",
       );
 
@@ -282,6 +286,19 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
         "Insert a chord type.",
       );
 
+      // ===================================
+
+      const newLineCompletion = new vscode.CompletionItem("\\newline");
+      newLineCompletion.kind = vscode.CompletionItemKind.Function;
+      newLineCompletion.range = new vscode.Range(
+        position.translate(0, -1),
+        position,
+      );
+      newLineCompletion.insertText = new vscode.SnippetString("$0| | | |");
+      newLineCompletion.documentation = new vscode.MarkdownString(
+        "Insert a new line in ABC notation.",
+      );
+
       // return all completion items as array
       return [
         octaveCompletion,
@@ -294,10 +311,11 @@ export const slashCommand = vscode.languages.registerCompletionItemProvider(
         graceNotesCompletion,
         tripletsCompletion,
         decorationCompletion,
+        multipleNotesCompletion,
         chordCompletion,
-        chordSymbolCompletion,
         chordAccidentalCompletion,
         chordTypeCompletion,
+        newLineCompletion,
       ];
     },
   },
