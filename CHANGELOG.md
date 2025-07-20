@@ -1,3 +1,10 @@
+## [0.9.6](https://github.com/Kashiwade-music/fleximark/compare/v0.9.5...v0.9.6) (2025-07-20)
+
+
+### Bug Fixes
+
+* activation events ([192adb9](https://github.com/Kashiwade-music/fleximark/commit/192adb9f5c237a07ceb3f433480df64f8b782285))
+
 ## [0.9.5](https://github.com/Kashiwade-music/fleximark/compare/v0.9.4...v0.9.5) (2025-07-20)
 
 
