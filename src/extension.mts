@@ -15,6 +15,7 @@ import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
 import updateWorkspaceSettings from "./commands/updateWorkspaceSettings.mjs";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
+import * as completionAbc from "./completion/completionAbc.mjs";
 
 // Constants
 const DEFAULT_PORT = 3000;
@@ -66,6 +67,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerCommands(context);
   registerEventListeners(context);
+  registerCompletionProvider(context);
 }
 
 // ---------------------------------------------
@@ -384,6 +386,15 @@ function registerEventListeners(context: vscode.ExtensionContext) {
       broadcastToClients({ type: "editor-scroll", line });
     }),
   );
+}
+
+// ---------------------------------------------
+// Completion Provider
+// ---------------------------------------------
+function registerCompletionProvider(context: vscode.ExtensionContext) {
+  const { subscriptions } = context;
+
+  subscriptions.push(completionAbc.decorations, completionAbc.slashCommand);
 }
 
 // ---------------------------------------------
