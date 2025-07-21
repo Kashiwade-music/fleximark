@@ -97,7 +97,7 @@ class TimingCallbackState {
   }
 }
 
-const timingCallbacksStateArray: Record<string, TimingCallbackState> = {};
+const timingCallbackStateArray: Record<string, TimingCallbackState> = {};
 
 window.addEventListener("load", () => {
   renderABC();
@@ -153,10 +153,10 @@ function renderABC(): void {
     synthControl.setTune(visualObj[0], false);
 
     const timingState = new TimingCallbackState(hash, visualObj);
-    timingCallbacksStateArray[hash] = timingState;
+    timingCallbackStateArray[hash] = timingState;
 
     const startStop = () => {
-      const state = timingCallbacksStateArray[hash];
+      const state = timingCallbackStateArray[hash];
       if (state.stoppedByEnd) {
         state.stoppedByEnd = false;
         state.stoppedByPause = false;
@@ -175,7 +175,7 @@ function renderABC(): void {
     };
 
     const reset = () => {
-      const state = timingCallbacksStateArray[hash];
+      const state = timingCallbackStateArray[hash];
       state.timingCallback.reset();
       state.isRunning = false;
     };
