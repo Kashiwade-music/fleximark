@@ -12,7 +12,7 @@ const MdastRootSample1 = {
       children: [
         {
           type: "text",
-          value: "原神 龍に選ばれし者の試練",
+          value: "Debug Cursor Highlight",
           position: {
             start: {
               line: 1,
@@ -21,8 +21,8 @@ const MdastRootSample1 = {
             },
             end: {
               line: 1,
-              column: 16,
-              offset: 15,
+              column: 25,
+              offset: 24,
             },
           },
         },
@@ -35,8 +35,162 @@ const MdastRootSample1 = {
         },
         end: {
           line: 1,
-          column: 16,
-          offset: 15,
+          column: 25,
+          offset: 24,
+        },
+      },
+    },
+    {
+      type: "heading",
+      depth: 2,
+      children: [
+        {
+          type: "text",
+          value: "これはテストです。",
+          position: {
+            start: {
+              line: 3,
+              column: 4,
+              offset: 29,
+            },
+            end: {
+              line: 3,
+              column: 13,
+              offset: 38,
+            },
+          },
+        },
+      ],
+      position: {
+        start: {
+          line: 3,
+          column: 1,
+          offset: 26,
+        },
+        end: {
+          line: 3,
+          column: 13,
+          offset: 38,
+        },
+      },
+    },
+    {
+      type: "code",
+      lang: "html",
+      meta: null,
+      value:
+        '<!DOCTYPE html>\n<html lang="ja">\n<head>\n  <meta charset="UTF-8">\n  <title>カウンター</title>\n  <style>\n    body {\n      font-family: sans-serif;\n      text-align: center;\n      margin-top: 50px;\n    }\n    #count {\n      font-size: 48px;\n      margin: 20px;\n    }\n  </style>\n</head>\n<body>\n  <h1>クリックカウンター</h1>\n  <div id="count">0</div>\n  <button id="incrementBtn">カウントアップ</button>\n\n  <script>\n    const countDisplay = document.getElementById(\'count\');\n    const button = document.getElementById(\'incrementBtn\');\n    let count = 0;\n\n    button.addEventListener(\'click\', () => {\n      count++;\n      countDisplay.textContent = count;\n    });\n  </script>\n</body>\n</html>',
+      position: {
+        start: {
+          line: 5,
+          column: 1,
+          offset: 40,
+        },
+        end: {
+          line: 40,
+          column: 4,
+          offset: 714,
+        },
+      },
+    },
+    {
+      type: "heading",
+      depth: 2,
+      children: [
+        {
+          type: "text",
+          value: "🚀 Overview",
+          position: {
+            start: {
+              line: 42,
+              column: 4,
+              offset: 719,
+            },
+            end: {
+              line: 42,
+              column: 15,
+              offset: 730,
+            },
+          },
+        },
+      ],
+      position: {
+        start: {
+          line: 42,
+          column: 1,
+          offset: 716,
+        },
+        end: {
+          line: 42,
+          column: 15,
+          offset: 730,
+        },
+      },
+    },
+    {
+      type: "paragraph",
+      children: [
+        {
+          type: "strong",
+          children: [
+            {
+              type: "text",
+              value: "FlexiMark",
+              position: {
+                start: {
+                  line: 44,
+                  column: 3,
+                  offset: 734,
+                },
+                end: {
+                  line: 44,
+                  column: 12,
+                  offset: 743,
+                },
+              },
+            },
+          ],
+          position: {
+            start: {
+              line: 44,
+              column: 1,
+              offset: 732,
+            },
+            end: {
+              line: 44,
+              column: 14,
+              offset: 745,
+            },
+          },
+        },
+        {
+          type: "text",
+          value:
+            " is a powerful, extensible Markdown toolkit for Visual Studio Code that redefines what Markdown editing and previewing can be.",
+          position: {
+            start: {
+              line: 44,
+              column: 14,
+              offset: 745,
+            },
+            end: {
+              line: 44,
+              column: 140,
+              offset: 871,
+            },
+          },
+        },
+      ],
+      position: {
+        start: {
+          line: 44,
+          column: 1,
+          offset: 732,
+        },
+        end: {
+          line: 44,
+          column: 140,
+          offset: 871,
         },
       },
     },
@@ -45,31 +199,164 @@ const MdastRootSample1 = {
       children: [
         {
           type: "text",
-          value: "Note Created: 2025-07-20",
+          value: "With seamless live preview capabilities both ",
           position: {
             start: {
-              line: 2,
+              line: 46,
               column: 1,
-              offset: 16,
+              offset: 873,
             },
             end: {
-              line: 2,
-              column: 25,
-              offset: 40,
+              line: 46,
+              column: 46,
+              offset: 918,
+            },
+          },
+        },
+        {
+          type: "emphasis",
+          children: [
+            {
+              type: "text",
+              value: "inside VSCode",
+              position: {
+                start: {
+                  line: 46,
+                  column: 47,
+                  offset: 919,
+                },
+                end: {
+                  line: 46,
+                  column: 60,
+                  offset: 932,
+                },
+              },
+            },
+          ],
+          position: {
+            start: {
+              line: 46,
+              column: 46,
+              offset: 918,
+            },
+            end: {
+              line: 46,
+              column: 61,
+              offset: 933,
+            },
+          },
+        },
+        {
+          type: "text",
+          value: " and ",
+          position: {
+            start: {
+              line: 46,
+              column: 61,
+              offset: 933,
+            },
+            end: {
+              line: 46,
+              column: 66,
+              offset: 938,
+            },
+          },
+        },
+        {
+          type: "emphasis",
+          children: [
+            {
+              type: "text",
+              value: "in your web browser",
+              position: {
+                start: {
+                  line: 46,
+                  column: 67,
+                  offset: 939,
+                },
+                end: {
+                  line: 46,
+                  column: 86,
+                  offset: 958,
+                },
+              },
+            },
+          ],
+          position: {
+            start: {
+              line: 46,
+              column: 66,
+              offset: 938,
+            },
+            end: {
+              line: 46,
+              column: 87,
+              offset: 959,
+            },
+          },
+        },
+        {
+          type: "text",
+          value:
+            ", FlexiMark gives you complete freedom over customization, interactivity, and style — using the full power of JavaScript.",
+          position: {
+            start: {
+              line: 46,
+              column: 87,
+              offset: 959,
+            },
+            end: {
+              line: 46,
+              column: 208,
+              offset: 1080,
             },
           },
         },
       ],
       position: {
         start: {
-          line: 2,
+          line: 46,
           column: 1,
-          offset: 16,
+          offset: 873,
         },
         end: {
-          line: 2,
-          column: 25,
-          offset: 40,
+          line: 46,
+          column: 208,
+          offset: 1080,
+        },
+      },
+    },
+    {
+      type: "paragraph",
+      children: [
+        {
+          type: "text",
+          value:
+            "Whether you're a developer, writer, student, or researcher, FlexiMark is designed to supercharge your Markdown experience — especially for taking structured, rich notes.",
+          position: {
+            start: {
+              line: 48,
+              column: 1,
+              offset: 1082,
+            },
+            end: {
+              line: 48,
+              column: 170,
+              offset: 1251,
+            },
+          },
+        },
+      ],
+      position: {
+        start: {
+          line: 48,
+          column: 1,
+          offset: 1082,
+        },
+        end: {
+          line: 48,
+          column: 170,
+          offset: 1251,
         },
       },
     },
@@ -79,88 +366,31 @@ const MdastRootSample1 = {
       children: [
         {
           type: "text",
-          value: "原曲",
+          value: "abc.js test",
           position: {
             start: {
-              line: 4,
+              line: 50,
               column: 4,
-              offset: 45,
+              offset: 1256,
             },
             end: {
-              line: 4,
-              column: 6,
-              offset: 47,
+              line: 50,
+              column: 15,
+              offset: 1267,
             },
           },
         },
       ],
       position: {
         start: {
-          line: 4,
+          line: 50,
           column: 1,
-          offset: 42,
+          offset: 1253,
         },
         end: {
-          line: 4,
-          column: 6,
-          offset: 47,
-        },
-      },
-    },
-    {
-      type: "html",
-      value:
-        '<div class="youtube-placeholder" data-video-id="cUo2ljhBn0A" style="position: relative; width: 100%; padding-bottom: 56.25%; cursor: pointer;">\n      <img src="https://img.youtube.com/vi/cUo2ljhBn0A/hqdefault.jpg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;">\n      <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 68px; height: 48px;">\n        <svg viewBox="0 0 68 48" width="100%" height="100%">\n          <path d="M66.52 7.01a8 8 0 0 0-5.63-5.66C56.23 0.4 34 0.4 34 0.4s-22.23 0-26.89.95A8 8 0 0 0 1.48 7.01 83.16 83.16 0 0 0 0 24a83.16 83.16 0 0 0 1.48 16.99 8 8 0 0 0 5.63 5.66c4.66.95 26.89.95 26.89.95s22.23 0 26.89-.95a8 8 0 0 0 5.63-5.66A83.16 83.16 0 0 0 68 24a83.16 83.16 0 0 0-1.48-16.99z" fill="#f00"/>\n          <path d="M45 24 27 14v20z" fill="#fff"/>\n        </svg>\n      </div>\n    </div>',
-      data: {
-        hName: "div",
-        hProperties: {
-          className: "embed-content youtube-embed",
-        },
-      },
-      position: {
-        start: {
-          line: 6,
-          column: 1,
-          offset: 49,
-        },
-        end: {
-          line: 6,
-          column: 44,
-          offset: 92,
-        },
-      },
-    },
-    {
-      type: "heading",
-      depth: 2,
-      children: [
-        {
-          type: "text",
-          value: "イントロ",
-          position: {
-            start: {
-              line: 8,
-              column: 4,
-              offset: 97,
-            },
-            end: {
-              line: 8,
-              column: 8,
-              offset: 101,
-            },
-          },
-        },
-      ],
-      position: {
-        start: {
-          line: 8,
-          column: 1,
-          offset: 94,
-        },
-        end: {
-          line: 8,
-          column: 8,
-          offset: 101,
+          line: 50,
+          column: 15,
+          offset: 1267,
         },
       },
     },
@@ -169,70 +399,17 @@ const MdastRootSample1 = {
       lang: "abc",
       meta: null,
       value:
-        'X:1\nT:Intro\nM:4/4\nL:1/8\nK:Am\nQ:156\n%%staves (ml) {(rh) (lh)}\nV:ml clef=treble name="Melody" snm="M"\n%%MIDI program 80\nV:rh clef=treble name="Chord" snm="C"\n%%MIDI program 0\nV:lh clef=bass  octave=-2\n% Start of the melody\n[V:ml]\nGAEG ABDE | GEG2 [A,E][CG][DA][EB]| GAEG ABDE | GEG2 [A,E][CG][DA][Ec]|\n[V:rh]\n[A,DEG]8- | [A,DEG]8 | [G,DEA]8- | [G,DEA]8 |\n[V:lh]\nA8- | A8 | C8- | C8 |\n% 2-line\n[V:ml]\nGAEG ABDE | GEG2 [A,E][CG][DA][EB]| GAEG ABDE | GEG2 [A,E][CG][DA][EB]||\n[V:rh]\n[EGAc]8- | [EGAc]8 | [DEGB]8- | [DEGB]8 ||\n[V:lh]\nF8- | F8 | G8- | G4 E4 ||\n% next line\n[V:ml]\nGAEG ABDE | GEGA DEAB | GAEG ABDE | GEGA DEAB |\n[V:rh]\n[A,EA]8- | [A,EA]8 | [G,DA]8- | [G,DA]8 |\n[V:lh]\nA8- | A4 A2A2 | G8- | G4 G2G2\n% next line\n[V:ml]\nGAEG ABDE | GEGA DEAB | GAEG ABDE | GEGA DEAB |\n[V:rh]\n[A,EA]8- | [A,EA]8 | [A,B,D]8- | [A,B,D]4 [^G,B,E]4 |\n[V:lh]\nF8- | F4 F2F2 | E8- | E4 E2E2 |',
+        "X:1\nT:Demo Song\nC:Kashiwade\nM:6/8\nL:1/8\nK:Bm\nQ:1/4=175\n%%staves  {(rh) (lh)}\nV:rh clef=treble \nV:lh clef=treble\n% Start of the melody\n[V:rh]\nfefcBe | fcBafe | fefcBe | fcBabf |\n[V:lh]\nG,2D2F2 | G,2D2E2 | G,2D2F2 | G,2D2E2 |\n% next line\n[V:rh]\nedeABd | edeafd | edeABd | [ec]d[fA]B[ec]2 |\n[V:lh]\nF,2A,2C2 | F,2A,2E2 | F,2A,2C2 | F,2A,2E2 |\n%next line\n[V:rh]\n[fB]efcBe | fcBafe | fefcBe | fcBabd' |\n[V:lh]\nG,2D2F2 | G,2D2E2 | G,2D2F2 | G,2D2E2 |\n%next line\n[V:rh]\nc'd'caAf | e2dAc2 | c2d2-dA | c2d4 :|\n[V:lh]\nF,2A,2C2 | F,2C2A2 | B,2D2F2- | FAFEB,2 :|",
       position: {
         start: {
-          line: 10,
+          line: 52,
           column: 1,
-          offset: 103,
+          offset: 1269,
         },
         end: {
-          line: 51,
+          line: 83,
           column: 4,
-          offset: 987,
-        },
-      },
-    },
-    {
-      type: "heading",
-      depth: 2,
-      children: [
-        {
-          type: "text",
-          value: "Aメロ",
-          position: {
-            start: {
-              line: 53,
-              column: 4,
-              offset: 992,
-            },
-            end: {
-              line: 53,
-              column: 7,
-              offset: 995,
-            },
-          },
-        },
-      ],
-      position: {
-        start: {
-          line: 53,
-          column: 1,
-          offset: 989,
-        },
-        end: {
-          line: 53,
-          column: 7,
-          offset: 995,
-        },
-      },
-    },
-    {
-      type: "code",
-      lang: "abc",
-      meta: null,
-      value:
-        "X:1\nT:Aメロ\nM:4/4\nL:1/8\nK:Am\nQ:156\n%%staves (ml) {(rh) (lh)}\nV:ml clef=treble name=\"Melody\" snm=\"M\"\n%%MIDI program 80\nV:rh clef=treble name=\"Chord\" snm=\"C\"\n%%MIDI program 0\nV:lh clef=bass  octave=-2\n% Start of the melody\n[V:ml]\n^f6 gf- | f3b-b2^f2 | g^fec-c4- | c6 (5 ABcde |\n[V:rh]\n[A,B,CE^F]8| [A,B,CE^F]8 | [^F,A,DE]8 | [^F,A,DE]8 |\n[V:lh]\nA8 | A8 | D8 | D8 |\n% next line\n[V:ml]\n^f6 gf-    | ^f3b-b2^f2  | g^fdd'-d'4- | d'6 g/a/_b/c'/ |\n[V:rh]\n[A,B,CE^F]8| [A,B,CE^F]8 | [_B,_EG]8   | [_B,_EG]8      |\n[V:lh]\nA8         | A8          | C8          | C8             |\n% next line\n[V:ml]\nd'6 e'd'- | d'3f'-f'2d'2 | _e'd'c'_a-a4- | a6 c'2 |\n[V:rh]\n[_B,DF]8| [_B,DF]8 | [_A,C_E]8 | [_A,C_E]8 |\n[V:lh]\n_B8 | _B8 | _A8 | _A8 |\n% next line\n[V:ml]\n_d'c'_b_g-g4-  | g4 _b4 | c'8- | c'8 |\n[V:rh]\n[_B,_D_G]8| [_B,_D_G]8 | [CEG]8 | [CEG]8 |\n[V:lh]\n_G8 | _G8 | C8 | C8 |",
-      position: {
-        start: {
-          line: 55,
-          column: 1,
-          offset: 997,
-        },
-        end: {
-          line: 96,
-          column: 4,
-          offset: 1866,
+          offset: 1829,
         },
       },
     },
@@ -244,112 +421,101 @@ const MdastRootSample1 = {
       offset: 0,
     },
     end: {
-      line: 96,
-      column: 4,
-      offset: 1866,
+      line: 84,
+      column: 1,
+      offset: 1830,
     },
   },
 };
 
-const SourceSample1 = `# 原神 龍に選ばれし者の試練
-Note Created: 2025-07-20
+const SourceSample1 = `# Debug Cursor Highlight
 
-## 原曲
+## これはテストです。
 
-https://www.youtube.com/watch?v=cUo2ljhBn0A
+\`\`\`html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>カウンター</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    #count {
+      font-size: 48px;
+      margin: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>クリックカウンター</h1>
+  <div id="count">0</div>
+  <button id="incrementBtn">カウントアップ</button>
 
-## イントロ
+  <script>
+    const countDisplay = document.getElementById('count');
+    const button = document.getElementById('incrementBtn');
+    let count = 0;
 
-\`\`\`abc
-X:1
-T:Intro
-M:4/4
-L:1/8
-K:Am
-Q:156
-%%staves (ml) {(rh) (lh)}
-V:ml clef=treble name="Melody" snm="M"
-%%MIDI program 80
-V:rh clef=treble name="Chord" snm="C"
-%%MIDI program 0
-V:lh clef=bass  octave=-2
-% Start of the melody
-[V:ml]
-GAEG ABDE | GEG2 [A,E][CG][DA][EB]| GAEG ABDE | GEG2 [A,E][CG][DA][Ec]|
-[V:rh]
-[A,DEG]8- | [A,DEG]8 | [G,DEA]8- | [G,DEA]8 |
-[V:lh]
-A8- | A8 | C8- | C8 |
-% 2-line
-[V:ml]
-GAEG ABDE | GEG2 [A,E][CG][DA][EB]| GAEG ABDE | GEG2 [A,E][CG][DA][EB]||
-[V:rh]
-[EGAc]8- | [EGAc]8 | [DEGB]8- | [DEGB]8 ||
-[V:lh]
-F8- | F8 | G8- | G4 E4 ||
-% next line
-[V:ml]
-GAEG ABDE | GEGA DEAB | GAEG ABDE | GEGA DEAB |
-[V:rh]
-[A,EA]8- | [A,EA]8 | [G,DA]8- | [G,DA]8 |
-[V:lh]
-A8- | A4 A2A2 | G8- | G4 G2G2
-% next line
-[V:ml]
-GAEG ABDE | GEGA DEAB | GAEG ABDE | GEGA DEAB |
-[V:rh]
-[A,EA]8- | [A,EA]8 | [A,B,D]8- | [A,B,D]4 [^G,B,E]4 |
-[V:lh]
-F8- | F4 F2F2 | E8- | E4 E2E2 |
+    button.addEventListener('click', () => {
+      count++;
+      countDisplay.textContent = count;
+    });
+  </script>
+</body>
+</html>
 \`\`\`
 
-## Aメロ
+## 🚀 Overview
+
+**FlexiMark** is a powerful, extensible Markdown toolkit for Visual Studio Code that redefines what Markdown editing and previewing can be.
+
+With seamless live preview capabilities both *inside VSCode* and *in your web browser*, FlexiMark gives you complete freedom over customization, interactivity, and style — using the full power of JavaScript.
+
+Whether you're a developer, writer, student, or researcher, FlexiMark is designed to supercharge your Markdown experience — especially for taking structured, rich notes.
+
+## abc.js test
 
 \`\`\`abc
 X:1
-T:Aメロ
-M:4/4
+T:Demo Song
+C:Kashiwade
+M:6/8
 L:1/8
-K:Am
-Q:156
-%%staves (ml) {(rh) (lh)}
-V:ml clef=treble name="Melody" snm="M"
-%%MIDI program 80
-V:rh clef=treble name="Chord" snm="C"
-%%MIDI program 0
-V:lh clef=bass  octave=-2
+K:Bm
+Q:1/4=175
+%%staves  {(rh) (lh)}
+V:rh clef=treble 
+V:lh clef=treble
 % Start of the melody
-[V:ml]
-^f6 gf- | f3b-b2^f2 | g^fec-c4- | c6 (5 ABcde |
 [V:rh]
-[A,B,CE^F]8| [A,B,CE^F]8 | [^F,A,DE]8 | [^F,A,DE]8 |
+fefcBe | fcBafe | fefcBe | fcBabf |
 [V:lh]
-A8 | A8 | D8 | D8 |
+G,2D2F2 | G,2D2E2 | G,2D2F2 | G,2D2E2 |
 % next line
-[V:ml]
-^f6 gf-    | ^f3b-b2^f2  | g^fdd'-d'4- | d'6 g/a/_b/c'/ |
 [V:rh]
-[A,B,CE^F]8| [A,B,CE^F]8 | [_B,_EG]8   | [_B,_EG]8      |
+edeABd | edeafd | edeABd | [ec]d[fA]B[ec]2 |
 [V:lh]
-A8         | A8          | C8          | C8             |
-% next line
-[V:ml]
-d'6 e'd'- | d'3f'-f'2d'2 | _e'd'c'_a-a4- | a6 c'2 |
+F,2A,2C2 | F,2A,2E2 | F,2A,2C2 | F,2A,2E2 |
+%next line
 [V:rh]
-[_B,DF]8| [_B,DF]8 | [_A,C_E]8 | [_A,C_E]8 |
+[fB]efcBe | fcBafe | fefcBe | fcBabd' |
 [V:lh]
-_B8 | _B8 | _A8 | _A8 |
-% next line
-[V:ml]
-_d'c'_b_g-g4-  | g4 _b4 | c'8- | c'8 |
+G,2D2F2 | G,2D2E2 | G,2D2F2 | G,2D2E2 |
+%next line
 [V:rh]
-[_B,_D_G]8| [_B,_D_G]8 | [CEG]8 | [CEG]8 |
+c'd'caAf | e2dAc2 | c2d2-dA | c2d4 :|
 [V:lh]
-_G8 | _G8 | C8 | C8 |
-\`\`\``;
+F,2A,2C2 | F,2C2A2 | B,2D2F2- | FAFEB,2 :|
+\`\`\`
+`;
 
 interface NodeMatchResult {
   type: string;
+  language?: string; // For code blocks, e.g. "javascript"
   startLine: number;
   offsetInNode: number;
 }
@@ -360,12 +526,13 @@ export const suite = () => {
     const ret = getBlockLineAndOffset(
       MdastRootSample1 as Root,
       SourceSample1,
-      1,
+      6,
       1,
     );
     const expected: NodeMatchResult = {
-      type: "heading",
-      startLine: 1,
+      type: "code",
+      language: "html",
+      startLine: 5,
       offsetInNode: 0,
     };
 
@@ -376,27 +543,13 @@ export const suite = () => {
       MdastRootSample1 as Root,
       SourceSample1,
       6,
-      1,
+      12,
     );
     const expected: NodeMatchResult = {
-      type: "html",
-      startLine: 6,
-      offsetInNode: 0,
-    };
-
-    assert.deepStrictEqual(ret, expected);
-  });
-  test("getBlockLineAndOffset() should return basic result", () => {
-    const ret = getBlockLineAndOffset(
-      MdastRootSample1 as Root,
-      SourceSample1,
-      6,
-      21,
-    );
-    const expected: NodeMatchResult = {
-      type: "html",
-      startLine: 6,
-      offsetInNode: 20,
+      type: "code",
+      language: "html",
+      startLine: 5,
+      offsetInNode: 11,
     };
 
     assert.deepStrictEqual(ret, expected);
@@ -410,8 +563,105 @@ export const suite = () => {
     );
     const expected: NodeMatchResult = {
       type: "code",
-      startLine: 10,
-      offsetInNode: 15,
+      language: "html",
+      startLine: 5,
+      offsetInNode: 112,
+    };
+
+    assert.deepStrictEqual(ret, expected);
+  });
+  test("getBlockLineAndOffset() should return basic result", () => {
+    const ret = getBlockLineAndOffset(
+      MdastRootSample1 as Root,
+      SourceSample1,
+      24,
+      11,
+    );
+    const expected: NodeMatchResult = {
+      type: "code",
+      language: "html",
+      startLine: 5,
+      offsetInNode: 294,
+    };
+
+    assert.deepStrictEqual(ret, expected);
+  });
+  test("getBlockLineAndOffset() should return basic result", () => {
+    const ret = getBlockLineAndOffset(
+      MdastRootSample1 as Root,
+      SourceSample1,
+      39,
+      8,
+    );
+    const expected: NodeMatchResult = {
+      type: "code",
+      language: "html",
+      startLine: 5,
+      offsetInNode: 662,
+    };
+
+    assert.deepStrictEqual(ret, expected);
+  });
+  test("getBlockLineAndOffset() should return basic result", () => {
+    const ret = getBlockLineAndOffset(
+      MdastRootSample1 as Root,
+      SourceSample1,
+      54,
+      9,
+    );
+    const expected: NodeMatchResult = {
+      type: "code",
+      language: "abc",
+      startLine: 52,
+      offsetInNode: 12,
+    };
+
+    assert.deepStrictEqual(ret, expected);
+  });
+  test("getBlockLineAndOffset() should return basic result", () => {
+    const ret = getBlockLineAndOffset(
+      MdastRootSample1 as Root,
+      SourceSample1,
+      65,
+      14,
+    );
+    const expected: NodeMatchResult = {
+      type: "code",
+      language: "abc",
+      startLine: 52,
+      offsetInNode: 154,
+    };
+
+    assert.deepStrictEqual(ret, expected);
+  });
+  test("getBlockLineAndOffset() should return basic result", () => {
+    const ret = getBlockLineAndOffset(
+      MdastRootSample1 as Root,
+      SourceSample1,
+      69,
+      7,
+    );
+    const expected: NodeMatchResult = {
+      type: "code",
+      language: "abc",
+      startLine: 52,
+      offsetInNode: 242,
+    };
+
+    assert.deepStrictEqual(ret, expected);
+  });
+  test("getBlockLineAndOffset() should return basic result", () => {
+    const ret = getBlockLineAndOffset(
+      MdastRootSample1 as Root,
+      SourceSample1,
+      70,
+      1,
+    );
+    const expected: NodeMatchResult = {
+      type: "code",
+      language: "abc",
+      startLine: 52,
+      offsetInNode: 243,
     };
 
     assert.deepStrictEqual(ret, expected);
