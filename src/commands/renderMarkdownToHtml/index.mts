@@ -1,5 +1,6 @@
 import * as fs from "fs";
-import { Root } from "hast";
+import { Root as HastRoot } from "hast";
+import { Root as MdastRoot } from "mdast";
 import * as path from "path";
 import rehypeKatex from "rehype-katex";
 import rehypePrettyCode from "rehype-pretty-code";
@@ -25,32 +26,16 @@ import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 import remarkYouTube from "./remarkYouTube.mjs";
 
+declare const __DEV__: boolean; // This is set by the esbuild process
+
 interface RenderResult {
   html: string;
-  hast: Root;
+  hast: HastRoot;
+  mdast: MdastRoot;
+  plainText: string;
 }
 
-/**
- * Renders raw Markdown into an HTML string and a HAST tree using a pipeline of unified processors.
- *
- * After processing, the HAST is serialized to an HTML string using one of three target wrappers:
- * - Webview context (`wrapHtmlForVscode`)
- * - File export (`wrapHtmlForFile`)
- * - Browser preview (`wrapHtmlForBrowser`)
- *
- * A debug JSON file is also written to disk to inspect the generated HAST.
- *
- * @async
- * @function
- * @param {string} markdown - The raw Markdown input string to render.
- * @param {string} markdownAbsPath - The absolute path to the Markdown file, used for resolving relative assets.
- * @param {vscode.ExtensionContext} context - The VS Code extension context, used for resolving extension assets.
- * @param {vscode.Webview} [webview] - Optional webview object. If provided, rendering will be scoped for secure VS Code webviews.
- * @param {boolean} [forExportToFile=false] - If `true`, formats the output HTML for saving to file, including local asset copying.
- * @param {boolean} [isNeedDataLineNumber=true] - If `true`, line number attributes (`data-line`) will be added to the output.
- * @returns {Promise<RenderResult>} A promise resolving to an object containing the final HTML and its corresponding HAST.
- */
-export async function renderMarkdownToHtml(
+async function renderMarkdownToHtml(
   markdown: string,
   markdownAbsPath: string,
   context: vscode.ExtensionContext,
@@ -58,7 +43,8 @@ export async function renderMarkdownToHtml(
   forExportToFile = false,
   isNeedDataLineNumber = true,
 ): Promise<RenderResult> {
-  const processor = unified()
+  // 1. 前半は mdast 生成（remark 部分のみ）
+  const remarkProcessor = unified()
     .use(remarkParse)
     .use(remarkFrontmatter)
     .use(remarkYouTube, { mode: webview ? "lazy" : "iframe" })
@@ -67,7 +53,22 @@ export async function renderMarkdownToHtml(
     .use(remarkDirective)
     .use(remarkDirectiveAdmonitions)
     .use(remarkDirectiveDetails)
-    .use(remarkDirectiveTabs)
+    .use(remarkDirectiveTabs);
+
+  // parse & transform mdast
+  const parsed = remarkProcessor.parse(markdown);
+  const mdast = (await remarkProcessor.run(parsed)) as MdastRoot;
+
+  // mdast をここで保存または返却可能
+  if (__DEV__) {
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(context.extensionUri, "debug", "debug-mdast.json"),
+      new TextEncoder().encode(JSON.stringify(mdast, null, 2)),
+    );
+  }
+
+  // 2. 後半は hast 生成（rehype 変換）
+  const rehypeProcessor = unified()
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
@@ -78,19 +79,15 @@ export async function renderMarkdownToHtml(
     .use(rehypeLineNumber, { isNeedDataLineNumber })
     .use(rehypeRemovePosition);
 
-  const hast = (await processor.run(processor.parse(markdown))) as Root;
+  const hast = await rehypeProcessor.run(mdast);
 
-  // Write debug file for inspection
-  // const debugFileUri = vscode.Uri.joinPath(
-  //   context.extensionUri,
-  //   "dist",
-  //   "debug",
-  //   "debug-hast.json"
-  // );
-  // await vscode.workspace.fs.writeFile(
-  //   debugFileUri,
-  //   new TextEncoder().encode(JSON.stringify(hast, null, 2))
-  // );
+  // hast をここで保存または返却可能
+  if (__DEV__) {
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(context.extensionUri, "debug", "debug-hast.json"),
+      new TextEncoder().encode(JSON.stringify(hast, null, 2)),
+    );
+  }
 
   const html = await convertToHtml(
     hast,
@@ -99,22 +96,12 @@ export async function renderMarkdownToHtml(
     webview,
     forExportToFile,
   );
-  return { html, hast };
+
+  return { html, hast, mdast, plainText: markdown };
 }
 
-/**
- * Converts the provided HAST tree into an HTML document string, optionally wrapped for different platforms (webview, browser, or file).
- *
- * @async
- * @param {Root} hast - The HAST tree generated from the Markdown source.
- * @param {string} markdownAbsPath - The absolute path to the Markdown file, used for resolving relative assets.
- * @param {vscode.ExtensionContext} context - The VS Code extension context.
- * @param {vscode.Webview} [webview] - Optional webview object to wrap output for secure use in VS Code.
- * @param {boolean} [forExportToFile] - If true, formats the HTML for writing to a standalone file with embedded styles and scripts.
- * @returns {Promise<string>} A promise resolving to the fully rendered HTML string.
- */
 async function convertToHtml(
-  hast: Root,
+  hast: HastRoot,
   markdownAbsPath: string,
   context: vscode.ExtensionContext,
   webview?: vscode.Webview,

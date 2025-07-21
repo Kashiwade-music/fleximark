@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 // import * as myExtension from '../../extension';
 import * as commands_css_index from "./commands/css/index.test.mjs";
 import * as commands_genSettingsJson_index from "./commands/getSettingsJson/index.test.mjs";
+import * as commands_utils_getBlockLineAndOffset from "./commands/utils/getBlockLineAndOffset.test.mjs";
 
 export interface CommandTestModule {
   suiteName: string;
@@ -27,5 +28,9 @@ suite("Extension Test Suite", () => {
   suite(
     commands_genSettingsJson_index.suiteName,
     commands_genSettingsJson_index.suite,
+  );
+  suite(
+    commands_utils_getBlockLineAndOffset.suiteName,
+    commands_utils_getBlockLineAndOffset.suite,
   );
 });

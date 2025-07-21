@@ -59,6 +59,30 @@ Update Animation
   z-index: 100;
 }
 
+/* Currently, the cursor preview feature is only available in ABC. */
+
+@keyframes fadeHighlightCursorOverlayAbc {
+  0% {
+    fill: black
+  }
+  25% {
+    fill: rgb(255, 0, 0);
+  }
+  50% {
+    fill: rgb(255, 0, 0);
+  }
+  75% {
+    fill: rgb(255, 0, 0);
+  }
+  100% {
+    fill: black;
+  }
+}
+
+.markdown-body .fade-highlight-cursor-abc {
+  animation: fadeHighlightCursorOverlayAbc 1s linear forwards;
+}
+
 /*
 =========================
 Headings

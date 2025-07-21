@@ -1,5 +1,6 @@
 import { Express, Request, Response } from "express";
-import { Root } from "hast";
+import { Root as HastRoot } from "hast";
+import { Root as MdastRoot } from "mdast";
 import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
@@ -15,6 +16,7 @@ import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
 import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
 import updateWorkspaceSettings from "./commands/updateWorkspaceSettings.mjs";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
+import getBlockLineAndOffset from "./commands/utils/getBlockLineAndOffset.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
 
 // Constants
@@ -22,15 +24,18 @@ const DEFAULT_PORT = 3000;
 declare const __DEV__: boolean; // This is set by the esbuild process
 
 interface GlobalExtensionState {
+  mdastTree?: MdastRoot;
+  plainText?: string;
+  // ===============
   webviewPanel?: vscode.WebviewPanel;
   editorPanel?: vscode.TextEditor;
   isWebviewScrollProcessing: boolean;
   isBrowserScrollProcessing: boolean;
   webviewHtml?: string;
-  webviewHast?: Root;
+  webviewHast?: HastRoot;
   app?: Express;
   appHtml?: string;
-  appHast?: Root;
+  appHast?: HastRoot;
   wss?: WebSocketServer;
   clients: Set<WebSocket>;
 }
@@ -147,6 +152,8 @@ async function openWebviewPreview(context: vscode.ExtensionContext) {
   state.editorPanel = editorPanel;
   state.webviewHtml = result.html;
   state.webviewHast = result.hast;
+  state.mdastTree = result.mdast;
+  state.plainText = result.plainText;
 
   webviewPanel.onDidDispose(() => {
     state.webviewPanel = undefined;
@@ -185,6 +192,8 @@ async function openBrowserPreview(context: vscode.ExtensionContext) {
     state.editorPanel = result.editorPanel;
     state.appHtml = result.html;
     state.appHast = result.hast;
+    state.mdastTree = result.mdast;
+    state.plainText = result.plainText;
 
     startBrowserPreviewServer();
   } else {
@@ -278,6 +287,8 @@ async function updateWebviewPreview(
   if (fullReload || !state.webviewHtml || !state.webviewHast) {
     state.webviewHtml = result.html;
     state.webviewHast = result.hast;
+    state.mdastTree = result.mdast;
+    state.plainText = result.plainText;
     state.webviewPanel.webview.html = result.html;
   } else {
     const { editScripts, dataLineArray } = findDiff(
@@ -286,6 +297,8 @@ async function updateWebviewPreview(
     );
     state.webviewHtml = result.html;
     state.webviewHast = result.hast;
+    state.mdastTree = result.mdast;
+    state.plainText = result.plainText;
 
     if (editScripts.length > 0) {
       state.webviewPanel?.webview.postMessage({
@@ -313,11 +326,15 @@ async function updateBrowserPreview(
   if (fullReload || !state.appHtml || !state.appHast) {
     state.appHtml = result.html;
     state.appHast = result.hast;
+    state.mdastTree = result.mdast;
+    state.plainText = result.plainText;
     broadcastToClients({ type: "reload" });
   } else {
     const { editScripts, dataLineArray } = findDiff(state.appHast, result.hast);
     state.appHtml = result.html;
     state.appHast = result.hast;
+    state.mdastTree = result.mdast;
+    state.plainText = result.plainText;
 
     if (editScripts.length > 0) {
       broadcastToClients({ type: "edit", editScripts, dataLineArray });
@@ -351,6 +368,35 @@ function registerEventListeners(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeTextDocument(({ document }) => {
       updateWebviewPreview(document, context);
       updateBrowserPreview(document, context);
+    }),
+
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      if (e.textEditor !== state.editorPanel) return;
+      if (!state.mdastTree) return;
+      if (!state.plainText) return;
+
+      const ret = getBlockLineAndOffset(
+        state.mdastTree,
+        state.plainText,
+        e.selections[0].start.line + 1,
+        e.selections[0].start.character + 1,
+      );
+
+      if (!ret) return;
+      if (ret.language !== "abc") return;
+
+      state.webviewPanel?.webview.postMessage({
+        type: "cursor",
+        blockType: "abc",
+        lineNumber: ret.startLine,
+        relativeCharNumber: ret.offsetInNode,
+      });
+      broadcastToClients({
+        type: "cursor",
+        blockType: "abc",
+        lineNumber: ret.startLine,
+        relativeCharNumber: ret.offsetInNode,
+      });
     }),
 
     vscode.window.onDidChangeTextEditorVisibleRanges((event) => {

@@ -143,6 +143,23 @@ function renderABC(): void {
     const visualObj = abcjs.renderAbc(scoreDiv, abcText, {
       responsive: "resize",
     });
+
+    // abc開始文字の埋め込み
+    const selectableArray = visualObj[0].getSelectableArray();
+    selectableArray.forEach((selectable) => {
+      const startChar = selectable.absEl.abcelem.startChar;
+      // set attribute as data-relative-char-number
+      selectable.svgEl.setAttribute(
+        "data-relative-char-number-start",
+        startChar.toString(),
+      );
+      const endChar = selectable.absEl.abcelem.endChar;
+      selectable.svgEl.setAttribute(
+        "data-relative-char-number-end",
+        endChar.toString(),
+      );
+    });
+
     const synthControl = new abcjs.synth.SynthController();
 
     synthControl.load("#audio" + hash, null, {

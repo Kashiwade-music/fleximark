@@ -41,7 +41,14 @@ interface PreviewScrollMessage {
   line: number;
 }
 
-type ServerMessage = EditMessage | ScrollMessage;
+interface CursorMessage {
+  type: "cursor";
+  blockType: "abc";
+  lineNumber: number;
+  relativeCharNumber: number;
+}
+
+type ServerMessage = EditMessage | ScrollMessage | CursorMessage;
 
 // ----------------------
 // Constants & State
@@ -66,6 +73,12 @@ window.addEventListener("message", (event: MessageEvent<ServerMessage>) => {
 
     case "editor-scroll":
       handleEditorScroll(data.line);
+      break;
+
+    case "cursor":
+      if (data.blockType === "abc") {
+        handleCursorMessageAbc(data);
+      }
       break;
 
     default:
@@ -173,6 +186,62 @@ function handleEditorScroll(targetLine: number): void {
   } else if (upperElement) {
     upperElement.scrollIntoView({ behavior: "auto", block: "start" });
   }
+}
+
+function handleCursorMessageAbc(data: CursorMessage): void {
+  // get element which parents have data-line-number=data.lineNumber
+  const elements = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      `[data-line-number="${data.lineNumber}"]`,
+    ),
+  );
+
+  if (elements.length === 0) {
+    return;
+  }
+
+  // get child elements which have data-relative-char-number=data.relativeCharNumber
+  const targetElements: HTMLElement[] = [];
+
+  elements.forEach((el) => {
+    const childElements = Array.from(
+      el.querySelectorAll<HTMLElement>(
+        "[data-relative-char-number-start][data-relative-char-number-end]",
+      ),
+    );
+
+    childElements.forEach((child) => {
+      const start = parseInt(
+        child.getAttribute("data-relative-char-number-start") ?? "",
+        10,
+      );
+      const end = parseInt(
+        child.getAttribute("data-relative-char-number-end") ?? "",
+        10,
+      );
+
+      if (
+        !isNaN(start) &&
+        !isNaN(end) &&
+        data.relativeCharNumber >= start &&
+        data.relativeCharNumber < end
+      ) {
+        targetElements.push(child);
+      }
+    });
+  });
+
+  if (targetElements.length === 0) {
+    return;
+  }
+
+  // add fade
+  targetElements.forEach((el) => {
+    el.classList.add("fade-highlight-cursor-abc");
+    setTimeout(() => {
+      el.classList.remove("fade-highlight-cursor-abc");
+    }, 1000);
+  });
 }
 
 // ----------------------
