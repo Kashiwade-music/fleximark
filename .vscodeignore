@@ -6,6 +6,7 @@ node_modules/**
 src/**
 media/** 
 test/**
+debug/**
 .gitignore
 .yarnrc
 esbuild.js
