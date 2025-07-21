@@ -1,3 +1,17 @@
+# [0.10.0](https://github.com/Kashiwade-music/fleximark/compare/v0.9.7...v0.10.0) (2025-07-21)
+
+
+### Bug Fixes
+
+* cursor sync doesn't work ([986dbf9](https://github.com/Kashiwade-music/fleximark/commit/986dbf9fb48c3cfea20860acceaef91d2af98325))
+* Expose WebSocket to window for debugging ([b7747ad](https://github.com/Kashiwade-music/fleximark/commit/b7747ad21502b3cc0cb2bca3c091c617c9193986))
+
+
+### Features
+
+* Add highlight to preview notes based on VSCode cursor position ([7a4226e](https://github.com/Kashiwade-music/fleximark/commit/7a4226eea3fd2aa85c7f3a80d012fcec829e1694))
+* Update demo content ([d605734](https://github.com/Kashiwade-music/fleximark/commit/d605734bd779911ebdf8976bd0d76c3c751170d1))
+
 ## [0.9.7](https://github.com/Kashiwade-music/fleximark/compare/v0.9.6...v0.9.7) (2025-07-20)
 
 
