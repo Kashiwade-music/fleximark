@@ -50,6 +50,7 @@ const state = {
 // ----------------------
 
 const socket = new WebSocket(window.webSocketUrl);
+window.socket = socket; // Expose socket to window for debugging
 
 socket.addEventListener("open", () => {
   console.log("WebSocket connected");
