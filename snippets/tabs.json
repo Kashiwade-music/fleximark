@@ -1,6 +1,10 @@
 {
   "Tabs block": {
-    "prefix": [":::tabs", "::::tabs"],
+    "prefix": [
+      ":::tabs",
+      "::::tabs",
+      "::::"
+    ],
     "body": [
       "::::tabs",
       "",

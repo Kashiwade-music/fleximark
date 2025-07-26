@@ -1,6 +1,9 @@
 {
   "Admonition block": {
-    "prefix": [":::admonition", ":::info", ":::tip", ":::warning", ":::danger"],
+    "prefix": [
+      ":::admonition",
+      ":::"
+    ],
     "body": [
       ":::${1|info,tip,warning,danger|}",
       "",
@@ -11,7 +14,10 @@
     "description": "Insert Admonition block without title"
   },
   "Admonition block with title": {
-    "prefix": [":::admonition", ":::info", ":::tip", ":::warning", ":::danger"],
+    "prefix": [
+      ":::admonition",
+      ":::"
+    ],
     "body": [
       ":::${1|info,tip,warning,danger|}[${2:Title}]",
       "",
@@ -20,5 +26,61 @@
       ":::"
     ],
     "description": "Insert Admonition block with title"
+  },
+  "Info block": {
+    "prefix": [
+      ":::info",
+      ":::"
+    ],
+    "body": [
+      ":::info[${1:Title}]",
+      "",
+      "${2:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Info block with title"
+  },
+  "Tip block": {
+    "prefix": [
+      ":::tip",
+      ":::"
+    ],
+    "body": [
+      ":::tip[${1:Title}]",
+      "",
+      "${2:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Tip block with title"
+  },
+  "Warning block": {
+    "prefix": [
+      ":::warning",
+      ":::"
+    ],
+    "body": [
+      ":::warning[${1:Title}]",
+      "",
+      "${2:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Warning block with title"
+  },
+  "Danger block": {
+    "prefix": [
+      ":::danger",
+      ":::"
+    ],
+    "body": [
+      ":::danger[${1:Title}]",
+      "",
+      "${2:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Danger block with title"
   }
 }
