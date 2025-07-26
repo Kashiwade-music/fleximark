@@ -16,6 +16,33 @@
     ],
     "description": "Insert ABC Template"
   },
+  "Insert Piano ABC Template": {
+    "prefix": "```abc piano",
+    "body": [
+      "```abc",
+      "X:1",
+      "T:${1:Title}",
+      "M:${2|4/4,3/4,6/8,12/8,2/2|}",
+      "L:${3|1/4,1/8,1/16|}",
+      "K:${4:C}",
+      "Q:${5:120}",
+      "%%staves {(rh) (lh)}",
+      "V:rh clef=treble name=\"Piano\" snm=\"Pno\"",
+      "V:lh clef=bass  octave=-2",
+      "% Start of the melody",
+      "[V:rh]",
+      "C E G C | E z E z | | |",
+      "[V:lh]",
+      "C G c e | f z g z | | |",
+      "% next line",
+      "[V:rh]",
+      "C E G C | E z E z | | |",
+      "[V:lh]",
+      "C G c e | f z g z | | |",
+      "```"
+    ],
+    "description": "Insert Piano ABC Template"
+  },
   "Insert Piano-Vocal ABC Template": {
     "prefix": "```abc piano-vocal",
     "body": [
