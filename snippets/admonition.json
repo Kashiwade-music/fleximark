@@ -33,6 +33,20 @@
       ":::"
     ],
     "body": [
+      ":::info",
+      "",
+      "${1:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Info block without title"
+  },
+  "Info block with title": {
+    "prefix": [
+      ":::info",
+      ":::"
+    ],
+    "body": [
       ":::info[${1:Title}]",
       "",
       "${2:Content}",
@@ -42,6 +56,20 @@
     "description": "Insert Info block with title"
   },
   "Tip block": {
+    "prefix": [
+      ":::tip",
+      ":::"
+    ],
+    "body": [
+      ":::tip",
+      "",
+      "${1:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Tip block without title"
+  },
+  "Tip block with title": {
     "prefix": [
       ":::tip",
       ":::"
@@ -61,6 +89,20 @@
       ":::"
     ],
     "body": [
+      ":::warning",
+      "",
+      "${1:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Warning block without title"
+  },
+  "Warning block with title": {
+    "prefix": [
+      ":::warning",
+      ":::"
+    ],
+    "body": [
       ":::warning[${1:Title}]",
       "",
       "${2:Content}",
@@ -70,6 +112,20 @@
     "description": "Insert Warning block with title"
   },
   "Danger block": {
+    "prefix": [
+      ":::danger",
+      ":::"
+    ],
+    "body": [
+      ":::danger",
+      "",
+      "${1:Content}",
+      "",
+      ":::"
+    ],
+    "description": "Insert Danger block without title"
+  },
+  "Danger block with title": {
     "prefix": [
       ":::danger",
       ":::"
