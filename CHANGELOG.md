@@ -1,3 +1,10 @@
+## [0.11.1](https://github.com/Kashiwade-music/fleximark/compare/v0.11.0...v0.11.1) (2025-07-26)
+
+
+### Bug Fixes
+
+* add prefixes and bodies for Info, Tip, Warning, and Danger blocks without titles ([0b8cf76](https://github.com/Kashiwade-music/fleximark/commit/0b8cf76bd32ea363d906182e8b4dd51e6bdef5f4))
+
 # [0.11.0](https://github.com/Kashiwade-music/fleximark/compare/v0.10.0...v0.11.0) (2025-07-26)
 
 
