@@ -1,3 +1,10 @@
+## [0.11.2](https://github.com/Kashiwade-music/fleximark/compare/v0.11.1...v0.11.2) (2025-07-26)
+
+
+### Bug Fixes
+
+* add piano abc template snippets ([1c3379d](https://github.com/Kashiwade-music/fleximark/commit/1c3379d2355588a6a08e752cf24e51296fb0b16e))
+
 ## [0.11.1](https://github.com/Kashiwade-music/fleximark/compare/v0.11.0...v0.11.1) (2025-07-26)
 
 
