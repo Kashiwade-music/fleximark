@@ -84,6 +84,11 @@
         "command": "fleximark.updateWorkspaceSettings",
         "title": "%command.updateWorkspaceSettings%",
         "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.collectAdmonitions",
+        "title": "%command.collectAdmonitions%",
+        "category": "FlexiMark"
       }
     ],
     "menus": {

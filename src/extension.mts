@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
 import checkWorkspaceSettingsUpdatable from "./commands/checkWorkspaceSettingsUpdatable.mjs";
+import collectAdmonitions from "./commands/collectAdmonitions.mjs";
 import createNote from "./commands/createNote.mjs";
 import createWorkspaceFleximarkCss from "./commands/createWorkspaceFleximarkCss.mjs";
 import { isGlobalFleximarkCssExists } from "./commands/css/index.mjs";
@@ -133,6 +134,10 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("fleximark.updateWorkspaceSettings", () =>
       updateWorkspaceSettings(context),
+    ),
+
+    vscode.commands.registerCommand("fleximark.collectAdmonitions", () =>
+      collectAdmonitions(),
     ),
   );
 }

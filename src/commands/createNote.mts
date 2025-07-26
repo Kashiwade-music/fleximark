@@ -27,7 +27,7 @@ async function promptCategoryPath(categories: CategoryTree): Promise<string> {
     }
 
     const selected = await vscode.window.showQuickPick(categoryKeys, {
-      placeHolder: "Select a category",
+      placeHolder: vscode.l10n.t("Select a category"),
       canPickMany: false,
     });
 
