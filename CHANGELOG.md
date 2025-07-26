@@ -1,3 +1,15 @@
+# [0.11.0](https://github.com/Kashiwade-music/fleximark/compare/v0.10.0...v0.11.0) (2025-07-26)
+
+
+### Bug Fixes
+
+* update admonition and tabs snippets to include additional prefixes ([14d5e08](https://github.com/Kashiwade-music/fleximark/commit/14d5e084a6fd3c3d1285cb1c0953a0c75d2027ac))
+
+
+### Features
+
+* add collectAdmonitions command to gather Markdown admonitions ([61e570e](https://github.com/Kashiwade-music/fleximark/commit/61e570e92b026c96641a63aaf8b0a8b7feb80226))
+
 # [0.10.0](https://github.com/Kashiwade-music/fleximark/compare/v0.9.7...v0.10.0) (2025-07-21)
 
 
