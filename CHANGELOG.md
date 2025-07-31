@@ -1,3 +1,10 @@
+## [0.11.8](https://github.com/Kashiwade-music/fleximark/compare/v0.11.7...v0.11.8) (2025-07-31)
+
+
+### Bug Fixes
+
+* change top demo animation ([10bb1b2](https://github.com/Kashiwade-music/fleximark/commit/10bb1b21e8ca1013532096ed8629ad7937d77891))
+
 ## [0.11.7](https://github.com/Kashiwade-music/fleximark/compare/v0.11.6...v0.11.7) (2025-07-31)
 
 
