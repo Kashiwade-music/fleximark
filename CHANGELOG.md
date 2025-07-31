@@ -1,3 +1,10 @@
+## [0.11.3](https://github.com/Kashiwade-music/fleximark/compare/v0.11.2...v0.11.3) (2025-07-31)
+
+
+### Bug Fixes
+
+* when open markdown file, always pop up wrong dialog message ([e132ee3](https://github.com/Kashiwade-music/fleximark/commit/e132ee380bc01a8d39942985ee3fc959d6bf4ad5))
+
 ## [0.11.2](https://github.com/Kashiwade-music/fleximark/compare/v0.11.1...v0.11.2) (2025-07-26)
 
 
