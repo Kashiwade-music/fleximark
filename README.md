@@ -10,6 +10,8 @@
   </p>
 </div>
 
+![top_demo](assets/top_demo.webp)
+
 ## 🚀 Overview
 
 **FlexiMark** is a powerful, extensible Markdown toolkit for Visual Studio Code that redefines what Markdown editing and previewing can be.
