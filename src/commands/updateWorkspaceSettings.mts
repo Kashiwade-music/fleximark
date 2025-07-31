@@ -58,6 +58,15 @@ const updateWorkspaceSettings = async (
     // Ignore if original settings didn't exist
   }
 
+  // create fleximark directory and file. fleximark.json file contains the create date
+  const fleximarkDir = vscode.Uri.file(
+    path.join(workspaceRoot, ".fleximark", "fleximark.json"),
+  );
+  await vscode.workspace.fs.writeFile(
+    fleximarkDir,
+    Buffer.from(JSON.stringify({ meta: new Date().toISOString() }, null, 2)),
+  );
+
   // Generate and write the new settings content
   const newSettings = await genSettingsJson(context, workspaceRoot);
   await vscode.workspace.fs.writeFile(settingsUri, Buffer.from(newSettings));

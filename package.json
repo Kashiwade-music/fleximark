@@ -29,7 +29,8 @@
   },
   "preview": true,
   "activationEvents": [
-    "onLanguage:markdown"
+    "onLanguage:markdown",
+    "workspaceContains:.fleximark/fleximark.json"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {

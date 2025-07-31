@@ -46,6 +46,15 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
     Buffer.from(await genSettingsJson(context, workspacePath)),
   );
 
+  // create fleximark directory and file. fleximark.json file contains the create date
+  const fleximarkDir = vscode.Uri.file(
+    path.join(workspacePath, ".fleximark", "fleximark.json"),
+  );
+  await vscode.workspace.fs.writeFile(
+    fleximarkDir,
+    Buffer.from(JSON.stringify({ meta: new Date().toISOString() }, null, 2)),
+  );
+
   await vscode.window.showTextDocument(
     await vscode.workspace.openTextDocument(file),
   );

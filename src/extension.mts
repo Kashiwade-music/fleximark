@@ -18,6 +18,7 @@ import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobal
 import updateWorkspaceSettings from "./commands/updateWorkspaceSettings.mjs";
 import { findDiff } from "./commands/utils/diffHTML.mjs";
 import getBlockLineAndOffset from "./commands/utils/getBlockLineAndOffset.mjs";
+import isFleximarkWorkspace from "./commands/utils/isFleximarkWorkspace.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
 
 // Constants
@@ -53,12 +54,14 @@ const state: GlobalExtensionState = {
 export async function activate(context: vscode.ExtensionContext) {
   console.log("Fleximark extension activated.");
 
-  if (!isGlobalFleximarkCssExists(context)) {
-    saveFleximarkCssToGlobalStorage(context);
-  }
+  if (await isFleximarkWorkspace()) {
+    if (!isGlobalFleximarkCssExists(context)) {
+      saveFleximarkCssToGlobalStorage(context);
+    }
 
-  if (await checkWorkspaceSettingsUpdatable()) {
-    await updateWorkspaceSettings(context, true);
+    if (await checkWorkspaceSettingsUpdatable()) {
+      await updateWorkspaceSettings(context, true);
+    }
   }
 
   if (__DEV__) {
