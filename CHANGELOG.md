@@ -1,3 +1,11 @@
+## [0.11.6](https://github.com/Kashiwade-music/fleximark/compare/v0.11.5...v0.11.6) (2025-07-31)
+
+
+### Bug Fixes
+
+* filename issue ([09d5dbf](https://github.com/Kashiwade-music/fleximark/commit/09d5dbfc64e1eb0528f34e174416979c7203fa87))
+* update version to 0.11.5 in package-lock.json ([7918945](https://github.com/Kashiwade-music/fleximark/commit/79189452f9665322d478b6d0338c0cdd89641346))
+
 ## [0.11.5](https://github.com/Kashiwade-music/fleximark/compare/v0.11.4...v0.11.5) (2025-07-31)
 
 
