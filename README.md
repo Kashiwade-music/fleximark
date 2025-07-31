@@ -10,7 +10,7 @@
   </p>
 </div>
 
-![top_demo](assets/top_demo.webp)
+![top_demo](assets/top_demo.avif)
 
 ## 🚀 Overview
 
