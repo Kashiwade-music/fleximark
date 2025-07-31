@@ -1,3 +1,10 @@
+## [0.11.4](https://github.com/Kashiwade-music/fleximark/compare/v0.11.3...v0.11.4) (2025-07-31)
+
+
+### Bug Fixes
+
+* when initializing workspace, .vscode/setting.json was empty because the path was wrong. ([4b43637](https://github.com/Kashiwade-music/fleximark/commit/4b4363702ddc3fe84fe381e9f7da5de941f50b4a))
+
 ## [0.11.3](https://github.com/Kashiwade-music/fleximark/compare/v0.11.2...v0.11.3) (2025-07-31)
 
 
