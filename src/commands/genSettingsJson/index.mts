@@ -27,13 +27,19 @@ const genSettingsJson = async (
   );
   const baseJsonPath = path.join(
     context.extensionPath,
+    "dist",
     "media",
     "workspaceSettingsJsonTemplate",
     "base.json",
   );
   const commentl10nJsonPath = getL10nJsonPath(context);
 
-  const baseJson = loadJsonIfExists(baseJsonPath) || {};
+  const baseJson = loadJsonIfExists(baseJsonPath);
+  if (!baseJson) {
+    throw new Error(
+      `Base JSON file not found at ${baseJsonPath}. Please ensure the file exists.`,
+    );
+  }
   const workspaceJson = loadJsonIfExists(vscodeWorkspaceSettingsJsonPath) || {};
   const commentl10nJson = (loadJsonIfExists(commentl10nJsonPath) ||
     {}) as Record<string, string[]>;
@@ -71,6 +77,7 @@ function loadJsonIfExists(filePath: string): Record<string, unknown> | null {
 function getL10nJsonPath(context: vscode.ExtensionContext) {
   const baseDir = path.join(
     context.extensionPath,
+    "dist",
     "media",
     "workspaceSettingsJsonTemplate",
     "l10n",
