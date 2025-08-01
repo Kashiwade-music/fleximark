@@ -4,9 +4,9 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 // import * as myExtension from '../../extension';
-import * as commands_css_index from "./commands/css/index.test.mjs";
-import * as commands_genSettingsJson_index from "./commands/getSettingsJson/index.test.mjs";
-import * as commands_utils_getBlockLineAndOffset from "./commands/utils/getBlockLineAndOffset.test.mjs";
+import * as commands_css_index from "./command/css/index.test.mjs";
+import * as commands_genSettingsJson_index from "./command/getSettingsJson/index.test.mjs";
+import * as commands_utils_getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.test.mjs";
 import * as completion_lib_checkCurrentLineLangMode from "./completion/lib/checkCurrentLineLangMode.test.mjs";
 
 export interface CommandTestModule {

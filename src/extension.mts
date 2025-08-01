@@ -4,21 +4,21 @@ import { Root as MdastRoot } from "mdast";
 import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
-import checkWorkspaceSettingsUpdatable from "./commands/checkWorkspaceSettingsUpdatable.mjs";
-import collectAdmonitions from "./commands/collectAdmonitions.mjs";
-import createNote from "./commands/createNote.mjs";
-import createWorkspaceFleximarkCss from "./commands/createWorkspaceFleximarkCss.mjs";
-import { isGlobalFleximarkCssExists } from "./commands/css/index.mjs";
-import exportHtml from "./commands/exportHtml.mjs";
-import initializeWorkspace from "./commands/initializeWorkspace.mjs";
-import previewMarkdownOnBrowser from "./commands/previewMarkdownOnBrowser.mjs";
-import previewMarkdownOnVscode from "./commands/previewMarkdownOnVscode.mjs";
-import renderMarkdownToHtml from "./commands/renderMarkdownToHtml/index.mjs";
-import saveFleximarkCssToGlobalStorage from "./commands/saveFleximarkCssToGlobalStorage.mjs";
-import updateWorkspaceSettings from "./commands/updateWorkspaceSettings.mjs";
-import { findDiff } from "./commands/utils/diffHTML.mjs";
-import getBlockLineAndOffset from "./commands/utils/getBlockLineAndOffset.mjs";
-import isFleximarkWorkspace from "./commands/utils/isFleximarkWorkspace.mjs";
+import checkWorkspaceSettingsUpdatable from "./command/checkWorkspaceSettingsUpdatable.mjs";
+import collectAdmonitions from "./command/collectAdmonitions.mjs";
+import createNote from "./command/createNote.mjs";
+import createWorkspaceFleximarkCss from "./command/createWorkspaceFleximarkCss.mjs";
+import { isGlobalFleximarkCssExists } from "./command/css/index.mjs";
+import exportHtml from "./command/exportHtml.mjs";
+import initializeWorkspace from "./command/initializeWorkspace.mjs";
+import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
+import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
+import renderMarkdownToHtml from "./command/renderMarkdownToHtml/index.mjs";
+import saveFleximarkCssToGlobalStorage from "./command/saveFleximarkCssToGlobalStorage.mjs";
+import updateWorkspaceSettings from "./command/updateWorkspaceSettings.mjs";
+import { findDiff } from "./command/utils/diffHTML.mjs";
+import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
+import isFleximarkWorkspace from "./command/utils/isFleximarkWorkspace.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
 
 // Constants

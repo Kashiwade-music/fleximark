@@ -1,6 +1,6 @@
 import * as assert from "assert";
 
-import { getDefaultFleximarkCss } from "../../../src/commands/css/index.mjs";
+import { getDefaultFleximarkCss } from "../../../src/command/css/index.mjs";
 
 export const suiteName = "fleximark.css Utility Tests";
 export const suite = () => {
