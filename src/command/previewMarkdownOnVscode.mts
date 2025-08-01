@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
+import convertMdToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
   const editorPanel = vscode.window.activeTextEditor;
@@ -21,7 +21,7 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
       { enableScripts: true },
     );
 
-    const res = await renderMarkdownToHtml(
+    const res = await convertMdToHtml(
       doc.getText(),
       doc.uri.fsPath,
       context,

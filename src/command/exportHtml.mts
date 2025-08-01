@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
+import convertMdToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const exportHtml = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;
@@ -20,7 +20,7 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
 
     const uri = vscode.Uri.file(htmlFilePath);
     const enc = new TextEncoder();
-    const res = await renderMarkdownToHtml(
+    const res = await convertMdToHtml(
       doc.getText(),
       doc.uri.fsPath,
       context,

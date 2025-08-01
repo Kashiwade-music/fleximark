@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import * as vscode from "vscode";
 
-import renderMarkdownToHtml from "./renderMarkdownToHtml/index.mjs";
+import convertMdToHtml from "./renderMarkdownToHtml/index.mjs";
 
 const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
   const editorPanel = vscode.window.activeTextEditor;
@@ -28,7 +28,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     app.use(express.static(context.extensionPath));
     app.use(express.static(workspaceFolder.uri.fsPath));
     app.use(express.static(path.dirname(doc.uri.fsPath)));
-    const res = await renderMarkdownToHtml(
+    const res = await convertMdToHtml(
       doc.getText(),
       doc.uri.fsPath,
       context,

@@ -10,7 +10,7 @@ import * as fLibCss from "./command/lib/css/index.mjs";
 import * as fLibFs from "./command/lib/fs/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
-import renderMarkdownToHtml from "./command/renderMarkdownToHtml/index.mjs";
+import convertMdToHtml from "./command/renderMarkdownToHtml/index.mjs";
 import { findDiff } from "./command/utils/diffHTML.mjs";
 import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
@@ -281,7 +281,7 @@ async function updateWebviewPreview(
 ) {
   if (document.languageId !== "markdown" || !state.webviewPanel) return;
 
-  const result = await renderMarkdownToHtml(
+  const result = await convertMdToHtml(
     document.getText(),
     document.uri.fsPath,
     context,
@@ -321,7 +321,7 @@ async function updateBrowserPreview(
 ) {
   if (document.languageId !== "markdown" || !state.app) return;
 
-  const result = await renderMarkdownToHtml(
+  const result = await convertMdToHtml(
     document.getText(),
     document.uri.fsPath,
     context,

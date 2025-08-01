@@ -25,26 +25,42 @@ import remarkYouTube from "./remarkYouTube.mjs";
 
 declare const __DEV__: boolean; // This is set by the esbuild process
 
-interface RenderResult {
+interface ConvertResult {
   html: string;
   hast: HastRoot;
   mdast: MdastRoot;
   plainText: string;
 }
 
-async function renderMarkdownToHtml(
-  markdown: string,
-  markdownAbsPath: string,
-  context: vscode.ExtensionContext,
-  webview?: vscode.Webview,
-  forExportToFile = false,
-  isNeedDataLineNumber = true,
-): Promise<RenderResult> {
-  // 1. 前半は mdast 生成（remark 部分のみ）
+interface ArgsBase {
+  markdown: string;
+  markdownAbsPath: string;
+  context: vscode.ExtensionContext;
+  isNeedDataLineNumber?: boolean;
+}
+
+interface ArgsForWebview extends ArgsBase {
+  convertType: "webview";
+  webview: vscode.Webview;
+}
+
+interface ArgsForBrowser extends ArgsBase {
+  convertType: "browser";
+}
+
+interface ArgsForFile extends ArgsBase {
+  convertType: "file";
+}
+
+async function convertMdToHtml(
+  args: ArgsForWebview | ArgsForBrowser | ArgsForFile,
+): Promise<ConvertResult> {
   const remarkProcessor = unified()
     .use(remarkParse)
     .use(remarkFrontmatter)
-    .use(remarkYouTube, { mode: webview ? "lazy" : "iframe" })
+    .use(remarkYouTube, {
+      mode: args.convertType === "webview" ? "lazy" : "iframe",
+    })
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkDirective)
@@ -52,19 +68,20 @@ async function renderMarkdownToHtml(
     .use(remarkDirectiveDetails)
     .use(remarkDirectiveTabs);
 
-  // parse & transform mdast
-  const parsed = remarkProcessor.parse(markdown);
+  const parsed = remarkProcessor.parse(args.markdown);
   const mdast = (await remarkProcessor.run(parsed)) as MdastRoot;
 
-  // mdast をここで保存または返却可能
   if (__DEV__) {
     await vscode.workspace.fs.writeFile(
-      vscode.Uri.joinPath(context.extensionUri, "debug", "debug-mdast.json"),
+      vscode.Uri.joinPath(
+        args.context.extensionUri,
+        "debug",
+        "debug-mdast.json",
+      ),
       new TextEncoder().encode(JSON.stringify(mdast, null, 2)),
     );
   }
 
-  // 2. 後半は hast 生成（rehype 変換）
   const rehypeProcessor = unified()
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
@@ -73,47 +90,54 @@ async function renderMarkdownToHtml(
       keepBackground: false,
     })
     .use(rehypeRaw)
-    .use(rehypeLineNumber, { isNeedDataLineNumber })
+    .use(rehypeLineNumber, { isNeedDataLineNumber: args.isNeedDataLineNumber })
     .use(rehypeRemovePosition);
 
   const hast = await rehypeProcessor.run(mdast);
 
-  // hast をここで保存または返却可能
   if (__DEV__) {
     await vscode.workspace.fs.writeFile(
-      vscode.Uri.joinPath(context.extensionUri, "debug", "debug-hast.json"),
+      vscode.Uri.joinPath(
+        args.context.extensionUri,
+        "debug",
+        "debug-hast.json",
+      ),
       new TextEncoder().encode(JSON.stringify(hast, null, 2)),
     );
   }
 
-  const html = await convertToHtml(
-    hast,
-    markdownAbsPath,
-    context,
-    webview,
-    forExportToFile,
-  );
+  const htmlBody = await convertToHtml(hast);
 
-  return { html, hast, mdast, plainText: markdown };
+  let html: string;
+  switch (args.convertType) {
+    case "webview":
+      html = await wrapHtmlForVscode(
+        htmlBody,
+        args.markdownAbsPath,
+        args.context,
+        args.webview,
+      );
+      break;
+    case "browser":
+      html = await wrapHtmlForBrowser(htmlBody, args.context);
+      break;
+    case "file":
+      html = await wrapHtmlForFile(htmlBody, args.context);
+      break;
+    default:
+      throw new Error(`Unknown convert type: ${args}`);
+  }
+
+  return { html, hast, mdast, plainText: args.markdown };
 }
 
-async function convertToHtml(
-  hast: HastRoot,
-  markdownAbsPath: string,
-  context: vscode.ExtensionContext,
-  webview?: vscode.Webview,
-  forExportToFile?: boolean,
-): Promise<string> {
+async function convertToHtml(hast: HastRoot): Promise<string> {
   const htmlProcessor = unified().use(rehypeStringify, {
     allowDangerousHtml: true,
   });
   const htmlBody = String(htmlProcessor.stringify(hast));
 
-  if (webview)
-    return wrapHtmlForVscode(htmlBody, markdownAbsPath, context, webview);
-  if (forExportToFile) return wrapHtmlForFile(htmlBody, context);
-
-  return wrapHtmlForBrowser(htmlBody, context);
+  return htmlBody;
 }
 
 // -----------------------------------------------------------------------------
@@ -339,4 +363,4 @@ async function wrapHtmlForVscode(
 </html>`;
 }
 
-export default renderMarkdownToHtml;
+export default convertMdToHtml;
