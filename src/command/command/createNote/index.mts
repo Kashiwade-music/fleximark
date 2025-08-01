@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import * as fLibCategory from "../../lib/category/index.mjs";
 import * as fLibFs from "../../lib/fs/index.mjs";
 import * as fLibSnippet from "../../lib/snippet/index.mjs";
-import * as FLibTemplate from "../../lib/template/index.mjs";
+import * as fLibTemplate from "../../lib/template/index.mjs";
 
 /**
  * Main entry point for creating a new markdown note.
@@ -25,7 +25,7 @@ async function createNote(): Promise<void> {
     return;
   }
 
-  const templateSnippet = await FLibTemplate.promptTemplate();
+  const templateSnippet = await fLibTemplate.promptTemplate();
   if (!templateSnippet) {
     return;
   }
