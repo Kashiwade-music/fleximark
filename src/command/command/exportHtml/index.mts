@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import * as fLibConvert from "./lib/convert/index.mjs";
+import * as fLibConvert from "../../lib/convert/index.mjs";
 
 const exportHtml = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;

@@ -5,7 +5,6 @@ import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
 import * as fCommand from "./command/command/index.mjs";
-import exportHtml from "./command/exportHtml.mjs";
 import * as fLibConvert from "./command/lib/convert/index.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
 import * as fLibFs from "./command/lib/fs/index.mjs";
@@ -102,7 +101,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand("fleximark.exportHtml", () =>
-      exportHtml(context),
+      fCommand.exportHtml(context),
     ),
 
     vscode.commands.registerCommand(
