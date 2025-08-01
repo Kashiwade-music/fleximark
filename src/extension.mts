@@ -7,13 +7,12 @@ import WebSocket, { WebSocketServer } from "ws";
 import checkWorkspaceSettingsUpdatable from "./command/checkWorkspaceSettingsUpdatable.mjs";
 import * as fCommand from "./command/command/index.mjs";
 import createWorkspaceFleximarkCss from "./command/createWorkspaceFleximarkCss.mjs";
-import { isGlobalFleximarkCssExists } from "./command/css/index.mjs";
 import exportHtml from "./command/exportHtml.mjs";
 import initializeWorkspace from "./command/initializeWorkspace.mjs";
+import * as fLibCss from "./command/lib/css/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
 import renderMarkdownToHtml from "./command/renderMarkdownToHtml/index.mjs";
-import saveFleximarkCssToGlobalStorage from "./command/saveFleximarkCssToGlobalStorage.mjs";
 import updateWorkspaceSettings from "./command/updateWorkspaceSettings.mjs";
 import { findDiff } from "./command/utils/diffHTML.mjs";
 import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
@@ -54,8 +53,8 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log("Fleximark extension activated.");
 
   if (await isFleximarkWorkspace()) {
-    if (!isGlobalFleximarkCssExists(context)) {
-      saveFleximarkCssToGlobalStorage(context);
+    if (!fLibCss.isGlobalFleximarkCssExists(context)) {
+      fCommand.resetGlobalFleximarkCss(context);
     }
 
     if (await checkWorkspaceSettingsUpdatable()) {
@@ -68,7 +67,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(message);
     console.log(message);
 
-    saveFleximarkCssToGlobalStorage(context);
+    fCommand.resetGlobalFleximarkCss(context);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).testExtensionContext = context;
   }
@@ -116,7 +115,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand("fleximark.resetGlobalFleximarkCss", () =>
-      saveFleximarkCssToGlobalStorage(context),
+      fCommand.resetGlobalFleximarkCss(context),
     ),
 
     vscode.commands.registerCommand("fleximark.createNote", () =>

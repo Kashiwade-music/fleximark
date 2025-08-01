@@ -15,10 +15,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import * as vscode from "vscode";
 
-import {
-  readGlobalFleximarkCss,
-  readWorkspaceFleximarkCss,
-} from "../css/index.mjs";
+import * as fLibCss from "../lib/css/index.mjs";
 import rehypeLineNumber from "./rehypeLineNumber.mjs";
 import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
@@ -136,8 +133,8 @@ async function wrapHtmlForBrowser(
   context: vscode.ExtensionContext,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
-    readGlobalFleximarkCss(context),
-    readWorkspaceFleximarkCss(),
+    fLibCss.readGlobalFleximarkCss(context),
+    fLibCss.readWorkspaceFleximarkCss(),
   ]);
 
   const port =
@@ -189,8 +186,8 @@ async function wrapHtmlForFile(
   context: vscode.ExtensionContext,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
-    readGlobalFleximarkCss(context),
-    readWorkspaceFleximarkCss(),
+    fLibCss.readGlobalFleximarkCss(context),
+    fLibCss.readWorkspaceFleximarkCss(),
   ]);
 
   const mediaDir = context.asAbsolutePath("dist/media");
@@ -292,8 +289,8 @@ async function wrapHtmlForVscode(
   webview: vscode.Webview,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
-    readGlobalFleximarkCss(context),
-    readWorkspaceFleximarkCss(),
+    fLibCss.readGlobalFleximarkCss(context),
+    fLibCss.readWorkspaceFleximarkCss(),
   ]);
 
   const getUri = (file: string) =>

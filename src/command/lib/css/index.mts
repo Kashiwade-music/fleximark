@@ -26,9 +26,9 @@ export async function isGlobalFleximarkCssExists(
   );
   try {
     await fs.access(cssPath.fsPath);
-    return true; // ファイルが存在する場合
+    return true;
   } catch {
-    return false; // ファイルが存在しない場合
+    return false;
   }
 }
 
@@ -81,7 +81,6 @@ export async function readWorkspaceFleximarkCss(): Promise<string> {
     const content = await fs.readFile(cssPath.fsPath, "utf8");
     return content;
   } catch {
-    // ファイルが存在しない or 読み込めない場合
     return "";
   }
 }

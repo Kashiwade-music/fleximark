@@ -1,18 +1,12 @@
 import * as fs from "fs/promises";
 import * as vscode from "vscode";
 
-import { getDefaultFleximarkCss } from "./css/index.mjs";
+import * as fLibCss from "../../lib/css/index.mjs";
 
-/**
- * Saves the default fleximark.css file to the extension's global storage directory.
- * This is typically used during initial activation or first install.
- *
- * @param context - The extension context containing the globalStorageUri.
- */
-async function saveFleximarkCssToGlobalStorage(
+async function resetGlobalFleximarkCss(
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  const cssContent = getDefaultFleximarkCss();
+  const cssContent = fLibCss.getDefaultFleximarkCss();
   const cssPath = vscode.Uri.joinPath(
     context.globalStorageUri,
     "fleximark.css",
@@ -31,4 +25,4 @@ async function saveFleximarkCssToGlobalStorage(
   }
 }
 
-export default saveFleximarkCssToGlobalStorage;
+export default resetGlobalFleximarkCss;
