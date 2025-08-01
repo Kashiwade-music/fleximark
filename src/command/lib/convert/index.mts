@@ -25,7 +25,7 @@ import remarkYouTube from "./remarkYouTube.mjs";
 
 declare const __DEV__: boolean; // This is set by the esbuild process
 
-interface ConvertResult {
+export interface ConvertResult {
   html: string;
   hast: HastRoot;
   mdast: MdastRoot;

@@ -8,10 +8,10 @@ import * as fCommand from "./command/command/index.mjs";
 import * as fLibConvert from "./command/lib/convert/index.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
 import * as fLibFs from "./command/lib/fs/index.mjs";
+import { findDiff } from "./command/lib/unist/diffHtml.mjs";
+import getBlockLineAndOffset from "./command/lib/unist/getBlockLineAndOffset.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
-import { findDiff } from "./command/utils/diffHTML.mjs";
-import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
 
 // Constants
