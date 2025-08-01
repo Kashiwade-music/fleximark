@@ -39,59 +39,6 @@ then,
 npm run test
 ```
 
-## Project Diagram
-wip
+## Project Structure
 
-```mermaid
-flowchart TD
-  ui:command["`
-    ui:command
-    (VSCode Command Parrete)
-  `"]
-  ui:textEditor["`
-    ui:textEditor
-    (VSCode Text Editor)
-  `"]
-  ui:webview["`
-    ui:webview
-    (VSCode iframe)
-  `"]
-  ui:browser["`
-    ui:browser
-    (External Web Browser)
-  `"] 
-  core:webview-front["`
-    core:webview-front
-    (media/vscodeWebviewScrollScripts.mts)
-  `"]
-  core:browser-front["`
-    core:webview-front
-    (media/webSocketScripts.mts)
-  `"]
-  
-  User --> ui:command --> core:filesystem
-  
-  User --
-      Active file change
-      File content edit
-      Cursor move
-      Scroll
-  --> ui:textEditor
-  
-  User -- 
-      Scroll
-  --> ui:webview --
-      scroll
-  --> core:webview-front --
-      preview-scroll
-  --> core:webview-server --> ui:textEditor
-
-  
-  User -- 
-      Scroll
-  --> ui:browser --
-      scroll
-  --> core:browser-front --
-      preview-scroll
-  --> core:browser-server --> ui:textEditor
-```
+![structure](assets/dev_structure.webp)
