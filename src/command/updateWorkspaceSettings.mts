@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import genSettingsJson from "./genSettingsJson/index.mjs";
+import * as fLibSettings from "../command/lib/settings/index.mjs";
 
 const updateWorkspaceSettings = async (
   context: vscode.ExtensionContext,
@@ -68,7 +68,10 @@ const updateWorkspaceSettings = async (
   );
 
   // Generate and write the new settings content
-  const newSettings = await genSettingsJson(context, workspaceRoot);
+  const newSettings = await fLibSettings.genSettingsJson(
+    context,
+    workspaceRoot,
+  );
   await vscode.workspace.fs.writeFile(settingsUri, Buffer.from(newSettings));
 
   // Reveal the updated settings in the editor

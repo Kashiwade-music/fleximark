@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-function parseJsonc(jsonString: string): any {
+export function parse(jsonString: string): any {
   let result = "";
   let inString = false;
   let inSingleLineComment = false;
@@ -54,5 +54,3 @@ function parseJsonc(jsonString: string): any {
     return {};
   }
 }
-
-export default parseJsonc;

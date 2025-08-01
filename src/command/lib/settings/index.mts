@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import parseJsonc from "../utils/parseJsonc.mjs";
+import * as fLibJsonc from "../jsonc/index.mjs";
 
 const KeyOrder = [
   "fleximark.settingsVersion",
@@ -16,10 +16,10 @@ const KeyOrder = [
   "[markdown]",
 ];
 
-const genSettingsJson = async (
+export async function genSettingsJson(
   context: vscode.ExtensionContext,
   workspacePath: string,
-): Promise<string> => {
+): Promise<string> {
   const vscodeWorkspaceSettingsJsonPath = path.join(
     workspacePath,
     ".vscode",
@@ -57,9 +57,7 @@ const genSettingsJson = async (
   );
 
   return sortedJsonWithComments.join("\n") + "\n";
-};
-
-export default genSettingsJson;
+}
 
 function loadJsonIfExists(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) {
@@ -68,7 +66,7 @@ function loadJsonIfExists(filePath: string): Record<string, unknown> | null {
 
   try {
     const data = fs.readFileSync(filePath, "utf-8");
-    return parseJsonc(data) as Record<string, unknown>;
+    return fLibJsonc.parse(data) as Record<string, unknown>;
   } catch {
     return null;
   }

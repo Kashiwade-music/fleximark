@@ -1,15 +1,13 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import genSettingsJson from "./genSettingsJson/index.mjs";
+import * as fLibFs from "../../lib/fs/index.mjs";
+import * as fLibSettings from "../../lib/settings/index.mjs";
 
 const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   // check if workspace is open
-  const workspace = vscode.workspace.workspaceFolders;
+  const workspace = fLibFs.getWorkspaceFoldersOrShowError();
   if (!workspace) {
-    vscode.window.showErrorMessage(
-      vscode.l10n.t("Please open a workspace before initializing."),
-    );
     return;
   }
 
@@ -43,7 +41,7 @@ const initializeWorkspace = async (context: vscode.ExtensionContext) => {
   );
   await vscode.workspace.fs.writeFile(
     file,
-    Buffer.from(await genSettingsJson(context, workspacePath)),
+    Buffer.from(await fLibSettings.genSettingsJson(context, workspacePath)),
   );
 
   // create fleximark directory and file. fleximark.json file contains the create date

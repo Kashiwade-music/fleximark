@@ -8,7 +8,6 @@ import checkWorkspaceSettingsUpdatable from "./command/checkWorkspaceSettingsUpd
 import * as fCommand from "./command/command/index.mjs";
 import createWorkspaceFleximarkCss from "./command/createWorkspaceFleximarkCss.mjs";
 import exportHtml from "./command/exportHtml.mjs";
-import initializeWorkspace from "./command/initializeWorkspace.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
@@ -123,7 +122,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand("fleximark.initializeWorkspace", () =>
-      initializeWorkspace(context),
+      fCommand.initializeWorkspace(context),
     ),
 
     vscode.commands.registerCommand(

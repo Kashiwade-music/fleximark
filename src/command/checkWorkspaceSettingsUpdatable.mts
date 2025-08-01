@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import parseJsonc from "./utils/parseJsonc.mjs";
+import * as fLibJsonc from "../command/lib/jsonc/index.mjs";
 
 const CURRENT_SETTINGS_VERSION = 1;
 
@@ -41,7 +41,7 @@ const checkWorkspaceSettingsUpdatableImpl = async (): Promise<boolean> => {
     await vscode.workspace.fs.stat(settingsFileUri);
 
     const rawContent = await vscode.workspace.fs.readFile(settingsFileUri);
-    const settings = parseJsonc(rawContent.toString());
+    const settings = fLibJsonc.parse(rawContent.toString());
 
     const version = settings["fleximark.settingsVersion"];
 
