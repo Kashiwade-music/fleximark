@@ -1,3 +1,4 @@
+import path from "path";
 import * as vscode from "vscode";
 
 /**
@@ -35,6 +36,27 @@ export function getWorkspaceFoldersOrShowError() {
 export async function isFileExists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function isFleximarkWorkspace() {
+  const workspace = vscode.workspace.workspaceFolders;
+  if (!workspace) {
+    return false;
+  }
+
+  const workspacePath = workspace[0].uri.fsPath;
+  const fleximarkFilePath = path.join(
+    workspacePath,
+    ".fleximark",
+    "fleximark.json",
+  );
+
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.file(fleximarkFilePath));
     return true;
   } catch {
     return false;

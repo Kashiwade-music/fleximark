@@ -7,12 +7,12 @@ import WebSocket, { WebSocketServer } from "ws";
 import * as fCommand from "./command/command/index.mjs";
 import exportHtml from "./command/exportHtml.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
+import * as fLibFs from "./command/lib/fs/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
 import renderMarkdownToHtml from "./command/renderMarkdownToHtml/index.mjs";
 import { findDiff } from "./command/utils/diffHTML.mjs";
 import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
-import isFleximarkWorkspace from "./command/utils/isFleximarkWorkspace.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
 
 // Constants
@@ -48,7 +48,7 @@ const state: GlobalExtensionState = {
 export async function activate(context: vscode.ExtensionContext) {
   console.log("Fleximark extension activated.");
 
-  if (await isFleximarkWorkspace()) {
+  if (await fLibFs.isFleximarkWorkspace()) {
     if (!fLibCss.isGlobalFleximarkCssExists(context)) {
       fCommand.resetGlobalFleximarkCss(context);
     }
