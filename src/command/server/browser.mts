@@ -4,11 +4,11 @@ import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
 import * as fLibConvert from "../lib/convert/index.mjs";
-import * as ServerBase from "./base.mjs";
+import BaseServer from "./base.mjs";
 
 const DEFAULT_PORT = 3000;
 
-class BrowserServer extends ServerBase.Base {
+class BrowserServer extends BaseServer {
   app?: Express;
   wss?: WebSocketServer;
   clients = new Set<WebSocket>();

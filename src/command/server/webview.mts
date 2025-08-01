@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 
 import * as fLibConvert from "../lib/convert/index.mjs";
-import * as ServerBase from "./base.mjs";
+import BaseServer from "./base.mjs";
 
-class WebviewServer extends ServerBase.Base {
+class WebviewServer extends BaseServer {
   webviewPanel?: vscode.WebviewPanel;
 
   constructor() {

@@ -5,12 +5,12 @@ import * as vscode from "vscode";
 import * as fLibConvert from "../lib/convert/index.mjs";
 import * as fLibUnist from "../lib/unist/index.mjs";
 
-export interface ScrollMessage {
+interface ScrollMessage {
   type: "editor-scroll";
   line: number;
 }
 
-export abstract class Base {
+abstract class BaseServer {
   html?: string;
   hast?: HastRoot;
   mdast?: MdastRoot;
@@ -136,3 +136,5 @@ export abstract class Base {
 
   public abstract deactivate(): void;
 }
+
+export default BaseServer;
