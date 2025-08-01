@@ -6,7 +6,6 @@ import WebSocket, { WebSocketServer } from "ws";
 
 import checkWorkspaceSettingsUpdatable from "./command/checkWorkspaceSettingsUpdatable.mjs";
 import * as fCommand from "./command/command/index.mjs";
-import createWorkspaceFleximarkCss from "./command/createWorkspaceFleximarkCss.mjs";
 import exportHtml from "./command/exportHtml.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
@@ -109,7 +108,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand(
       "fleximark.createWorkspaceFleximarkCss",
-      () => createWorkspaceFleximarkCss(context),
+      () => fCommand.createWorkspaceFleximarkCss(context),
     ),
 
     vscode.commands.registerCommand("fleximark.resetGlobalFleximarkCss", () =>
