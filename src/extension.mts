@@ -6,11 +6,11 @@ import WebSocket, { WebSocketServer } from "ws";
 
 import * as fCommand from "./command/command/index.mjs";
 import exportHtml from "./command/exportHtml.mjs";
+import * as fLibConvert from "./command/lib/convert/index.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
 import * as fLibFs from "./command/lib/fs/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
-import convertMdToHtml from "./command/renderMarkdownToHtml/index.mjs";
 import { findDiff } from "./command/utils/diffHTML.mjs";
 import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
@@ -281,7 +281,7 @@ async function updateWebviewPreview(
 ) {
   if (document.languageId !== "markdown" || !state.webviewPanel) return;
 
-  const result = await convertMdToHtml({
+  const result = await fLibConvert.convertMdToHtml({
     convertType: "webview",
     markdown: document.getText(),
     context: context,
@@ -323,7 +323,7 @@ async function updateBrowserPreview(
 ) {
   if (document.languageId !== "markdown" || !state.app) return;
 
-  const result = await convertMdToHtml({
+  const result = await fLibConvert.convertMdToHtml({
     convertType: "browser",
     markdown: document.getText(),
     context: context,

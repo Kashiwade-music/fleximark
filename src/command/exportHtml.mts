@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import convertMdToHtml from "./renderMarkdownToHtml/index.mjs";
+import * as fLibConvert from "./lib/convert/index.mjs";
 
 const exportHtml = async (context: vscode.ExtensionContext) => {
   const editor = vscode.window.activeTextEditor;
@@ -21,7 +21,7 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
     const uri = vscode.Uri.file(htmlFilePath);
     const enc = new TextEncoder();
 
-    const res = await convertMdToHtml({
+    const res = await fLibConvert.convertMdToHtml({
       convertType: "file",
       markdown: doc.getText(),
       context: context,

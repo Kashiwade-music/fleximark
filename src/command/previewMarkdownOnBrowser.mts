@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import * as vscode from "vscode";
 
-import convertMdToHtml from "./renderMarkdownToHtml/index.mjs";
+import * as fLibConvert from "./lib/convert/index.mjs";
 
 const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
   const editorPanel = vscode.window.activeTextEditor;
@@ -29,7 +29,7 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     app.use(express.static(workspaceFolder.uri.fsPath));
     app.use(express.static(path.dirname(doc.uri.fsPath)));
 
-    const res = await convertMdToHtml({
+    const res = await fLibConvert.convertMdToHtml({
       convertType: "browser",
       markdown: doc.getText(),
       context: context,

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import convertMdToHtml from "./renderMarkdownToHtml/index.mjs";
+import * as fLibConvert from "./lib/convert/index.mjs";
 
 const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
   const editorPanel = vscode.window.activeTextEditor;
@@ -21,7 +21,7 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
       { enableScripts: true },
     );
 
-    const res = await convertMdToHtml({
+    const res = await fLibConvert.convertMdToHtml({
       convertType: "webview",
       markdown: doc.getText(),
       context: context,

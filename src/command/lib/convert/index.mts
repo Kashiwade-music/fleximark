@@ -15,7 +15,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import * as vscode from "vscode";
 
-import * as fLibCss from "../lib/css/index.mjs";
+import * as fLibCss from "../css/index.mjs";
 import rehypeLineNumber from "./rehypeLineNumber.mjs";
 import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
@@ -54,7 +54,9 @@ interface FileArgs extends BaseArgs {
 
 type ConvertArgs = WebviewArgs | BrowserArgs | FileArgs;
 
-async function convertMdToHtml(args: ConvertArgs): Promise<ConvertResult> {
+export async function convertMdToHtml(
+  args: ConvertArgs,
+): Promise<ConvertResult> {
   args.isNeedDataLineNumber ??= true; // Default to true if not provided
 
   const mdast = await toMdastFromMarkdown(args);
@@ -68,8 +70,6 @@ async function convertMdToHtml(args: ConvertArgs): Promise<ConvertResult> {
 
   return { html, hast, mdast, plainText: args.markdown };
 }
-
-export default convertMdToHtml;
 
 async function toMdastFromMarkdown(args: ConvertArgs): Promise<MdastRoot> {
   const processor = unified()
