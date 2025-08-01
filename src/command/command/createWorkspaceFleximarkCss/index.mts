@@ -1,6 +1,8 @@
 import * as fs from "fs/promises";
 import * as vscode from "vscode";
 
+import * as fLibFs from "../../lib/fs/index.mjs";
+
 /**
  * Creates a `.fleximark` directory in the workspace and places a fleximark.css file inside.
  * The file contains comments pointing to the global default styles as a reference.
@@ -10,8 +12,10 @@ import * as vscode from "vscode";
 async function createWorkspaceFleximarkCss(
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders) return;
+  const workspaceFolders = fLibFs.getWorkspaceFoldersOrShowError();
+  if (!workspaceFolders) {
+    return;
+  }
 
   const workspaceUri = workspaceFolders[0].uri;
   const fleximarkDir = vscode.Uri.joinPath(workspaceUri, ".fleximark");
