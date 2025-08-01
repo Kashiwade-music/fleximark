@@ -16,7 +16,7 @@ interface Dictionary {
   admonitions: ContainerDirective[];
 }
 
-function collectAdmonitionsImpl(categoryRootAbsDirPath: string) {
+function process(categoryRootAbsDirPath: string) {
   const dictionaries = getAdmonitionDictionaries(
     categoryRootAbsDirPath,
     categoryRootAbsDirPath,
@@ -63,7 +63,7 @@ function collectAdmonitionsImpl(categoryRootAbsDirPath: string) {
   return file;
 }
 
-export default collectAdmonitionsImpl;
+export default process;
 
 function getAdmonitionDictionaries(
   targetDirPath: string,
@@ -78,7 +78,7 @@ function getAdmonitionDictionaries(
     if (entry.isDirectory()) {
       dictionaries.push(
         ...getAdmonitionDictionaries(fullPath, categoryRootAbsDirPath),
-      ); // 再帰
+      );
     } else if (entry.isFile() && fullPath.endsWith(".md")) {
       const content = fs.readFileSync(fullPath, "utf-8");
       const admonitions = getAdmonitionDirectives(
@@ -135,7 +135,7 @@ function getAdmonitionDirectives(
               targetAbsDirPath,
               resolvedPath,
             );
-            child.url = newRelativePath.replace(/\\/g, "/"); // Windows対策
+            child.url = newRelativePath.replace(/\\/g, "/");
           }
         }
       });
