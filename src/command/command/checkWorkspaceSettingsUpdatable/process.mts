@@ -1,34 +1,14 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import * as fLibJsonc from "../command/lib/jsonc/index.mjs";
+import * as fLibFs from "../../lib/fs/index.mjs";
+import * as fLibJsonc from "../../lib/jsonc/index.mjs";
 
 const CURRENT_SETTINGS_VERSION = 1;
 
-const checkWorkspaceSettingsUpdatable = async (): Promise<boolean> => {
-  const ret = await checkWorkspaceSettingsUpdatableImpl();
-  if (ret) {
-    // ask
-    const userResponse = await vscode.window.showInformationMessage(
-      vscode.l10n.t(
-        "The .vscode/settings.json file is outdated. Do you want to update it?",
-      ),
-      "Yes",
-      "No",
-    );
-    return userResponse === "Yes";
-  } else {
-    return false;
-  }
-};
-
-const checkWorkspaceSettingsUpdatableImpl = async (): Promise<boolean> => {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-
-  if (!workspaceFolders?.length) {
-    vscode.window.showErrorMessage(
-      vscode.l10n.t("Please open a workspace before initializing."),
-    );
+const process = async (): Promise<boolean> => {
+  const workspaceFolders = fLibFs.getWorkspaceFoldersOrShowError();
+  if (!workspaceFolders) {
     return false;
   }
 
@@ -85,4 +65,4 @@ const checkWorkspaceSettingsUpdatableImpl = async (): Promise<boolean> => {
   }
 };
 
-export default checkWorkspaceSettingsUpdatable;
+export default process;

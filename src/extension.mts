@@ -4,7 +4,6 @@ import { Root as MdastRoot } from "mdast";
 import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
-import checkWorkspaceSettingsUpdatable from "./command/checkWorkspaceSettingsUpdatable.mjs";
 import * as fCommand from "./command/command/index.mjs";
 import exportHtml from "./command/exportHtml.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
@@ -54,7 +53,7 @@ export async function activate(context: vscode.ExtensionContext) {
       fCommand.resetGlobalFleximarkCss(context);
     }
 
-    if (await checkWorkspaceSettingsUpdatable()) {
+    if (await fCommand.checkWorkspaceSettingsUpdatable()) {
       await fCommand.updateWorkspaceSettings(context, true);
     }
   }
@@ -126,7 +125,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "fleximark.checkWorkspaceSettingsUpdatable",
       async () => {
-        if (await checkWorkspaceSettingsUpdatable()) {
+        if (await fCommand.checkWorkspaceSettingsUpdatable()) {
           await fCommand.updateWorkspaceSettings(context, true);
         }
       },
