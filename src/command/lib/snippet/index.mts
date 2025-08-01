@@ -31,12 +31,12 @@ import crypto from "crypto";
  * @example
  * ```ts
  * const template = "Year: ${CURRENT_YEAR}, UUID: ${UUID}, Random: ${RANDOM}";
- * const result = expandSnippetPlaceholders(template);
+ * const result = expandPlaceholders(template);
  * console.log(result);
  * // Output: "Year: 2025, UUID: 550e8400-e29b-41d4-a716-446655440000, Random: 345678"
  * ```
  */
-export function expandSnippetPlaceholders(input: string): string {
+export function expandPlaceholders(input: string): string {
   const now = new Date();
 
   const pad = (num: number): string => String(num).padStart(2, "0");
@@ -78,5 +78,3 @@ export function expandSnippetPlaceholders(input: string): string {
       : match,
   );
 }
-
-export default expandSnippetPlaceholders;
