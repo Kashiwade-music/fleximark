@@ -1,18 +1,15 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import * as fLibSettings from "../command/lib/settings/index.mjs";
+import * as fLibFs from "../../lib/fs/index.mjs";
+import * as fLibSettings from "../../lib/settings/index.mjs";
 
 const updateWorkspaceSettings = async (
   context: vscode.ExtensionContext,
   forceOverwrite = false,
 ): Promise<void> => {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-
-  if (!workspaceFolders?.length) {
-    vscode.window.showErrorMessage(
-      vscode.l10n.t("Please open a workspace before initializing."),
-    );
+  const workspaceFolders = fLibFs.getWorkspaceFoldersOrShowError();
+  if (!workspaceFolders) {
     return;
   }
 

@@ -12,7 +12,6 @@ import * as fLibCss from "./command/lib/css/index.mjs";
 import previewMarkdownOnBrowser from "./command/previewMarkdownOnBrowser.mjs";
 import previewMarkdownOnVscode from "./command/previewMarkdownOnVscode.mjs";
 import renderMarkdownToHtml from "./command/renderMarkdownToHtml/index.mjs";
-import updateWorkspaceSettings from "./command/updateWorkspaceSettings.mjs";
 import { findDiff } from "./command/utils/diffHTML.mjs";
 import getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.mjs";
 import isFleximarkWorkspace from "./command/utils/isFleximarkWorkspace.mjs";
@@ -57,7 +56,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     if (await checkWorkspaceSettingsUpdatable()) {
-      await updateWorkspaceSettings(context, true);
+      await fCommand.updateWorkspaceSettings(context, true);
     }
   }
 
@@ -129,13 +128,13 @@ function registerCommands(context: vscode.ExtensionContext) {
       "fleximark.checkWorkspaceSettingsUpdatable",
       async () => {
         if (await checkWorkspaceSettingsUpdatable()) {
-          await updateWorkspaceSettings(context, true);
+          await fCommand.updateWorkspaceSettings(context, true);
         }
       },
     ),
 
     vscode.commands.registerCommand("fleximark.updateWorkspaceSettings", () =>
-      updateWorkspaceSettings(context),
+      fCommand.updateWorkspaceSettings(context),
     ),
 
     vscode.commands.registerCommand("fleximark.collectAdmonitions", () =>
