@@ -28,11 +28,13 @@ const previewMarkdownOnBrowser = async (context: vscode.ExtensionContext) => {
     app.use(express.static(context.extensionPath));
     app.use(express.static(workspaceFolder.uri.fsPath));
     app.use(express.static(path.dirname(doc.uri.fsPath)));
-    const res = await convertMdToHtml(
-      doc.getText(),
-      doc.uri.fsPath,
-      context,
-    );
+
+    const res = await convertMdToHtml({
+      convertType: "browser",
+      markdown: doc.getText(),
+      context: context,
+      isNeedDataLineNumber: true,
+    });
 
     return { app, editorPanel, ...res };
   } catch (err) {

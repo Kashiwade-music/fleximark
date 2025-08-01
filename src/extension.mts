@@ -281,12 +281,14 @@ async function updateWebviewPreview(
 ) {
   if (document.languageId !== "markdown" || !state.webviewPanel) return;
 
-  const result = await convertMdToHtml(
-    document.getText(),
-    document.uri.fsPath,
-    context,
-    state.webviewPanel.webview,
-  );
+  const result = await convertMdToHtml({
+    convertType: "webview",
+    markdown: document.getText(),
+    context: context,
+    webview: state.webviewPanel.webview,
+    markdownAbsPath: document.uri.fsPath,
+    isNeedDataLineNumber: true,
+  });
 
   if (fullReload || !state.webviewHtml || !state.webviewHast) {
     state.webviewHtml = result.html;
@@ -321,11 +323,12 @@ async function updateBrowserPreview(
 ) {
   if (document.languageId !== "markdown" || !state.app) return;
 
-  const result = await convertMdToHtml(
-    document.getText(),
-    document.uri.fsPath,
-    context,
-  );
+  const result = await convertMdToHtml({
+    convertType: "browser",
+    markdown: document.getText(),
+    context: context,
+    isNeedDataLineNumber: true,
+  });
 
   if (fullReload || !state.appHtml || !state.appHast) {
     state.appHtml = result.html;

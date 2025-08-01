@@ -21,12 +21,14 @@ const previewMarkdownOnVscode = async (context: vscode.ExtensionContext) => {
       { enableScripts: true },
     );
 
-    const res = await convertMdToHtml(
-      doc.getText(),
-      doc.uri.fsPath,
-      context,
-      webviewPanel.webview,
-    );
+    const res = await convertMdToHtml({
+      convertType: "webview",
+      markdown: doc.getText(),
+      context: context,
+      webview: webviewPanel.webview,
+      markdownAbsPath: doc.uri.fsPath,
+      isNeedDataLineNumber: true,
+    });
 
     webviewPanel.webview.html = res.html;
     return { webviewPanel, editorPanel, ...res };

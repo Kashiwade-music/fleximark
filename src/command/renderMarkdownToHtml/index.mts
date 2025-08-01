@@ -32,30 +32,47 @@ interface ConvertResult {
   plainText: string;
 }
 
-interface ArgsBase {
+interface BaseArgs {
   markdown: string;
-  markdownAbsPath: string;
   context: vscode.ExtensionContext;
-  isNeedDataLineNumber?: boolean;
+  isNeedDataLineNumber?: boolean; // Optional, defaults to true
 }
 
-interface ArgsForWebview extends ArgsBase {
+interface WebviewArgs extends BaseArgs {
   convertType: "webview";
   webview: vscode.Webview;
+  markdownAbsPath: string;
 }
 
-interface ArgsForBrowser extends ArgsBase {
+interface BrowserArgs extends BaseArgs {
   convertType: "browser";
 }
 
-interface ArgsForFile extends ArgsBase {
+interface FileArgs extends BaseArgs {
   convertType: "file";
 }
 
-async function convertMdToHtml(
-  args: ArgsForWebview | ArgsForBrowser | ArgsForFile,
-): Promise<ConvertResult> {
-  const remarkProcessor = unified()
+type ConvertArgs = WebviewArgs | BrowserArgs | FileArgs;
+
+async function convertMdToHtml(args: ConvertArgs): Promise<ConvertResult> {
+  args.isNeedDataLineNumber ??= true; // Default to true if not provided
+
+  const mdast = await toMdastFromMarkdown(args);
+  if (__DEV__) await writeDebugJson("debug-mdast.json", mdast, args.context);
+
+  const hast = await toHastFromMdast(mdast, args);
+  if (__DEV__) await writeDebugJson("debug-hast.json", hast, args.context);
+
+  const htmlBody = await toHtmlBodyFromHast(hast);
+  const html = await wrapHtml(htmlBody, args);
+
+  return { html, hast, mdast, plainText: args.markdown };
+}
+
+export default convertMdToHtml;
+
+async function toMdastFromMarkdown(args: ConvertArgs): Promise<MdastRoot> {
+  const processor = unified()
     .use(remarkParse)
     .use(remarkFrontmatter)
     .use(remarkYouTube, {
@@ -68,21 +85,15 @@ async function convertMdToHtml(
     .use(remarkDirectiveDetails)
     .use(remarkDirectiveTabs);
 
-  const parsed = remarkProcessor.parse(args.markdown);
-  const mdast = (await remarkProcessor.run(parsed)) as MdastRoot;
+  const parsed = processor.parse(args.markdown);
+  return processor.run(parsed) as Promise<MdastRoot>;
+}
 
-  if (__DEV__) {
-    await vscode.workspace.fs.writeFile(
-      vscode.Uri.joinPath(
-        args.context.extensionUri,
-        "debug",
-        "debug-mdast.json",
-      ),
-      new TextEncoder().encode(JSON.stringify(mdast, null, 2)),
-    );
-  }
-
-  const rehypeProcessor = unified()
+async function toHastFromMdast(
+  mdast: MdastRoot,
+  args: ConvertArgs,
+): Promise<HastRoot> {
+  const processor = unified()
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
     .use(rehypePrettyCode, {
@@ -93,51 +104,45 @@ async function convertMdToHtml(
     .use(rehypeLineNumber, { isNeedDataLineNumber: args.isNeedDataLineNumber })
     .use(rehypeRemovePosition);
 
-  const hast = await rehypeProcessor.run(mdast);
+  return processor.run(mdast) as Promise<HastRoot>;
+}
 
-  if (__DEV__) {
-    await vscode.workspace.fs.writeFile(
-      vscode.Uri.joinPath(
-        args.context.extensionUri,
-        "debug",
-        "debug-hast.json",
-      ),
-      new TextEncoder().encode(JSON.stringify(hast, null, 2)),
-    );
-  }
+async function toHtmlBodyFromHast(hast: HastRoot): Promise<string> {
+  return unified()
+    .use(rehypeStringify, { allowDangerousHtml: true })
+    .stringify(hast) as string;
+}
 
-  const htmlBody = await convertToHtml(hast);
-
-  let html: string;
+async function wrapHtml(htmlBody: string, args: ConvertArgs): Promise<string> {
   switch (args.convertType) {
     case "webview":
-      html = await wrapHtmlForVscode(
+      return wrapHtmlForWebview(
         htmlBody,
         args.markdownAbsPath,
         args.context,
         args.webview,
       );
-      break;
     case "browser":
-      html = await wrapHtmlForBrowser(htmlBody, args.context);
-      break;
+      return wrapHtmlForBrowser(htmlBody, args.context);
     case "file":
-      html = await wrapHtmlForFile(htmlBody, args.context);
-      break;
+      return wrapHtmlForFile(htmlBody, args.context);
     default:
-      throw new Error(`Unknown convert type: ${args}`);
+      throw new Error(`Unhandled convertType: ${args}`);
   }
-
-  return { html, hast, mdast, plainText: args.markdown };
 }
 
-async function convertToHtml(hast: HastRoot): Promise<string> {
-  const htmlProcessor = unified().use(rehypeStringify, {
-    allowDangerousHtml: true,
-  });
-  const htmlBody = String(htmlProcessor.stringify(hast));
-
-  return htmlBody;
+async function writeDebugJson(
+  fileName: string,
+  data: unknown,
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  const debugPath = vscode.Uri.joinPath(
+    context.extensionUri,
+    "debug",
+    fileName,
+  );
+  const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
+  await vscode.workspace.fs.writeFile(debugPath, content);
 }
 
 // -----------------------------------------------------------------------------
@@ -306,7 +311,7 @@ function rewriteImgSrcWithWebviewUri(
  * @param {vscode.Webview} webview - The active Webview instance used for URI resolution and CSP source generation.
  * @returns {Promise<string>} The fully formed HTML document string for the webview.
  */
-async function wrapHtmlForVscode(
+async function wrapHtmlForWebview(
   body: string,
   markdownAbsPath: string,
   context: vscode.ExtensionContext,
@@ -362,5 +367,3 @@ async function wrapHtmlForVscode(
 </body>
 </html>`;
 }
-
-export default convertMdToHtml;

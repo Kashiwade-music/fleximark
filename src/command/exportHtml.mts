@@ -20,14 +20,13 @@ const exportHtml = async (context: vscode.ExtensionContext) => {
 
     const uri = vscode.Uri.file(htmlFilePath);
     const enc = new TextEncoder();
-    const res = await convertMdToHtml(
-      doc.getText(),
-      doc.uri.fsPath,
-      context,
-      undefined,
-      true,
-      false,
-    );
+
+    const res = await convertMdToHtml({
+      convertType: "file",
+      markdown: doc.getText(),
+      context: context,
+      isNeedDataLineNumber: false,
+    });
     const uint8array = enc.encode(res.html);
 
     await vscode.workspace.fs.writeFile(uri, uint8array);
