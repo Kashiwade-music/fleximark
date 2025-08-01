@@ -16,7 +16,7 @@ function checkCurrentLineLangMode(
       const { start, end } = node.position;
       if (start.line <= line && line <= end.line) {
         foundLang = node.lang || "plaintext";
-        return EXIT; // ループを終了
+        return EXIT;
       }
     }
   });

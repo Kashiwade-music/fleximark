@@ -36,7 +36,7 @@ change `package.json`
 then,
 
 ```
-npm test
+npm run test
 ```
 
 ## Project Diagram
