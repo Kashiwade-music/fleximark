@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import checkCurrentLineLangMode from "./utils/checkCurrentLineLangMode.mjs";
+import checkCurrentLineLangMode from "./lib/checkCurrentLineLangMode.mjs";
 
 export const slashCommand = vscode.languages.registerCompletionItemProvider(
   "markdown",
@@ -353,6 +353,7 @@ export const decorations = vscode.languages.registerCompletionItemProvider(
       // ===================================
 
       const abcDecorations: Record<string, string> = {
+        "!mark!": "a highlight mark",
         "!trill!": "tr (trill mark)",
         "!trill(! $0 !trill)!": "an extended trill",
         "!lowermordent!":
