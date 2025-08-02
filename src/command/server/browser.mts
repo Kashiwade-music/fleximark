@@ -149,6 +149,7 @@ class BrowserServer extends BaseServer {
   }
 
   public override deactivate(): void {
+    this.initializeBaseMembers();
     this.wss?.close();
     this.clients.clear();
   }

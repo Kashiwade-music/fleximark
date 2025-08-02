@@ -114,6 +114,7 @@ class WebviewServer extends BaseServer {
   }
 
   public override deactivate(): void {
+    this.initializeBaseMembers();
     this.webviewPanel?.dispose();
   }
 }

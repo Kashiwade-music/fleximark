@@ -23,6 +23,12 @@ abstract class BaseServer {
     this.type = type;
   }
 
+  protected initializeBaseMembers(): void {
+    this.clearConvertResult();
+    this.editorPanel = undefined;
+    this.isScrollProcessing = false;
+  }
+
   // ---------------------------------------------
   // fLibConvert Related Methods
   // ---------------------------------------------

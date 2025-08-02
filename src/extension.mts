@@ -12,7 +12,7 @@ import * as completionAbc from "./completion/completionAbc.mjs";
 // ---------------------------------------------
 
 declare const __DEV__: boolean; // This is set by the esbuild process
-const state = new fShared.State();
+let state: fShared.State;
 
 // ---------------------------------------------
 // Activation
@@ -39,6 +39,7 @@ export async function activate(context: vscode.ExtensionContext) {
     (globalThis as any).testExtensionContext = context;
   }
 
+  state = new fShared.State();
   registerCommands(context);
   registerEventListeners(context);
   registerCompletionProvider(context);
