@@ -51,7 +51,7 @@ Built on GitHub Flavored Markdown (GFM) with powerful additions:
 - **Mermaid Diagrams**: Create flowcharts, sequences, and more.
   ![Mermaid](assets/demo_mermaid.avif)
   Uses [this extension](https://marketplace.visualstudio.com/items?itemName=bpruitt-goddard.mermaid-markdown-syntax-highlighting) for syntax highlighting.
-- **abc.js Integration**:
+- **ABC Notation**:
   ![alt text](assets/demo_abc.avif)
   - Realtime render and **play sheet music** in Markdown.
   - Supports **live preview**, **syntax highlighting**, and **useful snippets**.
