@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import { Root } from "mdast";
 
-import getBlockLineAndOffset from "../../../src/command/lib/unist/getBlockLineAndOffset.mjs";
+import getBlockLineAndOffset from "../../../../src/command/lib/unist/getBlockLineAndOffset.mjs";
 
 const MdastRootSample1 = {
   type: "root",

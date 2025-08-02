@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 
 import * as commands_css_index from "./command/lib/css/index.test.mjs";
 import * as commands_genSettingsJson_index from "./command/lib/settings/index.test.mjs";
-import * as commands_utils_getBlockLineAndOffset from "./command/utils/getBlockLineAndOffset.test.mjs";
+import * as commands_utils_getBlockLineAndOffset from "./command/lib/unist/getBlockLineAndOffset.test.mjs";
 import * as completion_lib_checkCurrentLineLangMode from "./completion/lib/checkCurrentLineLangMode.test.mjs";
 
 export interface CommandTestModule {
