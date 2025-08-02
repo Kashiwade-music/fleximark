@@ -10,7 +10,7 @@
   </p>
 </div>
 
-![top_demo](assets/top_demo.avif)
+![top_demo](assets/demo_main.avif)
 
 ## 🚀 Overview
 
@@ -25,37 +25,42 @@ Whether you're a developer, writer, student, or researcher, FlexiMark is designe
 ### 🔁 **Live Preview**
 
 - **VSCode Live Preview**: View your Markdown instantly as you type.
-- **Web Browser Preview**: Render your Markdown in any browser, powered by JavaScript.
+  ![VSCode Live Preview](assets/demo_vscode_preview.avif)
+- **Web Browser Preview**: Render your Markdown in any browser and execute JavaScript as you like.
+  ![Web Browser Preview](assets/demo_browser_preview.avif)
   - Use custom scripts, libraries, and styling freely.
   - Unmatched flexibility for interactive content and rendering.
 
-### 🗂️ **Smart Note-Taking System**
-
-- Designed for Markdown-based note-taking.
-- Auto-generate **customizable directory structures** based on your category tree.
-- Create Markdown notes effortlessly, exactly where they belong.
-
 ### 🧩 **Flexible File Generation**
 
+- Auto-generate **customizable directory structures** based on your category tree.
 - Configure **prefixes and suffixes** for filenames.
 - Choose from **multiple, customizable templates** when creating new notes.
 - Get organized without the overhead.
 
-### 🧪 **Enhanced Markdown Syntax**
+![Flexible File Generation](assets/demo_create_note.avif)
 
-Built on GitHub Flavored Markdown (GFM) with powerful extensions:
+### 🧪 **Enhanced Markdown Features**
 
-- **Admonitions / Alerts**: Notes, warnings, tips, and more.
-- **Tabbed Content**: Organize information cleanly.
-- **Mermaid Diagrams**: Flowcharts, sequence diagrams, and more.
+Built on GitHub Flavored Markdown (GFM) with powerful additions:
+
+- **Admonitions**: Add notes, tips, warnings, and danger.
+  ![Admonitions](assets/demo_admonitions.avif)
+- **Tabs**: Neatly organize content.
+  ![Tab](assets/demo_tab.avif)
+- **Mermaid Diagrams**: Create flowcharts, sequences, and more.
+  ![Mermaid](assets/demo_mermaid.avif)
+  Uses [this extension](https://marketplace.visualstudio.com/items?itemName=bpruitt-goddard.mermaid-markdown-syntax-highlighting) for syntax highlighting.
 - **abc.js Integration**:
-  - Render and **play musical scores** directly in your Markdown.
-  - Supports **real-time preview** and playback.
+  ![alt text](assets/demo_abc.avif)
+  - Realtime render and **play sheet music** in Markdown.
+  - Supports **live preview**, **syntax highlighting**, and **useful snippets**.
 
-### 📤 **Export to HTML**
+### 🔧 **Other Useful Features**
 
-- Convert your Markdown files into standalone HTML.
-- Apply **custom styles** for beautiful, shareable documents.
+- Export to HTML files
+- Collect Admonitions/Alerts under specific categories
+  ![Collect Admonitions](assets/demo_collect_admonitions.avif)
 
 ## 🧰 Ideal For
 
@@ -66,7 +71,7 @@ Built on GitHub Flavored Markdown (GFM) with powerful extensions:
 
 ## 📦 Installation
 
-Available via the [VSCode Marketplace](#) or install manually:
+Available via the [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=Kashiwade.fleximark) or install manually:
 
 ```bash
 code --install-extension kashiwade.fleximark
@@ -88,7 +93,7 @@ code --install-extension kashiwade.fleximark
 
 ## 📚 Documentation
 
-Detailed guides, configuration options, and templates are available in the [Wiki](#).
+Detailed guides, configuration options, and templates are available in the [**WIP**](#).
 
 ## 💬 Feedback & Contributions
 

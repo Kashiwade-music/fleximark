@@ -9,7 +9,7 @@
   "command.initializeWorkspace": "Initialize Workspace as Note Taking Directory",
   "command.checkWorkspaceSettingsUpdatable": "Check if Workspace Settings are Updatable",
   "command.updateWorkspaceSettings": "Update Workspace Settings",
-  "command.collectAdmonitions": "Collect admonitions/alerts and compile them into a single Markdown file.",
+  "command.collectAdmonitions": "Collect admonitions/alerts and compile them into a single Markdown file",
   "configuration.title": "FlexiMark",
   "configuration.settingsVersion.description": "FlexiMark settings version. This may change when the extension is updated.",
   "configuration.defaultPreviewMode.description": "Default preview mode for Markdown files. Choose between 'vscode' or 'browser'.",
