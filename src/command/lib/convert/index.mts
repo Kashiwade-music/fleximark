@@ -149,14 +149,6 @@ async function writeDebugJson(
 // HTML Wrapping Utilities
 // -----------------------------------------------------------------------------
 
-/**
- * Wraps the HTML body in a full document with scripts and styles tailored for direct browser preview.
- *
- * @async
- * @param {string} body - The main HTML body content.
- * @param {vscode.ExtensionContext} context - The extension context used to read configuration and resources.
- * @returns {Promise<string>} A complete HTML document string for browser usage.
- */
 async function wrapHtmlForBrowser(
   body: string,
   context: vscode.ExtensionContext,
@@ -174,10 +166,7 @@ async function wrapHtmlForBrowser(
   const assets = {
     katexCss: "dist/media/katex.min.css",
     abcjsCss: "dist/media/abcjs-audio.css",
-    abcjsJs: "dist/media/abcjsScripts.js",
-    mermaidJs: "dist/media/mermaidScripts.js",
-    webSocketJs: "dist/media/webSocketScripts.js",
-    youtubeJs: "dist/media/youtubePlaceholderScripts.js",
+    browserJs: "dist/media/browser.js",
   };
 
   return `
@@ -190,10 +179,7 @@ async function wrapHtmlForBrowser(
   <link rel="stylesheet" href="${assets.abcjsCss}" />
   <style>${globalCss}${workspaceCss}</style>
   <script>window.webSocketUrl = "ws://localhost:${port}";</script>
-  <script src="${assets.abcjsJs}"></script>
-  <script src="${assets.mermaidJs}"></script>
-  <script src="${assets.webSocketJs}"></script>
-  <script src="${assets.youtubeJs}"></script>
+  <script src="${assets.browserJs}"></script>
 </head>
 <body>
   <div class="markdown-body">${body}</div>
@@ -201,15 +187,6 @@ async function wrapHtmlForBrowser(
 </html>`;
 }
 
-/**
- * Wraps the HTML body in a complete HTML document optimized for exporting to file.
- * This includes inlining styles, embedding scripts, and copying required KaTeX fonts.
- *
- * @async
- * @param {string} body - The HTML body content to wrap.
- * @param {vscode.ExtensionContext} context - The extension context used for locating assets.
- * @returns {Promise<string>} A fully-wrapped HTML document ready for file export.
- */
 async function wrapHtmlForFile(
   body: string,
   context: vscode.ExtensionContext,
@@ -223,13 +200,10 @@ async function wrapHtmlForFile(
   const readAsset = (file: string) =>
     fs.promises.readFile(path.join(mediaDir, file), "utf8");
 
-  const [abcjsScripts, abcjsCss, mermaidScripts, youtubeScripts] =
-    await Promise.all([
-      readAsset("abcjsScripts.js"),
-      readAsset("abcjs-audio.css"),
-      readAsset("mermaidScripts.js"),
-      readAsset("youtubePlaceholderScripts.js"),
-    ]);
+  const [abcjsCss, fileJs] = await Promise.all([
+    readAsset("abcjs-audio.css"),
+    readAsset("file.js"),
+  ]);
 
   const katexCssUri = vscode.Uri.joinPath(
     context.globalStorageUri,
@@ -257,9 +231,7 @@ async function wrapHtmlForFile(
   <title>Preview</title>
   <link rel="stylesheet" href="file://${katexCssUri.fsPath}" />
   <style>${abcjsCss}${globalCss}${workspaceCss}</style>
-  <script>${abcjsScripts}</script>
-  <script>${mermaidScripts}</script>
-  <script>${youtubeScripts}</script>
+  <script>${fileJs}</script>
 </head>
 <body>
   <div class="markdown-body">${body}</div>
@@ -300,17 +272,6 @@ function rewriteImgSrcWithWebviewUri(
   );
 }
 
-/**
- * Wraps the HTML body in a secure document for VS Code's Webview API.
- * Applies strict CSP (Content Security Policy) headers and rewrites asset URIs with `asWebviewUri`.
- *
- * @async
- * @param {string} body - The HTML body content to include.
- * @param {string} markdownAbsPath - The absolute path to the Markdown file, used for resolving relative assets.
- * @param {vscode.ExtensionContext} context - VS Code extension context used for resolving resource URIs.
- * @param {vscode.Webview} webview - The active Webview instance used for URI resolution and CSP source generation.
- * @returns {Promise<string>} The fully formed HTML document string for the webview.
- */
 async function wrapHtmlForWebview(
   body: string,
   markdownAbsPath: string,
@@ -330,10 +291,7 @@ async function wrapHtmlForWebview(
   const assets = {
     katexCss: getUri("katex.min.css"),
     abcjsCss: getUri("abcjs-audio.css"),
-    abcjsJs: getUri("abcjsScripts.js"),
-    mermaidJs: getUri("mermaidScripts.js"),
-    vscodeScrollJs: getUri("vscodeWebviewScrollScripts.js"),
-    youtubeJs: getUri("youtubePlaceholderScripts.js"),
+    webviewJs: getUri("webview.js"),
   };
 
   return `
@@ -353,10 +311,7 @@ async function wrapHtmlForWebview(
   <link rel="stylesheet" href="${assets.katexCss}" />
   <link rel="stylesheet" href="${assets.abcjsCss}" />
   <style>${globalCss}${workspaceCss}</style>
-  <script src="${assets.abcjsJs}"></script>
-  <script src="${assets.mermaidJs}"></script>
-  <script src="${assets.vscodeScrollJs}"></script>
-  <script src="${assets.youtubeJs}"></script>
+  <script src="${assets.webviewJs}"></script>
 </head>
 <body>
   <div class="markdown-body">${rewriteImgSrcWithWebviewUri(
