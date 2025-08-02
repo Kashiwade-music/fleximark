@@ -62,11 +62,9 @@ async function main() {
   // Script for Webview build
   const mediaCtx = await esbuild.context({
     entryPoints: [
-      "media/abcjsScripts.mts",
-      "media/mermaidScripts.mts",
-      "media/vscodeWebviewScrollScripts.mts",
-      "media/webSocketScripts.mts",
-      "media/youtubePlaceholderScripts.mts",
+      "media/client/browser.mts",
+      "media/client/file.mts",
+      "media/client/webview.mts",
     ],
     bundle: true,
     format: "iife",

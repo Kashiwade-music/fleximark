@@ -3,10 +3,10 @@ import * as assert from "assert";
 // as well as import your extension to test it
 import * as vscode from "vscode";
 
-// import * as myExtension from '../../extension';
-import * as commands_css_index from "./commands/css/index.test.mjs";
-import * as commands_genSettingsJson_index from "./commands/getSettingsJson/index.test.mjs";
-import * as commands_utils_getBlockLineAndOffset from "./commands/utils/getBlockLineAndOffset.test.mjs";
+import * as commands_css_index from "./command/lib/css/index.test.mjs";
+import * as commands_genSettingsJson_index from "./command/lib/settings/index.test.mjs";
+import * as commands_utils_getBlockLineAndOffset from "./command/lib/unist/getBlockLineAndOffset.test.mjs";
+import * as completion_lib_checkCurrentLineLangMode from "./completion/lib/checkCurrentLineLangMode.test.mjs";
 
 export interface CommandTestModule {
   suiteName: string;
@@ -32,5 +32,12 @@ suite("Extension Test Suite", () => {
   suite(
     commands_utils_getBlockLineAndOffset.suiteName,
     commands_utils_getBlockLineAndOffset.suite,
+  );
+
+  // =======================
+
+  suite(
+    completion_lib_checkCurrentLineLangMode.suiteName,
+    completion_lib_checkCurrentLineLangMode.suite,
   );
 });
