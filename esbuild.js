@@ -63,10 +63,8 @@ async function main() {
   const mediaCtx = await esbuild.context({
     entryPoints: [
       "media/client/browser.mts",
+      "media/client/file.mts",
       "media/client/webview.mts",
-      "media/client/shared/abcjsScripts.mts",
-      "media/client/shared/mermaidScripts.mts",
-      "media/client/shared/youtubePlaceholderScripts.mts",
     ],
     bundle: true,
     format: "iife",

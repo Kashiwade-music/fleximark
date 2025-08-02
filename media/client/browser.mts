@@ -1,4 +1,6 @@
 import * as Base from "./base.mjs";
+import "./shared/abcjsScripts.mjs";
+import "./shared/mermaidScripts.mjs";
 
 // ----------------------
 // Class

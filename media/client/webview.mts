@@ -1,4 +1,7 @@
 import * as Base from "./base.mjs";
+import "./shared/abcjsScripts.mjs";
+import "./shared/mermaidScripts.mjs";
+import "./shared/youtubePlaceholderScripts.mjs";
 
 // ----------------------
 // VSCode API
