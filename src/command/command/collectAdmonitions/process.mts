@@ -35,10 +35,7 @@ function process(categoryRootAbsDirPath: string) {
 
   for (const dict of dictionaries) {
     const fileName = path.basename(dict.absPath);
-    const relativePath = path.relative(
-      path.join(categoryRootAbsDirPath, "Admonitions.md"),
-      dict.absPath,
-    );
+    const relativePath = path.relative(categoryRootAbsDirPath, dict.absPath);
 
     root.children.push({
       type: "heading",
@@ -46,7 +43,7 @@ function process(categoryRootAbsDirPath: string) {
       children: [
         {
           type: "link",
-          url: relativePath,
+          url: relativePath.replace(/\\/g, "/"),
           children: [{ type: "text", value: fileName }],
         },
       ],
