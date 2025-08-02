@@ -1,5 +1,4 @@
 import express, { Express, Request, Response } from "express";
-import path from "path";
 import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
@@ -78,7 +77,6 @@ class BrowserServer extends BaseServer {
       this.app = express();
       this.app.use(express.static(context.extensionPath));
       this.app.use(express.static(workspaceFolder.uri.fsPath));
-      this.app.use(express.static(path.dirname(document.uri.fsPath)));
 
       const result = await this.convertMdToHtml(document, context, true);
       this.registerConvertResult(result);
