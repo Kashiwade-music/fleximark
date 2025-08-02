@@ -1,3 +1,18 @@
+# [0.12.0](https://github.com/Kashiwade-music/fleximark/compare/v0.11.8...v0.12.0) (2025-08-02)
+
+
+### Bug Fixes
+
+* correct image path update with asWebviewUri ([598c358](https://github.com/Kashiwade-music/fleximark/commit/598c3582ab12a2bf2e7db5b543942ee6438a7faf))
+* correct relative path calculation for admonition links ([3fcb589](https://github.com/Kashiwade-music/fleximark/commit/3fcb5899631d58b80ce5733979955cdf2a0aca48))
+* Fix for insufficient initialization when the extension is reactivated. ([ffdc089](https://github.com/Kashiwade-music/fleximark/commit/ffdc089a6aaed347c343f97e5d3478626a1f4ce1))
+* remove unused path import and static file serving for document directory ([1985101](https://github.com/Kashiwade-music/fleximark/commit/1985101de5e34df98d06ca99b518d84060a9f477))
+
+
+### Features
+
+* enhance category selection with current path tracking and finalize option ([b14514c](https://github.com/Kashiwade-music/fleximark/commit/b14514c7db89435634027076315c5cc123d50451))
+
 ## [0.11.8](https://github.com/Kashiwade-music/fleximark/compare/v0.11.7...v0.11.8) (2025-07-31)
 
 
