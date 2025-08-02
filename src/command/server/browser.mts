@@ -133,7 +133,9 @@ class BrowserServer extends BaseServer {
   // ---------------------------------------------
 
   protected override makeClientReload(): void {
-    throw new Error("Method not implemented.");
+    this.emitMessageToClient({
+      type: "reload",
+    });
   }
 
   // ---------------------------------------------
