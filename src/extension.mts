@@ -4,6 +4,7 @@ import * as fCommand from "./command/command/index.mjs";
 import * as fLibCss from "./command/lib/css/index.mjs";
 import * as fLibFs from "./command/lib/fs/index.mjs";
 import * as fLibUnist from "./command/lib/unist/index.mjs";
+import * as fServer from "./command/server/index.mjs";
 import * as fShared from "./command/shared/index.mjs";
 import * as completionAbc from "./completion/completionAbc.mjs";
 
@@ -124,14 +125,25 @@ function registerEventListeners(context: vscode.ExtensionContext) {
   subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor?.document.languageId === "markdown") {
-        state.browserServer.updatePreview(editor.document, context, true);
-        state.webviewServer.updatePreview(editor.document, context, true);
+        const args: fServer.UpdatePreviewArgsFullReload = {
+          type: "full",
+          editorPanel: editor,
+          document: editor.document,
+          context,
+        };
+        state.browserServer.updatePreview(args);
+        state.webviewServer.updatePreview(args);
       }
     }),
 
     vscode.workspace.onDidChangeTextDocument(({ document }) => {
-      state.browserServer.updatePreview(document, context, false);
-      state.webviewServer.updatePreview(document, context, false);
+      const args: fServer.UpdatePreviewArgsPartialReload = {
+        type: "partial",
+        document,
+        context,
+      };
+      state.browserServer.updatePreview(args);
+      state.webviewServer.updatePreview(args);
     }),
 
     vscode.window.onDidChangeTextEditorSelection((e) => {

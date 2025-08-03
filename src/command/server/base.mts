@@ -10,6 +10,28 @@ interface ScrollMessage {
   line: number;
 }
 
+interface UpdatePreviewArgsBase {
+  document: vscode.TextDocument;
+  context: vscode.ExtensionContext;
+}
+
+export interface UpdatePreviewArgsFullReload extends UpdatePreviewArgsBase {
+  type: "full";
+  editorPanel: vscode.TextEditor;
+  document: vscode.TextDocument;
+  context: vscode.ExtensionContext;
+}
+
+export interface UpdatePreviewArgsPartialReload extends UpdatePreviewArgsBase {
+  type: "partial";
+  document: vscode.TextDocument;
+  context: vscode.ExtensionContext;
+}
+
+type UpdatePreviewArgs =
+  | UpdatePreviewArgsFullReload
+  | UpdatePreviewArgsPartialReload;
+
 abstract class BaseServer {
   html?: string;
   hast?: HastRoot;
@@ -105,18 +127,19 @@ abstract class BaseServer {
 
   protected abstract makeClientReload(): void;
 
-  public async updatePreview(
-    document: vscode.TextDocument,
-    context: vscode.ExtensionContext,
-    fullReload: boolean,
-  ) {
+  public async updatePreview(args: UpdatePreviewArgs) {
+    const { document, context } = args;
+
     if (document.languageId !== "markdown" || !this.isPreviewOpened()) return;
 
     const result = await this.convertMdToHtml(document, context, true);
 
-    if (fullReload || this.isAnyConvertResultEmpty()) {
+    if (args.type === "full" || this.isAnyConvertResultEmpty()) {
       this.registerConvertResult(result);
       this.makeClientReload();
+      if (args.type === "full") {
+        this.editorPanel = args.editorPanel;
+      }
     } else {
       const { editScripts, dataLineArray } = fLibUnist.diffHtml.findDiff(
         this.hast as HastRoot,
