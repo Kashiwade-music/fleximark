@@ -1,3 +1,10 @@
+## [0.12.3](https://github.com/Kashiwade-music/fleximark/compare/v0.12.2...v0.12.3) (2025-08-03)
+
+
+### Bug Fixes
+
+* remove left text alignment from table cells in markdown body ([22eb65b](https://github.com/Kashiwade-music/fleximark/commit/22eb65b7447cf2cefc5b8ecdcfea64ebedf1fd66))
+
 ## [0.12.2](https://github.com/Kashiwade-music/fleximark/compare/v0.12.1...v0.12.2) (2025-08-03)
 
 
