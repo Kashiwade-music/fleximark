@@ -33,11 +33,17 @@ class BrowserServer extends BaseServer {
     context: vscode.ExtensionContext,
     isNeedDataLineNumber?: boolean,
   ) {
+    if (!this.app) {
+      throw new Error("Browser server is not initialized.");
+    }
+
     return await fLibConvert.convertMdToHtml({
       convertType: "browser",
       markdown: document.getText(),
       context: context,
       isNeedDataLineNumber: isNeedDataLineNumber ?? true,
+      app: this.app,
+      markdownAbsPath: document.uri.fsPath,
     });
   }
 

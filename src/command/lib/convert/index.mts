@@ -1,5 +1,6 @@
+import { Express } from "express";
 import * as fs from "fs";
-import { Element, Root as HastRoot } from "hast";
+import { Root as HastRoot } from "hast";
 import { Root as MdastRoot } from "mdast";
 import * as path from "path";
 import rehypeKatex from "rehype-katex";
@@ -13,11 +14,13 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
-import { visit } from "unist-util-visit";
 import * as vscode from "vscode";
 
 import * as fLibCss from "../css/index.mjs";
 import rehypeLineNumber from "./rehypeLineNumber.mjs";
+import rehypeLocalSrcConvert, {
+  RehypeLocalSrcConvertArgs,
+} from "./rehypeLocalSrcConvert.mjs";
 import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
@@ -47,6 +50,8 @@ interface WebviewArgs extends BaseArgs {
 
 interface BrowserArgs extends BaseArgs {
   convertType: "browser";
+  app: Express;
+  markdownAbsPath: string;
 }
 
 interface FileArgs extends BaseArgs {
@@ -94,6 +99,29 @@ async function toHastFromMdast(
   mdast: MdastRoot,
   args: ConvertArgs,
 ): Promise<HastRoot> {
+  let rehypeLocalSrcConvertArgs: RehypeLocalSrcConvertArgs;
+  switch (args.convertType) {
+    case "webview":
+      rehypeLocalSrcConvertArgs = {
+        convertType: "webview",
+        markdownAbsPath: args.markdownAbsPath,
+        webview: args.webview,
+      };
+      break;
+    case "browser":
+      rehypeLocalSrcConvertArgs = {
+        convertType: "browser",
+        markdownAbsPath: args.markdownAbsPath,
+        app: args.app,
+      };
+      break;
+    case "file":
+      rehypeLocalSrcConvertArgs = { convertType: "file" };
+      break;
+    default:
+      throw new Error(`Unhandled convertType: ${args}`);
+  }
+
   const processor = unified()
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeKatex)
@@ -103,19 +131,10 @@ async function toHastFromMdast(
     })
     .use(rehypeRaw)
     .use(rehypeLineNumber, { isNeedDataLineNumber: args.isNeedDataLineNumber })
-    .use(rehypeRemovePosition);
+    .use(rehypeRemovePosition)
+    .use(rehypeLocalSrcConvert, rehypeLocalSrcConvertArgs);
 
-  const hast = (await processor.run(mdast)) as HastRoot;
-
-  if (args.convertType === "webview") {
-    return rewriteImgSrcWithWebviewUri(
-      hast,
-      args.markdownAbsPath,
-      args.webview,
-    );
-  }
-
-  return hast;
+  return (await processor.run(mdast)) as HastRoot;
 }
 
 async function toHtmlBodyFromHast(hast: HastRoot): Promise<string> {
@@ -154,45 +173,6 @@ async function writeDebugJson(
   );
   const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
   await vscode.workspace.fs.writeFile(debugPath, content);
-}
-
-// -----------------------------------------------------------------------------
-// Webview Utilities
-// -----------------------------------------------------------------------------
-
-function rewriteImgSrcWithWebviewUri(
-  hast: HastRoot,
-  markdownAbsPath: string,
-  webview: vscode.Webview,
-): HastRoot {
-  visit(hast, "element", (node: Element) => {
-    if (
-      node.tagName === "img" &&
-      node.properties &&
-      typeof node.properties.src === "string"
-    ) {
-      const src = node.properties.src;
-      try {
-        if (src.startsWith("http") || src.startsWith("data:")) {
-          return;
-        }
-
-        const localPath = path.isAbsolute(src)
-          ? src
-          : vscode.Uri.joinPath(
-              vscode.Uri.file(path.dirname(markdownAbsPath)),
-              src,
-            ).fsPath;
-
-        const uri = webview.asWebviewUri(vscode.Uri.file(localPath));
-        node.properties.src = uri.toString(true);
-      } catch (err) {
-        console.error(`Failed to rewrite img src for: ${src}`, err);
-      }
-    }
-  });
-
-  return hast;
 }
 
 // -----------------------------------------------------------------------------
