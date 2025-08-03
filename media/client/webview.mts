@@ -23,7 +23,7 @@ class WebviewClient extends Base.BaseClient {
   }
 
   public override emitMessageToServer(message: object): void {
-    vscode.postMessage(message);
+    vscode.postMessage(JSON.stringify(message));
   }
 }
 
