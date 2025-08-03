@@ -1,3 +1,12 @@
+## [0.12.2](https://github.com/Kashiwade-music/fleximark/compare/v0.12.1...v0.12.2) (2025-08-03)
+
+
+### Bug Fixes
+
+* failed at loading some local resources when their path are very far from their markdown ([23548f1](https://github.com/Kashiwade-music/fleximark/commit/23548f12653d426b72e6d4c1a21f60f20d6be0fd))
+* scroll sync failure when the active text editor was changed ([064b8b1](https://github.com/Kashiwade-music/fleximark/commit/064b8b19d916752db2d0e660ffc982b54e7160de))
+* scroll-sync didn't work, when scrolling in the vscode webview ([56e01da](https://github.com/Kashiwade-music/fleximark/commit/56e01dab9b855be3ed1f1011094b1c0e043461c5))
+
 ## [0.12.1](https://github.com/Kashiwade-music/fleximark/compare/v0.12.0...v0.12.1) (2025-08-02)
 
 
