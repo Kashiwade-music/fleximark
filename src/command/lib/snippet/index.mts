@@ -46,12 +46,24 @@ export function expandPlaceholders(input: string): string {
     "${CURRENT_YEAR_SHORT}": String(now.getFullYear()).slice(-2),
     "${CURRENT_MONTH}": pad(now.getMonth() + 1),
     "${CURRENT_MONTH_NAME}": now.toLocaleString("default", { month: "long" }),
+    "${CURRENT_MONTH_NAME_ENG}": now.toLocaleString("en-US", {
+      month: "long",
+    }),
     "${CURRENT_MONTH_NAME_SHORT}": now.toLocaleString("default", {
+      month: "short",
+    }),
+    "${CURRENT_MONTH_NAME_SHORT_ENG}": now.toLocaleString("en-US", {
       month: "short",
     }),
     "${CURRENT_DATE}": pad(now.getDate()),
     "${CURRENT_DAY_NAME}": now.toLocaleString("default", { weekday: "long" }),
+    "${CURRENT_DAY_NAME_ENG}": now.toLocaleString("en-US", {
+      weekday: "long",
+    }),
     "${CURRENT_DAY_NAME_SHORT}": now.toLocaleString("default", {
+      weekday: "short",
+    }),
+    "${CURRENT_DAY_NAME_SHORT_ENG}": now.toLocaleString("en-US", {
       weekday: "short",
     }),
     "${CURRENT_HOUR}": pad(now.getHours()),
@@ -63,7 +75,7 @@ export function expandPlaceholders(input: string): string {
       const sign = offset >= 0 ? "+" : "-";
       const hours = pad(Math.floor(Math.abs(offset) / 60));
       const minutes = pad(Math.abs(offset) % 60);
-      return `${sign}${hours}:${minutes}`;
+      return `${sign}${hours}${minutes}`;
     })(),
     "${RANDOM}": Math.floor(100000 + Math.random() * 900000),
     "${RANDOM_HEX}": Math.floor(Math.random() * 0xffffff)
