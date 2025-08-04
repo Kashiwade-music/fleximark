@@ -2,7 +2,7 @@
   "name": "fleximark",
   "displayName": "FlexiMark",
   "description": "Flexible Markdown Preview and Note Taking for VSCode. Supports ABC Notation, Mermaid Diagrams, and more.",
-  "version": "0.12.3",
+  "version": "0.13.0",
   "publisher": "Kashiwade",
   "engines": {
     "vscode": "^1.101.0"

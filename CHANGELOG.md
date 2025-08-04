@@ -1,3 +1,10 @@
+# [0.13.0](https://github.com/Kashiwade-music/fleximark/compare/v0.12.3...v0.13.0) (2025-08-04)
+
+
+### Features
+
+* add English month and day name placeholders to expandPlaceholders function ([732f21f](https://github.com/Kashiwade-music/fleximark/commit/732f21f4a364618efcfe7d01b5f91e2ffaab5175))
+
 ## [0.12.3](https://github.com/Kashiwade-music/fleximark/compare/v0.12.2...v0.12.3) (2025-08-03)
 
 
