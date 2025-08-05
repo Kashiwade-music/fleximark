@@ -41,6 +41,11 @@ async function createWorkspaceFleximarkCss(
         "Created .fleximark directory and fleximark.css file in the workspace.",
       ),
     );
+
+    // open the created fleximark.css file in the editor
+    await vscode.window.showTextDocument(
+      await vscode.workspace.openTextDocument(workspaceCssPath),
+    );
   } catch {
     vscode.window.showErrorMessage(
       vscode.l10n.t(
