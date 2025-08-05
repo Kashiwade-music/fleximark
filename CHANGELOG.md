@@ -1,3 +1,11 @@
+## [0.13.1](https://github.com/Kashiwade-music/fleximark/compare/v0.13.0...v0.13.1) (2025-08-05)
+
+
+### Bug Fixes
+
+* change default preview mode from browser to vscode ([dbdbea2](https://github.com/Kashiwade-music/fleximark/commit/dbdbea291eba7b25f00cafc80a21ed7b7a9f536f))
+* open created fleximark.css file in the editor after creation ([faf0cc4](https://github.com/Kashiwade-music/fleximark/commit/faf0cc4a93e58e9b190ed244ee67e8ca072c52ad))
+
 # [0.13.0](https://github.com/Kashiwade-music/fleximark/compare/v0.12.3...v0.13.0) (2025-08-04)
 
 
