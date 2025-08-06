@@ -1,3 +1,11 @@
+## [0.13.2](https://github.com/Kashiwade-music/fleximark/compare/v0.13.1...v0.13.2) (2025-08-06)
+
+
+### Bug Fixes
+
+* add snippets for details block in markdown ([0ab7737](https://github.com/Kashiwade-music/fleximark/commit/0ab7737c5d189142b5ed6296f18afd70e9033950))
+* adjust font size for better accessibility ([5025af1](https://github.com/Kashiwade-music/fleximark/commit/5025af14b588d7d21d485c7b9016f93f54b8c690))
+
 ## [0.13.1](https://github.com/Kashiwade-music/fleximark/compare/v0.13.0...v0.13.1) (2025-08-05)
 
 
