@@ -1,0 +1,30 @@
+{
+    "Details block": {
+        "prefix": [
+            ":::details",
+            ":::"
+        ],
+        "body": [
+            ":::details",
+            "",
+            "${1:Content}",
+            "",
+            ":::"
+        ],
+        "description": "Insert details block without title"
+    },
+    "Details block with title": {
+        "prefix": [
+            ":::details",
+            ":::"
+        ],
+        "body": [
+            ":::details[${1:Title}]",
+            "",
+            "${2:Content}",
+            "",
+            ":::"
+        ],
+        "description": "Insert details block with title"
+    }
+}
