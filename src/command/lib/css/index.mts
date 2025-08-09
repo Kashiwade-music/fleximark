@@ -160,15 +160,16 @@ export async function resetGlobalFleximarkCss(
     await fs.mkdir(context.globalStorageUri.fsPath, { recursive: true });
     await fs.writeFile(cssPath, cssContent, "utf8");
     if (isMessageEmittable) {
-      vscode.window.showErrorMessage(
-        vscode.l10n.t("Failed to reset global fleximark.css."),
-      );
-    }
-  } catch {
-    if (isMessageEmittable) {
       vscode.window.showInformationMessage(
         vscode.l10n.t("fleximark.css has been saved to global storage."),
       );
     }
+  } catch (error) {
+    if (isMessageEmittable) {
+      vscode.window.showErrorMessage(
+        vscode.l10n.t("Failed to reset global fleximark.css."),
+      );
+    }
+    console.error("Failed to reset global fleximark.css:", error);
   }
 }
