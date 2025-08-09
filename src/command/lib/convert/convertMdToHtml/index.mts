@@ -65,20 +65,31 @@ export async function convertMdToHtml(
   args: ConvertArgs,
 ): Promise<ConvertResult> {
   args.isNeedDataLineNumber ??= true; // Default to true if not provided
-  const plugin = await fLibConvertPlugin.loadParserPlugin(args.context);
+  const workSpacePlugin = await fLibConvertPlugin.loadParserPlugin(
+    args.context,
+    "workspace",
+  );
+  const globalPlugin = await fLibConvertPlugin.loadParserPlugin(
+    args.context,
+    "global",
+  );
 
-  args.markdown = plugin.transformMarkdownString(args.markdown);
+  args.markdown = globalPlugin.transformMarkdownString(args.markdown);
+  args.markdown = workSpacePlugin.transformMarkdownString(args.markdown);
 
   let mdast = await toMdastFromMarkdown(args);
-  mdast = plugin.transformMdast(mdast);
+  mdast = globalPlugin.transformMdast(mdast);
+  mdast = workSpacePlugin.transformMdast(mdast);
   if (__DEV__) await writeDebugJson("debug-mdast.json", mdast, args.context);
 
   let hast = await toHastFromMdast(mdast, args);
-  hast = plugin.transformHast(hast);
+  hast = globalPlugin.transformHast(hast);
+  hast = workSpacePlugin.transformHast(hast);
   if (__DEV__) await writeDebugJson("debug-hast.json", hast, args.context);
 
   let htmlBody = await toHtmlBodyFromHast(hast);
-  htmlBody = plugin.transformHtmlString(htmlBody);
+  htmlBody = globalPlugin.transformHtmlString(htmlBody);
+  htmlBody = workSpacePlugin.transformHtmlString(htmlBody);
 
   const html = await wrapHtml(htmlBody, args);
 

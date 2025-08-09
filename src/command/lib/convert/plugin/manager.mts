@@ -16,18 +16,14 @@ interface Plugin {
 
 export async function loadParserPlugin(
   context: vscode.ExtensionContext,
+  scope: "workspace" | "global",
 ): Promise<Plugin> {
-  const workspacePath = await getPluginPath(context, "workspace");
-  const globalPath = await getPluginPath(context, "global");
+  const pluginPath = await getPluginPath(context, scope);
 
-  let pluginPath: string | undefined;
-  if (workspacePath && fs.existsSync(workspacePath)) {
-    pluginPath = workspacePath;
-  } else if (globalPath && fs.existsSync(globalPath)) {
-    pluginPath = globalPath;
-  }
-
-  if (!pluginPath) {
+  if (
+    !pluginPath ||
+    !(await fLibFs.isFileExists(vscode.Uri.file(pluginPath)))
+  ) {
     return {
       transformMarkdownString: (markdown) => markdown,
       transformMdast: (mdast) => mdast,
