@@ -112,6 +112,20 @@ function registerCommands(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("fleximark.collectAdmonitions", () =>
       fCommand.collectAdmonitions(),
     ),
+
+    vscode.commands.registerCommand(
+      "fleximark.openParserPluginFileWorkspace",
+      async () => {
+        await fCommand.openParserPluginFile(context, "workspace");
+      },
+    ),
+
+    vscode.commands.registerCommand(
+      "fleximark.openParserPluginFileGlobal",
+      async () => {
+        await fCommand.openParserPluginFile(context, "global");
+      },
+    ),
   );
 }
 

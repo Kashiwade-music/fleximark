@@ -2,7 +2,7 @@ import express, { Express, Request, Response } from "express";
 import * as vscode from "vscode";
 import WebSocket, { WebSocketServer } from "ws";
 
-import * as fLibConvert from "../lib/convert/index.mjs";
+import * as fLibConvert from "../lib/convert/convertMdToHtml/index.mjs";
 import BaseServer from "./base.mjs";
 
 const DEFAULT_PORT = 3000;

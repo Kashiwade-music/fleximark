@@ -4,6 +4,7 @@ import createNote from "./createNote/index.mjs";
 import createWorkspaceFleximarkCss from "./createWorkspaceFleximarkCss/index.mjs";
 import exportHtml from "./exportHtml/index.mjs";
 import initializeWorkspace from "./initializeWorkspace/index.mjs";
+import openParserPluginFile from "./openParserPlugin/index.mjs";
 import resetGlobalFleximarkCss from "./resetGlobalFleximarkCss/index.mjs";
 import updateWorkspaceSettings from "./updateWorkspaceSettings/index.mjs";
 
@@ -16,4 +17,5 @@ export {
   initializeWorkspace,
   resetGlobalFleximarkCss,
   updateWorkspaceSettings,
+  openParserPluginFile,
 };

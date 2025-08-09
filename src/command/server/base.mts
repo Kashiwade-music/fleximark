@@ -2,7 +2,7 @@ import { Root as HastRoot } from "hast";
 import { Root as MdastRoot } from "mdast";
 import * as vscode from "vscode";
 
-import * as fLibConvert from "../lib/convert/index.mjs";
+import * as fLibConvert from "../lib/convert/convertMdToHtml/index.mjs";
 import * as fLibUnist from "../lib/unist/index.mjs";
 
 interface ScrollMessage {
