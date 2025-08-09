@@ -79,9 +79,12 @@ function registerCommands(context: vscode.ExtensionContext) {
       fCommand.exportHtml(context),
     ),
 
-    vscode.commands.registerCommand(
-      "fleximark.createWorkspaceFleximarkCss",
-      () => fCommand.createWorkspaceFleximarkCss(context),
+    vscode.commands.registerCommand("fleximark.openWorkspaceFleximarkCss", () =>
+      fCommand.openFleximarkCss(context, "workspace"),
+    ),
+
+    vscode.commands.registerCommand("fleximark.openGlobalFleximarkCss", () =>
+      fCommand.openFleximarkCss(context, "global"),
     ),
 
     vscode.commands.registerCommand("fleximark.resetGlobalFleximarkCss", () =>
@@ -115,15 +118,15 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand(
       "fleximark.openParserPluginFileWorkspace",
-      async () => {
-        await fCommand.openParserPluginFile(context, "workspace");
+      () => {
+        fCommand.openParserPluginFile(context, "workspace");
       },
     ),
 
     vscode.commands.registerCommand(
       "fleximark.openParserPluginFileGlobal",
-      async () => {
-        await fCommand.openParserPluginFile(context, "global");
+      () => {
+        fCommand.openParserPluginFile(context, "global");
       },
     ),
   );

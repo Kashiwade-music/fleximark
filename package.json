@@ -57,8 +57,13 @@
         "category": "FlexiMark"
       },
       {
-        "command": "fleximark.createWorkspaceFleximarkCss",
-        "title": "%command.createWorkspaceFleximarkCss%",
+        "command": "fleximark.openWorkspaceFleximarkCss",
+        "title": "%command.openWorkspaceFleximarkCss%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.openGlobalFleximarkCss",
+        "title": "%command.openGlobalFleximarkCss%",
         "category": "FlexiMark"
       },
       {
@@ -92,13 +97,13 @@
         "category": "FlexiMark"
       },
       {
-        "command": "fleximark.openParserPluginFileWorkspace",
-        "title": "%command.openParserPluginFileWorkspace%",
+        "command": "fleximark.openWorkspaceParserPluginFile",
+        "title": "%command.openWorkspaceParserPluginFile%",
         "category": "FlexiMark"
       },
       {
-        "command": "fleximark.openParserPluginFileGlobal",
-        "title": "%command.openParserPluginFileGlobal%",
+        "command": "fleximark.openGlobalParserPluginFile",
+        "title": "%command.openGlobalParserPluginFile%",
         "category": "FlexiMark"
       }
     ],

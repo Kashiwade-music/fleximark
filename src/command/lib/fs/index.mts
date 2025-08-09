@@ -24,10 +24,12 @@ export async function promptFileName(
   });
 }
 
-export function getWorkspaceFoldersOrShowError() {
+export function getWorkspaceFoldersOrShowError(isMessageEmittable = true) {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders?.length) {
-    vscode.window.showErrorMessage(vscode.l10n.t("Please open a workspace."));
+    if (isMessageEmittable) {
+      vscode.window.showErrorMessage(vscode.l10n.t("Please open a workspace."));
+    }
     return;
   }
   return workspaceFolders;
