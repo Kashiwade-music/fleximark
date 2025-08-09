@@ -117,14 +117,14 @@ function registerCommands(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand(
-      "fleximark.openParserPluginFileWorkspace",
+      "fleximark.openWorkspaceParserPluginFile",
       () => {
         fCommand.openParserPluginFile(context, "workspace");
       },
     ),
 
     vscode.commands.registerCommand(
-      "fleximark.openParserPluginFileGlobal",
+      "fleximark.openGlobalParserPluginFile",
       () => {
         fCommand.openParserPluginFile(context, "global");
       },
