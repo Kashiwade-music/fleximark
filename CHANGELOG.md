@@ -1,3 +1,13 @@
+## [0.14.1](https://github.com/Kashiwade-music/fleximark/compare/v0.14.0...v0.14.1) (2025-08-09)
+
+
+### Bug Fixes
+
+* correct command names for opening parser plugin files ([f91bef5](https://github.com/Kashiwade-music/fleximark/commit/f91bef5d877ec4447300f38ba3dc5ff1c16c5150))
+* message was wrong when reset global css ([ce0510f](https://github.com/Kashiwade-music/fleximark/commit/ce0510f275d4325a6f562760c1478e936e71909a))
+* refactor plugin loading to streamline workspace and global scope handling ([d2a01e6](https://github.com/Kashiwade-music/fleximark/commit/d2a01e68e3695b9a8bae5c6a9ecd2b0731d2f08d))
+* rename commands for opening parser plugin files to improve clarity ([0070683](https://github.com/Kashiwade-music/fleximark/commit/0070683a38f344ac0ad6d9c4b6cfa6154e998207))
+
 # [0.14.0](https://github.com/Kashiwade-music/fleximark/compare/v0.13.2...v0.14.0) (2025-08-09)
 
 
