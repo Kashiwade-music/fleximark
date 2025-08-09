@@ -90,6 +90,16 @@
         "command": "fleximark.collectAdmonitions",
         "title": "%command.collectAdmonitions%",
         "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.openParserPluginFileWorkspace",
+        "title": "%command.openParserPluginFileWorkspace%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.openParserPluginFileGlobal",
+        "title": "%command.openParserPluginFileGlobal%",
+        "category": "FlexiMark"
       }
     ],
     "menus": {
