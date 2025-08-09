@@ -17,7 +17,7 @@ async function openParserPluginFile(
   }
 
   const doc = await vscode.workspace.openTextDocument(pluginPath);
-  await vscode.window.showTextDocument(doc, { preview: false });
+  await vscode.window.showTextDocument(doc);
 }
 
 export default openParserPluginFile;
