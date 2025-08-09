@@ -11,7 +11,7 @@
   "command.updateWorkspaceSettings": "ワークスペース設定を更新",
   "command.collectAdmonitions": "Admonition/Alertを収集して1つのMarkdownにまとめる",
   "command.openParserPluginFileWorkspace": "ワークスペースのパーサープラグインファイルを開く",
-  "command.openParserPluginFileGlobal": "グローバルパーサープラグインファイルを開く",
+  "command.openParserPluginFileGlobal": "グローバルのパーサープラグインファイルを開く",
   "configuration.title": "FlexiMark",
   "configuration.settingsVersion.description": "FlexiMarkの設定バージョン。更新時に変更されることがあります。",
   "configuration.defaultPreviewMode.description": "Markdownファイルのデフォルトのプレビューモード。'vscode' または 'browser' を選択。",

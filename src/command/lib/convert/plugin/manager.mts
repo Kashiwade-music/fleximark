@@ -133,7 +133,7 @@ export async function getPluginPath(
     const workspacePath = workspaceFolders[0].uri.fsPath;
     return path.join(workspacePath, ".fleximark", "parserPlugin.js");
   }
-  return path.join(context.extensionPath, "parserPlugin.js");
+  return path.join(context.globalStorageUri.fsPath, "parserPlugin.js");
 }
 
 export async function createParserPluginFile(
