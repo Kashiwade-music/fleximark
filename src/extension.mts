@@ -22,7 +22,7 @@ let state: fShared.State;
 export async function activate(context: vscode.ExtensionContext) {
   if (await fLibFs.isFleximarkWorkspace()) {
     if (!fLibCss.isGlobalFleximarkCssExists(context)) {
-      fCommand.resetGlobalFleximarkCss(context);
+      fLibCss.resetGlobalFleximarkCss(context, true);
     }
 
     if (await fCommand.checkWorkspaceSettingsUpdatable()) {
