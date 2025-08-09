@@ -1,3 +1,19 @@
+# [0.14.0](https://github.com/Kashiwade-music/fleximark/compare/v0.13.2...v0.14.0) (2025-08-09)
+
+
+### Bug Fixes
+
+* remove preview option when showing text document in openParserPluginFile ([57625b7](https://github.com/Kashiwade-music/fleximark/commit/57625b7dc980f6d4bac50361ea3dc03161d1b6e1))
+* update parser plugin file paths and improve localization strings ([79fec32](https://github.com/Kashiwade-music/fleximark/commit/79fec3210d228b54fde29be953be4ef4504c65ee))
+* update resetGlobalFleximarkCss to include force parameter ([541f885](https://github.com/Kashiwade-music/fleximark/commit/541f885316b1d0d8b70b0c381a880de00c625553))
+
+
+### Features
+
+* extend markdown parser feature ([5591c1a](https://github.com/Kashiwade-music/fleximark/commit/5591c1a3cce236879f508afc6fabe8498ba48310))
+* improve command structure of css ([b69d92f](https://github.com/Kashiwade-music/fleximark/commit/b69d92f5edc8a34a8d58120e605b65778fa90a42))
+* update version to 0.13.2 and add new commands for parser plugin ([4c53cf2](https://github.com/Kashiwade-music/fleximark/commit/4c53cf2954bf947b970633928c498ed29d29af57))
+
 ## [0.13.2](https://github.com/Kashiwade-music/fleximark/compare/v0.13.1...v0.13.2) (2025-08-06)
 
 
