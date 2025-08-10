@@ -1,3 +1,10 @@
+## [0.14.2](https://github.com/Kashiwade-music/fleximark/compare/v0.14.1...v0.14.2) (2025-08-10)
+
+
+### Bug Fixes
+
+* pass isMessageEmittable parameter to getPluginPath for improved plugin loading ([2baced2](https://github.com/Kashiwade-music/fleximark/commit/2baced2298b2863ed1970a936026553d3380c181))
+
 ## [0.14.1](https://github.com/Kashiwade-music/fleximark/compare/v0.14.0...v0.14.1) (2025-08-09)
 
 
