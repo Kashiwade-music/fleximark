@@ -68,10 +68,12 @@ export async function convertMdToHtml(
   const workSpacePlugin = await fLibConvertPlugin.loadParserPlugin(
     args.context,
     "workspace",
+    false,
   );
   const globalPlugin = await fLibConvertPlugin.loadParserPlugin(
     args.context,
     "global",
+    false,
   );
 
   args.markdown = globalPlugin.transformMarkdownString(args.markdown);

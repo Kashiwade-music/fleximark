@@ -17,8 +17,9 @@ interface Plugin {
 export async function loadParserPlugin(
   context: vscode.ExtensionContext,
   scope: "workspace" | "global",
+  isMessageEmittable = true,
 ): Promise<Plugin> {
-  const pluginPath = await getPluginPath(context, scope);
+  const pluginPath = await getPluginPath(context, scope, isMessageEmittable);
 
   if (
     !pluginPath ||
@@ -109,20 +110,24 @@ export async function loadParserPlugin(
 export async function getPluginPath(
   context: vscode.ExtensionContext,
   scope: "workspace" | "global",
+  isMessageEmittable = true,
 ) {
   if (scope === "workspace") {
-    const workspaceFolders = fLibFs.getWorkspaceFoldersOrShowError();
+    const workspaceFolders =
+      fLibFs.getWorkspaceFoldersOrShowError(isMessageEmittable);
     if (!workspaceFolders) {
       return;
     }
 
     const isFleximarkWorkspace = await fLibFs.isFleximarkWorkspace();
     if (!isFleximarkWorkspace) {
-      vscode.window.showErrorMessage(
-        vscode.l10n.t(
-          "This command can only be used in a Fleximark workspace.",
-        ),
-      );
+      if (isMessageEmittable) {
+        vscode.window.showErrorMessage(
+          vscode.l10n.t(
+            "This command can only be used in a Fleximark workspace.",
+          ),
+        );
+      }
       return;
     }
 
