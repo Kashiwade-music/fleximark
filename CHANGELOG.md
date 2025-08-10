@@ -1,3 +1,10 @@
+# [0.15.0](https://github.com/Kashiwade-music/fleximark/compare/v0.14.2...v0.15.0) (2025-08-10)
+
+
+### Features
+
+* add force reload preview command to enhance user experience ([82c5b72](https://github.com/Kashiwade-music/fleximark/commit/82c5b724c8000ec62c14ef1589f03e4a6218af89))
+
 ## [0.14.2](https://github.com/Kashiwade-music/fleximark/compare/v0.14.1...v0.14.2) (2025-08-10)
 
 
