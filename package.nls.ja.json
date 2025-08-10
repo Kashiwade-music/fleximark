@@ -2,6 +2,7 @@
   "command.previewMarkdown": "Markdownをプレビュー",
   "command.previewMarkdownOnVscode": "MarkdownをVSCodeでプレビュー",
   "command.previewMarkdownOnBrowser": "Markdownをブラウザでプレビュー",
+  "command.forceReloadPreview": "プレビューを強制的に再読み込み",
   "command.exportHtml": "MarkdownをHTMLとしてエクスポート",
   "command.openWorkspaceFleximarkCss": "ワークスペースCSSを開く",
   "command.openGlobalFleximarkCss": "グローバルCSSを開く",

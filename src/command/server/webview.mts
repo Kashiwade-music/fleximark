@@ -94,7 +94,7 @@ class WebviewServer extends BaseServer {
   // updatePreview Related Methods
   // ---------------------------------------------
 
-  protected override makeClientReload(): void {
+  public override makeClientReload(): void {
     if (!this.webviewPanel) {
       throw new Error("Webview panel is not initialized.");
     }

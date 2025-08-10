@@ -125,7 +125,7 @@ abstract class BaseServer {
   // updatePreview Related Methods
   // ---------------------------------------------
 
-  protected abstract makeClientReload(): void;
+  public abstract makeClientReload(): void;
 
   public async updatePreview(args: UpdatePreviewArgs) {
     const { document, context } = args;

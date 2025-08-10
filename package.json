@@ -52,6 +52,11 @@
         "category": "FlexiMark"
       },
       {
+        "command": "fleximark.forceReloadPreview",
+        "title": "%command.forceReloadPreview%",
+        "category": "FlexiMark"
+      },
+      {
         "command": "fleximark.exportHtml",
         "title": "%command.exportHtml%",
         "category": "FlexiMark"

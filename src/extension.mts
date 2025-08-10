@@ -75,6 +75,15 @@ function registerCommands(context: vscode.ExtensionContext) {
       state.browserServer.openPreview(context),
     ),
 
+    vscode.commands.registerCommand("fleximark.forceReloadPreview", () => {
+      try {
+        state.webviewServer.makeClientReload();
+        state.browserServer.makeClientReload();
+      } catch {
+        // no-op
+      }
+    }),
+
     vscode.commands.registerCommand("fleximark.exportHtml", () =>
       fCommand.exportHtml(context),
     ),

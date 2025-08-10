@@ -136,7 +136,7 @@ class BrowserServer extends BaseServer {
   // updatePreview Related Methods
   // ---------------------------------------------
 
-  protected override makeClientReload(): void {
+  public override makeClientReload(): void {
     this.emitMessageToClient({
       type: "reload",
     });

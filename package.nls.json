@@ -2,6 +2,7 @@
   "command.previewMarkdown": "Preview Markdown (Default)",
   "command.previewMarkdownOnVscode": "Preview in VSCode",
   "command.previewMarkdownOnBrowser": "Preview in Browser",
+  "command.forceReloadPreview": "Force Reload Preview",
   "command.exportHtml": "Export as HTML",
   "command.openWorkspaceFleximarkCss": "Open Workspace CSS",
   "command.openGlobalFleximarkCss": "Open Global CSS",
