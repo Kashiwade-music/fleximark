@@ -1,3 +1,10 @@
+# [0.16.0](https://github.com/Kashiwade-music/fleximark/compare/v0.15.0...v0.16.0) (2025-08-10)
+
+
+### Features
+
+* enhance HTML export functionality with directory management and local asset copying ([c1cdc3c](https://github.com/Kashiwade-music/fleximark/commit/c1cdc3c803e5c186846c9d8dac48b661c92d987c))
+
 # [0.15.0](https://github.com/Kashiwade-music/fleximark/compare/v0.14.2...v0.15.0) (2025-08-10)
 
 
