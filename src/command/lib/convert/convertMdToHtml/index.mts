@@ -40,23 +40,23 @@ export interface ConvertResult {
 interface BaseArgs {
   markdown: string;
   context: vscode.ExtensionContext;
+  markdownAbsPath: string;
   isNeedDataLineNumber?: boolean; // Optional, defaults to true
 }
 
 interface WebviewArgs extends BaseArgs {
   convertType: "webview";
   webview: vscode.Webview;
-  markdownAbsPath: string;
 }
 
 interface BrowserArgs extends BaseArgs {
   convertType: "browser";
   app: Express;
-  markdownAbsPath: string;
 }
 
 interface FileArgs extends BaseArgs {
   convertType: "file";
+  distDir: string;
 }
 
 type ConvertArgs = WebviewArgs | BrowserArgs | FileArgs;
@@ -137,7 +137,11 @@ async function toHastFromMdast(
       };
       break;
     case "file":
-      rehypeLocalSrcConvertArgs = { convertType: "file" };
+      rehypeLocalSrcConvertArgs = {
+        convertType: "file",
+        markdownAbsPath: args.markdownAbsPath,
+        distDir: args.distDir,
+      };
       break;
     default:
       throw new Error(`Unhandled convertType: ${args}`);
@@ -176,7 +180,7 @@ async function wrapHtml(htmlBody: string, args: ConvertArgs): Promise<string> {
     case "browser":
       return wrapHtmlForBrowser(htmlBody, args.context);
     case "file":
-      return wrapHtmlForFile(htmlBody, args.context);
+      return wrapHtmlForFile(htmlBody, args.context, args.distDir);
     default:
       throw new Error(`Unhandled convertType: ${args}`);
   }
@@ -241,6 +245,7 @@ async function wrapHtmlForBrowser(
 async function wrapHtmlForFile(
   body: string,
   context: vscode.ExtensionContext,
+  distDir: string,
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     fLibCss.readGlobalFleximarkCss(context),
@@ -256,31 +261,32 @@ async function wrapHtmlForFile(
     readAsset("file.js"),
   ]);
 
-  const katexCssUri = vscode.Uri.joinPath(
-    context.globalStorageUri,
-    "katex.min.css",
-  );
-  const katexFontsUri = vscode.Uri.joinPath(context.globalStorageUri, "fonts");
+  // Convert distDir to a URI
+  const distUri = vscode.Uri.file(distDir);
 
+  // Destination path for KaTeX files
+  const katexCssDistUri = vscode.Uri.joinPath(distUri, "katex.min.css");
+  const katexFontsDistUri = vscode.Uri.joinPath(distUri, "fonts");
+
+  // Copy KaTeX assets (copy to distDir)
   await vscode.workspace.fs.copy(
     vscode.Uri.joinPath(context.extensionUri, "dist", "media", "katex.min.css"),
-    katexCssUri,
+    katexCssDistUri,
     { overwrite: true },
   );
 
   await vscode.workspace.fs.copy(
     vscode.Uri.joinPath(context.extensionUri, "dist", "media", "fonts"),
-    katexFontsUri,
+    katexFontsDistUri,
     { overwrite: true },
   );
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>Preview</title>
-  <link rel="stylesheet" href="file://${katexCssUri.fsPath}" />
+  <link rel="stylesheet" href="./katex.min.css" />
   <style>${abcjsCss}${globalCss}${workspaceCss}</style>
   <script>${fileJs}</script>
 </head>

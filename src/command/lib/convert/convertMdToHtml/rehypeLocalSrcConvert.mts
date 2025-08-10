@@ -1,4 +1,6 @@
 import { Express } from "express";
+import * as fs from "fs";
+import * as fsPromises from "fs/promises";
 import { Element, Root } from "hast";
 import * as path from "path";
 import { Plugin } from "unified";
@@ -19,6 +21,8 @@ interface BrowserArgs {
 
 interface FileArgs {
   convertType: "file";
+  markdownAbsPath: string;
+  distDir: string;
 }
 
 export type RehypeLocalSrcConvertArgs = WebviewArgs | BrowserArgs | FileArgs;
@@ -35,7 +39,7 @@ const rehypeLocalSrcConvert: Plugin<[RehypeLocalSrcConvertArgs], Root> = (
         convertLocalSrcForBrowser(hast, args.markdownAbsPath, args.app);
         break;
       case "file":
-        // No conversion needed for file type
+        convertLocalSrcForFile(hast, args.distDir, args.markdownAbsPath);
         break;
       default:
         return;
@@ -138,6 +142,62 @@ function convertLocalSrcForBrowser(
       console.error(`Failed to rewrite img src for: ${src}`, err);
     }
   });
+
+  return hast;
+}
+
+async function convertLocalSrcForFile(
+  hast: Root,
+  distDir: string,
+  markdownAbsPath: string,
+): Promise<Root> {
+  const copiedFiles = new Set<string>();
+
+  const copyPromises: Promise<void>[] = [];
+
+  visit(hast, "element", (node: Element) => {
+    const tag = node.tagName;
+    const attr = tagAttrMap[tag];
+    if (!attr || !node.properties) return;
+
+    const attrValue = node.properties[attr];
+    if (typeof attrValue !== "string") return;
+
+    const src = attrValue;
+    try {
+      if (src.startsWith("http") || src.startsWith("data:")) {
+        return;
+      }
+
+      const localPath = decodeURIComponent(
+        path.isAbsolute(src)
+          ? src
+          : path.join(path.dirname(markdownAbsPath), src),
+      );
+
+      const absoluteLocalPath = path.resolve(localPath);
+
+      const fileName = path.basename(localPath);
+      const destPath = path.resolve(distDir, fileName);
+
+      if (!copiedFiles.has(absoluteLocalPath)) {
+        const destDir = path.dirname(destPath);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+
+        const copyPromise = fsPromises.copyFile(absoluteLocalPath, destPath);
+        copyPromises.push(copyPromise);
+        copiedFiles.add(absoluteLocalPath);
+      }
+
+      node.properties[attr] = `./${fileName}`;
+    } catch (err) {
+      console.error(`Failed to rewrite src for: ${src}`, err);
+    }
+  });
+
+  await Promise.all(copyPromises);
 
   return hast;
 }
