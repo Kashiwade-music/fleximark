@@ -12,52 +12,60 @@
 
 ![top_demo](assets/demo_main.avif)
 
+<h2 align="center">Getting Started</h2>
+
+<p align="center">
+  <a href="https://fleximark.kashiwade.works/docs/documents/tutorial">English</a> | <a href="https://fleximark.kashiwade.works/ja/docs/documents/tutorial">日本語</a>
+</p>
+
 ## 🚀 Overview
 
-**FlexiMark** is a powerful, extensible Markdown toolkit for Visual Studio Code that redefines what Markdown editing and previewing can be.
+FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interactive workspace.  
+Write, preview, organize, and present your notes — all without leaving your editor.
 
-With seamless live preview capabilities both _inside VSCode_ and _in your web browser_, FlexiMark gives you complete freedom over customization, interactivity, and style — using the full power of JavaScript.
+- ⚡ **Instant Live Preview** in both VSCode and your web browser  
+- 🎨 **Customizable Layouts & Styles** using full JavaScript/CSS power  
+- 🧩 **Extended Markdown Syntax**: tabs, admonitions, diagrams, sheet music, and more  
+- 📂 **Smart File Management** for effortless note organization  
 
-Whether you're a developer, writer, student, or researcher, FlexiMark is designed to supercharge your Markdown experience — especially for taking structured, rich notes.
+Whether you’re a **developer**, **writer**, **researcher**, or **student**, FlexiMark makes your Markdown workflow faster, clearer, and far more flexible.
 
 ## ✨ Key Features
 
 ### 🔁 **Live Preview**
 
-- **VSCode Live Preview**: View your Markdown instantly as you type.
+- **VSCode Live Preview**: – Instant, side-by-side preview as you type.
   ![VSCode Live Preview](assets/demo_vscode_preview.avif)
-- **Web Browser Preview**: Render your Markdown in any browser and execute JavaScript as you like.
+- **Web Browser Preview**: Render Markdown in a browser, with support for JavaScript execution, custom scripts, and styles.  
   ![Web Browser Preview](assets/demo_browser_preview.avif)
-  - Use custom scripts, libraries, and styling freely.
-  - Unmatched flexibility for interactive content and rendering.
 
 ### 🧩 **Flexible File Generation**
 
 - Auto-generate **customizable directory structures** based on your category tree.
 - Configure **prefixes and suffixes** for filenames.
 - Choose from **multiple, customizable templates** when creating new notes.
-- Get organized without the overhead.
+- Stay organized with minimal effort.
 
 ![Flexible File Generation](assets/demo_create_note.avif)
 
 ### 🧪 **Enhanced Markdown Features**
 
-Built on GitHub Flavored Markdown (GFM) with powerful additions:
+Based on GitHub Flavored Markdown (GFM) with advanced extensions:
 
-- **Admonitions**: Add notes, tips, warnings, and danger.
+- **Admonitions**: Notes, tips, warnings, dangers.
   ![Admonitions](assets/demo_admonitions.avif)
-- **Tabs**: Neatly organize content.
+- **Tabs**: Organize content into neat sections.
   ![Tabs](assets/demo_tab.webp)
-- **Collapsible Sections**: An alternative to the HTML `<details>` tag
+- **Collapsible Sections**: An alternative to `<details>`.
   ![Collapsible Sections](assets/demo_details.webp)
-- **YouTube iframe**:
+- **Embedded YouTube Videos**:
   ![Youtube iframe](assets/demo_youtube_iframe.webp)
-- **Flexible Code Block**: In addition to syntax highlighting, FlexiMark supports code block titles, line numbers, and line highlighting.
+- **Flexible Code Block**: Titles, line numbers, highlighting.
   ![Code Block](assets/demo_code_block.webp)
-- **Mermaid Diagrams**: Create flowcharts, sequences, and more.
+- **Mermaid Diagrams**: Flowcharts, sequences, and more.
   ![Mermaid Supports](assets/demo_mermaid.webp)
   Uses [this extension](https://marketplace.visualstudio.com/items?itemName=bpruitt-goddard.mermaid-markdown-syntax-highlighting) for syntax highlighting.
-- **ABC Notation**:
+- **ABC Notation**: Render and play sheet music directly in Markdown.
   ![ABC Notation](assets/demo_abc.webp)
   - Realtime render and **play sheet music** in Markdown.
   - Supports **live preview**, **syntax highlighting**, and **useful snippets**.
@@ -101,7 +109,7 @@ code --install-extension kashiwade.fleximark
 
 ## 📚 Documentation
 
-Detailed guides, configuration options, and templates are available in the [**WIP**](#).
+Detailed guides, configuration options, and templates are available in the [**FlexiMark Official Docs**](https://fleximark.kashiwade.works).
 
 ## 💬 Feedback & Contributions
 
