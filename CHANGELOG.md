@@ -1,3 +1,10 @@
+## [0.16.2](https://github.com/Kashiwade-music/fleximark/compare/v0.16.1...v0.16.2) (2025-08-11)
+
+
+### Bug Fixes
+
+* disable message when open preview ([e34b873](https://github.com/Kashiwade-music/fleximark/commit/e34b8739eb67a7391ddec3c59ee43512b20c4092))
+
 ## [0.16.1](https://github.com/Kashiwade-music/fleximark/compare/v0.16.0...v0.16.1) (2025-08-11)
 
 
