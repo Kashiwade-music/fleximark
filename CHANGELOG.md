@@ -1,3 +1,10 @@
+## [0.16.4](https://github.com/Kashiwade-music/fleximark/compare/v0.16.3...v0.16.4) (2025-08-11)
+
+
+### Bug Fixes
+
+* avoid duplicate confirmation message when checking FlexiMark config version update ([727d210](https://github.com/Kashiwade-music/fleximark/commit/727d210fb6e8c30d71efebc979fd33ca2a9f1378))
+
 ## [0.16.3](https://github.com/Kashiwade-music/fleximark/compare/v0.16.2...v0.16.3) (2025-08-11)
 
 
