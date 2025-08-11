@@ -15,7 +15,7 @@
 <h2 align="center">Getting Started</h2>
 
 <p align="center">
-  <a href="https://fleximark.kashiwade.works/docs/documents/tutorial">English</a> | <a href="https://fleximark.kashiwade.works/ja/docs/documents/tutorial">日本語</a>
+  <a href="https://fleximark.kashiwade.works/docs/documents/tutorial"><strong>English</strong></a> | <a href="https://fleximark.kashiwade.works/ja/docs/documents/tutorial"><strong>日本語</strong></a>
 </p>
 
 ## 🚀 Overview
