@@ -1,3 +1,10 @@
+## [0.16.1](https://github.com/Kashiwade-music/fleximark/compare/v0.16.0...v0.16.1) (2025-08-11)
+
+
+### Bug Fixes
+
+* update Japanese localization strings ([a3d9029](https://github.com/Kashiwade-music/fleximark/commit/a3d9029361e3cc6fe26949ab5c13871e4a6f5624))
+
 # [0.16.0](https://github.com/Kashiwade-music/fleximark/compare/v0.15.0...v0.16.0) (2025-08-10)
 
 
