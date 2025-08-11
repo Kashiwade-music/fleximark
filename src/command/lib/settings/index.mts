@@ -16,6 +16,8 @@ const KeyOrder = [
   "[markdown]",
 ];
 
+export const CURRENT_SETTINGS_VERSION = 2;
+
 export async function genSettingsJson(
   context: vscode.ExtensionContext,
   workspacePath: string,
@@ -48,6 +50,8 @@ export async function genSettingsJson(
     ...baseJson,
     ...workspaceJson,
   };
+
+  mergedJson["fleximark.settingsVersion"] = CURRENT_SETTINGS_VERSION;
 
   const sortedJson = sortObjectKeys(mergedJson);
 

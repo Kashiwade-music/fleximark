@@ -57,11 +57,15 @@ export async function isFleximarkWorkspace() {
     "fleximark.json",
   );
 
+  // settings.json -> fleximark.settingsVersion is not -1, then it is a Fleximark workspace
+  const settings = vscode.workspace.getConfiguration("fleximark");
+  const settingsVersion = settings.get<number>("settingsVersion", -1);
+
   try {
     await vscode.workspace.fs.stat(vscode.Uri.file(fleximarkFilePath));
     return true;
   } catch {
-    return false;
+    return settingsVersion !== -1;
   }
 }
 

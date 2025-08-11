@@ -1,5 +1,7 @@
 {
   "fleximark.settingsVersion": [
+    "FlexiMarkの詳細なドキュメントは https://fleximark.kashiwade.works/ja/ を参照してください。",
+    "",
     "この設定は、FlexiMarkワークスペース設定のバージョンを示します。",
     "設定が最新かどうかを判断するために使用されます。",
     "古いバージョンを使用している場合は、設定を更新する必要があるかもしれません。"
@@ -10,20 +12,17 @@
     "カテゴリはツリー構造で整理されます。",
     "ノートはこのカテゴリ構造に基づいた場所に保存されます。"
   ],
-
   "fleximark.noteFileNamePrefix": [
     "ノートのファイル名に付ける接頭辞や接尾辞をカスタマイズできます。",
     "${CURRENT_YEAR}、${CURRENT_MONTH}、${CURRENT_DATE} のような変数を使って、",
     "現在の日付を動的にファイル名に含めることができます。"
   ],
-
   "fleximark.noteTemplates": [
     "テンプレートはノートの内容を生成するために使います。",
     "必要に応じて、いくつでもテンプレートを追加できます。",
     "テンプレート内ではタブストップを使用して、カーソルを順番に移動できます。",
     "詳しくは https://code.visualstudio.com/docs/editor/userdefinedsnippets#_snippet-syntax を参照してください。"
   ],
-
   "markdown.copyFiles.destination": [
     "VSCodeの標準機能で、画像をMarkdownノートに貼り付けられます。",
     "以下の設定を使えば、たとえばノートが `./path/to/your/note.md` にある場合、",
@@ -31,14 +30,12 @@
     "設定項目の詳細は下記のページを参照してください。",
     "https://code.visualstudio.com/updates/v1_79#_copy-external-media-files-into-workspace-on-drop-or-paste-for-markdown"
   ],
-
   "fleximark.defaultPreviewMode": [
     "Markdownのデフォルトプレビュー方式を指定します。",
     "'browser' を指定することで、Markdownを開いたときの目のアイコンをクリックすると、",
     "ブラウザでプレビューが開くようになります。",
     "セキュリティ上の理由から、グローバルの設定を 'browser' に変更するのはおすすめしません。"
   ],
-
   "[markdown]": [
     "Markdownファイルを開いたときのエディタの設定をカスタマイズできます。",
     "FlexiMarkでは専用のスニペットを用意しているため、サジェスト機能を有効にしています。"

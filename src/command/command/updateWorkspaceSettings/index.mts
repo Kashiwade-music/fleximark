@@ -11,8 +11,8 @@ const updateWorkspaceSettings = async (
   const workspaceFolders = fLibFs.getWorkspaceFoldersOrShowError();
   if (!workspaceFolders) return;
 
-  const workspaceRoot = workspaceFolders[0].uri.fsPath;
-  const settingsDir = path.join(workspaceRoot, ".vscode");
+  const workspacePath = workspaceFolders[0].uri.fsPath;
+  const settingsDir = path.join(workspacePath, ".vscode");
   const settingsPath = path.join(settingsDir, "settings.json");
   const settingsUri = vscode.Uri.file(settingsPath);
 
@@ -23,7 +23,7 @@ const updateWorkspaceSettings = async (
   if (!proceed) return;
 
   const fleximarkUri = vscode.Uri.file(
-    path.join(workspaceRoot, ".fleximark", "fleximark.json"),
+    path.join(workspacePath, ".fleximark", "fleximark.json"),
   );
   await vscode.workspace.fs.writeFile(
     fleximarkUri,
@@ -32,12 +32,21 @@ const updateWorkspaceSettings = async (
 
   const newSettings = await fLibSettings.genSettingsJson(
     context,
-    workspaceRoot,
+    workspacePath,
   );
   await vscode.workspace.fs.writeFile(settingsUri, Buffer.from(newSettings));
 
   const doc = await vscode.workspace.openTextDocument(settingsUri);
   await vscode.window.showTextDocument(doc);
+
+  // create fleximark directory and file. fleximark.json file contains the create date
+  const fleximarkDir = vscode.Uri.file(
+    path.join(workspacePath, ".fleximark", "fleximark.json"),
+  );
+  await vscode.workspace.fs.writeFile(
+    fleximarkDir,
+    Buffer.from(JSON.stringify({ meta: new Date().toISOString() }, null, 2)),
+  );
 
   vscode.window.showInformationMessage(
     vscode.l10n.t("Updated .vscode/settings.json successfully."),
