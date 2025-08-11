@@ -1,8 +1,8 @@
 document.addEventListener("click", (e: MouseEvent) => {
   const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
+  if (!target) return;
 
-  const placeholder = target.closest(
+  const placeholder = (target as Element).closest(
     ".youtube-placeholder",
   ) as HTMLElement | null;
   if (!placeholder) return;
