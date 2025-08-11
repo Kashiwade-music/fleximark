@@ -64,14 +64,7 @@ export async function readGlobalFleximarkCss(
     const content = await fs.readFile(cssPath, "utf8");
     return content;
   } catch {
-    if (isMessageEmittable) {
-      vscode.window.showWarningMessage(
-        vscode.l10n.t(
-          "fleximark.css not found in global storage, returning default content.",
-        ),
-      );
-    }
-
+    await resetGlobalFleximarkCss(context, isMessageEmittable);
     return getDefaultFleximarkCss();
   }
 }
