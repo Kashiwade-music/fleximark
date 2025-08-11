@@ -1,3 +1,10 @@
+## [0.16.3](https://github.com/Kashiwade-music/fleximark/compare/v0.16.2...v0.16.3) (2025-08-11)
+
+
+### Bug Fixes
+
+* reset global CSS if not found instead of showing warning ([3034291](https://github.com/Kashiwade-music/fleximark/commit/303429198b3a939e5ac64dfc41c70e37e86395f9))
+
 ## [0.16.2](https://github.com/Kashiwade-music/fleximark/compare/v0.16.1...v0.16.2) (2025-08-11)
 
 
