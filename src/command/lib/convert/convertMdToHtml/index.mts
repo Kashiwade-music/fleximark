@@ -210,7 +210,7 @@ async function wrapHtmlForBrowser(
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     fLibCss.readGlobalFleximarkCss(context),
-    fLibCss.readWorkspaceFleximarkCss(),
+    fLibCss.readWorkspaceFleximarkCss(false),
   ]);
 
   const port =
@@ -249,7 +249,7 @@ async function wrapHtmlForFile(
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     fLibCss.readGlobalFleximarkCss(context),
-    fLibCss.readWorkspaceFleximarkCss(),
+    fLibCss.readWorkspaceFleximarkCss(false),
   ]);
 
   const mediaDir = context.asAbsolutePath("dist/media");
@@ -304,7 +304,7 @@ async function wrapHtmlForWebview(
 ): Promise<string> {
   const [globalCss, workspaceCss] = await Promise.all([
     fLibCss.readGlobalFleximarkCss(context),
-    fLibCss.readWorkspaceFleximarkCss(),
+    fLibCss.readWorkspaceFleximarkCss(false),
   ]);
 
   const getUri = (file: string) =>
