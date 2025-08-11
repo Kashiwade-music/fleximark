@@ -47,18 +47,26 @@ Built on GitHub Flavored Markdown (GFM) with powerful additions:
 - **Admonitions**: Add notes, tips, warnings, and danger.
   ![Admonitions](assets/demo_admonitions.avif)
 - **Tabs**: Neatly organize content.
-  ![Tab](assets/demo_tab.avif)
+  ![Tabs](assets/demo_tab.webp)
+- **Collapsible Sections**: An alternative to the HTML `<details>` tag
+  ![Collapsible Sections](assets/demo_details.webp)
+- **YouTube iframe**:
+  ![Youtube iframe](assets/demo_youtube_iframe.webp)
+- **Flexible Code Block**: In addition to syntax highlighting, FlexiMark supports code block titles, line numbers, and line highlighting.
+  ![Code Block](assets/demo_code_block.webp)
 - **Mermaid Diagrams**: Create flowcharts, sequences, and more.
-  ![Mermaid](assets/demo_mermaid.avif)
+  ![Mermaid Supports](assets/demo_mermaid.webp)
   Uses [this extension](https://marketplace.visualstudio.com/items?itemName=bpruitt-goddard.mermaid-markdown-syntax-highlighting) for syntax highlighting.
 - **ABC Notation**:
-  ![alt text](assets/demo_abc.avif)
+  ![ABC Notation](assets/demo_abc.webp)
   - Realtime render and **play sheet music** in Markdown.
   - Supports **live preview**, **syntax highlighting**, and **useful snippets**.
 
 ### 🔧 **Other Useful Features**
 
-- Export to HTML files
+- Export to Portable HTML files
+- Extending Markdown Syntax
+  ![Extending Markdown Syntax](assets/demo_extending_syntax.webp)
 - Collect Admonitions/Alerts under specific categories
   ![Collect Admonitions](assets/demo_collect_admonitions.avif)
 
