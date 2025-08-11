@@ -1,3 +1,10 @@
+## [0.16.5](https://github.com/Kashiwade-music/fleximark/compare/v0.16.4...v0.16.5) (2025-08-11)
+
+
+### Bug Fixes
+
+* update dependencies ([521161b](https://github.com/Kashiwade-music/fleximark/commit/521161bcfd9e432c97356f26c2a001abbbd78c36))
+
 ## [0.16.4](https://github.com/Kashiwade-music/fleximark/compare/v0.16.3...v0.16.4) (2025-08-11)
 
 
