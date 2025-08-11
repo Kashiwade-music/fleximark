@@ -1,3 +1,10 @@
+## [0.16.6](https://github.com/Kashiwade-music/fleximark/compare/v0.16.5...v0.16.6) (2025-08-11)
+
+
+### Bug Fixes
+
+* YouTube iframe did not load when clicking on the YouTube logo area ([6cde04b](https://github.com/Kashiwade-music/fleximark/commit/6cde04bdd7c8d695f61c3025704cb6daeccb2c9f))
+
 ## [0.16.5](https://github.com/Kashiwade-music/fleximark/compare/v0.16.4...v0.16.5) (2025-08-11)
 
 
