@@ -363,7 +363,8 @@ Code Blocks
 }
 
 /* Inline code */
-.markdown-body p > code {
+.markdown-body p > code,
+.markdown-body li > code {
   color: indianred;
   padding: 2px 5px;
 }
