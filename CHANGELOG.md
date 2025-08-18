@@ -1,3 +1,10 @@
+## [0.16.7](https://github.com/Kashiwade-music/fleximark/compare/v0.16.6...v0.16.7) (2025-08-18)
+
+
+### Bug Fixes
+
+* allow inline code styling for list items ([01d260f](https://github.com/Kashiwade-music/fleximark/commit/01d260f721dc81cadbcb78545b640015a5ae46ac))
+
 ## [0.16.6](https://github.com/Kashiwade-music/fleximark/compare/v0.16.5...v0.16.6) (2025-08-11)
 
 
