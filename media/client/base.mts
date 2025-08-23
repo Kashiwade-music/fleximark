@@ -296,7 +296,7 @@ export abstract class BaseClient {
               `Update failed: index ${adjustedIndex} out of bounds.`,
             );
             // reload the page if the index is out of bounds
-            window.location.reload();
+            this.emitMessageToServer({ type: "reload" } as ReloadMessage);
           }
           break;
 
@@ -319,7 +319,7 @@ export abstract class BaseClient {
             console.warn(
               `Delete failed: index ${adjustedIndex} out of bounds.`,
             );
-            window.location.reload();
+            this.emitMessageToServer({ type: "reload" } as ReloadMessage);
           }
           break;
 

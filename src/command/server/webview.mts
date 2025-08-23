@@ -75,6 +75,8 @@ class WebviewServer extends BaseServer {
         const msg = JSON.parse(data.toString());
         if (msg.type === "preview-scroll") {
           this.scrollEditor(msg);
+        } else if (msg.type === "reload") {
+          this.makeClientReload();
         }
       });
 
