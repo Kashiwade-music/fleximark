@@ -18,11 +18,13 @@ import * as vscode from "vscode";
 
 import * as fLibCss from "../../css/index.mjs";
 import * as fLibConvertPlugin from "../plugin/index.mjs";
+import rehypeCodeTitleAndLineNumbers from "./rehypeCodeTitleAndLineNumbers.mjs";
 import rehypeLineNumber from "./rehypeLineNumber.mjs";
 import rehypeLocalSrcConvert, {
   RehypeLocalSrcConvertArgs,
 } from "./rehypeLocalSrcConvert.mjs";
 import rehypeRemovePosition from "./rehypeRemovePosition.mjs";
+import rehypeShikiCached from "./rehypeShikiCached.mjs";
 import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
@@ -148,18 +150,22 @@ async function toHastFromMdast(
   }
 
   const processor = unified()
-    .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeKatex)
-    .use(rehypePrettyCode, {
-      theme: "github-light-default",
-      keepBackground: false,
+    // 各プラグインを timePlugin で包む
+    .use(remarkRehype, {
+      allowDangerousHtml: true,
     })
+    .use(rehypeKatex)
+    .use(rehypeCodeTitleAndLineNumbers)
+    .use(rehypeShikiCached)
     .use(rehypeRaw)
-    .use(rehypeLineNumber, { isNeedDataLineNumber: args.isNeedDataLineNumber })
+    .use(rehypeLineNumber, {
+      isNeedDataLineNumber: args.isNeedDataLineNumber,
+    })
     .use(rehypeRemovePosition)
     .use(rehypeLocalSrcConvert, rehypeLocalSrcConvertArgs);
 
-  return (await processor.run(mdast)) as HastRoot;
+  const result = (await processor.run(mdast)) as HastRoot;
+  return result;
 }
 
 async function toHtmlBodyFromHast(hast: HastRoot): Promise<string> {
