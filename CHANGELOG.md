@@ -1,3 +1,10 @@
+## [0.16.10](https://github.com/Kashiwade-music/fleximark/compare/v0.16.9...v0.16.10) (2025-08-24)
+
+
+### Bug Fixes
+
+* adjust grid row height in code blocks to display line breaks correctly ([9aaff63](https://github.com/Kashiwade-music/fleximark/commit/9aaff637928867c9be612ea81982ef96c48f6235))
+
 ## [0.16.9](https://github.com/Kashiwade-music/fleximark/compare/v0.16.8...v0.16.9) (2025-08-24)
 
 
