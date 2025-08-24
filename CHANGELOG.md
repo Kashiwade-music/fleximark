@@ -1,3 +1,17 @@
+## [0.16.8](https://github.com/Kashiwade-music/fleximark/compare/v0.16.7...v0.16.8) (2025-08-24)
+
+
+### Bug Fixes
+
+* reload page on out-of-bounds index during update and delete operations ([10d4de6](https://github.com/Kashiwade-music/fleximark/commit/10d4de687e71815c9947e388fad3d3349ec8a4a7))
+* replace SHA-256 hashing with MurmurHash3 for improved performance ([422e641](https://github.com/Kashiwade-music/fleximark/commit/422e641b69e069ad58cdf50cfaf3d1021b860c04))
+* replace window reload with emitMessageToServer for reload handling ([b65f5ca](https://github.com/Kashiwade-music/fleximark/commit/b65f5ca6c0be4fd54bd22fc6e5be59308edf681d))
+
+
+### Performance Improvements
+
+* make faster (about x10) ([305fb68](https://github.com/Kashiwade-music/fleximark/commit/305fb68cfff81079ca612c352c4a32b7b14acd0f))
+
 ## [0.16.7](https://github.com/Kashiwade-music/fleximark/compare/v0.16.6...v0.16.7) (2025-08-18)
 
 
