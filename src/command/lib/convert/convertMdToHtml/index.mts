@@ -4,7 +4,6 @@ import { Root as HastRoot } from "hast";
 import { Root as MdastRoot } from "mdast";
 import * as path from "path";
 import rehypeKatex from "rehype-katex";
-import rehypePrettyCode from "rehype-pretty-code";
 import rehypeRaw from "rehype-raw";
 import rehypeStringify from "rehype-stringify";
 import remarkDirective from "remark-directive";
@@ -29,6 +28,8 @@ import remarkDirectiveAdmonitions from "./remarkDirectiveAdmonitions.mjs";
 import remarkDirectiveDetails from "./remarkDirectiveDetails.mjs";
 import remarkDirectiveTabs from "./remarkDirectiveTabs.mjs";
 import remarkYouTube from "./remarkYouTube.mjs";
+
+// import withTiming from "./benchmarkUnistPlugin.mjs";
 
 declare const __DEV__: boolean; // This is set by the esbuild process
 
@@ -67,16 +68,11 @@ export async function convertMdToHtml(
   args: ConvertArgs,
 ): Promise<ConvertResult> {
   args.isNeedDataLineNumber ??= true; // Default to true if not provided
-  const workSpacePlugin = await fLibConvertPlugin.loadParserPlugin(
-    args.context,
-    "workspace",
-    false,
-  );
-  const globalPlugin = await fLibConvertPlugin.loadParserPlugin(
-    args.context,
-    "global",
-    false,
-  );
+
+  const [workSpacePlugin, globalPlugin] = await Promise.all([
+    fLibConvertPlugin.loadParserPlugin(args.context, "workspace", false),
+    fLibConvertPlugin.loadParserPlugin(args.context, "global", false),
+  ]);
 
   args.markdown = globalPlugin.transformMarkdownString(args.markdown);
   args.markdown = workSpacePlugin.transformMarkdownString(args.markdown);

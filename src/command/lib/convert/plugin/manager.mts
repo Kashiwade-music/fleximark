@@ -5,6 +5,7 @@ import * as path from "path";
 import * as vm from "vm";
 import * as vscode from "vscode";
 
+import * as fLibCachedFs from "../../cachedFs/index.mjs";
 import * as fLibFs from "../../fs/index.mjs";
 
 interface Plugin {
@@ -33,7 +34,7 @@ export async function loadParserPlugin(
     };
   }
 
-  const code = await fs.promises.readFile(pluginPath, "utf8");
+  const code = fLibCachedFs.CachedFs.readText(pluginPath, "utf8");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sandbox: Record<string, any> = {
