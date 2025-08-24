@@ -389,6 +389,7 @@ Code Blocks
 
   & > pre > code {
     display: grid;
+    grid-auto-rows: 1.35rem;
 
     & span.highlighted-word {
       background-color: #0000001a;

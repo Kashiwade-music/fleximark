@@ -1,6 +1,7 @@
 ```js
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -9,6 +10,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js"
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -17,6 +19,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js" showLineNumbers
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -25,6 +28,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js" showLineNumbers=5
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -33,6 +37,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js" showLineNumbers=10
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -41,6 +46,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js" showLineNumbers=100
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -49,6 +55,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js" showLineNumbers {1,3-5}
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -58,6 +65,7 @@ document.body.addEventListener('click', () => {
 // [!code highlight]
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   // [!code highlight:3]
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
@@ -67,6 +75,7 @@ document.body.addEventListener('click', () => {
 ```js title="color.js" /colors/
 document.body.addEventListener('click', () => {
   const colors = ['blue', 'green', 'pink', 'yellow'];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -74,7 +83,8 @@ document.body.addEventListener('click', () => {
 
 ```js title="color.js"
 document.body.addEventListener('click', () => {
-  const colors = ['blue', 'green', 'pink', 'yellow']; // [!code --]
+  // [!code --]
+  const colors = ['blue', 'green', 'pink', 'yellow'];
   // [!code ++:7]
   const colors = [
     'blue', 
@@ -83,6 +93,7 @@ document.body.addEventListener('click', () => {
     'yellow', 
     'red'
   ];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
@@ -90,7 +101,8 @@ document.body.addEventListener('click', () => {
 
 ```js title="color.js" showLineNumbers
 document.body.addEventListener('click', () => {
-  const colors = ['blue', 'green', 'pink', 'yellow']; // [!code --]
+  // [!code --]
+  const colors = ['blue', 'green', 'pink', 'yellow'];
   // [!code ++:7]
   const colors = [
     'blue', 
@@ -99,6 +111,7 @@ document.body.addEventListener('click', () => {
     'yellow', 
     'red'
   ];
+
   const randomColor = colors[Math.floor(Math.random() * colors.length)];
   document.body.style.backgroundColor = randomColor;
 });
