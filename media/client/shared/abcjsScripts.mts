@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import abcjs, { EventCallbackReturn, NoteTimingEvent } from "abcjs";
-import { log } from "util";
 
 async function sha256Hex(abcText: string) {
   const encoder = new TextEncoder();
