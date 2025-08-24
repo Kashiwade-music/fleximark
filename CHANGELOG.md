@@ -1,3 +1,10 @@
+## [0.16.9](https://github.com/Kashiwade-music/fleximark/compare/v0.16.8...v0.16.9) (2025-08-24)
+
+
+### Bug Fixes
+
+* correct rendering issues with Mermaid and ABC Notation ([5a53f61](https://github.com/Kashiwade-music/fleximark/commit/5a53f6139e69b2b57691adcf96ba6a3291db71ca))
+
 ## [0.16.8](https://github.com/Kashiwade-music/fleximark/compare/v0.16.7...v0.16.8) (2025-08-24)
 
 
