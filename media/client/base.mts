@@ -343,11 +343,11 @@ export abstract class BaseClient {
 
   private reRenderSpecialBlocks(scripts: HtmlEditScript[]): void {
     const needsABC = scripts.some((edit) =>
-      edit.newHTML.includes('data-language="abc"'),
+      edit.newHTML.includes('class="language-abc"'),
     );
 
     const needsMermaid = scripts.some((edit) =>
-      edit.newHTML.includes('data-language="mermaid"'),
+      edit.newHTML.includes('class="language-mermaid"'),
     );
 
     if (needsABC) window.renderABC?.();

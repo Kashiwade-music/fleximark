@@ -7,19 +7,14 @@ window.addEventListener("load", () => {
 window.renderMermaid = renderMermaid;
 
 function renderMermaid(): void {
-  const figures = document.querySelectorAll(
-    "figure[data-rehype-pretty-code-figure]",
-  );
+  const figures = document.querySelectorAll("figure[data-shiki-figure]");
 
   figures.forEach((figure) => {
-    const pre = figure.querySelector('pre[data-language="mermaid"]');
-    if (!pre) return;
-
-    const code = pre.querySelector('code[data-language="mermaid"]');
+    const code = figure.querySelector("code.language-mermaid");
     if (!code) return;
 
     // mermaidコードを抽出
-    const lines = Array.from(code.querySelectorAll("span[data-line]")).map(
+    const lines = Array.from(code.querySelectorAll("span.line")).map(
       (span) => span.textContent || "",
     );
     const mermaidCode = lines.join("\n");

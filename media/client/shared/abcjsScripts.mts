@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import abcjs, { EventCallbackReturn, NoteTimingEvent } from "abcjs";
+import { log } from "util";
 
 async function sha256Hex(abcText: string) {
   const encoder = new TextEncoder();
@@ -107,7 +108,7 @@ window.renderABC = renderABC;
 
 function renderABC(): void {
   const preElements = document.querySelectorAll(
-    'pre[data-language="abc"]',
+    "pre:has(> code.language-abc)",
   ) as NodeListOf<HTMLPreElement>;
 
   preElements.forEach(async (preElement) => {
@@ -115,11 +116,11 @@ function renderABC(): void {
     const codeElement = preElement.querySelector("code");
     if (!codeElement) return;
 
-    const abcLines: string[] = [];
-    codeElement.querySelectorAll("span[data-line]").forEach((lineSpan) => {
-      abcLines.push(lineSpan.textContent || "");
-    });
-    const abcText = abcLines.join("\n");
+    let abcText = codeElement.textContent || "";
+    if (!abcText.trim()) return;
+
+    // 空行削除（LF/CRLF 両対応）
+    abcText = abcText.replace(/^\s*$(?:\r?\n)?/gm, "");
 
     // ハッシュを生成
     const hash = await sha256Hex(abcText);
