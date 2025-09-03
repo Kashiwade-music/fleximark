@@ -87,14 +87,8 @@ function hashHastContent(nodes: RootContent[]) {
   for (const node of nodes) {
     if (isIgnorableTextNode(node)) continue;
 
-    const hasProperties = !(
-      node.type === "comment" ||
-      node.type === "doctype" ||
-      node.type === "text" ||
-      node.type === "raw"
-    );
-
-    const properties = hasProperties ? node.properties : {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const properties = (node as any).properties ?? {};
     const lineInfo = extractAndRemoveLineNumber(properties);
 
     dataLineArray.push(lineInfo);
@@ -121,7 +115,7 @@ function isIgnorableTextNode(node: RootContent): boolean {
     typeof node === "object" &&
     node !== null &&
     node.type === "text" &&
-    node.value === "\n"
+    /^\n+$/.test(node.value) // 1回以上の \n のみ
   );
 }
 
