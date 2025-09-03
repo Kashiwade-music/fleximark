@@ -1,3 +1,11 @@
+## [0.16.11](https://github.com/Kashiwade-music/fleximark/compare/v0.16.10...v0.16.11) (2025-09-03)
+
+
+### Bug Fixes
+
+* correct DOM update issue around tables in preview ([01ecc0e](https://github.com/Kashiwade-music/fleximark/commit/01ecc0e59e7fdd2f2001f9eacd4d78904bdc1c95))
+* resolve failure in browser preview ([2015c89](https://github.com/Kashiwade-music/fleximark/commit/2015c89a3aca1af3c8219792ec39d17d39b95024))
+
 ## [0.16.10](https://github.com/Kashiwade-music/fleximark/compare/v0.16.9...v0.16.10) (2025-08-24)
 
 
