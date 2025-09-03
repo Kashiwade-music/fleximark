@@ -152,7 +152,7 @@ function toUrlFromLocalPath(localPath: string): string {
 function ensureBrowserRoute(app: Express) {
   if (hasStaticRoute(app)) return;
   // 1本だけの動的ルート。登録済みMapに無ければ 404。
-  app.get("/static/*", (req, res) => {
+  app.get("/static/*path", (req, res) => {
     const p = req.path; // 例: /static/c/foo/bar.png
     const local = urlToLocal.get(p);
     if (!local) {
