@@ -1,3 +1,10 @@
+## [0.16.12](https://github.com/Kashiwade-music/fleximark/compare/v0.16.11...v0.16.12) (2025-09-28)
+
+
+### Bug Fixes
+
+* force reset global css as tmp ([5e4cfb4](https://github.com/Kashiwade-music/fleximark/commit/5e4cfb4b7aa590137bcdc22191d8ada68bc04447))
+
 ## [0.16.11](https://github.com/Kashiwade-music/fleximark/compare/v0.16.10...v0.16.11) (2025-09-03)
 
 
