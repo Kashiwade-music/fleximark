@@ -30,12 +30,13 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  fCommand.resetGlobalFleximarkCss(context);
+
   if (__DEV__) {
     const message = "📢📢📢Development mode is enabled.📢📢📢";
     vscode.window.showInformationMessage(message);
     console.log(message);
 
-    fCommand.resetGlobalFleximarkCss(context);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).testExtensionContext = context;
   }
@@ -79,8 +80,13 @@ function registerCommands(context: vscode.ExtensionContext) {
       try {
         state.webviewServer.makeClientReload();
         state.browserServer.makeClientReload();
-      } catch {
-        // no-op
+      } catch (e) {
+        console.error(e);
+        vscode.window.showErrorMessage(
+          vscode.l10n.t(
+            "An error occurred while reloading the preview. Please try reopening the preview.",
+          ),
+        );
       }
     }),
 
