@@ -63,6 +63,28 @@ window.addEventListener(
 
 // Notify VSCode on scroll (Preview → Editor)
 document.addEventListener(
+  "wheel",
+  () => {
+    webviewClient.markUserScroll();
+  },
+  { passive: true },
+);
+document.addEventListener(
+  "touchmove",
+  () => {
+    webviewClient.markUserScroll();
+  },
+  { passive: true },
+);
+document.addEventListener("keydown", (e) => {
+  if (
+    ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Space"].includes(e.code)
+  ) {
+    webviewClient.markUserScroll();
+  }
+});
+
+document.addEventListener(
   "scroll",
   () => {
     webviewClient.scrollEventListener();

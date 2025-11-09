@@ -50,6 +50,7 @@ export type ServerMessage =
 
 export abstract class BaseClient {
   isScrollProcessing = false;
+  userScrollingFlag = false;
   type: "webview" | "browser";
 
   constructor(type: "webview" | "browser") {
@@ -63,6 +64,9 @@ export abstract class BaseClient {
   public scrollEventListener() {
     if (this.isScrollProcessing) {
       this.isScrollProcessing = false;
+      return;
+    }
+    if (!this.userScrollingFlag) {
       return;
     }
 
@@ -359,4 +363,12 @@ export abstract class BaseClient {
   // ---------------------------------------------
 
   public abstract emitMessageToServer(message: object): void;
+
+  public markUserScroll(): void {
+    // Consider scrolls within 100ms as user-initiated
+    this.userScrollingFlag = true;
+    setTimeout(() => {
+      this.userScrollingFlag = false;
+    }, 100);
+  }
 }

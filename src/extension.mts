@@ -217,6 +217,17 @@ function registerEventListeners(context: vscode.ExtensionContext) {
         return;
       }
 
+      // Do not sync if the editor is scrolled beyond the end of the code
+      if (event.visibleRanges.length > 0) {
+        const lastVisibleLine =
+          event.visibleRanges[event.visibleRanges.length - 1].end.line;
+        const lastLine = event.textEditor.document.lineCount - 1;
+
+        if (lastVisibleLine >= lastLine) {
+          return;
+        }
+      }
+
       const line = (event.visibleRanges[0]?.start.line ?? 0) + 1;
 
       if (state.webviewServer.isScrollProcessing) {
