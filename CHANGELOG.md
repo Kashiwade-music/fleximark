@@ -1,3 +1,10 @@
+## [0.16.13](https://github.com/Kashiwade-music/fleximark/compare/v0.16.12...v0.16.13) (2025-11-09)
+
+
+### Bug Fixes
+
+* scroll issue when editor is showing beyond the end of the code ([7af170d](https://github.com/Kashiwade-music/fleximark/commit/7af170d5cfe64a382ca69ef7712f0fe0077ff494))
+
 ## [0.16.12](https://github.com/Kashiwade-music/fleximark/compare/v0.16.11...v0.16.12) (2025-09-28)
 
 
