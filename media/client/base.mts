@@ -231,6 +231,7 @@ export abstract class BaseClient {
 
         const line = parseInt(lineAttr, 10);
         if (isNaN(line)) return undefined;
+        if (line <= 0) return undefined;
 
         return { el, line };
       })

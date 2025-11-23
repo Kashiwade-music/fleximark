@@ -39,6 +39,7 @@ abstract class BaseServer {
   plainText?: string;
   editorPanel?: vscode.TextEditor;
   isScrollProcessing = false;
+  scrollEndAnchorLine?: number;
   type: "webview" | "browser";
 
   constructor(type: "webview" | "browser") {
@@ -106,6 +107,26 @@ abstract class BaseServer {
         .get<boolean>("shouldSyncScroll") === false
     ) {
       return;
+    }
+
+    // Do not sync if the editor is scrolled beyond the end of the code
+    if (this.editorPanel) {
+      const lastVisibleLine =
+        this.editorPanel.visibleRanges[
+          this.editorPanel.visibleRanges.length - 1
+        ].end.line;
+      const lastLine = this.editorPanel.document.lineCount - 1;
+
+      if (lastVisibleLine >= lastLine) {
+        if (this.scrollEndAnchorLine === undefined) {
+          this.scrollEndAnchorLine = msg.line;
+          return;
+        } else if (Math.abs(this.scrollEndAnchorLine - msg.line) > 10) {
+          this.scrollEndAnchorLine = undefined;
+        } else {
+          return;
+        }
+      }
     }
 
     this.isScrollProcessing = true;
