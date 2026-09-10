@@ -11,6 +11,8 @@ const __dirname = path.dirname(__filename);
 
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
+const cleanOnly = process.argv.includes("--clean");
+const distDir = path.join(__dirname, "dist");
 
 /**
  * @type {import('esbuild').Plugin}
@@ -35,6 +37,11 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
+  await fs.rm(distDir, { force: true, recursive: true });
+  if (cleanOnly) {
+    return;
+  }
+
   // Extension build
   const extensionCtx = await esbuild.context({
     entryPoints: ["src/extension.mts"],
@@ -77,11 +84,10 @@ async function main() {
   });
 
   const copyAssets = async () => {
-    try {
-      const mediaDir = path.join(__dirname, "dist", "media");
-      await fs.mkdir(mediaDir, { recursive: true });
+    const mediaDir = path.join(distDir, "media");
+    await fs.mkdir(mediaDir, { recursive: true });
 
-      const assets = [
+    const assets = [
         {
           src: path.join(__dirname, "media", "workspaceSettingsJsonTemplate"),
           dest: path.join(mediaDir, "workspaceSettingsJsonTemplate"),
@@ -104,24 +110,20 @@ async function main() {
           src: path.join(__dirname, "node_modules", "katex", "dist", "fonts"),
           dest: path.join(mediaDir, "fonts"),
         },
-      ];
+    ];
 
-      for (const { src, dest } of assets) {
-        const stat = await fs.stat(src);
-        if (stat.isDirectory()) {
-          await fs.mkdir(dest, { recursive: true });
-          await fs.cp(src, dest, { recursive: true });
-        } else if (stat.isFile()) {
-          await fs.copyFile(src, dest);
-        } else {
-          console.warn(`Skipping unknown type: ${src}`);
-        }
+    for (const { src, dest } of assets) {
+      const stat = await fs.stat(src);
+      if (stat.isDirectory()) {
+        await fs.cp(src, dest, { recursive: true });
+      } else if (stat.isFile()) {
+        await fs.copyFile(src, dest);
+      } else {
+        throw new Error(`Unsupported asset type: ${src}`);
       }
-
-      console.log("Assets successfully copied to dist/media");
-    } catch (error) {
-      console.error("Failed to copy assets:", error);
     }
+
+    console.log("Assets successfully copied to dist/media");
   };
 
   if (watch) {
@@ -129,11 +131,13 @@ async function main() {
     await mediaCtx.watch();
     await copyAssets();
   } else {
-    await extensionCtx.rebuild();
-    await extensionCtx.dispose();
-    await mediaCtx.rebuild();
-    await mediaCtx.dispose();
-    await copyAssets();
+    try {
+      await extensionCtx.rebuild();
+      await mediaCtx.rebuild();
+      await copyAssets();
+    } finally {
+      await Promise.all([extensionCtx.dispose(), mediaCtx.dispose()]);
+    }
   }
 }
 

@@ -16,12 +16,26 @@ export interface CommandTestModule {
 suite("Extension Test Suite", () => {
   suiteSetup(async () => {
     // activate the extension before running tests
-    await vscode.extensions.getExtension("Kashiwade.fleximark")?.activate();
+    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
+    assert.ok(
+      extension,
+      "The FlexiMark extension must be installed in the test host",
+    );
+    await extension.activate();
   });
 
-  test("Sample test", () => {
-    assert.strictEqual(-1, [1, 2, 3].indexOf(5));
-    assert.strictEqual(-1, [1, 2, 3].indexOf(0));
+  test("declares workspace security capabilities", () => {
+    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
+    assert.ok(extension);
+    assert.strictEqual(
+      extension.packageJSON.capabilities?.untrustedWorkspaces?.supported,
+      false,
+    );
+    assert.strictEqual(
+      extension.packageJSON.capabilities?.virtualWorkspaces?.supported,
+      false,
+    );
+    assert.strictEqual(vscode.workspace.isTrusted, true);
   });
 
   suite(commands_css_index.suiteName, commands_css_index.suite);

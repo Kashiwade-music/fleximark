@@ -1,11 +1,22 @@
 {
   "name": "fleximark",
+  "type": "module",
   "displayName": "FlexiMark",
   "description": "Flexible Markdown Preview and Note Taking for VSCode. Supports ABC Notation, Mermaid Diagrams, and more.",
   "version": "0.16.14",
   "publisher": "Kashiwade",
+  "license": "MIT",
+  "homepage": "https://github.com/Kashiwade-music/fleximark#readme",
+  "bugs": {
+    "url": "https://github.com/Kashiwade-music/fleximark/issues"
+  },
+  "galleryBanner": {
+    "color": "#1f2937",
+    "theme": "dark"
+  },
+  "pricing": "Free",
   "engines": {
-    "vscode": "^1.101.0"
+    "vscode": "^1.137.0"
   },
   "categories": [
     "Notebooks",
@@ -28,6 +39,16 @@
     "url": "https://github.com/Kashiwade-music/fleximark.git"
   },
   "preview": true,
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "FlexiMark executes workspace parser plugins and writes workspace files."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "FlexiMark requires local workspace files and local preview servers."
+    }
+  },
   "activationEvents": [
     "onLanguage:markdown",
     "workspaceContains:.fleximark/fleximark.json"
@@ -87,16 +108,6 @@
         "category": "FlexiMark"
       },
       {
-        "command": "fleximark.checkWorkspaceSettingsUpdatable",
-        "title": "%command.checkWorkspaceSettingsUpdatable%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.updateWorkspaceSettings",
-        "title": "%command.updateWorkspaceSettings%",
-        "category": "FlexiMark"
-      },
-      {
         "command": "fleximark.collectAdmonitions",
         "title": "%command.collectAdmonitions%",
         "category": "FlexiMark"
@@ -125,11 +136,6 @@
       "title": "%configuration.title%",
       "type": "object",
       "properties": {
-        "fleximark.settingsVersion": {
-          "type": "number",
-          "default": -1,
-          "description": "%configuration.settingsVersion.description%"
-        },
         "fleximark.defaultPreviewMode": {
           "type": "string",
           "default": "vscode",
@@ -152,7 +158,12 @@
         "fleximark.noteCategories": {
           "type": "object",
           "description": "%configuration.noteCategories.description%",
-          "default": {}
+          "default": {},
+          "scope": "resource",
+          "order": 40,
+          "additionalProperties": {
+            "type": "object"
+          }
         },
         "fleximark.noteFileNamePrefix": {
           "type": "string",
@@ -167,6 +178,14 @@
         "fleximark.noteTemplates": {
           "type": "object",
           "description": "%configuration.noteTemplates.description%",
+          "scope": "resource",
+          "order": 60,
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "default": {
             "default": [
               "# ${1:first tabstop}",
@@ -246,69 +265,96 @@
   },
   "l10n": "./l10n",
   "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
-    "watch": "npm-run-all -p watch:*",
+    "vscode:prepublish": "npm run build",
+    "clean": "node esbuild.js --clean && node esbuild-test.js --clean",
+    "build": "node esbuild.js --production",
+    "build:dev": "node esbuild.js",
+    "compile": "npm run build:dev",
+    "watch": "run-p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
-    "compile-tests": "node esbuild-test.js",
-    "watch-tests": "node esbuild-test.js --watch",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src/ media/ --ignore-pattern .gitignore",
-    "lint:fix": "eslint --fix src/ media/ --ignore-pattern .gitignore",
-    "test": "vscode-test"
+    "lint": "eslint src media test",
+    "lint:fix": "eslint src media test --fix",
+    "test:compile": "node esbuild-test.js",
+    "test:integration": "vscode-test",
+    "pretest": "npm run test:compile && npm run build",
+    "test": "npm run test:integration",
+    "package:list": "vsce ls --no-dependencies",
+    "prepackage:vsix": "npm run verify",
+    "package:vsix": "vsce package --no-dependencies",
+    "package": "npm run package:vsix",
+    "verify": "run-s check-types lint build test:compile package:list",
+    "release": "semantic-release",
+    "l10n:export": "node scripts/l10n-export.mjs",
+    "l10n:check": "npm run l10n:export && git diff --exit-code -- l10n"
   },
   "devDependencies": {
-    "@eslint/js": "^9.31.0",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^11.0.3",
-    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
-    "@types/express": "^5.0.3",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "@types/sinon": "^17.0.4",
-    "@types/trusted-types": "^2.0.7",
-    "@types/vscode": "^1.101.0",
-    "@types/ws": "^8.18.1",
-    "@vscode/l10n-dev": "^0.0.35",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2",
-    "esbuild": "^0.25.3",
-    "eslint": "^9.31.0",
-    "eslint-config-prettier": "^10.1.5",
-    "eslint-plugin-prettier": "^5.5.1",
-    "npm-run-all": "^4.1.5",
-    "prettier": "^3.6.2",
-    "semantic-release": "^24.2.7",
-    "type-fest": "^4.41.0",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.36.0"
+    "@eslint/js": "10.0.1",
+    "@semantic-release/changelog": "7.0.0",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/git": "11.0.1",
+    "@semantic-release/github": "12.0.9",
+    "@semantic-release/npm": "13.1.5",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "@trivago/prettier-plugin-sort-imports": "6.0.2",
+    "@types/express": "5.0.6",
+    "@types/mocha": "10.0.10",
+    "@types/node": "24.13.4",
+    "@types/trusted-types": "2.0.7",
+    "@types/vscode": "1.137.0",
+    "@types/ws": "8.18.1",
+    "@vscode/l10n-dev": "0.0.35",
+    "@vscode/test-cli": "0.0.15",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.10.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-prettier": "5.5.6",
+    "npm-run-all2": "9.0.3",
+    "prettier": "3.9.6",
+    "semantic-release": "25.0.9",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0"
+  },
+  "packageManager": "npm@12.0.2",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.21.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "12.0.2",
+      "onFail": "error"
+    }
   },
   "volta": {
-    "node": "22.18.0",
-    "npm": "11.5.2"
+    "node": "24.21.0",
+    "npm": "12.0.2"
   },
   "dependencies": {
-    "@vscode/l10n": "^0.0.18",
-    "abcjs": "^6.5.1",
-    "express": "^5.1.0",
-    "mermaid": "^11.8.0",
-    "rehype-katex": "^7.0.1",
-    "rehype-raw": "^7.0.0",
-    "rehype-stringify": "^10.0.1",
-    "remark": "^15.0.1",
-    "remark-directive": "^4.0.0",
-    "remark-frontmatter": "^5.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0",
-    "remark-rehype": "^11.1.2",
-    "shiki": "^3.7.0",
-    "@shikijs/rehype": "^3.11.0",
-    "@shikijs/transformers": "^3.11.0",
-    "sinon": "^21.0.0",
-    "ws": "^8.18.3"
+    "@shikijs/rehype": "4.4.3",
+    "@shikijs/transformers": "4.4.3",
+    "abcjs": "6.7.0",
+    "express": "5.2.1",
+    "mermaid": "11.17.2",
+    "rehype-katex": "7.0.1",
+    "rehype-raw": "7.0.0",
+    "rehype-stringify": "10.0.1",
+    "remark": "15.0.1",
+    "remark-directive": "4.0.0",
+    "remark-frontmatter": "5.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-rehype": "11.1.2",
+    "shiki": "4.4.3",
+    "ws": "8.21.3"
+  },
+  "overrides": {
+    "diff": "8.0.3",
+    "serialize-javascript": "7.0.5"
   }
 }

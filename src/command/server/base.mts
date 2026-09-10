@@ -29,8 +29,7 @@ export interface UpdatePreviewArgsPartialReload extends UpdatePreviewArgsBase {
 }
 
 type UpdatePreviewArgs =
-  | UpdatePreviewArgsFullReload
-  | UpdatePreviewArgsPartialReload;
+  UpdatePreviewArgsFullReload | UpdatePreviewArgsPartialReload;
 
 abstract class BaseServer {
   html?: string;

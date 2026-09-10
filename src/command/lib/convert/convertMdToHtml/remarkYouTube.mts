@@ -108,7 +108,7 @@ const remarkYouTube: Plugin<[RemarkYouTubeOptions?]> = (options = {}) => {
           data: {
             hName: "div",
             hProperties: {
-              className: "embed-content youtube-embed",
+              className: ["embed-content", "youtube-embed"],
             },
           },
           position: node.position,
