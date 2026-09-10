@@ -61,7 +61,7 @@ const remarkDirectiveAdmonitions: Plugin = () => {
                 ...child.data,
                 hName: "div",
                 hProperties: {
-                  className: "admonition-title",
+                  className: ["admonition-title"],
                 },
               },
             };
@@ -78,7 +78,7 @@ const remarkDirectiveAdmonitions: Plugin = () => {
             data: {
               hName: "div",
               hProperties: {
-                className: "admonition-title",
+                className: ["admonition-title"],
               },
             },
             children: [
@@ -108,7 +108,7 @@ const remarkDirectiveAdmonitions: Plugin = () => {
           data: {
             hName: "div",
             hProperties: {
-              className: "admonition-content",
+              className: ["admonition-content"],
             },
           },
           children: contentNodes,

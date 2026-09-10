@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Setup npm
+        run: npm install --global npm@12.0.2
+        working-directory: ${{ runner.temp }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify dependency signatures
+        run: npm audit signatures
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Check types
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check localization bundles
+        run: npm run l10n:check
+
+      - name: Build production extension
+        run: npm run build
+
+      - name: Run VS Code integration tests on stable
+        run: xvfb-run -a npm test
+
+      - name: Inspect extension contents
+        run: npm exec -- vsce ls
+
+      - name: Package VSIX
+        run: npm exec -- vsce package --out fleximark.vsix
+
+      - name: Validate VSIX archive and contents
+        shell: bash
+        run: |
+          unzip -t fleximark.vsix
+          if unzip -Z1 fleximark.vsix | grep -E '(^|/)(src|test|markdown_for_debug|node_modules)/|(^|/)parserPlugin\.js$'; then
+            echo 'Unexpected development files found in VSIX' >&2
+            exit 1
+          fi
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fleximark-vsix
+          path: fleximark.vsix
+          retention-days: 7
+          if-no-files-found: error
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate

@@ -1,4 +1,5 @@
 {
+  "An error occurred while reloading the preview. Please try reopening the preview.": "An error occurred while reloading the preview. Please try reopening the preview.",
   "An error occurred while preparing the Markdown preview.": "An error occurred while preparing the Markdown preview.",
   "The Markdown file must be in a workspace folder.": "The Markdown file must be in a workspace folder.",
   "The Markdown preview has opened at http://localhost:{port}.": "The Markdown preview has opened at http://localhost:{port}.",
@@ -11,7 +12,6 @@
   "File name cannot be empty.": "File name cannot be empty.",
   "Please open a workspace.": "Please open a workspace.",
   "{0} already exists. Overwrite it? A backup will be created.": "{0} already exists. Overwrite it? A backup will be created.",
-  "fleximark.css not found in global storage, returning default content.": "fleximark.css not found in global storage, returning default content.",
   "This command can only be used in a Fleximark workspace.": "This command can only be used in a Fleximark workspace.",
   "fleximark.css has been saved to global storage.": "fleximark.css has been saved to global storage.",
   "Failed to reset global fleximark.css.": "Failed to reset global fleximark.css.",
@@ -21,7 +21,6 @@
   "Invalid category structure for selected category.": "Invalid category structure for selected category.",
   "Confirm the previously selected category as final": "Confirm the previously selected category as final",
   "Current category: {0}": "Current category: {0}",
-  "Updated .vscode/settings.json successfully.": "Updated .vscode/settings.json successfully.",
   "An unexpected error occurred while opening Fleximark CSS.": "An unexpected error occurred while opening Fleximark CSS.",
   "Created .fleximark directory and fleximark.css file in the workspace.": "Created .fleximark directory and fleximark.css file in the workspace.",
   "Failed to create the workspace fleximark.css file.": "Failed to create the workspace fleximark.css file.",
@@ -30,9 +29,5 @@
   "Failed to export HTML: {err}": "Failed to export HTML: {err}",
   "Select a category": "Select a category",
   "A note with that name already exists.": "A note with that name already exists.",
-  "Select a root category to collect Markdown admonitions.": "Select a root category to collect Markdown admonitions.",
-  "The .vscode/settings.json file is already up to date.": "The .vscode/settings.json file is already up to date.",
-  "The .vscode/settings.json file is newer than the extension version. Please update the extension.": "The .vscode/settings.json file is newer than the extension version. Please update the extension.",
-  "The .vscode/settings.json file is outdated. Do you want to update it?": "The .vscode/settings.json file is outdated. Do you want to update it?",
-  "No .vscode/settings.json file found.": "No .vscode/settings.json file found."
+  "Select a root category to collect Markdown admonitions.": "Select a root category to collect Markdown admonitions."
 }

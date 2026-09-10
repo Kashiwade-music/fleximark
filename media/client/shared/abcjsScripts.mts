@@ -148,12 +148,14 @@ function renderABC(): void {
     const selectableArray = visualObj[0].getSelectableArray();
     selectableArray.forEach((selectable) => {
       const startChar = selectable.absEl.abcelem.startChar;
+      const endChar = selectable.absEl.abcelem.endChar;
+      if (startChar === undefined || endChar === undefined) return;
+
       // set attribute as data-relative-char-number
       selectable.svgEl.setAttribute(
         "data-relative-char-number-start",
         startChar.toString(),
       );
-      const endChar = selectable.absEl.abcelem.endChar;
       selectable.svgEl.setAttribute(
         "data-relative-char-number-end",
         endChar.toString(),

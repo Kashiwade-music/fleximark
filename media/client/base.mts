@@ -43,10 +43,7 @@ interface CursorMessage {
 }
 
 export type ServerMessage =
-  | EditMessage
-  | ReloadMessage
-  | ScrollMessage
-  | CursorMessage;
+  EditMessage | ReloadMessage | ScrollMessage | CursorMessage;
 
 export abstract class BaseClient {
   isScrollProcessing = false;

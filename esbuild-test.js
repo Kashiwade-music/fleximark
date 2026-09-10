@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 import console from "console";
 import esbuild from "esbuild";
+import fs from "fs/promises";
+import path from "path";
 import process from "process";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const watch = process.argv.includes("--watch");
+const cleanOnly = process.argv.includes("--clean");
+const testOutputDir = path.join(__dirname, "out", "test");
 
 /**
  * @type {import('esbuild').Plugin}
@@ -28,13 +35,18 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
+  await fs.rm(testOutputDir, { force: true, recursive: true });
+  if (cleanOnly) {
+    return;
+  }
+
   const ctx = await esbuild.context({
-    entryPoints: ["test/extension.test.mts"], // テストのエントリポイントに変更
+    entryPoints: ["test/extension.test.mts"],
     bundle: true,
     platform: "node",
     format: "cjs",
     sourcemap: true,
-    outfile: "out/test/extension.test.cjs", // 出力先は適宜変更
+    outfile: "out/test/extension.test.cjs",
     external: ["vscode"],
     logLevel: "silent",
     plugins: [esbuildProblemMatcherPlugin],
@@ -46,8 +58,11 @@ async function main() {
   if (watch) {
     await ctx.watch();
   } else {
-    await ctx.rebuild();
-    await ctx.dispose();
+    try {
+      await ctx.rebuild();
+    } finally {
+      await ctx.dispose();
+    }
   }
 }
 

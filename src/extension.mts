@@ -24,10 +24,6 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!fLibCss.isGlobalFleximarkCssExists(context)) {
       fLibCss.resetGlobalFleximarkCss(context, true);
     }
-
-    if (await fCommand.checkWorkspaceSettingsUpdatable()) {
-      await fCommand.updateWorkspaceSettings(context, true);
-    }
   }
 
   fCommand.resetGlobalFleximarkCss(context);
@@ -112,19 +108,6 @@ function registerCommands(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("fleximark.initializeWorkspace", () =>
       fCommand.initializeWorkspace(context),
-    ),
-
-    vscode.commands.registerCommand(
-      "fleximark.checkWorkspaceSettingsUpdatable",
-      async () => {
-        if (await fCommand.checkWorkspaceSettingsUpdatable()) {
-          await fCommand.updateWorkspaceSettings(context, true);
-        }
-      },
-    ),
-
-    vscode.commands.registerCommand("fleximark.updateWorkspaceSettings", () =>
-      fCommand.updateWorkspaceSettings(context),
     ),
 
     vscode.commands.registerCommand("fleximark.collectAdmonitions", () =>

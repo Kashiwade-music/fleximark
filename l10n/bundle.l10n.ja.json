@@ -1,5 +1,6 @@
 {
   "An error occurred while preparing the Markdown preview.": "Markdownプレビュー準備中にエラーが発生しました。",
+  "An error occurred while reloading the preview. Please try reopening the preview.": "プレビューの再読み込み中にエラーが発生しました。プレビューを開き直してください。",
   "The Markdown file must be in a workspace folder.": "Markdownファイルはワークスペースフォルダー内にある必要があります。",
   "The Markdown preview has opened at http://localhost:{port}.": "Markdownプレビューを http://localhost:{port} で開きました。",
   "The Markdown file must be active.": "Markdownファイルをアクティブにしてください。",
@@ -11,7 +12,6 @@
   "File name cannot be empty.": "ファイル名は空にできません。",
   "Please open a workspace.": "ワークスペースを開いてください。",
   "{0} already exists. Overwrite it? A backup will be created.": "{0} は既に存在します。上書きしますか？バックアップが作成されます。",
-  "fleximark.css not found in global storage, returning default content.": "グローバルストレージに fleximark.css がありません。デフォルトを使用します。",
   "This command can only be used in a Fleximark workspace.": "このコマンドはFleximarkワークスペースでのみ使用できます。",
   "fleximark.css has been saved to global storage.": "fleximark.css をグローバルストレージに保存しました。",
   "Failed to reset global fleximark.css.": "グローバルの fleximark.css のリセットに失敗しました。",
@@ -21,7 +21,6 @@
   "Invalid category structure for selected category.": "選択したカテゴリの構造が無効です。",
   "Confirm the previously selected category as final": "前回選択したカテゴリを確定しますか",
   "Current category: {0}": "現在のカテゴリ: {0}",
-  "Updated .vscode/settings.json successfully.": ".vscode/settings.json を更新しました。",
   "An unexpected error occurred while opening Fleximark CSS.": "Fleximark CSS を開く際に予期せぬエラーが発生しました。",
   "Created .fleximark directory and fleximark.css file in the workspace.": "ワークスペースに .fleximark ディレクトリと fleximark.css を作成しました。",
   "Failed to create the workspace fleximark.css file.": "ワークスペースの fleximark.css の作成に失敗しました。",
@@ -30,9 +29,5 @@
   "Failed to export HTML: {err}": "HTMLの出力に失敗しました: {err}",
   "Select a category": "カテゴリを選択",
   "A note with that name already exists.": "同名のノートが既に存在します。",
-  "Select a root category to collect Markdown admonitions.": "Markdown注釈を集めるルートカテゴリを選択してください。",
-  "The .vscode/settings.json file is already up to date.": ".vscode/settings.json は最新です。",
-  "The .vscode/settings.json file is newer than the extension version. Please update the extension.": ".vscode/settings.json が拡張機能より新しいです。拡張機能を更新してください。",
-  "The .vscode/settings.json file is outdated. Do you want to update it?": ".vscode/settings.json が古いです。更新しますか？",
-  "No .vscode/settings.json file found.": ".vscode/settings.json が見つかりません。"
+  "Select a root category to collect Markdown admonitions.": "Markdown注釈を集めるルートカテゴリを選択してください。"
 }

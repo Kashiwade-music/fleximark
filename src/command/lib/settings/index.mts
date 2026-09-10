@@ -5,8 +5,7 @@ import * as vscode from "vscode";
 
 import * as fLibJsonc from "../jsonc/index.mjs";
 
-const KeyOrder = [
-  "fleximark.settingsVersion",
+export const KeyOrder = [
   "fleximark.noteCategories",
   "fleximark.noteFileNamePrefix",
   "fleximark.noteFileNameSuffix",
@@ -15,8 +14,6 @@ const KeyOrder = [
   "fleximark.defaultPreviewMode",
   "[markdown]",
 ];
-
-export const CURRENT_SETTINGS_VERSION = 2;
 
 export async function genSettingsJson(
   context: vscode.ExtensionContext,
@@ -50,8 +47,6 @@ export async function genSettingsJson(
     ...baseJson,
     ...workspaceJson,
   };
-
-  mergedJson["fleximark.settingsVersion"] = CURRENT_SETTINGS_VERSION;
 
   const sortedJson = sortObjectKeys(mergedJson);
 
@@ -91,7 +86,7 @@ function getL10nJsonPath(context: vscode.ExtensionContext) {
   return path.join(baseDir, "en.json");
 }
 
-const sortObjectKeys = (obj: Record<string, any>): object => {
+export const sortObjectKeys = (obj: Record<string, any>): object => {
   const sortedObj: Record<string, any> = {};
 
   for (const key of KeyOrder) {
@@ -109,7 +104,7 @@ const sortObjectKeys = (obj: Record<string, any>): object => {
   return sortedObj;
 };
 
-function addCommentsToJson(
+export function addCommentsToJson(
   jsonLines: string[],
   comments: Record<string, string[]>,
 ): string[] {
@@ -136,22 +131,7 @@ function addCommentsToJson(
   return result;
 }
 
-function objectToJsonLines(obj: object): string[] {
+export function objectToJsonLines(obj: object): string[] {
   const jsonString = JSON.stringify(obj, null, 2);
   return jsonString.split("\n");
-}
-
-declare const __DEV__: boolean; // This is set by the esbuild process
-if (__DEV__) {
-  (globalThis as any).commands = (globalThis as any).commands || {};
-  (globalThis as any).commands.genSettingsJson =
-    (globalThis as any).commands.genSettingsJson || {};
-
-  // export for testing purposes
-  (globalThis as any).commands.genSettingsJson.sortObjectKeys = sortObjectKeys;
-  (globalThis as any).commands.genSettingsJson.addCommentsToJson =
-    addCommentsToJson;
-  (globalThis as any).commands.genSettingsJson.objectToJsonLines =
-    objectToJsonLines;
-  (globalThis as any).commands.genSettingsJson.KeyOrder = KeyOrder;
 }

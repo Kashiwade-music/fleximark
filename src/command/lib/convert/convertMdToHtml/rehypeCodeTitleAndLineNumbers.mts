@@ -5,7 +5,6 @@ import { visit } from "unist-util-visit";
 
 const TITLE_RE = /(?:^|\s)title=(?:"([^"]*)"|'([^']*)')/;
 const LNUM_RE = /(?:^|\s)showLineNumbers(?:=(\d+))?/;
-const LNUM_ALT = /(?:^|\s)showLineNumber(?:=(\d+))?/; // 互換
 
 const shouldProcess = (node: Element, parent: Element) => {
   if (!parent) return false;
@@ -88,9 +87,8 @@ const rehypeCodeTitleAndLineNumbers: Plugin<[], Root> = () => {
       }
 
       // 2) 行番号フラグ＆開始番号
-      const startStr =
-        meta.match(LNUM_RE)?.[1] ?? meta.match(LNUM_ALT)?.[1] ?? "";
-      const hasLineNumbers = LNUM_RE.test(meta) || LNUM_ALT.test(meta);
+      const startStr = meta.match(LNUM_RE)?.[1] ?? "";
+      const hasLineNumbers = LNUM_RE.test(meta);
       const start = startStr ? Math.max(1, parseInt(startStr, 10)) : 1;
       const codeLineLength = countLines(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,7 +110,6 @@ const rehypeCodeTitleAndLineNumbers: Plugin<[], Root> = () => {
       wrappedPreCode.data.meta = meta
         .replace(TITLE_RE, " ")
         .replace(LNUM_RE, " ")
-        .replace(LNUM_ALT, " ")
         .replace(/\s+/g, " ")
         .trim();
 

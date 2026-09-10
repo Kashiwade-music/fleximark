@@ -1,9 +1,11 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as assert from "assert";
 
-const { sortObjectKeys, addCommentsToJson, objectToJsonLines, KeyOrder } = (
-  globalThis as any
-).commands.genSettingsJson;
+import {
+  KeyOrder,
+  addCommentsToJson,
+  objectToJsonLines,
+  sortObjectKeys,
+} from "../../../../src/command/lib/settings/index.mjs";
 
 export const suiteName = "genSettingsJson Utility Tests";
 
@@ -37,12 +39,10 @@ export const suite = () => {
 
   test("sortObjectKeys() should preserve KeyOrder even if some keys are missing", () => {
     const input = {
-      "fleximark.settingsVersion": "1.0",
       "fleximark.noteTemplates": "template",
       "markdown.copyFiles.destination": "dest",
     };
     const expectedOrder = [
-      "fleximark.settingsVersion",
       "fleximark.noteTemplates",
       "markdown.copyFiles.destination",
     ];
@@ -78,7 +78,7 @@ export const suite = () => {
 
   test("sortObjectKeys() should handle all KeyOrder keys in correct order", () => {
     const input = Object.fromEntries(
-      KeyOrder.map((key: any, i: any) => [key, i]),
+      KeyOrder.map((key, index) => [key, index]),
     );
     const result = sortObjectKeys(input);
     assert.deepStrictEqual(Object.keys(result), KeyOrder);
