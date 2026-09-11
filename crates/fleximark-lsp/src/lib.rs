@@ -1,10 +1,14 @@
+mod error;
+mod index;
+mod workspace;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_engine::{
-    DocumentSession as EngineSession, EngineError, PreviewSessionId, RenderAsset, RenderConfig,
+    DocumentSession as EngineSession, PreviewSessionId, RenderAsset, RenderConfig,
     RenderPublication, RenderStyle, ResolvedRenderAsset,
 };
 use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
@@ -16,7 +20,11 @@ use fleximark_protocol::{
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use thiserror::Error;
+
+pub use error::SessionError;
+use error::engine_error;
+use index::SessionIndex;
+use workspace::WorkspaceAuthority;
 
 static NEXT_DAEMON: AtomicU64 = AtomicU64::new(1);
 
@@ -120,36 +128,9 @@ impl DocumentSession {
 pub struct SessionRegistry {
     daemon_instance_id: String,
     position_encoding: PositionEncoding,
-    documents: HashMap<String, DocumentSession>,
-    session_uris: HashMap<String, String>,
+    index: SessionIndex,
     events: Vec<RequestFullTextParams>,
-    plugin_host: Option<Arc<PluginHost>>,
-    render_config: Option<RenderConfig>,
-    workspace_configs: Vec<(String, Arc<PluginHost>, RenderConfig)>,
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum SessionError {
-    #[error("document is not open")]
-    NotOpen,
-    #[error("document session is unknown or no longer active")]
-    UnknownSession,
-    #[error("daemon instance does not match this connection")]
-    WrongDaemon,
-    #[error("document is out of sync")]
-    ContentModified,
-    #[error("document version is stale")]
-    StaleVersion,
-    #[error("document version does not match")]
-    VersionMismatch,
-    #[error("content hash does not match")]
-    HashMismatch,
-    #[error("incremental edit range is invalid")]
-    InvalidRange,
-    #[error("a change notification must contain edits")]
-    EmptyChange,
-    #[error("engine rejected the document: {0}")]
-    Engine(String),
+    workspaces: WorkspaceAuthority,
 }
 
 impl SessionRegistry {
@@ -164,12 +145,9 @@ impl SessionRegistry {
         Self {
             daemon_instance_id: format!("daemon-{}", &digest[..24]),
             position_encoding,
-            documents: HashMap::new(),
-            session_uris: HashMap::new(),
+            index: SessionIndex::default(),
             events: Vec::new(),
-            plugin_host: None,
-            render_config: None,
-            workspace_configs: Vec::new(),
+            workspaces: WorkspaceAuthority::default(),
         }
     }
 
@@ -178,7 +156,7 @@ impl SessionRegistry {
     }
 
     pub fn set_position_encoding(&mut self, encoding: PositionEncoding) {
-        if self.documents.is_empty() {
+        if self.index.is_empty() {
             self.position_encoding = encoding;
         }
     }
@@ -188,13 +166,12 @@ impl SessionRegistry {
         host: Option<PluginHost>,
         render_config: Option<RenderConfig>,
     ) -> Result<(), SessionError> {
-        if !self.documents.is_empty() {
+        if !self.index.is_empty() {
             return Err(SessionError::Engine(
                 "plugins must be configured before opening documents".into(),
             ));
         }
-        self.plugin_host = host.map(Arc::new);
-        self.render_config = render_config;
+        self.workspaces.configure_default(host, render_config);
         Ok(())
     }
 
@@ -202,19 +179,12 @@ impl SessionRegistry {
         &mut self,
         workspaces: Vec<(String, PluginHost, RenderConfig)>,
     ) -> Result<(), SessionError> {
-        if !self.documents.is_empty() {
+        if !self.index.is_empty() {
             return Err(SessionError::Engine(
                 "workspaces must be configured before opening documents".into(),
             ));
         }
-        self.workspace_configs = workspaces
-            .into_iter()
-            .map(|(uri, host, config)| {
-                (uri.trim_end_matches('/').to_owned(), Arc::new(host), config)
-            })
-            .collect();
-        self.workspace_configs
-            .sort_by_key(|entry| std::cmp::Reverse(entry.0.len()));
+        self.workspaces.replace_roots(workspaces);
         Ok(())
     }
 
@@ -224,21 +194,21 @@ impl SessionRegistry {
         assets: Vec<ResolvedRenderAsset>,
     ) -> Result<(), SessionError> {
         let workspace_uri = self
-            .documents
-            .get(uri)
+            .index
+            .by_uri(uri)
             .ok_or(SessionError::NotOpen)?
             .workspace_uri
             .clone();
         let config = workspace_uri
             .as_deref()
-            .and_then(|workspace_uri| self.workspace_config_exact(workspace_uri))
+            .and_then(|workspace_uri| self.workspaces.exact(workspace_uri))
             .map(|(_, config)| config.clone())
-            .or_else(|| self.render_config.clone())
+            .or_else(|| self.workspaces.default_render().cloned())
             .ok_or_else(|| SessionError::Engine("render configuration is missing".into()))?
             .with_resolved_assets(assets)
             .map_err(engine_error)?;
-        self.documents
-            .get_mut(uri)
+        self.index
+            .by_uri_mut(uri)
             .ok_or(SessionError::NotOpen)?
             .engine
             .reconfigure_render(config)
@@ -246,9 +216,9 @@ impl SessionRegistry {
     }
 
     pub fn open_documents(&self) -> Vec<(String, fleximark_model::Document)> {
-        self.documents
+        self.index
             .iter()
-            .map(|(uri, session)| (uri.clone(), session.document().clone()))
+            .map(|(uri, session)| (uri.to_owned(), session.document().clone()))
             .collect()
     }
 
@@ -256,10 +226,10 @@ impl SessionRegistry {
         &self,
         workspace_uri: &str,
     ) -> Vec<(String, fleximark_model::Document)> {
-        self.documents
+        self.index
             .iter()
             .filter(|(_, session)| session.workspace_uri.as_deref() == Some(workspace_uri))
-            .map(|(uri, session)| (uri.clone(), session.document().clone()))
+            .map(|(uri, session)| (uri.to_owned(), session.document().clone()))
             .collect()
     }
 
@@ -273,14 +243,14 @@ impl SessionRegistry {
         let workspace_uri = workspace_uri.trim_end_matches('/');
         let host = Arc::new(host);
         let mut replacements = Vec::new();
-        for (uri, session) in &self.documents {
+        for (uri, session) in self.index.iter() {
             if session.workspace_uri.as_deref() == Some(workspace_uri) {
                 let config = render_config
                     .clone()
                     .with_resolved_assets(assets.remove(uri).unwrap_or_default())
                     .map_err(engine_error)?;
                 let engine = EngineSession::open_configured(
-                    DocumentUri(uri.clone()),
+                    DocumentUri(uri.to_owned()),
                     session.engine.document().document_version,
                     session.engine.source().to_owned(),
                     session.engine.position_encoding(),
@@ -289,26 +259,14 @@ impl SessionRegistry {
                     &CancellationToken::default(),
                 )
                 .map_err(engine_error)?;
-                replacements.push((uri.clone(), engine));
+                replacements.push((uri.to_owned(), engine));
             }
         }
-        if let Some(entry) = self
-            .workspace_configs
-            .iter_mut()
-            .find(|(uri, _, _)| uri == workspace_uri)
-        {
-            entry.1 = host;
-            entry.2 = render_config;
-        } else {
-            self.workspace_configs
-                .push((workspace_uri.to_owned(), host, render_config));
-            self.workspace_configs
-                .sort_by_key(|entry| std::cmp::Reverse(entry.0.len()));
-        }
+        self.workspaces.replace(workspace_uri, host, render_config);
         for (uri, engine) in replacements {
-            self.documents
-                .get_mut(&uri)
-                .expect("staged session remains open")
+            self.index
+                .by_uri_mut(&uri)
+                .ok_or(SessionError::NotOpen)?
                 .engine
                 .adopt_reconfiguration(engine)
                 .map_err(engine_error)?;
@@ -328,7 +286,8 @@ impl SessionRegistry {
         let item = params.text_document;
         let version = u64::try_from(item.version).map_err(|_| SessionError::StaleVersion)?;
         let workspace = self
-            .workspace_config(&item.uri)
+            .workspaces
+            .matching(&item.uri)
             .map(|(workspace_uri, host, config)| {
                 (workspace_uri.to_owned(), Arc::clone(host), config.clone())
             });
@@ -344,7 +303,7 @@ impl SessionRegistry {
                 cancellation,
             )
             .map_err(engine_error),
-            None if self.plugin_host.is_none() => EngineSession::open(
+            None if self.workspaces.default_host().is_none() => EngineSession::open(
                 DocumentUri(item.uri.clone()),
                 version,
                 item.text.clone(),
@@ -356,56 +315,24 @@ impl SessionRegistry {
                 version,
                 item.text.clone(),
                 self.position_encoding,
-                self.render_config.clone().ok_or_else(|| {
+                self.workspaces.default_render().cloned().ok_or_else(|| {
                     SessionError::Engine("plugin host is missing render configuration".into())
                 })?,
-                Arc::clone(self.plugin_host.as_ref().expect("checked above")),
+                Arc::clone(self.workspaces.default_host().expect("checked above")),
                 cancellation,
             )
             .map_err(engine_error),
         }?;
-        if let Some(previous) = self.documents.remove(&item.uri) {
-            self.session_uris.remove(&previous.id);
-        }
         let id = engine.id().0.clone();
         let content_hash = content_hash(&item.text);
-        self.session_uris.insert(id.clone(), item.uri.clone());
-        self.documents.insert(
-            item.uri.clone(),
-            DocumentSession {
-                id,
-                uri: item.uri,
-                content_hash,
-                workspace_uri,
-                engine,
-            },
-        );
+        self.index.insert(DocumentSession {
+            id,
+            uri: item.uri,
+            content_hash,
+            workspace_uri,
+            engine,
+        });
         Ok(())
-    }
-
-    fn workspace_config(
-        &self,
-        document_uri: &str,
-    ) -> Option<(&str, &Arc<PluginHost>, &RenderConfig)> {
-        self.workspace_configs
-            .iter()
-            .find(|(workspace_uri, _, _)| {
-                document_uri == workspace_uri
-                    || document_uri
-                        .strip_prefix(workspace_uri)
-                        .is_some_and(|suffix| suffix.starts_with('/'))
-            })
-            .map(|(uri, host, config)| (uri.as_str(), host, config))
-    }
-
-    fn workspace_config_exact(
-        &self,
-        workspace_uri: &str,
-    ) -> Option<(&Arc<PluginHost>, &RenderConfig)> {
-        self.workspace_configs
-            .iter()
-            .find(|(uri, _, _)| uri == workspace_uri)
-            .map(|(_, host, config)| (host, config))
     }
 
     pub fn change(&mut self, params: DidChangeParams) -> Result<(), SessionError> {
@@ -419,7 +346,7 @@ impl SessionRegistry {
     ) -> Result<(), SessionError> {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
-        let current = self.documents.get(&uri).ok_or(SessionError::NotOpen)?;
+        let current = self.index.by_uri(&uri).ok_or(SessionError::NotOpen)?;
         let current_version = current.engine.document().document_version;
         let version_u64 = u64::try_from(version).map_err(|_| SessionError::StaleVersion)?;
         let is_full_replacement =
@@ -466,7 +393,7 @@ impl SessionRegistry {
             }
         }
 
-        let session = self.documents.get_mut(&uri).expect("checked above");
+        let session = self.index.by_uri_mut(&uri).ok_or(SessionError::NotOpen)?;
         let result = if session.engine.is_out_of_sync() {
             session
                 .engine
@@ -484,9 +411,7 @@ impl SessionRegistry {
     }
 
     pub fn close(&mut self, params: DidCloseParams) {
-        if let Some(session) = self.documents.remove(&params.text_document.uri) {
-            self.session_uris.remove(&session.id);
-        }
+        self.index.remove_by_uri(&params.text_document.uri);
     }
 
     pub fn open_rpc(
@@ -534,15 +459,11 @@ impl SessionRegistry {
         cancellation: &CancellationToken,
     ) -> Result<CheckpointDocumentResult, SessionError> {
         self.verify_daemon(&params.daemon_instance_id)?;
-        let uri = self
-            .session_uris
-            .get(&params.document_session_id)
-            .cloned()
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get(&uri)
-            .expect("session index is consistent");
+            .index
+            .by_session(&params.document_session_id)
+            .ok_or(SessionError::UnknownSession)?;
+        let uri = session.uri.clone();
         let current_version = i64::try_from(session.engine.document().document_version)
             .map_err(|_| SessionError::VersionMismatch)?;
         if session.engine.is_out_of_sync()
@@ -566,13 +487,9 @@ impl SessionRegistry {
             cancellation,
         )?;
         let session = self
-            .documents
-            .get(
-                self.session_uris
-                    .get(&params.document_session_id)
-                    .expect("session remains open"),
-            )
-            .expect("session index is consistent");
+            .index
+            .by_session(&params.document_session_id)
+            .ok_or(SessionError::UnknownSession)?;
         Ok(CheckpointDocumentResult {
             document_version: params.document_version,
             content_hash: session.content_hash.clone(),
@@ -582,10 +499,10 @@ impl SessionRegistry {
     pub fn close_rpc(&mut self, params: RpcCloseDocumentParams) -> Result<(), SessionError> {
         self.verify_daemon(&params.daemon_instance_id)?;
         let uri = self
-            .session_uris
-            .get(&params.document_session_id)
-            .cloned()
-            .ok_or(SessionError::UnknownSession)?;
+            .index
+            .uri_for_session(&params.document_session_id)
+            .ok_or(SessionError::UnknownSession)?
+            .to_owned();
         self.close(DidCloseParams {
             text_document: TextDocumentIdentifier { uri },
         });
@@ -597,8 +514,8 @@ impl SessionRegistry {
         params: &AttachDocumentParams,
     ) -> Result<AttachDocumentResult, SessionError> {
         let session = self
-            .documents
-            .get(&params.uri)
+            .index
+            .by_uri(&params.uri)
             .ok_or(SessionError::NotOpen)?;
         self.verify_daemon(&params.daemon_instance_id)?;
         if session.engine.is_out_of_sync() {
@@ -624,15 +541,11 @@ impl SessionRegistry {
         params: &CheckpointDocumentParams,
     ) -> Result<CheckpointDocumentResult, SessionError> {
         self.verify_daemon(&params.daemon_instance_id)?;
-        let uri = self
-            .session_uris
-            .get(&params.document_session_id)
-            .cloned()
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get(&uri)
-            .expect("session index is consistent");
+            .index
+            .by_session(&params.document_session_id)
+            .ok_or(SessionError::UnknownSession)?;
+        let uri = session.uri.clone();
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
@@ -646,7 +559,10 @@ impl SessionRegistry {
             self.mark_out_of_sync(&uri, "checkpoint content hash mismatch");
             return Err(SessionError::HashMismatch);
         }
-        let session = self.documents.get_mut(&uri).expect("still present");
+        let session = self
+            .index
+            .by_session_mut(&params.document_session_id)
+            .ok_or(SessionError::UnknownSession)?;
         session
             .engine
             .checkpoint(
@@ -668,14 +584,10 @@ impl SessionRegistry {
         version: i64,
     ) -> Result<&DocumentSession, SessionError> {
         self.verify_daemon(daemon)?;
-        let uri = self
-            .session_uris
-            .get(session_id)
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get(uri)
-            .expect("session index is consistent");
+            .index
+            .by_session(session_id)
+            .ok_or(SessionError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
@@ -742,15 +654,10 @@ impl SessionRegistry {
         cancellation: &CancellationToken,
     ) -> Result<RenderPublication, SessionError> {
         self.verify_daemon(daemon)?;
-        let uri = self
-            .session_uris
-            .get(session_id)
-            .cloned()
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get_mut(&uri)
-            .expect("session index is consistent");
+            .index
+            .by_session_mut(session_id)
+            .ok_or(SessionError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
@@ -789,15 +696,10 @@ impl SessionRegistry {
         cancellation: &CancellationToken,
     ) -> Result<fleximark_engine::RenderSnapshot, SessionError> {
         self.verify_daemon(daemon)?;
-        let uri = self
-            .session_uris
-            .get(session_id)
-            .cloned()
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get_mut(&uri)
-            .expect("session index is consistent");
+            .index
+            .by_session_mut(session_id)
+            .ok_or(SessionError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
@@ -822,14 +724,9 @@ impl SessionRegistry {
         preview_id: &str,
     ) -> Result<(), SessionError> {
         self.verify_daemon(daemon)?;
-        let uri = self
-            .session_uris
-            .get(session_id)
-            .cloned()
-            .ok_or(SessionError::UnknownSession)?;
-        self.documents
-            .get_mut(&uri)
-            .expect("session index is consistent")
+        self.index
+            .by_session_mut(session_id)
+            .ok_or(SessionError::UnknownSession)?
             .engine
             .dispose_preview(&PreviewSessionId(preview_id.to_owned()));
         Ok(())
@@ -837,14 +734,10 @@ impl SessionRegistry {
 
     pub fn current_version(&self, daemon: &str, session_id: &str) -> Result<i64, SessionError> {
         self.verify_daemon(daemon)?;
-        let uri = self
-            .session_uris
-            .get(session_id)
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get(uri)
-            .expect("session index is consistent");
+            .index
+            .by_session(session_id)
+            .ok_or(SessionError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
@@ -866,14 +759,10 @@ impl SessionRegistry {
         ) -> Result<String, SessionError>,
     ) -> Result<UnsafeExportOutput, SessionError> {
         self.verify_daemon(daemon)?;
-        let uri = self
-            .session_uris
-            .get(session_id)
-            .ok_or(SessionError::UnknownSession)?;
         let session = self
-            .documents
-            .get(uri)
-            .expect("session index is consistent");
+            .index
+            .by_session(session_id)
+            .ok_or(SessionError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
@@ -897,11 +786,11 @@ impl SessionRegistry {
     }
 
     pub fn session_id_for_uri(&self, uri: &str) -> Option<&str> {
-        self.documents.get(uri).map(|session| session.id.as_str())
+        self.index.session_id_for_uri(uri)
     }
 
     pub fn line_prefix(&self, uri: &str, position: Position) -> Result<&str, SessionError> {
-        let session = self.documents.get(uri).ok_or(SessionError::NotOpen)?;
+        let session = self.index.by_uri(uri).ok_or(SessionError::NotOpen)?;
         let source = session.engine.source();
         let offset = position_offset(source, position, self.position_encoding)
             .ok_or(SessionError::InvalidRange)?;
@@ -922,7 +811,7 @@ impl SessionRegistry {
     }
 
     fn mark_out_of_sync(&mut self, uri: &str, reason: &str) {
-        if let Some(session) = self.documents.get_mut(uri) {
+        if let Some(session) = self.index.by_uri_mut(uri) {
             let version = session.engine.document().document_version;
             let _ = session.engine.checkpoint(version, "invalid");
             self.events.push(RequestFullTextParams {
@@ -937,15 +826,6 @@ impl SessionRegistry {
 
 pub fn content_hash(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
-}
-
-fn engine_error(error: EngineError) -> SessionError {
-    match error {
-        EngineError::ContentModified => SessionError::ContentModified,
-        EngineError::StaleVersion { .. } => SessionError::StaleVersion,
-        EngineError::CheckpointMismatch => SessionError::HashMismatch,
-        other => SessionError::Engine(other.to_string()),
-    }
 }
 
 fn position_offset(text: &str, position: Position, encoding: PositionEncoding) -> Option<usize> {
@@ -996,20 +876,68 @@ fn position_offset(text: &str, position: Position, encoding: PositionEncoding) -
 
 #[cfg(test)]
 mod tests {
+    use fleximark_engine::EngineError;
+    use fleximark_plugin_host::{ExecutionLimits, HostPolicy};
     use fleximark_protocol::{AttachDocumentParams, CheckpointDocumentParams, TextPosition};
 
     use super::*;
 
     fn open(registry: &mut SessionRegistry, text: &str, version: i64) {
+        open_uri(registry, "file:///doc.md", text, version);
+    }
+
+    fn open_uri(registry: &mut SessionRegistry, uri: &str, text: &str, version: i64) {
         registry
             .open(DidOpenParams {
                 text_document: TextDocumentItem {
-                    uri: "file:///doc.md".into(),
+                    uri: uri.into(),
                     version,
                     text: text.into(),
                 },
             })
             .unwrap();
+    }
+
+    fn configured_host(label: &str, trusted: bool) -> (PluginHost, RenderConfig) {
+        let host = PluginHost::configured(
+            ExecutionLimits::default(),
+            HostPolicy {
+                workspace_trusted: trusted,
+                workspace_root: format!("file:///{label}"),
+            },
+            content_hash(label),
+            1,
+        )
+        .unwrap();
+        let config = RenderConfig::for_plugins(Default::default(), None, &host);
+        (host, config)
+    }
+
+    fn render_fingerprint(
+        registry: &mut SessionRegistry,
+        uri: &str,
+        version: i64,
+        preview_id: &str,
+    ) -> String {
+        let daemon = registry.daemon_instance_id().to_owned();
+        let session_id = registry.session_id_for_uri(uri).unwrap().to_owned();
+        registry
+            .render_full(&daemon, &session_id, version, preview_id)
+            .unwrap()
+            .renderer_fingerprint
+    }
+
+    fn assets_exceeding_total_limit() -> Vec<ResolvedRenderAsset> {
+        (0_u8..9)
+            .map(|index| {
+                ResolvedRenderAsset::from_validated_bytes(
+                    format!("file:///asset-{index}.bin"),
+                    "application/octet-stream".into(),
+                    &vec![index; 1024 * 1024],
+                )
+                .unwrap()
+            })
+            .collect()
     }
 
     #[test]
@@ -1062,7 +990,12 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            registry.documents["file:///doc.md"].engine.source(),
+            registry
+                .index
+                .by_uri("file:///doc.md")
+                .unwrap()
+                .engine
+                .source(),
             "axb\n"
         );
     }
@@ -1114,7 +1047,14 @@ mod tests {
             }],
         };
         assert_eq!(registry.change(stale), Err(SessionError::StaleVersion));
-        assert!(registry.documents["file:///doc.md"].engine.is_out_of_sync());
+        assert!(
+            registry
+                .index
+                .by_uri("file:///doc.md")
+                .unwrap()
+                .engine
+                .is_out_of_sync()
+        );
         let requests = registry.take_full_text_requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(
@@ -1123,7 +1063,7 @@ mod tests {
         );
         assert_eq!(
             requests[0].document_session_id,
-            registry.documents["file:///doc.md"].id
+            registry.session_id_for_uri("file:///doc.md").unwrap()
         );
 
         registry
@@ -1138,7 +1078,14 @@ mod tests {
                 }],
             })
             .unwrap();
-        assert!(!registry.documents["file:///doc.md"].engine.is_out_of_sync());
+        assert!(
+            !registry
+                .index
+                .by_uri("file:///doc.md")
+                .unwrap()
+                .engine
+                .is_out_of_sync()
+        );
     }
 
     #[test]
@@ -1195,5 +1142,455 @@ mod tests {
                 )
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn duplicate_open_change_checkpoint_close_and_reopen_keep_one_session_index() {
+        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        let daemon = registry.daemon_instance_id().to_owned();
+        open(&mut registry, "one", 1);
+        let first = registry
+            .session_id_for_uri("file:///doc.md")
+            .unwrap()
+            .to_owned();
+
+        open(&mut registry, "two", 2);
+        let second = registry
+            .session_id_for_uri("file:///doc.md")
+            .unwrap()
+            .to_owned();
+        assert_ne!(first, second);
+        assert_eq!(
+            registry.current_version(&daemon, &first),
+            Err(SessionError::UnknownSession)
+        );
+        let attached = registry
+            .attach(&AttachDocumentParams {
+                daemon_instance_id: daemon.clone(),
+                uri: "file:///doc.md".into(),
+                expected_document_version: 2,
+                content_hash: content_hash("two"),
+            })
+            .unwrap();
+        assert_eq!(attached.document_session_id, second);
+
+        registry
+            .change(DidChangeParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: "file:///doc.md".into(),
+                    version: 3,
+                },
+                content_changes: vec![ContentChange {
+                    range: None,
+                    text: "three".into(),
+                }],
+            })
+            .unwrap();
+        registry
+            .checkpoint(&CheckpointDocumentParams {
+                daemon_instance_id: daemon.clone(),
+                document_session_id: second.clone(),
+                document_version: 3,
+                content_hash: content_hash("three"),
+            })
+            .unwrap();
+        assert_eq!(registry.current_version(&daemon, &second), Ok(3));
+
+        registry.close(DidCloseParams {
+            text_document: TextDocumentIdentifier {
+                uri: "file:///doc.md".into(),
+            },
+        });
+        assert_eq!(registry.session_id_for_uri("file:///doc.md"), None);
+        assert_eq!(
+            registry.current_version(&daemon, &second),
+            Err(SessionError::UnknownSession)
+        );
+        assert_eq!(
+            registry
+                .attach(&AttachDocumentParams {
+                    daemon_instance_id: daemon.clone(),
+                    uri: "file:///doc.md".into(),
+                    expected_document_version: 3,
+                    content_hash: content_hash("three"),
+                })
+                .unwrap_err(),
+            SessionError::NotOpen
+        );
+
+        open(&mut registry, "reopened", 4);
+        let third = registry.session_id_for_uri("file:///doc.md").unwrap();
+        assert_ne!(third, first);
+        assert_ne!(third, second);
+    }
+
+    #[test]
+    fn session_index_replaces_colliding_session_ids_atomically() {
+        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        open_uri(&mut registry, "file:///first.md", "first", 1);
+        open_uri(&mut registry, "file:///second.md", "second", 1);
+        let first_id = registry
+            .session_id_for_uri("file:///first.md")
+            .unwrap()
+            .to_owned();
+        let second_id = registry
+            .session_id_for_uri("file:///second.md")
+            .unwrap()
+            .to_owned();
+
+        let mut replacement = registry.index.remove_by_uri("file:///second.md").unwrap();
+        replacement.id = first_id.clone();
+        registry.index.insert(replacement);
+
+        assert!(registry.index.by_uri("file:///first.md").is_none());
+        assert_eq!(
+            registry.index.uri_for_session(&first_id),
+            Some("file:///second.md")
+        );
+        assert_eq!(registry.index.uri_for_session(&second_id), None);
+        assert_eq!(registry.index.iter().count(), 1);
+    }
+
+    #[test]
+    fn incremental_edits_use_utf8_utf16_and_utf32_units() {
+        let cases = [
+            (PositionEncoding::Utf8, 1, 5),
+            (PositionEncoding::Utf16, 1, 3),
+            (PositionEncoding::Utf32, 1, 2),
+        ];
+        for (encoding, start, end) in cases {
+            let mut registry = SessionRegistry::new(encoding);
+            open(&mut registry, "a😀b\n", 1);
+            registry
+                .change(DidChangeParams {
+                    text_document: VersionedTextDocumentIdentifier {
+                        uri: "file:///doc.md".into(),
+                        version: 2,
+                    },
+                    content_changes: vec![ContentChange {
+                        range: Some(Range {
+                            start: Position {
+                                line: 0,
+                                character: start,
+                            },
+                            end: Position {
+                                line: 0,
+                                character: end,
+                            },
+                        }),
+                        text: "x".into(),
+                    }],
+                })
+                .unwrap();
+            let session = registry
+                .document(
+                    registry.daemon_instance_id(),
+                    registry.session_id_for_uri("file:///doc.md").unwrap(),
+                    2,
+                )
+                .unwrap();
+            assert_eq!(session.source(), "axb\n", "encoding: {encoding:?}");
+            assert_eq!(session.position_encoding(), encoding);
+        }
+    }
+
+    #[test]
+    fn workspace_matching_preserves_raw_longest_segment_prefix_semantics() {
+        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        let (parent_host, parent_config) = configured_host("parent", true);
+        let (nested_host, nested_config) = configured_host("nested", false);
+        let (file_root_host, file_root_config) = configured_host("file-root", true);
+        let (empty_root_host, empty_root_config) = configured_host("empty-root", true);
+        registry
+            .configure_workspaces(vec![
+                ("".into(), empty_root_host, empty_root_config),
+                ("file:///".into(), file_root_host, file_root_config),
+                ("file:///workspace".into(), parent_host, parent_config),
+                (
+                    "file:///workspace/nested/".into(),
+                    nested_host,
+                    nested_config,
+                ),
+            ])
+            .unwrap();
+
+        let cases = [
+            ("file:///workspace/nested", Some("file:///workspace/nested")),
+            (
+                "file:///workspace/nested/deep.md",
+                Some("file:///workspace/nested"),
+            ),
+            ("file:///outside.md", Some("file:")),
+            ("/outside.md", Some("")),
+            (
+                "file:///workspace/NESTED/case.md",
+                Some("file:///workspace"),
+            ),
+            (
+                "file:///workspace/%6Eested/encoded.md",
+                Some("file:///workspace"),
+            ),
+            ("file:///workspace-other/sibling.md", Some("file:")),
+            ("relative.md", None),
+        ];
+        for (uri, expected_workspace) in cases {
+            open_uri(&mut registry, uri, "text", 1);
+            let session_id = registry.session_id_for_uri(uri).unwrap();
+            let session = registry
+                .document(registry.daemon_instance_id(), session_id, 1)
+                .unwrap();
+            assert_eq!(session.workspace_uri(), expected_workspace);
+        }
+
+        let parent_fingerprint = render_fingerprint(
+            &mut registry,
+            "file:///workspace/NESTED/case.md",
+            1,
+            "parent-case",
+        );
+        let encoded_fingerprint = render_fingerprint(
+            &mut registry,
+            "file:///workspace/%6Eested/encoded.md",
+            1,
+            "parent-encoded",
+        );
+        let nested_fingerprint = render_fingerprint(
+            &mut registry,
+            "file:///workspace/nested/deep.md",
+            1,
+            "nested",
+        );
+        assert_eq!(encoded_fingerprint, parent_fingerprint);
+        assert_ne!(nested_fingerprint, parent_fingerprint);
+        // Compatibility boundary/security debt: authority matching compares raw URI text. Case and
+        // percent-encoded aliases therefore miss the untrusted nested root and inherit its trusted
+        // parent. Normalization requires a separately reviewed behavior and policy change.
+    }
+
+    #[test]
+    fn compatibility_configuration_and_workspace_reconfiguration_are_transactional() {
+        let uri = "file:///outside/document.md";
+        let mut no_defaults = SessionRegistry::new(PositionEncoding::Utf8);
+        no_defaults.configure_plugins(None, None).unwrap();
+        open_uri(&mut no_defaults, uri, "global", 1);
+        let plain_fingerprint = render_fingerprint(&mut no_defaults, uri, 1, "plain");
+
+        let mut render_without_host = SessionRegistry::new(PositionEncoding::Utf8);
+        let (_, ignored_render) = configured_host("ignored-render", true);
+        render_without_host
+            .configure_plugins(None, Some(ignored_render))
+            .unwrap();
+        open_uri(&mut render_without_host, uri, "global", 1);
+        assert_eq!(
+            render_fingerprint(&mut render_without_host, uri, 1, "render-only"),
+            plain_fingerprint
+        );
+
+        let mut host_without_render = SessionRegistry::new(PositionEncoding::Utf8);
+        let (orphan_host, _) = configured_host("orphan-host", true);
+        host_without_render
+            .configure_plugins(Some(orphan_host), None)
+            .unwrap();
+        assert_eq!(
+            host_without_render.open(DidOpenParams {
+                text_document: TextDocumentItem {
+                    uri: uri.into(),
+                    version: 1,
+                    text: "global".into(),
+                },
+            }),
+            Err(SessionError::Engine(
+                "plugin host is missing render configuration".into()
+            ))
+        );
+        assert!(host_without_render.open_documents().is_empty());
+        assert_eq!(host_without_render.session_id_for_uri(uri), None);
+        let (retry_host, retry_render) = configured_host("retry", true);
+        host_without_render
+            .configure_plugins(Some(retry_host), Some(retry_render))
+            .unwrap();
+        open_uri(&mut host_without_render, uri, "global", 1);
+
+        let mut compatibility = SessionRegistry::new(PositionEncoding::Utf8);
+        let (compatibility_host, compatibility_config) = configured_host("compatibility", true);
+        compatibility
+            .configure_plugins(Some(compatibility_host), Some(compatibility_config))
+            .unwrap();
+        open_uri(&mut compatibility, uri, "global", 1);
+        let compatibility_fingerprint =
+            render_fingerprint(&mut compatibility, uri, 1, "configured");
+        assert_ne!(compatibility_fingerprint, plain_fingerprint);
+        let compatibility_session = compatibility.session_id_for_uri(uri).unwrap().to_owned();
+        let compatibility_daemon = compatibility.daemon_instance_id().to_owned();
+        let (late_host, late_config) = configured_host("late", true);
+        assert_eq!(
+            compatibility.configure_plugins(Some(late_host), Some(late_config)),
+            Err(SessionError::Engine(
+                "plugins must be configured before opening documents".into()
+            ))
+        );
+        assert_eq!(
+            compatibility.current_version(&compatibility_daemon, &compatibility_session),
+            Ok(1)
+        );
+        assert_eq!(
+            render_fingerprint(&mut compatibility, uri, 1, "after-late-rejection"),
+            compatibility_fingerprint
+        );
+
+        let mut workspace = SessionRegistry::new(PositionEncoding::Utf8);
+        let (old_host, old_config) = configured_host("old", true);
+        workspace
+            .configure_workspaces(vec![("file:///workspace".into(), old_host, old_config)])
+            .unwrap();
+        let original_uris = ["file:///workspace/alpha.md", "file:///workspace/beta.md"];
+        open_uri(&mut workspace, original_uris[0], "alpha", 1);
+        open_uri(&mut workspace, original_uris[1], "beta", 2);
+        let daemon = workspace.daemon_instance_id().to_owned();
+        let baseline = original_uris.map(|uri| {
+            let session_id = workspace.session_id_for_uri(uri).unwrap().to_owned();
+            let session = workspace
+                .document(
+                    &daemon,
+                    &session_id,
+                    if uri.ends_with("alpha.md") { 1 } else { 2 },
+                )
+                .unwrap();
+            (
+                uri,
+                session_id,
+                session.source().to_owned(),
+                session.document().document_version,
+                render_fingerprint(
+                    &mut workspace,
+                    uri,
+                    if uri.ends_with("alpha.md") { 1 } else { 2 },
+                    &format!("before-{uri}"),
+                ),
+            )
+        });
+        let stage_order = workspace
+            .index
+            .iter()
+            .filter(|(_, session)| session.workspace_uri() == Some("file:///workspace"))
+            .map(|(uri, _)| uri.to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(stage_order.len(), 2);
+        let failing_uri = stage_order.last().unwrap().clone();
+        let mut oversized_assets = HashMap::new();
+        oversized_assets.insert(failing_uri, assets_exceeding_total_limit());
+        let (mismatched_host, mismatched_config) = configured_host("mismatched", true);
+        let error = workspace
+            .reconfigure_workspace(
+                "file:///workspace",
+                mismatched_host,
+                mismatched_config,
+                oversized_assets,
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            SessionError::Engine(
+                "invalid resolved render asset: resolved assets exceed 8 MiB".into()
+            )
+        );
+        for (uri, session_id, source, version, fingerprint) in &baseline {
+            assert_eq!(workspace.session_id_for_uri(uri), Some(session_id.as_str()));
+            let session = workspace
+                .document(&daemon, session_id, *version as i64)
+                .unwrap();
+            assert_eq!(session.source(), source);
+            assert_eq!(session.document().document_version, *version);
+            assert_eq!(
+                render_fingerprint(
+                    &mut workspace,
+                    uri,
+                    *version as i64,
+                    &format!("after-failure-{uri}"),
+                ),
+                *fingerprint
+            );
+        }
+
+        let new_uri = "file:///workspace/after-failure.md";
+        open_uri(&mut workspace, new_uri, "new", 3);
+        let new_session_id = workspace.session_id_for_uri(new_uri).unwrap().to_owned();
+        assert_eq!(
+            workspace
+                .document(&daemon, &new_session_id, 3)
+                .unwrap()
+                .workspace_uri(),
+            Some("file:///workspace")
+        );
+        assert_eq!(
+            render_fingerprint(&mut workspace, new_uri, 3, "new-after-failure"),
+            baseline[0].4
+        );
+
+        let (replacement_host, replacement_config) = configured_host("replacement", true);
+        workspace
+            .reconfigure_workspace(
+                "file:///workspace",
+                replacement_host,
+                replacement_config,
+                HashMap::new(),
+            )
+            .unwrap();
+        let all_documents = [
+            (original_uris[0], baseline[0].1.as_str(), "alpha", 1),
+            (original_uris[1], baseline[1].1.as_str(), "beta", 2),
+            (new_uri, new_session_id.as_str(), "new", 3),
+        ];
+        let mut replacement_fingerprint = None;
+        for (uri, session_id, source, version) in all_documents {
+            assert_eq!(workspace.session_id_for_uri(uri), Some(session_id));
+            let session = workspace.document(&daemon, session_id, version).unwrap();
+            assert_eq!(session.source(), source);
+            assert_eq!(session.document().document_version, version as u64);
+            let fingerprint = render_fingerprint(
+                &mut workspace,
+                uri,
+                version,
+                &format!("after-success-{uri}"),
+            );
+            assert_ne!(fingerprint, baseline[0].4);
+            if let Some(expected) = &replacement_fingerprint {
+                assert_eq!(&fingerprint, expected);
+            } else {
+                replacement_fingerprint = Some(fingerprint);
+            }
+        }
+    }
+
+    #[test]
+    fn engine_error_categories_preserve_session_error_identity_and_messages() {
+        let cases = [
+            (EngineError::ContentModified, SessionError::ContentModified),
+            (
+                EngineError::StaleVersion {
+                    current: 3,
+                    received: 2,
+                },
+                SessionError::StaleVersion,
+            ),
+            (EngineError::CheckpointMismatch, SessionError::HashMismatch),
+            (
+                EngineError::Plugin("plugin detail".into()),
+                SessionError::Engine("plugin pipeline failed: plugin detail".into()),
+            ),
+            (
+                EngineError::UnsafeExportPolicy,
+                SessionError::Engine(
+                    "unsafe plugin HTML is available only after a safe portable render".into(),
+                ),
+            ),
+            (
+                EngineError::Asset("asset detail".into()),
+                SessionError::Engine("invalid resolved render asset: asset detail".into()),
+            ),
+        ];
+        for (engine, expected) in cases {
+            assert_eq!(engine_error(engine), expected);
+        }
     }
 }

@@ -65,7 +65,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
 | Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
-| LSP/session | `crates/fleximark-lsp` | URI-to-session authority, document versions, diagnostics/navigation and preview publication state |
+| LSP/session | `crates/fleximark-lsp` with private `index`, `workspace`, and `error` modules | URI-to-session authority, document versions, workspace configuration selection, diagnostics/navigation and preview publication state |
 | Engine | `crates/fleximark-engine` facade with private `session`, `pipeline`, `render`, `diff`, `identity`, `provenance`, `assets`, and `error` modules | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
 | Model | `crates/fleximark-model` | IR, node identity, source provenance and navigation data |
 | Parser | `crates/fleximark-parser` | Markdown/Comrak AST to validated FlexiMark IR |
@@ -113,6 +113,14 @@ package state. `pipeline.rs` owns ordered hook orchestration, with only the work
 and required/optional failure disposition shared across hooks. Hook-specific validation and
 transaction commit points remain local. `edit_map.rs`, `candidate.rs`, and `error.rs` are private
 supporting owners; the module dependency graph is acyclic and does not depend back on the facade.
+
+Within `fleximark-lsp`, the private `SessionIndex` owns the forward URI-to-document map and the
+reverse session-ID-to-URI map as one invariant. Private key newtypes keep URI and session identity
+distinct until values cross the public protocol boundary. `WorkspaceAuthority` owns the default
+compatibility configuration and the ordered rooted configurations, including the existing raw
+longest segment-prefix matching policy. `error.rs` is the single EngineError-to-SessionError
+mapping boundary. Registry operations retain their public signatures and delegate lookup and
+configuration selection to these owners.
 
 ## Entry points
 

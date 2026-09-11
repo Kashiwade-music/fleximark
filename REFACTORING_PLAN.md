@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 7 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。Phase 7ではplugin hostをsandbox runtime、package検証、hook pipeline、edit-map、candidate、errorへ分割し、trust gateとfailure dispositionだけを共通化した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 8 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。Phase 7ではplugin hostをsandbox runtime、package検証、hook pipeline、edit-map、candidate、errorへ分割し、trust gateとfailure dispositionだけを共通化した。Phase 8ではLSPのURI↔session index、default/rooted workspace authority、EngineError mapperをprivate ownerへ集約した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -111,6 +111,17 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - 既存14 public types、35 public fields、13 public methods、serde/WIT、package検証順、Wasmtime resource/cancellation/WASI policyを維持した。5 hookのtrust gateとrequired/optional failure disposition・diagnostic構築だけを共通化し、hook固有validation、commit位置、plugin/block loopは各operationに残した。
 - 全5 hook×required/optionalのfailure、先行plugin commit保持、transform-blockのplugin単位rollback、trust/request/grant、candidate node/depth limit、config order非mutationをcharacterizationした。packageはmanifest hash、署名後manifest改変、署名bit flip、別公開鍵、configured ID、WASMの6破損をexact errorで拒否し、host hash不変と同一config orderでの再試行成功を固定した。
 - 2巡の実装と各巡2名の独立レビュー後に未解決P0〜P3はない。残余リスクはWindowsだけのローカル実行、Wasmtime timingの負荷依存、許可済みWASI preopenの実filesystem integrationがない点であり、移動前のproduction bodyとpolicyは維持している。
+
+### Phase 8 完了時のベースライン
+
+- cargo test --workspace --all-targets: 150 tests passed。fleximark-lspは追加characterization 6件を含む11件、fleximarkd packageはservice unit 25件、daemon 32件、service contract 5件が成功した。
+- Node pure RPC/preview/protocol tests: 54 tests passed、VS Code Electron tests: 75 tests passed、Python unittest discovery: 71 tests discovered（WindowsではPOSIX executable mode test 1件をskip）。
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- private `SessionIndex` とURI/session ID newtypeが二重mapのinsert/replace/remove/lookupを所有し、open/change/close、RPC、attach/checkpoint、render/exportの全経路を同じindexへ委譲した。既存12 public types、42 public methods、19 public fields、free function、serde/error文言を維持した。
+- private workspace authorityがdefault compatibility configとrooted config、trailing-slash trim、長さ順raw segment-prefix、exact lookup、replaceを所有する。`configure_plugins`はdefault経路へのcompatibility wrapperとして残し、workspace reconfigureは全documentをstageしてからauthority/sessionを更新する。
+- duplicate open/close/reopenとsession ID衝突、UTF-8/16/32 edit、nested root/sibling、default configの4組合せ、2文書stage後のreconfigure rollbackと正常retry、EngineError category mappingをcharacterizationした。daemonのinvalid-root隔離、multi-root trust、exact wire error testも通過した。
+- raw URI比較はcase-sensitiveかつpercent-literalであり、case/percent aliasがuntrusted nested rootを外れてtrusted parentへfallbackし得る。また `file:///` はtrim後 `file:`、empty rootは空文字列になる。既存挙動をtest化したがsecurity-sensitiveな正規化は挙動変更になるため、Phase 12後の独立security fixでURI canonicalizationとworkspace authority policyを設計する。
+- 2巡の実装と各巡2名の独立レビュー後に未解決の新規P0〜P3はない。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -588,4 +599,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11、Phase 1〜7は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 8へ進む。
+Phase 0は2026-09-11、Phase 1〜8は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 9へ進む。
