@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 4 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 5 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -79,6 +79,17 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - crate rootの既存20 functionsと3 typesの公開path/signature、config/default、marker/registry/journalの正確なserialization bytesとdigest chainをservice contract testで固定した。
 - Unixのmanaged-entry symlinkとWindowsのcontrol/destination junctionをplatform固有testでfail closedに固定した。ローカルWindows gateに加え、Unix側のcfgと実装同一性を独立レビューし、3 OS CIで各platform testを実行する。
 - 関数body、serde shape、export checkpoint、fsync/rename/recovery順序を移動前後で比較した。複数巡の独立レビュー後に未解決P0〜P3はない。
+
+### Phase 5 完了時のベースライン
+
+- cargo test --workspace --all-targets: 135 tests passed。fleximarkd packageはservice unit 25件、daemon 32件、service contract 5件の合計62件が成功した。
+- Node pure RPC/preview/protocol tests: 54 tests passed、VS Code Electron tests: 75 tests passed、Python unittest discovery: 71 tests discovered（WindowsではPOSIX executable mode test 1件をskip）。
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- `fleximarkd/src/main.rs` は3,770行から81行のCLI/composition facadeになり、transport/stdio、cancellation、telemetry、preview HTTPと、serverのrouting/LSP/RPC/commands/diagnosticsをprivate moduleへ分離した。
+- command分類と6 handler、request deserialization/wire error、document changeのedit/assets/publication、HTTPのparse/authority/response write、stdioの1-message処理をnamed private operationへ抽出した。旧処理へ展開した順序、wire bytes、state mutationを独立レビューで照合した。
+- mode別routing、全workspace commandのsuccess/trust、exact deserialize error、response/notification順、実LSP obsolete publication抑止、HTTP header/CSP/status、duplicate/size/body境界、SSE replay、navigation revisionをcharacterization testで固定した。4巡の実装・複数独立レビュー後に未解決の新規P0〜P3はない。
+- 既存HTTP parserは、最初の `Content-Length` が解析不能で後続値が正しい場合に後続値を採用する。loopback・single-request・`Connection: close` に限定される既存P3だが、修正は挙動変更になるためPhase 5では行わず、現行境界をtest化した。Phase 12後の独立security fixではseen flagを値のparse結果から分離し、両header順を拒否する。
+- 2秒slowloris deadline、4 worker/16 queue飽和、Unix/macOSのsocket shutdown/timingはローカルWindowsで負荷再現していない。該当production bodyは移動前と同一であり、platform CIと将来のdeterministic load harnessへ委ねる。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -339,6 +350,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 5 — daemon routing、commands、preview HTTPの責務分離
 
+- 状態: 2026-09-12 完了。daemonを責務別private moduleへ分割し、command、request decode、change-document、transport、preview HTTPを小さなnamed operationへ整理した。追加characterization testと4巡の実装・複数独立レビューで順序・security境界を照合し、初回full gateで見つかったrelease testの旧owner参照も新moduleへ追従させた後、`mise run verify` に成功した。
 - 優先度 / ROI: P1 / 高。
 - 目的: Serverのstate ownershipとrequest/response変換を明確にする。
 - 問題点: transport、routing、LSP、RPC、commands、preview、cancellation、telemetryが一体化し、guard/deserialize/error mappingが反復する。
@@ -490,7 +502,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 | 11 | 高 | core move、enhancer、最適化を分ける |
 | 12 | 中 | tsconfig/test、Cargo依存、docsを分ける |
 
-Phase 5〜11は並行実施せず、直前のfull gateがgreenであることを着手条件とする。
+Phase 6〜11は並行実施せず、直前のfull gateがgreenであることを着手条件とする。
 
 ## 6. テスト・検証方法
 
@@ -554,4 +566,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11、Phase 1〜4は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 5へ進む。
+Phase 0は2026-09-11、Phase 1〜5は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 6へ進む。

@@ -116,11 +116,21 @@ export function suite(): void {
     );
     assert.ok(preview >= 0 && preview < daemon);
     assert.ok(daemon < stage && stage < manifest && manifest < adapter);
+    const daemonSource = path.join(
+      extension.extensionPath,
+      "crates/fleximarkd/src",
+    );
+    const mainSource = fs.readFileSync(
+      path.join(daemonSource, "main.rs"),
+      "utf8",
+    );
+    assert.match(mainSource, /^mod preview_http;$/m);
+    const previewOwner = fs.readFileSync(
+      path.join(daemonSource, "preview_http.rs"),
+      "utf8",
+    );
     assert.match(
-      fs.readFileSync(
-        path.join(extension.extensionPath, "crates/fleximarkd/src/main.rs"),
-        "utf8",
-      ),
+      previewOwner,
       /include_str!\("\.\.\/\.\.\/\.\.\/web\/preview-client\/browser-host\.js"\)/,
     );
   });

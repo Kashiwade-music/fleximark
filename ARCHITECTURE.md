@@ -63,7 +63,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | --- | --- | --- |
 | Adapter | `adapters/vscode` | VS Code activation, settings, commands, editor/workspace events, daemon recovery, panels and browser launch |
 | Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
-| Daemon | `crates/fleximarkd/src/main.rs` | LSP/custom RPC routing, cancellation, preview server and process-level composition |
+| Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
 | LSP/session | `crates/fleximark-lsp` | URI-to-session authority, document versions, diagnostics/navigation and preview publication state |
 | Engine | `crates/fleximark-engine` | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
@@ -87,6 +87,15 @@ export coordinator and public export operations, while its private `model`, `jou
 `filesystem`, and `recovery` modules own the persistent representation, digest-chained journal,
 filesystem primitives, and crash recovery respectively. These module boundaries do not add new
 public module paths or alter transaction ordering.
+
+Within the `fleximarkd` binary, `main.rs` owns CLI mode selection and standalone-preview
+composition. `transport/stdio.rs` owns framed process I/O and the ordered per-message dispatch
+operation; `cancellation.rs` owns request/document generations and cancellation tokens.
+`server/routing.rs` selects mode-scoped handlers, while `server/lsp.rs`, `server/rpc.rs`,
+`server/commands.rs`, and `server/diagnostics.rs` own their respective request operations.
+`preview_http.rs` owns the bounded loopback listener, request parsing, authority policy, SSE
+history, navigation and exact HTTP responses. `telemetry.rs` owns redacted operational traces.
+All of these modules are private implementation boundaries of the binary.
 
 ## Entry points
 
@@ -133,7 +142,9 @@ public module paths or alter transaction ordering.
    headers, publishes render events through SSE, and receives navigation events through
    POST requests whose `Origin` is one of the allowed loopback origins. The accepted host and
    origin are each allowlisted as `127.0.0.1` or `localhost`; they are not required to use the
-   same spelling.
+   same spelling. The current parser treats an unparsable first `Content-Length` as absent and
+   can therefore adopt a later valid value; this pre-existing, loopback-only compatibility debt
+   is characterized but requires a separately reviewed security behavior change to reject.
 6. **Source and filesystem to rendered output.** Raw HTML policy is loaded from trusted workspace
    configuration. Local assets must remain under configured roots, are content-typed and become
    opaque content-hash references. Preview markup is applied to a detached clone and rejects
