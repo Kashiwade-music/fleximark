@@ -65,16 +65,15 @@ class PlatformMappingTests(unittest.TestCase):
 
         ci_validate = ci[ci.index("  validate:") : ci.index("  dependency-review:")]
         release_validate = release[
-            release.index("  validate:") : release.index("  clean-install:")
+            release.index("  validate:") : release.index("  release:")
         ]
         release_publish = release[
-            release.index("  release:") : release.index("  publish-marketplace:")
+            release.index("  release:") : release.index("  clean-install:")
         ]
         for job, downstream in (
             (ci_validate, "mise run test -- --prebuilt"),
             (ci_validate, "vsce package --no-dependencies"),
             (release_validate, "mise run test -- --prebuilt"),
-            (release_validate, "vsce package --no-dependencies"),
             (release_publish, "yarn exec semantic-release"),
         ):
             with self.subTest(downstream=downstream):
@@ -503,6 +502,43 @@ class ToolProcessTests(unittest.TestCase):
 
 
 class TaskEntryPointTests(unittest.TestCase):
+    def test_generic_vscode_prepublish_keeps_the_complete_build(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(tasks, "build") as build,
+        ):
+            tasks.vscode_prepublish(())
+
+        build.assert_called_once_with(())
+
+    def test_release_vscode_prepublish_preserves_downloaded_prebuilt_inputs(
+        self,
+    ) -> None:
+        with (
+            patch.dict(os.environ, {"FLEXIMARK_RELEASE_PREBUILT": "1"}),
+            patch.object(tasks, "build") as build,
+            patch.object(tasks, "validate_prebuilt_inputs") as validate,
+        ):
+            tasks.vscode_prepublish(())
+
+        build.assert_not_called()
+        validate.assert_called_once_with(tasks.ROOT)
+
+    def test_release_vscode_prepublish_fails_when_an_input_is_missing(self) -> None:
+        with (
+            patch.dict(os.environ, {"FLEXIMARK_RELEASE_PREBUILT": "1"}),
+            patch.object(tasks, "build") as build,
+            patch.object(
+                tasks,
+                "validate_prebuilt_inputs",
+                side_effect=RuntimeError("prebuilt inputs are missing"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "prebuilt inputs are missing"):
+                tasks.vscode_prepublish(())
+
+        build.assert_not_called()
+
     def test_standalone_test_performs_the_complete_build_before_vscode(self) -> None:
         events: list[str] = []
 

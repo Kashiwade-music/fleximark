@@ -73,7 +73,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Plugin SDK/host | `crates/fleximark-plugin-sdk`, `crates/fleximark-plugin-host` | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
 | Preview client | `web/preview-client` | Atomic full/patch DOM application, navigation and opt-in enhancement runtimes |
 | CLI | `crates/fleximark-cli` | Direct render, benchmark and workspace/service commands |
-| Release | `scripts/_targets.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, checksums, VSIX validation and publishing |
+| Release | `scripts/_targets.py`, `scripts/release_artifact.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, exact-artifact identity, VSIX validation and publishing |
 
 The capability inventory is the detailed owner map. In particular, adapter settings remain in
 `package.json`; note, asset, plugin, theme and export policy remain service-owned workspace
@@ -97,6 +97,9 @@ preview-client-owned.
   `scripts/build.py` are the orchestration and JavaScript bundle entry points.
 - `scripts/_targets.py` owns the ordered six-platform daemon target set, platform/architecture
   normalization, executable names and manifest-relative paths.
+- `scripts/release_artifact.py` validates prebuilt release inputs and the final VSIX, writes and
+  verifies its identity sidecar, and is the shared gate used before cross-job handoff, smoke,
+  attestation and publication.
 
 ## Trust boundaries
 
@@ -131,6 +134,14 @@ preview-client-owned.
    from `bin/manifest.json`, confines its path to the extension, and verifies SHA-256 before
    launching the bundled daemon. An explicitly configured external daemon path is user-supplied
    and outside this checksum boundary.
+8. **Release assembly to publication.** The custom semantic-release prepare step creates the
+   final-version universal `fleximark.vsix` exactly once. Its identity sidecar binds the SHA-256,
+   strict semantic version, release tag and source commit. Every downstream job revalidates that
+   identity before clean installation, attestation or publication. GitHub keeps the release in
+   draft state until all six target smoke jobs and attestation succeed; Marketplace publication
+   consumes the same Actions artifact only after GitHub publication. A complete draft or public
+   release is recoverable on rerun, while incomplete or contradictory remote state fails closed
+   for manual recovery.
 
 The CLI deliberately bypasses the JSON-RPC and VS Code trust boundary. Its filesystem commands
 still use `fleximark_service` validation and transaction rules; invocation by the local user is
@@ -147,6 +158,7 @@ the authority to perform them.
 | Browser preview | `fleximarkd/src/main.rs`, `browser-host.mts` | Tokenized loopback HTTP page, SSE publication stream and JSON POST navigation events |
 | Plugin manifest and ABI | `schemas/plugin-manifest.schema.json`, `fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit` | TOML manifest `schema_version = 1`, plugin `api_version = 1`, versioned WIT world and signed artifact digest |
 | Release manifest | `scripts/create_release_manifest.py` | JSON `schemaVersion: 1`, `protocolVersion: 1`, and platform/arch/path/SHA-256 entries for Linux, macOS and Windows on x64/arm64 |
+| Release identity sidecar | `scripts/release_artifact.py` | JSON `schemaVersion: 1`, fixed artifact name, strict semantic version, SHA-256, `gitTag`, and `sourceGitHead`; exact fields only |
 
 The current custom method set is `initialize`, `attachDocument`, `checkpointDocument`,
 `requestFullText`, `render`, `createPreview`, `disposePreview`, `setSelection`, `setViewport`,
@@ -208,4 +220,6 @@ inspection and platform clean-install smoke tests cover the remaining boundaries
 Standalone `mise run test` performs the full product build before integration tests. CI and
 release jobs that have already assembled all six daemons and built the extension use the explicit
 `mise run test -- --prebuilt` path to avoid repeating that build; it is not the default developer
-test path.
+test path. A release creates the final-version VSIX once, transfers it with its checked identity,
+and gates GitHub and Marketplace publication on clean installation of those exact bits on all six
+supported target combinations.

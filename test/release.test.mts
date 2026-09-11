@@ -72,6 +72,7 @@ export function suite(): void {
       "check_performance_budgets.py",
       "create_release_manifest.py",
       "l10n_export.py",
+      "release_artifact.py",
       "smoke_vsix.py",
       "stage_daemon.py",
       "tasks.py",

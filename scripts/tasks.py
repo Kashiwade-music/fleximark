@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import time
 from collections.abc import Sequence
@@ -11,6 +12,7 @@ from _tools import ROOT, executable, run, script_entrypoint, yarn
 from check_performance_budgets import check_performance_budgets
 from create_release_manifest import create_manifest
 from l10n_export import export_localization
+from release_artifact import validate_prebuilt_inputs
 from smoke_vsix import smoke_vsix
 from stage_daemon import stage_daemon
 from verify_architecture import verify_architecture
@@ -26,6 +28,16 @@ def build(_: Sequence[str]) -> None:
     stage_daemon()
     create_manifest()
     javascript_build.build_extension(production=True)
+
+
+def vscode_prepublish(args: Sequence[str]) -> None:
+    if args:
+        raise RuntimeError("vscode-prepublish does not accept arguments")
+    if os.environ.get("FLEXIMARK_RELEASE_PREBUILT") != "1":
+        build(())
+        return
+
+    validate_prebuilt_inputs(ROOT)
 
 
 def stop_processes(processes: Sequence[subprocess.Popen[bytes]]) -> None:
@@ -149,6 +161,7 @@ TASKS = {
     "smoke": smoke,
     "test": integration_test,
     "verify": verify,
+    "vscode-prepublish": vscode_prepublish,
 }
 
 

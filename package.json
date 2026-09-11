@@ -226,7 +226,7 @@
   },
   "l10n": "./l10n",
   "scripts": {
-    "vscode:prepublish": "python scripts/tasks.py build",
+    "vscode:prepublish": "python scripts/tasks.py vscode-prepublish",
     "clean": "mise run clean",
     "build": "mise run build",
     "dev": "mise run dev",

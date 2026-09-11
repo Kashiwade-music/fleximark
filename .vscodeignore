@@ -38,6 +38,7 @@ assets/logo_icon.webp
 .yarnrc
 parserPlugin.js
 *.vsix
+*.vsix.identity.json
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs

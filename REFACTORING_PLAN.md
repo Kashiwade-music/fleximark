@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 2 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 3 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -57,6 +57,18 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - 6 target、platform/arch正規化、実行ファイル名、manifest pathの正本を `scripts/_targets.py` へ集約し、Python behavioral testsとrelease contract testで固定した。
 - GitHub Actionsのartifact転送はUnix executable modeを保存しないため、manifest生成時に非Windows daemonを0755へ正規化してからSHA-256を計算する。Windows artifactにはchmodしない契約をtestで固定した。
 - `mise run test` 単独のfull buildは維持し、明示的にbuild済みのCI/release検証だけ `mise run test -- --prebuilt` を使用する。最終VSIXのversion/hash/publish identityはPhase 3へ持ち越した。
+
+### Phase 3 完了時のベースライン
+
+- cargo test --workspace --all-targets: 115 tests passed
+- Node pure RPC/preview/protocol tests: 54 tests passed
+- VS Code Electron tests: 75 tests passed。multi-root testはworkspace folder削除イベントと状態反映を逐次待ち、反復実行で前回のrootを残さない。
+- Python unittest discovery: 71 tests discovered、WindowsではPOSIX executable mode test 1件をskip。semantic-release package hookのNode tests 5件もPython gateから実行する。
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- 最終versionの `fleximark.vsix` はcustom semantic-release prepareで一度だけ生成し、厳格なSemVer、VSIX metadata、manifest、6 daemon hash、ZIP path/type/sizeを検証してidentity sidecarへSHA-256、tag、source commitを記録する。
+- GitHub Releaseはdraftのまま6 target clean installとattestationを待ち、その後に公開する。Marketplaceは公開済みGitHub Releaseと同じActions artifact/hashだけをOIDCでpublishする。
+- 完全なdraftまたは公開済みreleaseからの再実行はartifactを再検証して自動復旧する。release commitだけがpushされtagがない状態、またはtag/draft/assetsが不完全・不一致な状態は推測して補修せずfail closedとし、手動復旧を要求する。
+- 独立レビューを4巡し、既知の手動復旧境界を除いて未解決P0〜P3がないことを確認した。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -285,6 +297,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 3 — 最終VSIXを一度だけ組み立て、同一bitsを検証・公開
 
+- 状態: 2026-09-12 完了。release commit作成前に最終VSIXとidentity sidecarを生成し、tag/source identityを検証してGitHub draftとActions artifactへ引き渡し、6 target clean install、attestation、GitHub公開、Marketplace OIDCを同一SHA-256で直列化した。non-release、rerun、ZIP攻撃面、shell injection、tag/source identityを複数の独立レビューで反復検証し、`mise run verify` に成功した。
 - 優先度 / ROI: P0 / 高。release副作用が大きいため単独Phase。
 - 目的: clean-installしたartifactとGitHub Release/Marketplaceへ出すartifactをbyte-for-byte同一にする。
 - 問題点: candidate smoke後、semantic-release prepareがversionの異なるVSIXを再packageする。
@@ -530,4 +543,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 1へ進む。release correctnessを優先する場合でも、Phase 2→3はそれぞれ独立したPhaseとして実施する。
+Phase 0は2026-09-11、Phase 1〜3は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 4へ進む。
