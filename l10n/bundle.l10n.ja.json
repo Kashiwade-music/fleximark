@@ -3,6 +3,10 @@
   "Select a note template": "ノートのテンプレートを選択してください",
   "Select a FlexiMark workspace": "FlexiMark ワークスペースを選択してください",
   "Open a Markdown document first.": "先に Markdown 文書を開いてください。",
-  "FlexiMark daemon repeatedly failed. Check the FlexiMark output.": "FlexiMark daemon が繰り返し停止しました。FlexiMark の出力を確認してください。",
+  "FlexiMark recovered": "FlexiMark が復旧しました",
+  "FlexiMark daemon stopped; reconnecting…": "FlexiMark daemon が停止しました。再接続しています…",
+  "FlexiMark daemon repeatedly failed.": "FlexiMark daemon が繰り返し停止しました。",
+  "Retry": "再試行",
+  "Open Output": "出力を開く",
   "FlexiMark failed: {0}": "FlexiMark の処理に失敗しました: {0}"
 }

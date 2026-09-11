@@ -3,6 +3,10 @@
   "Select a note template": "Select a note template",
   "Select a FlexiMark workspace": "Select a FlexiMark workspace",
   "Open a Markdown document first.": "Open a Markdown document first.",
-  "FlexiMark daemon repeatedly failed. Check the FlexiMark output.": "FlexiMark daemon repeatedly failed. Check the FlexiMark output.",
+  "FlexiMark recovered": "FlexiMark recovered",
+  "FlexiMark daemon stopped; reconnecting…": "FlexiMark daemon stopped; reconnecting…",
+  "FlexiMark daemon repeatedly failed.": "FlexiMark daemon repeatedly failed.",
+  "Retry": "Retry",
+  "Open Output": "Open Output",
   "FlexiMark failed: {0}": "FlexiMark failed: {0}"
 }
