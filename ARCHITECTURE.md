@@ -70,7 +70,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Model | `crates/fleximark-model` | IR, node identity, source provenance and navigation data |
 | Parser | `crates/fleximark-parser` | Markdown/Comrak AST to validated FlexiMark IR |
 | HTML renderer | `crates/fleximark-render-html` | Safe HTML and render-model serialization |
-| Plugin SDK/host | `crates/fleximark-plugin-sdk`, `crates/fleximark-plugin-host` | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
+| Plugin SDK/host | `crates/fleximark-plugin-sdk`; `crates/fleximark-plugin-host` facade with private `runtime`, `package`, `pipeline`, `edit_map`, `candidate`, and `error` modules | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
 | Preview client | `web/preview-client` | Atomic full/patch DOM application, navigation and opt-in enhancement runtimes |
 | CLI | `crates/fleximark-cli` | Direct render, benchmark and workspace/service commands |
 | Release | `scripts/_targets.py`, `scripts/release_artifact.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, exact-artifact identity, VSIX validation and publishing |
@@ -105,6 +105,14 @@ cache state. `render.rs` prepares fingerprints, rendered blocks and revisions, b
 patch publications and commits cache state only after publication construction succeeds.
 `diff.rs`, `identity.rs`, `provenance.rs`, `assets.rs`, and `error.rs` are one-directional leaf or
 supporting owners; the private module dependency graph is acyclic.
+
+Within `fleximark-plugin-host`, `lib.rs` preserves the existing public type and method paths as
+an explicit facade. `runtime/wasmtime.rs` owns Component execution, WASI preopens, resource
+limits and cancellation; `package.rs` owns signature and hash verification plus registered
+package state. `pipeline.rs` owns ordered hook orchestration, with only the workspace-trust gate
+and required/optional failure disposition shared across hooks. Hook-specific validation and
+transaction commit points remain local. `edit_map.rs`, `candidate.rs`, and `error.rs` are private
+supporting owners; the module dependency graph is acyclic and does not depend back on the facade.
 
 ## Entry points
 
