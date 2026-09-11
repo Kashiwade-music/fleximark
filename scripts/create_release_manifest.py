@@ -4,30 +4,22 @@ import argparse
 import hashlib
 import json
 
-from _tools import ROOT
-
-
-TARGETS = [
-    ("linux", "x64", "fleximarkd"),
-    ("linux", "arm64", "fleximarkd"),
-    ("darwin", "x64", "fleximarkd"),
-    ("darwin", "arm64", "fleximarkd"),
-    ("win32", "x64", "fleximarkd.exe"),
-    ("win32", "arm64", "fleximarkd.exe"),
-]
+from _targets import TARGETS
+from _tools import ROOT, script_entrypoint
 
 
 def create_manifest(*, require_all: bool = False) -> None:
     artifacts: list[dict[str, str]] = []
-    for platform, arch, executable in TARGETS:
-        relative_path = f"bin/{platform}-{arch}/{executable}"
+    for target in TARGETS:
+        relative_path = target.bin_relative_path.as_posix()
         artifact = ROOT / relative_path
         if not artifact.is_file():
             continue
+        target.normalize_executable_mode(artifact)
         artifacts.append(
             {
-                "platform": platform,
-                "arch": arch,
+                "platform": target.platform,
+                "arch": target.arch,
                 "path": relative_path,
                 "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
             }
@@ -55,4 +47,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    script_entrypoint(main)

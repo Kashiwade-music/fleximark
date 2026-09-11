@@ -31,14 +31,34 @@ export function suite(): void {
     );
   });
 
-  test("declares Windows macOS and Linux x64 and arm64 daemon artifacts", () => {
-    const source = fs.readFileSync(
+  test("owns the six daemon artifact targets in one Python module", () => {
+    const targetSource = fs.readFileSync(
+      path.join(extension.extensionPath, "scripts/_targets.py"),
+      "utf8",
+    );
+    const declarations = [
+      ...targetSource.matchAll(/Target\("([^"]+)", "([^"]+)", "([^"]+)"\)/g),
+    ].map(([, platform, arch, executable]) => [platform, arch, executable]);
+    assert.deepEqual(declarations, [
+      ["linux", "x64", "fleximarkd"],
+      ["linux", "arm64", "fleximarkd"],
+      ["darwin", "x64", "fleximarkd"],
+      ["darwin", "arm64", "fleximarkd"],
+      ["win32", "x64", "fleximarkd.exe"],
+      ["win32", "arm64", "fleximarkd.exe"],
+    ]);
+    assert.match(
+      targetSource,
+      /PurePosixPath\("bin"\) \/ f"\{self\.platform\}-\{self\.arch\}" \/ self\.executable/,
+    );
+
+    const manifestSource = fs.readFileSync(
       path.join(extension.extensionPath, "scripts/create_release_manifest.py"),
       "utf8",
     );
-    for (const target of ["win32", "darwin", "linux"])
-      for (const arch of ["x64", "arm64"])
-        assert.match(source, new RegExp('\\("' + target + '", "' + arch + '"'));
+    assert.match(manifestSource, /from _targets import TARGETS/);
+    assert.match(manifestSource, /target\.bin_relative_path\.as_posix\(\)/);
+    assert.doesNotMatch(manifestSource, /^TARGETS\s*=/m);
   });
 
   test("implements custom development tasks in Python", () => {
@@ -48,6 +68,7 @@ export function suite(): void {
       .filter((name) => name.endsWith(".py"));
     for (const name of [
       "build.py",
+      "_targets.py",
       "check_performance_budgets.py",
       "create_release_manifest.py",
       "l10n_export.py",

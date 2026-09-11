@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
 
 import build as javascript_build
-from _tools import ROOT, executable, run, yarn
+from _tools import ROOT, executable, run, script_entrypoint, yarn
 from check_performance_budgets import check_performance_budgets
 from create_release_manifest import create_manifest
 from l10n_export import export_localization
@@ -40,6 +39,7 @@ def stop_processes(processes: Sequence[subprocess.Popen[bytes]]) -> None:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+            process.wait(timeout=5)
 
 
 def dev(_: Sequence[str]) -> None:
@@ -48,11 +48,12 @@ def dev(_: Sequence[str]) -> None:
     commands.append(
         ["yarn", "exec", "tsc", "--noEmit", "--watch", "--project", "tsconfig.json"]
     )
-    processes = [
-        subprocess.Popen([executable(command[0]), *command[1:]], cwd=ROOT)
-        for command in commands
-    ]
+    processes: list[subprocess.Popen[bytes]] = []
     try:
+        for command in commands:
+            processes.append(
+                subprocess.Popen([executable(command[0]), *command[1:]], cwd=ROOT)
+            )
         while True:
             for process in processes:
                 code = process.poll()
@@ -72,9 +73,13 @@ def compile_tests() -> None:
     javascript_build.build_tests()
 
 
-def integration_test(_: Sequence[str]) -> None:
+def integration_test(args: Sequence[str]) -> None:
+    arguments = tuple(args)
+    if arguments not in {(), ("--prebuilt",)}:
+        raise RuntimeError("test accepts only the optional --prebuilt flag")
     compile_tests()
-    build(())
+    if not arguments:
+        build(())
     yarn("vscode-test")
 
 
@@ -156,8 +161,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    script_entrypoint(main)

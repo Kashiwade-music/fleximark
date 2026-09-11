@@ -73,7 +73,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Plugin SDK/host | `crates/fleximark-plugin-sdk`, `crates/fleximark-plugin-host` | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
 | Preview client | `web/preview-client` | Atomic full/patch DOM application, navigation and opt-in enhancement runtimes |
 | CLI | `crates/fleximark-cli` | Direct render, benchmark and workspace/service commands |
-| Release | `scripts`, `.github/workflows`, `bin/manifest.json` | Build order, six-platform daemon assembly, checksums, VSIX validation and publishing |
+| Release | `scripts/_targets.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, checksums, VSIX validation and publishing |
 
 The capability inventory is the detailed owner map. In particular, adapter settings remain in
 `package.json`; note, asset, plugin, theme and export policy remain service-owned workspace
@@ -95,6 +95,8 @@ preview-client-owned.
   into the daemon.
 - `mise.toml` is the developer-facing build/test/package entry point. `scripts/tasks.py` and
   `scripts/build.py` are the orchestration and JavaScript bundle entry points.
+- `scripts/_targets.py` owns the ordered six-platform daemon target set, platform/architecture
+  normalization, executable names and manifest-relative paths.
 
 ## Trust boundaries
 
@@ -203,3 +205,7 @@ then production extension/preview bundles. Pure RPC/preview tests run in Node, w
 integration suite remains responsible for extension activation and editor/workspace behavior.
 Python `unittest`, TypeScript checks, Rust tests/lints, architecture inventory checks, packaging
 inspection and platform clean-install smoke tests cover the remaining boundaries.
+Standalone `mise run test` performs the full product build before integration tests. CI and
+release jobs that have already assembled all six daemons and built the extension use the explicit
+`mise run test -- --prebuilt` path to avoid repeating that build; it is not the default developer
+test path.

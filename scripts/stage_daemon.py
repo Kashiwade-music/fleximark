@@ -4,42 +4,26 @@ import platform
 import shutil
 import sys
 
-from _tools import ROOT
+from _targets import current_target, normalize_arch, normalize_platform
+from _tools import ROOT, script_entrypoint
 
 
 def platform_name() -> str:
-    if sys.platform == "win32":
-        return "win32"
-    if sys.platform == "darwin":
-        return "darwin"
-    if sys.platform.startswith("linux"):
-        return "linux"
-    raise RuntimeError(f"unsupported platform: {sys.platform}")
+    return normalize_platform(sys.platform)
 
 
 def architecture_name() -> str:
-    machine = platform.machine().lower()
-    if machine in {"amd64", "x86_64"}:
-        return "x64"
-    if machine in {"arm64", "aarch64"}:
-        return "arm64"
-    raise RuntimeError(f"unsupported architecture: {machine}")
+    return normalize_arch(platform.machine())
 
 
 def stage_daemon() -> None:
-    executable = "fleximarkd.exe" if sys.platform == "win32" else "fleximarkd"
-    source = ROOT / "target" / "release" / executable
-    destination = (
-        ROOT
-        / "bin"
-        / f"{platform_name()}-{architecture_name()}"
-        / executable
-    )
+    target = current_target(sys.platform, platform.machine())
+    source = ROOT / "target" / "release" / target.executable
+    destination = ROOT.joinpath(*target.bin_relative_path.parts)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
-    if sys.platform != "win32":
-        destination.chmod(0o755)
+    target.normalize_executable_mode(destination)
 
 
 if __name__ == "__main__":
-    stage_daemon()
+    script_entrypoint(stage_daemon)

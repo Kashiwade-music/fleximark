@@ -11,29 +11,19 @@ import tempfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from _tools import ROOT, run
+from _targets import find_target, normalize_arch, normalize_platform
+from _tools import ROOT, run, script_entrypoint
 
 
 EXTENSION_ID = "kashiwade.fleximark"
 
 
 def platform_name() -> str:
-    if sys.platform == "win32":
-        return "win32"
-    if sys.platform == "darwin":
-        return "darwin"
-    if sys.platform.startswith("linux"):
-        return "linux"
-    raise RuntimeError(f"unsupported platform: {sys.platform}")
+    return normalize_platform(sys.platform)
 
 
 def architecture_name() -> str:
-    machine = platform.machine().lower()
-    if machine in {"amd64", "x86_64"}:
-        return "x64"
-    if machine in {"arm64", "aarch64"}:
-        return "arm64"
-    raise RuntimeError(f"unsupported architecture: {machine}")
+    return normalize_arch(platform.machine())
 
 
 def vscode_executable() -> Path:
@@ -75,17 +65,14 @@ def vscode_cli(executable_path: Path) -> Path:
 
 
 def checked_vscode(executable_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
+    return subprocess.run(
         [str(executable_path), *args],
         cwd=ROOT,
         capture_output=True,
         encoding="utf-8",
         errors="replace",
-        check=False,
+        check=True,
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr or result.stdout or "VS Code command failed")
-    return result
 
 
 def read_rpc_message(stream: BinaryIO) -> dict[str, Any]:
@@ -121,26 +108,28 @@ def initialize_daemon(daemon: Path, protocol_version: int) -> None:
         stderr=subprocess.PIPE,
         creationflags=(subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0),
     )
-    assert child.stdin is not None
-    assert child.stdout is not None
-    assert child.stderr is not None
-    request = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "fleximark/initialize",
-            "params": {
-                "protocolVersion": protocol_version,
-                "client": {"name": "release-smoke", "version": "1"},
-                "capabilities": {},
-            },
-        },
-        separators=(",", ":"),
-    ).encode()
-    child.stdin.write(f"Content-Length: {len(request)}\r\n\r\n".encode() + request)
-    child.stdin.flush()
-
     try:
+        assert child.stdin is not None
+        assert child.stdout is not None
+        assert child.stderr is not None
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "fleximark/initialize",
+                "params": {
+                    "protocolVersion": protocol_version,
+                    "client": {"name": "release-smoke", "version": "1"},
+                    "capabilities": {},
+                },
+            },
+            separators=(",", ":"),
+        ).encode()
+        child.stdin.write(
+            f"Content-Length: {len(request)}\r\n\r\n".encode() + request
+        )
+        child.stdin.flush()
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(read_rpc_message, child.stdout)
             try:
@@ -152,7 +141,11 @@ def initialize_daemon(daemon: Path, protocol_version: int) -> None:
                     details or "packaged daemon initialize timed out"
                 ) from error
     finally:
-        child.stdin.close()
+        if child.stdin is not None:
+            try:
+                child.stdin.close()
+            except OSError:
+                pass
         if child.poll() is None:
             child.kill()
         child.wait(timeout=5)
@@ -199,12 +192,13 @@ def smoke_vsix(vsix: Path) -> None:
         )
         if manifest.get("schemaVersion") != 1:
             raise RuntimeError("unsupported release manifest")
+        target = find_target(platform_name(), architecture_name())
         artifact = next(
             (
                 item
                 for item in manifest["artifacts"]
-                if item["platform"] == platform_name()
-                and item["arch"] == architecture_name()
+                if item["platform"] == target.platform
+                and item["arch"] == target.arch
             ),
             None,
         )
@@ -228,8 +222,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    script_entrypoint(main)

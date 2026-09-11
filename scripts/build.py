@@ -4,7 +4,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-from _tools import ROOT, yarn
+from _tools import ROOT, script_entrypoint, yarn
 
 
 DIST = ROOT / "dist"
@@ -141,4 +141,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    script_entrypoint(main)

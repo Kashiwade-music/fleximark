@@ -4,7 +4,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from _tools import ROOT, run
+from _tools import ROOT, run, script_entrypoint
 
 
 SOURCE_EXTENSIONS = {".mts", ".cts", ".ts", ".js"}
@@ -45,4 +45,4 @@ def export_localization() -> None:
 
 
 if __name__ == "__main__":
-    export_localization()
+    script_entrypoint(export_localization)

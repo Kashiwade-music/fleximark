@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from contextlib import redirect_stderr
+from dataclasses import FrozenInstanceError
 import hashlib
+import io
 import json
+import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -15,12 +20,69 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import _tools
+import _targets
 import create_release_manifest
 import smoke_vsix
 import stage_daemon
+import tasks
 
 
 class PlatformMappingTests(unittest.TestCase):
+    def test_single_immutable_target_owner_matches_all_workflow_matrices(self) -> None:
+        expected = [
+            ("ubuntu-24.04", "linux", "x64"),
+            ("ubuntu-24.04-arm", "linux", "arm64"),
+            ("macos-15-intel", "darwin", "x64"),
+            ("macos-15", "darwin", "arm64"),
+            ("windows-2025", "win32", "x64"),
+            ("windows-11-arm", "win32", "arm64"),
+        ]
+        self.assertEqual(
+            [(target.platform, target.arch) for target in _targets.TARGETS],
+            [(platform_name, arch) for _, platform_name, arch in expected],
+        )
+        with self.assertRaises(FrozenInstanceError):
+            _targets.TARGETS[0].arch = "arm64"  # type: ignore[misc]
+
+        matrix_row = re.compile(
+            r"- \{ os: ([^,]+), platform: ([^,]+), arch: ([^ }]+) \}"
+        )
+        actual: list[tuple[str, str, str]] = []
+        for workflow in ("ci.yml", "release.yml"):
+            source = (_tools.ROOT / ".github" / "workflows" / workflow).read_text(
+                encoding="utf-8"
+            )
+            actual.extend(matrix_row.findall(source))
+        self.assertEqual(actual, expected * 4)
+
+    def test_downloaded_daemons_are_manifested_before_prebuilt_or_packaging(self) -> None:
+        ci = (_tools.ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        release = (
+            _tools.ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+
+        ci_validate = ci[ci.index("  validate:") : ci.index("  dependency-review:")]
+        release_validate = release[
+            release.index("  validate:") : release.index("  clean-install:")
+        ]
+        release_publish = release[
+            release.index("  release:") : release.index("  publish-marketplace:")
+        ]
+        for job, downstream in (
+            (ci_validate, "mise run test -- --prebuilt"),
+            (ci_validate, "vsce package --no-dependencies"),
+            (release_validate, "mise run test -- --prebuilt"),
+            (release_validate, "vsce package --no-dependencies"),
+            (release_publish, "yarn exec semantic-release"),
+        ):
+            with self.subTest(downstream=downstream):
+                download = job.index("Download platform daemons")
+                manifest = job.index("create_release_manifest.py --require-all")
+                self.assertLess(download, manifest)
+                self.assertLess(manifest, job.index(downstream))
+
     def test_maps_supported_operating_systems(self) -> None:
         for reported, expected in (
             ("win32", "win32"),
@@ -114,8 +176,88 @@ class StageDaemonTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), b"daemon-binary")
             chmod.assert_called_once_with(0o755)
 
+    def test_stages_windows_daemon_with_exe_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "target" / "release" / "fleximarkd.exe"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"windows-daemon")
+
+            with (
+                patch.object(stage_daemon, "ROOT", root),
+                patch.object(stage_daemon.sys, "platform", "win32"),
+                patch.object(
+                    stage_daemon.platform, "machine", return_value="AMD64"
+                ),
+                patch.object(Path, "chmod") as chmod,
+            ):
+                stage_daemon.stage_daemon()
+
+            destination = root / "bin" / "win32-x64" / "fleximarkd.exe"
+            self.assertEqual(destination.read_bytes(), b"windows-daemon")
+            chmod.assert_not_called()
+
 
 class ReleaseManifestTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "POSIX mode bits are required")
+    def test_manifest_normalizes_downloaded_unix_daemon_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "bin" / "linux-x64" / "fleximarkd"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"downloaded daemon")
+            artifact.chmod(0o644)
+
+            with patch.object(create_release_manifest, "ROOT", root):
+                create_release_manifest.create_manifest()
+
+            self.assertEqual(artifact.stat().st_mode & 0o777, 0o755)
+
+    def test_manifest_does_not_chmod_downloaded_windows_daemon(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "bin" / "win32-x64" / "fleximarkd.exe"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"downloaded windows daemon")
+
+            with (
+                patch.object(create_release_manifest, "ROOT", root),
+                patch.object(Path, "chmod") as chmod,
+            ):
+                create_release_manifest.create_manifest()
+
+            chmod.assert_not_called()
+
+    def test_require_all_emits_exactly_the_six_supported_daemon_targets(self) -> None:
+        expected = [
+            ("linux", "x64", "bin/linux-x64/fleximarkd"),
+            ("linux", "arm64", "bin/linux-arm64/fleximarkd"),
+            ("darwin", "x64", "bin/darwin-x64/fleximarkd"),
+            ("darwin", "arm64", "bin/darwin-arm64/fleximarkd"),
+            ("win32", "x64", "bin/win32-x64/fleximarkd.exe"),
+            ("win32", "arm64", "bin/win32-arm64/fleximarkd.exe"),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for _, _, relative_path in expected:
+                artifact = root / relative_path
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_bytes(relative_path.encode())
+
+            with patch.object(create_release_manifest, "ROOT", root):
+                create_release_manifest.create_manifest(require_all=True)
+
+            manifest = json.loads(
+                (root / "bin" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [
+                    (item["platform"], item["arch"], item["path"])
+                    for item in manifest["artifacts"]
+                ],
+                expected,
+            )
+
     def test_writes_partial_manifest_with_stable_order_and_content_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -177,6 +319,90 @@ class ReleaseManifestTests(unittest.TestCase):
 
 
 class ToolProcessTests(unittest.TestCase):
+    def test_windows_candidates_preserve_path_and_pathext_order(self) -> None:
+        self.assertEqual(
+            _tools.windows_executable_candidates(
+                "sample",
+                path="first|second",
+                pathext=".CMD;.EXE",
+                path_separator="|",
+            ),
+            (
+                Path("first") / "sample.cmd",
+                Path("first") / "sample.exe",
+                Path("second") / "sample.cmd",
+                Path("second") / "sample.exe",
+            ),
+        )
+
+    def test_windows_candidates_use_default_and_skip_suffixed_names(self) -> None:
+        defaults = _tools.windows_executable_candidates(
+            "sample", path="tools", pathext=None, path_separator="|"
+        )
+        self.assertEqual(
+            tuple(candidate.name for candidate in defaults),
+            ("sample.com", "sample.exe", "sample.bat", "sample.cmd"),
+        )
+        self.assertEqual(
+            _tools.windows_executable_candidates(
+                "sample.exe",
+                path="tools",
+                pathext=".CMD;.EXE",
+                path_separator="|",
+            ),
+            (),
+        )
+
+    def test_suffixed_executable_falls_back_to_which(self) -> None:
+        checked: list[Path] = []
+        which = MagicMock(return_value="resolved/sample.exe")
+
+        def missing(candidate: Path) -> bool:
+            checked.append(candidate)
+            return False
+
+        resolved = _tools.resolve_executable(
+            "sample.exe",
+            windows=True,
+            path="first|second",
+            pathext=".CMD;.EXE",
+            path_separator="|",
+            is_file=missing,
+            which=which,
+        )
+        self.assertEqual(resolved, "resolved/sample.exe")
+        self.assertEqual(checked, [])
+        which.assert_called_once_with("sample.exe")
+
+    def test_windows_candidate_misses_fall_back_to_which(self) -> None:
+        checked: list[Path] = []
+        which = MagicMock(return_value="resolved/sample")
+
+        def missing(candidate: Path) -> bool:
+            checked.append(candidate)
+            return False
+
+        resolved = _tools.resolve_executable(
+            "sample",
+            windows=True,
+            path="first|second",
+            pathext=".CMD;.EXE",
+            path_separator="|",
+            is_file=missing,
+            which=which,
+        )
+        self.assertEqual(
+            checked,
+            [
+                Path("first") / "sample.cmd",
+                Path("first") / "sample.exe",
+                Path("second") / "sample.cmd",
+                Path("second") / "sample.exe",
+            ],
+        )
+        self.assertEqual(resolved, "resolved/sample")
+        which.assert_called_once_with("sample")
+
     def test_run_uses_repository_root_and_merges_environment_overrides(self) -> None:
         completed = subprocess.CompletedProcess(["tool", "arg"], 0, "ok", "")
         with (
@@ -202,6 +428,248 @@ class ToolProcessTests(unittest.TestCase):
         self.assertEqual(keyword["errors"], "replace")
         self.assertEqual(keyword["timeout"], 2.5)
         self.assertEqual(keyword["env"]["FLEXIMARK_TEST_VALUE"], "present")
+
+    def test_nonzero_process_preserves_exit_code_stdout_and_stderr(self) -> None:
+        source = (
+            "import sys; "
+            "print('standard output', flush=True); "
+            "print('standard error', file=sys.stderr, flush=True); "
+            "raise SystemExit(7)"
+        )
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            _tools.run(sys.executable, "-c", source, capture_output=True)
+
+        self.assertEqual(raised.exception.returncode, 7)
+        self.assertEqual(raised.exception.stdout, "standard output\n")
+        self.assertEqual(raised.exception.stderr, "standard error\n")
+
+    def test_timed_out_process_preserves_partial_stdout_and_stderr(self) -> None:
+        source = (
+            "import sys, time; "
+            "print('partial output', flush=True); "
+            "print('partial error', file=sys.stderr, flush=True); "
+            "time.sleep(10)"
+        )
+        with self.assertRaises(subprocess.TimeoutExpired) as raised:
+            _tools.run(
+                sys.executable,
+                "-c",
+                source,
+                capture_output=True,
+                timeout=0.25,
+            )
+
+        stdout = raised.exception.stdout
+        stderr = raised.exception.stderr
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode()
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode()
+        self.assertEqual(stdout, "partial output\n")
+        self.assertEqual(stderr, "partial error\n")
+
+    def test_entrypoint_formats_nonzero_and_timeout_with_binary_output(self) -> None:
+        cases = (
+            (
+                subprocess.CalledProcessError(
+                    7,
+                    [b"tool", b"bad-\xff"],
+                    output=b"standard-\xff-output\n",
+                    stderr=b"standard-\xff-error\n",
+                ),
+                ("exit code 7", "tool", "stdout:", "standard-�-output", "stderr:", "standard-�-error"),
+            ),
+            (
+                subprocess.TimeoutExpired(
+                    [b"tool", b"slow"],
+                    2.5,
+                    output=b"partial-\xff-output\n",
+                    stderr=b"partial-\xff-error\n",
+                ),
+                ("timed out after 2.5s", "tool slow", "stdout:", "partial-�-output", "stderr:", "partial-�-error"),
+            ),
+        )
+        for error, expected_parts in cases:
+            with self.subTest(error=type(error).__name__):
+                stderr = io.StringIO()
+
+                def fail() -> None:
+                    raise error
+
+                with redirect_stderr(stderr), self.assertRaisesRegex(SystemExit, "1"):
+                    _tools.script_entrypoint(fail)
+                for expected in expected_parts:
+                    self.assertIn(expected, stderr.getvalue())
+
+
+class TaskEntryPointTests(unittest.TestCase):
+    def test_standalone_test_performs_the_complete_build_before_vscode(self) -> None:
+        events: list[str] = []
+
+        def record(name: str):
+            return lambda *args, **kwargs: events.append(name)
+
+        with (
+            patch.object(tasks, "compile_tests", side_effect=record("tests")),
+            patch.object(
+                tasks.javascript_build,
+                "build_browser_client",
+                side_effect=record("browser"),
+            ),
+            patch.object(tasks, "run", side_effect=record("cargo")) as run,
+            patch.object(tasks, "stage_daemon", side_effect=record("stage")),
+            patch.object(tasks, "create_manifest", side_effect=record("manifest")),
+            patch.object(
+                tasks.javascript_build,
+                "build_extension",
+                side_effect=record("extension"),
+            ),
+            patch.object(tasks, "yarn", side_effect=record("vscode")) as yarn,
+        ):
+            tasks.TASKS["test"](())
+
+        self.assertEqual(
+            events,
+            [
+                "tests",
+                "browser",
+                "cargo",
+                "stage",
+                "manifest",
+                "extension",
+                "vscode",
+            ],
+        )
+        run.assert_called_once_with(
+            "cargo", "build", "--release", "-p", "fleximarkd"
+        )
+        yarn.assert_called_once_with("vscode-test")
+
+    def test_prebuilt_test_builds_only_tests_before_vscode(self) -> None:
+        events: list[str] = []
+        with (
+            patch.object(
+                tasks, "compile_tests", side_effect=lambda: events.append("tests")
+            ),
+            patch.object(tasks, "build") as build,
+            patch.object(
+                tasks, "yarn", side_effect=lambda *args: events.append("vscode")
+            ) as yarn,
+        ):
+            tasks.integration_test(("--prebuilt",))
+
+        self.assertEqual(events, ["tests", "vscode"])
+        build.assert_not_called()
+        yarn.assert_called_once_with("vscode-test")
+
+    def test_package_keeps_dependency_free_vscode_packaging(self) -> None:
+        with (
+            patch.object(tasks, "verify") as verify,
+            patch.object(tasks, "yarn") as yarn,
+        ):
+            tasks.package_vsix(("--out", "artifact.vsix"))
+
+        verify.assert_called_once_with(())
+        yarn.assert_called_once_with(
+            "vsce", "package", "--no-dependencies", "--out", "artifact.vsix"
+        )
+
+    def test_runtime_error_at_cli_boundary_prints_one_error_and_exits_one(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "tasks.py"), "smoke"],
+            cwd=SCRIPTS.parent,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            result.stderr.strip(), "error: smoke requires exactly one VSIX path"
+        )
+
+
+class WatchCleanupTests(unittest.TestCase):
+    def test_stop_processes_terminates_then_waits_for_live_children(self) -> None:
+        first = MagicMock()
+        second = MagicMock()
+        first.poll.side_effect = [None, None]
+        second.poll.side_effect = [None, None]
+
+        tasks.stop_processes([first, second])
+
+        expected_calls = [
+            call.poll(),
+            call.terminate(),
+            call.poll(),
+            call.wait(timeout=5),
+        ]
+        first.assert_has_calls(expected_calls)
+        second.assert_has_calls(expected_calls)
+        first.kill.assert_not_called()
+        second.kill.assert_not_called()
+
+    def test_stop_processes_kills_a_child_that_ignores_termination(self) -> None:
+        process = MagicMock()
+        process.poll.side_effect = [None, None]
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(["watcher"], 5),
+            None,
+        ]
+
+        tasks.stop_processes([process])
+
+        process.terminate.assert_called_once_with()
+        self.assertEqual(process.wait.call_args_list, [call(timeout=5), call(timeout=5)])
+        process.kill.assert_called_once_with()
+
+    def test_dev_cleans_up_started_children_when_a_later_spawn_fails(self) -> None:
+        child = MagicMock()
+        child.poll.side_effect = [None, None]
+        with (
+            patch.object(tasks.javascript_build, "clean"),
+            patch.object(
+                tasks.javascript_build,
+                "watch_commands",
+                return_value=[["watch-extension"], ["watch-preview"]],
+            ),
+            patch.object(tasks, "executable", side_effect=lambda name: name),
+            patch.object(
+                tasks.subprocess,
+                "Popen",
+                side_effect=[child, OSError("spawn failed")],
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "spawn failed"):
+                tasks.dev(())
+
+        child.terminate.assert_called_once_with()
+        child.wait.assert_called_once_with(timeout=5)
+
+    def test_dev_cleans_up_every_child_when_watch_is_interrupted(self) -> None:
+        children = [MagicMock(), MagicMock(), MagicMock()]
+        for child in children:
+            child.poll.side_effect = [None, None, 0]
+
+        with (
+            patch.object(tasks.javascript_build, "clean"),
+            patch.object(
+                tasks.javascript_build,
+                "watch_commands",
+                return_value=[["watch-extension"], ["watch-preview"]],
+            ),
+            patch.object(tasks, "executable", side_effect=lambda name: name),
+            patch.object(tasks.subprocess, "Popen", side_effect=children) as popen,
+            patch.object(tasks.time, "sleep", side_effect=KeyboardInterrupt),
+        ):
+            tasks.dev(())
+
+        self.assertEqual(popen.call_count, 3)
+        for child in children:
+            child.terminate.assert_called_once_with()
+            child.kill.assert_not_called()
 
 
 if __name__ == "__main__":

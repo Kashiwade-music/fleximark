@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -51,6 +51,19 @@ class RpcFrameTests(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(RuntimeError, message):
                     smoke_vsix.read_rpc_message(stream)
+
+    def test_initialize_cleans_up_when_request_write_fails(self) -> None:
+        child = MagicMock()
+        child.stdin.write.side_effect = BrokenPipeError("daemon closed")
+        child.poll.return_value = None
+
+        with patch.object(smoke_vsix.subprocess, "Popen", return_value=child):
+            with self.assertRaisesRegex(BrokenPipeError, "daemon closed"):
+                smoke_vsix.initialize_daemon(Path("fleximarkd"), 1)
+
+        child.stdin.close.assert_called_once_with()
+        child.kill.assert_called_once_with()
+        child.wait.assert_called_once_with(timeout=5)
 
 
 class VsixChecksumTests(unittest.TestCase):

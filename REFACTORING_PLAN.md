@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 1 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 2 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -46,6 +46,17 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - 全13 custom requestのparams/resultと全4 custom notificationを共有fixtureからTypeScript runtime validatorへ通し、Rust serde、JSON Schema、TypeScriptのmethod set、方向、optional-present DTOを同じ通常gateで固定した。
 - malformed envelope/resultはconnectionを終端して既存daemon recoveryへ接続し、未知・late messageはignore、invalid publicationはatomicに拒否してsnapshot/reloadを一度だけ要求する方針を回帰testで固定した。
 - schemaの整数はRustの `u64` 全域を表現できる一方、JavaScript runtime validatorは精度を守るためsafe integerを要求する。protocol v1の受理範囲を狭める変更は行わず、将来大きなversion/revision値を必要とする場合はversioned contractとしてmaximumまたはstring表現を決める。
+
+### Phase 2 完了時のベースライン
+
+- cargo test --workspace --all-targets: 115 tests passed
+- Node pure RPC/preview/protocol tests: 54 tests passed
+- VS Code Electron tests: 75 tests passed
+- Python unittest discovery: 40 tests discovered、WindowsではPOSIX executable mode test 1件をskip
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- 6 target、platform/arch正規化、実行ファイル名、manifest pathの正本を `scripts/_targets.py` へ集約し、Python behavioral testsとrelease contract testで固定した。
+- GitHub Actionsのartifact転送はUnix executable modeを保存しないため、manifest生成時に非Windows daemonを0755へ正規化してからSHA-256を計算する。Windows artifactにはchmodしない契約をtestで固定した。
+- `mise run test` 単独のfull buildは維持し、明示的にbuild済みのCI/release検証だけ `mise run test -- --prebuilt` を使用する。最終VSIXのversion/hash/publish identityはPhase 3へ持ち越した。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -256,6 +267,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 2 — Build/release toolingのtest化と重複整理
 
+- 状態: 2026-09-12 完了。2系統の独立レビューを反復し、Windows PATHEXTの移植可能な検証、daemon初期化失敗時のchild cleanup、artifact転送後のUnix executable mode消失を修正した。最終レビューで未解決P0〜P3なし、`mise run verify` 成功を確認した。
 - 優先度 / ROI: P1 / 高。
 - 目的: platform/arch、subprocess、build順序を単一の検証可能な定義へ寄せる。
 - 問題点: 6 targetとOS正規化が重複し、scriptsにunit testがなく、CIがfull buildを重ねる。

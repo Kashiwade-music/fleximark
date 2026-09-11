@@ -56,6 +56,9 @@ jobs:
       - name: Build external preview client
         run: uv run --frozen python scripts/build.py browser
 
+      - name: Create final release manifest
+        run: uv run --frozen python scripts/create_release_manifest.py --require-all
+
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
@@ -86,10 +89,7 @@ jobs:
         run: uv run --frozen python scripts/build.py extension --production
 
       - name: Run VS Code integration tests on stable
-        run: xvfb-run -a mise run test
-
-      - name: Create final release manifest
-        run: uv run --frozen python scripts/create_release_manifest.py --require-all
+        run: xvfb-run -a mise run test -- --prebuilt
 
       - name: Inspect extension contents
         run: yarn exec vsce ls --no-dependencies

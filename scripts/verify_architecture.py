@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from _tools import ROOT
+from _tools import ROOT, script_entrypoint
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -170,4 +170,4 @@ def verify_architecture() -> None:
 
 
 if __name__ == "__main__":
-    verify_architecture()
+    script_entrypoint(verify_architecture)

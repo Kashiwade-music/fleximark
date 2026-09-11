@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from _tools import ROOT, run
+from _tools import ROOT, format_process_error, run, script_entrypoint
 
 
 def checked_process(
@@ -24,15 +24,10 @@ def checked_process(
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            check=False,
+            check=True,
         )
-    except subprocess.TimeoutExpired as error:
-        progress = error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr
-        raise RuntimeError(
-            f"{description} timed out after {timeout * 1000:.0f}ms; progress:\n{progress or ''}"
-        ) from error
-    if result.returncode != 0:
-        raise RuntimeError(f"{description} failed: {result.stderr or result.stdout}")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"{description}: {format_process_error(error)}") from error
     return result
 
 
@@ -103,8 +98,4 @@ def check_performance_budgets() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        check_performance_budgets()
-    except (RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    script_entrypoint(check_performance_budgets)
