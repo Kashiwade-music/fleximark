@@ -65,6 +65,18 @@ def test_args(*, watch: bool = False) -> list[str]:
     return args
 
 
+def pure_test_args() -> list[str]:
+    return [
+        "test/pure.test.mts",
+        "--bundle",
+        "--platform=node",
+        "--format=cjs",
+        "--sourcemap",
+        "--outfile=out/test/pure-tests.cjs",
+        "--loader:.css=text",
+    ]
+
+
 def clean() -> None:
     shutil.rmtree(DIST, ignore_errors=True)
     shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
@@ -95,6 +107,12 @@ def build_browser_client() -> None:
 def build_tests() -> None:
     shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
     yarn("esbuild", *test_args())
+    yarn("esbuild", *pure_test_args())
+
+
+def build_pure_tests() -> None:
+    shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
+    yarn("esbuild", *pure_test_args())
 
 
 def watch_commands() -> list[list[str]]:

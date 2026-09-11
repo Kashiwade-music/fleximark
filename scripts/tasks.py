@@ -78,6 +78,24 @@ def integration_test(_: Sequence[str]) -> None:
     yarn("vscode-test")
 
 
+def pure_test(_: Sequence[str]) -> None:
+    javascript_build.build_pure_tests()
+    run("node", "--test", "out/test/pure-tests.cjs")
+
+
+def python_test() -> None:
+    run(
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/tests",
+        "-p",
+        "test_*.py",
+    )
+
+
 def localization(_: Sequence[str]) -> None:
     export_localization()
 
@@ -90,11 +108,13 @@ def check_localization() -> None:
 def verify(_: Sequence[str]) -> None:
     verify_architecture()
     run("python", "-m", "compileall", "-q", "scripts")
+    python_test()
     yarn("tsc", "--noEmit")
     yarn("eslint", "adapters", "web", "test", "scripts")
     check_localization()
     build(())
     compile_tests()
+    run("node", "--test", "out/test/pure-tests.cjs")
     yarn("vsce", "ls", "--no-dependencies")
     run("cargo", "fmt", "--all", "--", "--check")
     run("cargo", "test", "--workspace", "--all-targets")
@@ -120,6 +140,7 @@ TASKS = {
     "dev": dev,
     "l10n": localization,
     "package": package_vsix,
+    "test-pure": pure_test,
     "smoke": smoke,
     "test": integration_test,
     "verify": verify,

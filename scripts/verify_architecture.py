@@ -18,6 +18,31 @@ def require(condition: bool, message: str) -> None:
 
 
 def verify_architecture() -> None:
+    required_contracts = (
+        "ARCHITECTURE.md",
+        "REFACTORING_PLAN.md",
+        "capabilities/clean-break-catalog.json",
+        "capabilities/feature-inventory.json",
+        "crates/fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit",
+        "schemas/config.schema.json",
+        "schemas/feature-inventory.schema.json",
+        "schemas/plugin-manifest.schema.json",
+        "schemas/protocol.schema.json",
+    )
+    for relative_path in required_contracts:
+        path = ROOT / relative_path
+        require(
+            path.is_file() and path.stat().st_size > 0,
+            f"{relative_path} is missing",
+        )
+
+    vscodeignore = set((ROOT / ".vscodeignore").read_text(encoding="utf-8").splitlines())
+    for architecture_document in ("ARCHITECTURE.md", "REFACTORING_PLAN.md"):
+        require(
+            architecture_document in vscodeignore,
+            f"{architecture_document} must not be included in the VSIX",
+        )
+
     package_json = read_json(ROOT / "package.json")
     inventory = read_json(ROOT / "capabilities" / "feature-inventory.json")
     disposition_catalog = read_json(

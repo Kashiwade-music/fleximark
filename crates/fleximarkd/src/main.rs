@@ -2739,6 +2739,121 @@ mod tests {
     }
 
     #[test]
+    fn session_errors_preserve_their_wire_codes_and_messages() {
+        let cases = [
+            (SessionError::NotOpen, -32602, "document is not open"),
+            (
+                SessionError::UnknownSession,
+                -32602,
+                "document session is unknown or no longer active",
+            ),
+            (
+                SessionError::WrongDaemon,
+                -32602,
+                "daemon instance does not match this connection",
+            ),
+            (
+                SessionError::ContentModified,
+                CONTENT_MODIFIED,
+                "document is out of sync",
+            ),
+            (
+                SessionError::StaleVersion,
+                CONTENT_MODIFIED,
+                "document version is stale",
+            ),
+            (
+                SessionError::VersionMismatch,
+                CONTENT_MODIFIED,
+                "document version does not match",
+            ),
+            (
+                SessionError::HashMismatch,
+                CONTENT_MODIFIED,
+                "content hash does not match",
+            ),
+            (
+                SessionError::InvalidRange,
+                -32602,
+                "incremental edit range is invalid",
+            ),
+            (
+                SessionError::EmptyChange,
+                -32602,
+                "a change notification must contain edits",
+            ),
+            (
+                SessionError::Engine("fixture failure".into()),
+                -32602,
+                "engine rejected the document: fixture failure",
+            ),
+        ];
+
+        for (error, code, message) in cases {
+            assert_eq!(
+                session_error(json!("request-7"), error),
+                json!({
+                    "jsonrpc":"2.0",
+                    "id":"request-7",
+                    "error":{"code":code,"message":message}
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_workspace_command_preserves_exact_wire_error() {
+        let mut server = Server::build(false, None);
+        let daemon_instance_id = server.registry.daemon_instance_id().to_owned();
+
+        assert_eq!(
+            server.execute_command(
+                Some(json!(19)),
+                json!({
+                    "daemonInstanceId":daemon_instance_id,
+                    "command":"futureCommand"
+                }),
+            ),
+            Some(json!({
+                "jsonrpc":"2.0",
+                "id":19,
+                "error":{
+                    "code":-32020,
+                    "message":"unknown FlexiMark command: futureCommand"
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn render_results_in_the_shared_contract_match_engine_serde() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../test/fixtures/protocol-v1-contract.json"
+        ))
+        .unwrap();
+        let cases = fixture["methods"].as_array().unwrap();
+        let result = |method_name: &str| {
+            cases
+                .iter()
+                .find(|case| case["method"] == method_name)
+                .unwrap()["result"]
+                .clone()
+        };
+
+        let render = result(method::RENDER);
+        let publication: RenderPublication = serde_json::from_value(render.clone()).unwrap();
+        assert_eq!(serde_json::to_value(publication).unwrap(), render);
+
+        let create_preview = result(method::CREATE_PREVIEW);
+        let snapshot: RenderPublication =
+            serde_json::from_value(create_preview["initialPublication"].clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(snapshot).unwrap(),
+            create_preview["initialPublication"]
+        );
+    }
+
+    #[test]
     fn cancellation_intake_stops_requests_and_obsolete_document_work() {
         let coordinator = CancellationCoordinator::default();
         let render = message(

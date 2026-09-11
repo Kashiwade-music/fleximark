@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "methods": [
+    {
+      "method": "fleximark/initialize",
+      "kind": "request",
+      "params": {
+        "protocolVersion": 1,
+        "client": { "name": "contract-test", "version": "1" }
+      },
+      "result": {
+        "protocolVersion": 1,
+        "daemonInstanceId": "daemon",
+        "workspaceStatuses": [
+          { "uri": "file:///workspace", "enabled": true }
+        ],
+        "capabilities": {
+          "htmlRender": true,
+          "documentCheckpoint": true,
+          "selectionEvents": true,
+          "viewportEvents": false,
+          "workspaceCommands": ["editTheme"]
+        }
+      }
+    },
+    {
+      "method": "fleximark/attachDocument",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "uri": "file:///document.md",
+        "expectedDocumentVersion": 3,
+        "contentHash": "before"
+      },
+      "result": {
+        "documentSessionId": "document",
+        "documentVersion": 3,
+        "contentHash": "before"
+      }
+    },
+    {
+      "method": "fleximark/checkpointDocument",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document",
+        "documentVersion": 3,
+        "contentHash": "before"
+      },
+      "result": { "documentVersion": 3, "contentHash": "before" }
+    },
+    {
+      "method": "fleximark/requestFullText",
+      "kind": "notification",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "uri": "file:///document.md",
+        "documentSessionId": "document",
+        "reason": "contentHashMismatch"
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/render",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document",
+        "documentVersion": 3
+      },
+      "result": {
+        "type": "full",
+        "previewSessionId": "preview",
+        "documentVersion": 3,
+        "resultRenderRevision": 1,
+        "rendererFingerprint": "sha256:renderer",
+        "nodeIds": ["document-root"],
+        "navigation": [],
+        "style": null,
+        "assets": [],
+        "html": "<main data-fleximark-node-id=\"document-root\"></main>"
+      }
+    },
+    {
+      "method": "fleximark/createPreview",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document",
+        "expectedDocumentVersion": 3,
+        "target": "externalBrowser"
+      },
+      "result": {
+        "previewSessionId": "preview",
+        "initialPublication": {
+          "type": "full",
+          "previewSessionId": "preview",
+          "documentVersion": 3,
+          "resultRenderRevision": 1,
+          "rendererFingerprint": "sha256:renderer",
+          "nodeIds": ["document-root"],
+          "navigation": [],
+          "style": null,
+          "assets": [],
+          "html": "<main data-fleximark-node-id=\"document-root\"></main>"
+        }
+      }
+    },
+    {
+      "method": "fleximark/disposePreview",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview"
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/setSelection",
+      "kind": "notification",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document",
+        "expectedDocumentVersion": 3,
+        "selections": [
+          {
+            "anchor": { "line": 1, "character": 2 },
+            "active": { "line": 1, "character": 4 }
+          }
+        ]
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/setViewport",
+      "kind": "notification",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document",
+        "expectedDocumentVersion": 3,
+        "ranges": [
+          {
+            "start": { "line": 1, "character": 0 },
+            "end": { "line": 8, "character": 0 }
+          }
+        ]
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/previewEvent",
+      "kind": "notification",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview",
+        "renderRevision": 1,
+        "event": {
+          "type": "selectNode",
+          "previewSessionId": "preview",
+          "renderRevision": 1,
+          "nodeId": "document-root"
+        }
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/reloadPreview",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview"
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/executeCommand",
+      "kind": "request",
+      "params": { "daemonInstanceId": "daemon", "command": "editTheme" },
+      "result": {}
+    },
+    {
+      "method": "fleximark/getNoteOptions",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "workspaceUri": "file:///workspace"
+      },
+      "result": { "categories": ["work"], "templates": ["daily"] }
+    },
+    {
+      "method": "fleximark/reconfigureWorkspace",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "workspaceUri": "file:///workspace",
+        "trusted": true
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/openDocument",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "uri": "file:///document.md",
+        "documentVersion": 3,
+        "text": "# Before\n"
+      },
+      "result": {
+        "documentSessionId": "document",
+        "documentVersion": 3,
+        "contentHash": "before"
+      }
+    },
+    {
+      "method": "fleximark/changeDocument",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document",
+        "baseDocumentVersion": 3,
+        "baseContentHash": "before",
+        "documentVersion": 4,
+        "text": "# After\n"
+      },
+      "result": { "documentVersion": 4, "contentHash": "after" }
+    },
+    {
+      "method": "fleximark/closeDocument",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "documentSessionId": "document"
+      },
+      "result": null
+    }
+  ]
+}

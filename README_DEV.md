@@ -5,7 +5,7 @@
 ### 設計資料
 
 - [Current architecture](ARCHITECTURE.md)
-- [Completion roadmap](ROADMAP.md)
+- [Refactoring plan](REFACTORING_PLAN.md)
 
 ### 必要なもの
 

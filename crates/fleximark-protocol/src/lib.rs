@@ -493,9 +493,10 @@ pub fn write_frame(writer: &mut impl Write, value: &impl Serialize) -> Result<()
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::io::{BufReader, Cursor};
 
-    use serde::de::DeserializeOwned;
+    use serde::{Deserialize, de::DeserializeOwned};
     use serde_json::json;
 
     use super::*;
@@ -530,6 +531,216 @@ mod tests {
             read_frame(&mut duplicate),
             Err(FrameError::DuplicateContentLength)
         ));
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ContractFixture {
+        schema_version: u32,
+        methods: Vec<ContractCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct ContractCase {
+        method: String,
+        kind: String,
+        params: Value,
+        result: Value,
+    }
+
+    fn contract_fixture() -> ContractFixture {
+        serde_json::from_str(include_str!(
+            "../../../test/fixtures/protocol-v1-contract.json"
+        ))
+        .unwrap()
+    }
+
+    fn accept_contract_params(case: &ContractCase) {
+        macro_rules! accept {
+            ($type:ty) => {
+                serde_json::from_value::<$type>(case.params.clone()).unwrap()
+            };
+        }
+
+        match case.method.as_str() {
+            method::INITIALIZE => {
+                let params = accept!(InitializeParams);
+                assert!(!params.capabilities.embedded_html);
+                assert!(params.workspaces.is_empty());
+            }
+            method::ATTACH_DOCUMENT => drop(accept!(AttachDocumentParams)),
+            method::CHECKPOINT_DOCUMENT => drop(accept!(CheckpointDocumentParams)),
+            method::REQUEST_FULL_TEXT => {
+                let params = RequestFullTextParams {
+                    daemon_instance_id: case.params["daemonInstanceId"].as_str().unwrap().into(),
+                    uri: case.params["uri"].as_str().unwrap().into(),
+                    document_session_id: case.params["documentSessionId"].as_str().unwrap().into(),
+                    reason: case.params["reason"].as_str().unwrap().into(),
+                };
+                assert_eq!(serde_json::to_value(params).unwrap(), case.params);
+            }
+            method::RENDER => drop(accept!(RenderParams)),
+            method::CREATE_PREVIEW => {
+                let params = accept!(CreatePreviewParams);
+                assert_eq!(params.target, PreviewTarget::ExternalBrowser);
+            }
+            method::DISPOSE_PREVIEW => drop(accept!(DisposePreviewParams)),
+            method::SET_SELECTION => drop(accept!(SetSelectionParams)),
+            method::SET_VIEWPORT => drop(accept!(SetViewportParams)),
+            method::PREVIEW_EVENT => drop(accept!(PreviewEventParams)),
+            method::RELOAD_PREVIEW => drop(accept!(ReloadPreviewParams)),
+            method::EXECUTE_COMMAND => {
+                let params = accept!(ExecuteCommandParams);
+                assert!(params.document_session_id.is_none());
+                assert!(params.expected_document_version.is_none());
+                assert!(params.workspace_uri.is_none());
+                assert!(params.destination_uri.is_none());
+                assert!(params.note_category.is_none());
+                assert!(params.note_template.is_none());
+            }
+            method::GET_NOTE_OPTIONS => drop(accept!(GetNoteOptionsParams)),
+            method::RECONFIGURE_WORKSPACE => drop(accept!(ReconfigureWorkspaceParams)),
+            method::OPEN_DOCUMENT => drop(accept!(RpcOpenDocumentParams)),
+            method::CHANGE_DOCUMENT => drop(accept!(RpcChangeDocumentParams)),
+            method::CLOSE_DOCUMENT => drop(accept!(RpcCloseDocumentParams)),
+            method => panic!("fixture contains unknown method {method}"),
+        }
+    }
+
+    fn serialize_contract_result(case: &ContractCase) -> Value {
+        let string = |field: &str| case.result[field].as_str().unwrap().to_owned();
+        let integer = |field: &str| case.result[field].as_i64().unwrap();
+        match case.method.as_str() {
+            method::INITIALIZE => serde_json::to_value(InitializeResult {
+                protocol_version: case.result["protocolVersion"].as_u64().unwrap() as u32,
+                daemon_instance_id: string("daemonInstanceId"),
+                capabilities: ServerCapabilities {
+                    html_render: true,
+                    document_checkpoint: true,
+                    selection_events: true,
+                    viewport_events: false,
+                    workspace_commands: vec!["editTheme"],
+                },
+                workspace_statuses: vec![WorkspaceStatus {
+                    uri: "file:///workspace".into(),
+                    enabled: true,
+                    error: None,
+                }],
+            })
+            .unwrap(),
+            method::ATTACH_DOCUMENT | method::OPEN_DOCUMENT => {
+                serde_json::to_value(AttachDocumentResult {
+                    document_session_id: string("documentSessionId"),
+                    document_version: integer("documentVersion"),
+                    content_hash: string("contentHash"),
+                })
+                .unwrap()
+            }
+            method::CHECKPOINT_DOCUMENT | method::CHANGE_DOCUMENT => {
+                serde_json::to_value(CheckpointDocumentResult {
+                    document_version: integer("documentVersion"),
+                    content_hash: string("contentHash"),
+                })
+                .unwrap()
+            }
+            method::CREATE_PREVIEW => serde_json::to_value(CreatePreviewResult {
+                preview_session_id: string("previewSessionId"),
+                url: case
+                    .result
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                initial_publication: case.result["initialPublication"].clone(),
+            })
+            .unwrap(),
+            method::GET_NOTE_OPTIONS => serde_json::to_value(GetNoteOptionsResult {
+                categories: case.result["categories"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect(),
+                templates: case.result["templates"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect(),
+            })
+            .unwrap(),
+            method::EXECUTE_COMMAND => serde_json::to_value(CommandResult {
+                message: None,
+                open_uri: None,
+            })
+            .unwrap(),
+            method::RENDER
+            | method::REQUEST_FULL_TEXT
+            | method::DISPOSE_PREVIEW
+            | method::SET_SELECTION
+            | method::SET_VIEWPORT
+            | method::PREVIEW_EVENT
+            | method::RELOAD_PREVIEW
+            | method::RECONFIGURE_WORKSPACE
+            | method::CLOSE_DOCUMENT => case.result.clone(),
+            method => panic!("fixture contains unknown method {method}"),
+        }
+    }
+
+    #[test]
+    fn every_custom_method_matches_the_shared_wire_fixture() {
+        let fixture = contract_fixture();
+        assert_eq!(fixture.schema_version, PROTOCOL_VERSION);
+        let expected = HashSet::from([
+            method::INITIALIZE,
+            method::ATTACH_DOCUMENT,
+            method::CHECKPOINT_DOCUMENT,
+            method::REQUEST_FULL_TEXT,
+            method::RENDER,
+            method::CREATE_PREVIEW,
+            method::DISPOSE_PREVIEW,
+            method::SET_SELECTION,
+            method::SET_VIEWPORT,
+            method::PREVIEW_EVENT,
+            method::RELOAD_PREVIEW,
+            method::EXECUTE_COMMAND,
+            method::GET_NOTE_OPTIONS,
+            method::RECONFIGURE_WORKSPACE,
+            method::OPEN_DOCUMENT,
+            method::CHANGE_DOCUMENT,
+            method::CLOSE_DOCUMENT,
+        ]);
+        let actual = fixture
+            .methods
+            .iter()
+            .map(|case| case.method.as_str())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            fixture.methods.len(),
+            expected.len(),
+            "duplicate fixture method"
+        );
+        assert_eq!(actual, expected);
+
+        for case in &fixture.methods {
+            accept_contract_params(case);
+            let result = serialize_contract_result(case);
+            assert_eq!(
+                result, case.result,
+                "wire result changed for {}",
+                case.method
+            );
+            if case.kind == "request" {
+                assert_eq!(
+                    serde_json::to_value(Response::success(json!(7), result)).unwrap(),
+                    json!({"jsonrpc":"2.0","id":7,"result":case.result}),
+                    "response envelope changed for {}",
+                    case.method
+                );
+            } else {
+                assert_eq!(case.kind, "notification");
+                assert!(case.result.is_null());
+            }
+        }
     }
 
     #[test]

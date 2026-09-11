@@ -16,6 +16,7 @@
     "adapters/**/*.mts",
     "web/**/*.mts",
     "test/extension.test.mts",
+    "test/pure.test.mts",
     "test/contributions.test.mts",
     "test/adapter/**/*.mts",
     "test/preview-client.test.mts",

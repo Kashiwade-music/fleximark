@@ -32,6 +32,10 @@ run = "uv run --frozen python scripts/tasks.py dev"
 description = "Build the product and run the VS Code integration suite"
 run = "uv run --frozen python scripts/tasks.py test"
 
+[tasks.test-pure]
+description = "Run RPC and preview tests in Node without VS Code Electron"
+run = "uv run --frozen python scripts/tasks.py test-pure"
+
 [tasks.verify]
 description = "Run the complete local release gate"
 run = "uv run --frozen python scripts/tasks.py verify"
