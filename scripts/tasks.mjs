@@ -39,6 +39,7 @@ async function build() {
   await runNode("scripts/build-browser-client.mjs");
   await runCargo("build", "--release", "-p", "fleximarkd");
   await runNode("scripts/stage-daemon.mjs");
+  await runNode("scripts/create-release-manifest.mjs");
   await runNode("esbuild.js", "--production");
 }
 

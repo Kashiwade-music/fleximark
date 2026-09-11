@@ -49,8 +49,11 @@
     { "id": "snippet.details", "owner": "adapter" },
     { "id": "language.abc", "owner": "adapter" },
     { "id": "distribution.linux-x64", "owner": "release" },
+    { "id": "distribution.linux-arm64", "owner": "release" },
     { "id": "distribution.darwin-x64", "owner": "release" },
+    { "id": "distribution.darwin-arm64", "owner": "release" },
     { "id": "distribution.win32-x64", "owner": "release" },
+    { "id": "distribution.win32-arm64", "owner": "release" },
     { "id": "distribution.release-manifest", "owner": "release" },
     { "id": "workflow.clean-install", "owner": "release" },
     { "id": "workflow.multi-root-workspace-authority", "owner": "adapter" }

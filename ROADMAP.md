@@ -60,8 +60,8 @@ Windows release build で成功している。cancellation と実利用時の復
 
 ## M4: 配布を完成させる
 
-- [ ] 対応CPUを決定し、必要なarm64 artifactを追加する
-- [ ] daemon checksum/signature/attestation方針を確定する
+- [x] 対応CPUをx64/arm64に決定し、Windows/Linux/macOSのartifactを追加する
+- [x] VSIX attestationを信頼の基点、内部SHA-256を破損・取り違え検出とする
 - [ ] 各配布artifactで一つのclean-install smokeを通す
 - [ ] clean-break release noteとunsupported configuration errorを確認する
 

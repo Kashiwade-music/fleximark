@@ -29,17 +29,17 @@ npm ci
 `package.json` の command は、利用者が選択すべき入口だけに絞っている。内部工程を個別に調べる場合は、
 後述の Node/Cargo command を直接実行する。
 
-| command                     | 内容                                                                                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`             | external browser 用 preview client、release版 `fleximarkd`、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
-| `npm run dev`               | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                          |
-| `npm test`                  | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                  |
-| `npm run verify`            | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。    |
-| `npm run package`           | `verify`を通した後、依存packageを同梱しないVSIXを作る。`-- --out <file>`で出力名を指定できる。                                         |
-| `npm run smoke -- <vsix>`   | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                          |
-| `npm run l10n`              | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                      |
-| `npm run clean`             | 生成した`dist/`と`out/test/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                  |
-| `npm run vscode:prepublish` | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                             |
+| command                     | 内容                                                                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`             | external browser 用 preview client、release版 `fleximarkd`、release manifest、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
+| `npm run dev`               | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                                            |
+| `npm test`                  | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                                    |
+| `npm run verify`            | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。                      |
+| `npm run package`           | `verify`を通した後、依存packageを同梱しないVSIXを作る。`-- --out <file>`で出力名を指定できる。                                                           |
+| `npm run smoke -- <vsix>`   | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                                            |
+| `npm run l10n`              | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                                        |
+| `npm run clean`             | 生成した`dist/`と`out/test/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                                    |
+| `npm run vscode:prepublish` | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                                               |
 
 ## Extension Development Host での手動動作確認
 
@@ -55,8 +55,8 @@ npm run build
 ```
 
 `build` は release build した実行ファイルを、現在の platform/CPU に対応する
-`bin/<platform>-<arch>/fleximarkd`（Windows は `.exe`）へコピーする。現在の配布対象は
-Windows/Linux/macOS の x64 である。
+`bin/<platform>-<arch>/fleximarkd`（Windows は `.exe`）へコピーする。配布対象は
+Windows/Linux/macOS の x64 と arm64 である。
 
 VS Code でこのリポジトリを開き、Run and Debug から `Run Extension` を選んで F5 を押す。
 既定の build task が TypeScript と adapter bundle の watch を開始し、別ウィンドウの
@@ -306,6 +306,13 @@ trusted publisher policy in Marketplace before the first release.
 
 Publishing is intentionally performed only by GitHub Actions; local PAT-based
 publishing is not part of the release process.
+
+The GitHub artifact attestation for the complete VSIX is the release trust root.
+The SHA-256 values in `bin/manifest.json` are not independent signatures; the
+installed extension checks them immediately before launching its bundled daemon
+to detect corruption or a platform artifact mix-up. A configured external
+`fleximark.daemonPath` is user-supplied and is outside this release verification
+model.
 
 ## Repository setup
 

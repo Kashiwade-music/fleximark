@@ -5,8 +5,11 @@ import process from "node:process";
 
 const targets = [
   ["linux", "x64", "fleximarkd"],
+  ["linux", "arm64", "fleximarkd"],
   ["darwin", "x64", "fleximarkd"],
+  ["darwin", "arm64", "fleximarkd"],
   ["win32", "x64", "fleximarkd.exe"],
+  ["win32", "arm64", "fleximarkd.exe"],
 ];
 const artifacts = [];
 for (const [platform, arch, executable] of targets) {

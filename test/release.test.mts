@@ -9,13 +9,14 @@ export function suite(): void {
   const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
   assert.ok(extension);
 
-  test("declares Windows macOS and Linux x64 daemon artifacts", () => {
+  test("declares Windows macOS and Linux x64 and arm64 daemon artifacts", () => {
     const source = fs.readFileSync(
       path.join(extension.extensionPath, "scripts/create-release-manifest.mjs"),
       "utf8",
     );
     for (const target of ["win32", "darwin", "linux"])
-      assert.match(source, new RegExp('\\["' + target + '", "x64"'));
+      for (const arch of ["x64", "arm64"])
+        assert.match(source, new RegExp('\\["' + target + '", "' + arch + '"'));
   });
 
   test("assembles daemons before semantic release packaging", () => {
@@ -45,9 +46,12 @@ export function suite(): void {
     );
     const daemon = tasks.indexOf('runCargo("build", "--release"');
     const stage = tasks.indexOf('runNode("scripts/stage-daemon.mjs")');
+    const manifest = tasks.indexOf(
+      'runNode("scripts/create-release-manifest.mjs")',
+    );
     const adapter = tasks.indexOf('runNode("esbuild.js", "--production")');
     assert.ok(preview >= 0 && preview < daemon);
-    assert.ok(daemon < stage && stage < adapter);
+    assert.ok(daemon < stage && stage < manifest && manifest < adapter);
     assert.match(
       fs.readFileSync(
         path.join(extension.extensionPath, "crates/fleximarkd/src/main.rs"),
@@ -57,13 +61,21 @@ export function suite(): void {
     );
   });
 
-  test("clean-installs the universal VSIX on every supported OS", () => {
+  test("clean-installs the universal VSIX on every supported OS and CPU", () => {
     for (const workflowName of ["ci.yml", "release.yml"]) {
       const workflow = fs.readFileSync(
         path.join(extension.extensionPath, ".github/workflows", workflowName),
         "utf8",
       );
-      assert.match(workflow, /os: \[ubuntu-latest, macos-13, windows-latest\]/);
+      for (const runner of [
+        "ubuntu-24.04",
+        "ubuntu-24.04-arm",
+        "macos-15-intel",
+        "macos-15",
+        "windows-2025",
+        "windows-11-arm",
+      ])
+        assert.match(workflow, new RegExp("os: " + runner));
       assert.match(workflow, /npm run smoke -- fleximark\.vsix/);
     }
     const smoke = fs.readFileSync(
@@ -73,5 +85,14 @@ export function suite(): void {
     assert.match(smoke, /createHash\("sha256"\)/);
     assert.match(smoke, /method: "fleximark\/initialize"/);
     assert.match(smoke, /result\?\.protocolVersion/);
+  });
+
+  test("verifies the bundled daemon checksum before normal startup", () => {
+    const adapter = fs.readFileSync(
+      path.join(extension.extensionPath, "adapters/vscode/src/adapter.mts"),
+      "utf8",
+    );
+    assert.match(adapter, /#verifiedBundledDaemon/);
+    assert.match(adapter, /checksum !== artifact\.sha256/);
   });
 }

@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
@@ -67,6 +68,18 @@ interface DaemonRuntime {
   recoverySequence: number;
   recoveryId?: string;
   recoveryStatus?: vscode.Disposable;
+}
+
+interface ReleaseArtifact {
+  platform: string;
+  arch: string;
+  path: string;
+  sha256: string;
+}
+
+interface ReleaseManifest {
+  schemaVersion: number;
+  artifacts: ReleaseArtifact[];
 }
 
 export interface AdapterRecoveryState {
@@ -708,14 +721,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   async #launch(): Promise<void> {
     const config = vscode.workspace.getConfiguration("fleximark");
     const configuredPath = config.get<string>("daemonPath");
-    const binary =
-      configuredPath ||
-      vscode.Uri.joinPath(
-        this.#context.extensionUri,
-        "bin",
-        `${process.platform}-${process.arch}`,
-        process.platform === "win32" ? "fleximarkd.exe" : "fleximarkd",
-      ).fsPath;
+    const binary = configuredPath || (await this.#verifiedBundledDaemon());
     const child = spawn(binary, ["lsp"], {
       cwd: this.#runtimes.values().next().value?.workspace.uri.fsPath,
       stdio: ["pipe", "pipe", "pipe"],
@@ -787,6 +793,37 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         3_000,
       );
     }
+  }
+
+  async #verifiedBundledDaemon(): Promise<string> {
+    const extensionRoot = this.#context.extensionUri.fsPath;
+    const manifest = JSON.parse(
+      await readFile(path.join(extensionRoot, "bin", "manifest.json"), "utf8"),
+    ) as ReleaseManifest;
+    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.artifacts))
+      throw new Error("Unsupported FlexiMark release manifest");
+    const artifact = manifest.artifacts.find(
+      (item) =>
+        item.platform === process.platform && item.arch === process.arch,
+    );
+    if (!artifact)
+      throw new Error(
+        `FlexiMark does not support ${process.platform}-${process.arch}`,
+      );
+    const binary = path.resolve(extensionRoot, ...artifact.path.split("/"));
+    const relativeBinary = path.relative(extensionRoot, binary);
+    if (relativeBinary.startsWith("..") || path.isAbsolute(relativeBinary))
+      throw new Error("FlexiMark release manifest path escapes the extension");
+    if (!/^[0-9a-f]{64}$/.test(artifact.sha256))
+      throw new Error("FlexiMark release manifest has an invalid checksum");
+    const checksum = createHash("sha256")
+      .update(await readFile(binary))
+      .digest("hex");
+    if (checksum !== artifact.sha256)
+      throw new Error(
+        "Bundled FlexiMark daemon is corrupt or does not match this extension",
+      );
+    return binary;
   }
 
   async #initializeWorkspaces(rpc: JsonRpcConnection): Promise<void> {
