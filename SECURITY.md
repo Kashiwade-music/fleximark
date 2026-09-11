@@ -15,8 +15,10 @@ Include the affected version, reproduction steps, impact, and any suggested
 mitigation. You should receive an acknowledgement within seven days. Please
 allow time for a fix and coordinated disclosure before publishing details.
 
-## Workspace code execution
+## Workspace trust boundary
 
-FlexiMark can execute `.fleximark/parserPlugin.js` from trusted local
-workspaces. Open only workspaces whose contents you trust. The extension
-declares that untrusted and virtual workspaces are unsupported.
+FlexiMark never executes JavaScript files from a workspace. Optional extensions
+are WebAssembly components admitted through the manifest, capability, signature,
+resource-limit, and trust checks documented in the architecture. Workspace
+writes and local asset reads remain disabled unless the workspace is trusted.
+The extension does not support virtual workspaces.

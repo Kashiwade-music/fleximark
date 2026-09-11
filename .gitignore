@@ -4,3 +4,6 @@ node_modules
 .vscode-test/
 *.vsix
 debug/
+target/
+bin/
+web/preview-client/browser-host.js

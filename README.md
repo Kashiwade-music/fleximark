@@ -24,7 +24,7 @@ FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interacti
 Write, preview, organize, and present your notes — all without leaving your editor.
 
 - ⚡ **Instant Live Preview** in both VSCode and your web browser  
-- 🎨 **Customizable Layouts & Styles** using full JavaScript/CSS power  
+- 🎨 **Validated workspace themes** from `.fleximark/theme.css`
 - 🧩 **Extended Markdown Syntax**: tabs, admonitions, diagrams, sheet music, and more  
 - 📂 **Smart File Management** for effortless note organization  
 
@@ -36,7 +36,7 @@ Whether you’re a **developer**, **writer**, **researcher**, or **student**, Fl
 
 - **VSCode Live Preview**: – Instant, side-by-side preview as you type.
   ![VSCode Live Preview](assets/demo_vscode_preview.avif)
-- **Web Browser Preview**: Render Markdown in a browser, with support for JavaScript execution, custom scripts, and styles.  
+- **Web Browser Preview**: The same sandboxed renderer and bundled client used by the VSCode preview, with no custom JavaScript execution.
   ![Web Browser Preview](assets/demo_browser_preview.avif)
 
 ### 🧩 **Flexible File Generation**
@@ -100,10 +100,16 @@ code --install-extension kashiwade.fleximark
 2. Open the **VSCode Command Palette** and run:
    `FlexiMark: Initialize Workspace as Note Taking Directory`
 
-3. Customize your note categories in the generated configuration file.
+3. Customize note categories and security policy in the generated `.fleximark/config.toml` file. The old JavaScript plugin and configuration layouts are unsupported and are never loaded.
 
 4. Start writing! Use the Command Palette and select:
    `FlexiMark: Create New Note`
+
+Optional extensions use signed WebAssembly packages whose requested capabilities
+must also be granted by the trusted workspace configuration. Raw HTML is escaped
+or rejected according to the separate preview/export policies; unsafe export HTML
+is available only through an explicitly granted export hook and is marked in the
+generated artifact and ownership record.
 
 ## 📚 Documentation
 
