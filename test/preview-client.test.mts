@@ -6,7 +6,9 @@ import {
   type PreviewRuntimes,
 } from "../web/preview-client/enhance.mjs";
 import {
+  PreviewFailureGuard,
   PreviewHost,
+  isInvalidAuthenticatedPublicationMessage,
   isPreviewHostMessage,
   isPreviewHostMessageEvent,
 } from "../web/preview-client/host.mjs";
@@ -16,6 +18,7 @@ import {
   type RenderSnapshot,
 } from "../web/preview-client/index.mjs";
 import { PreviewNavigation } from "../web/preview-client/navigation.mjs";
+import { shouldForwardEditorNavigation } from "../web/preview-client/protocol.mjs";
 
 export const suiteName = "Preview client";
 
@@ -675,6 +678,232 @@ export function suite(): void {
     assert.equal(isPreviewHostMessageEvent(valid, "token"), true);
     assert.equal(isPreviewHostMessageEvent(valid, "other-token"), false);
     assert.equal(isPreviewHostMessageEvent({}, "token"), false);
+  });
+
+  test("requests snapshots only for authenticated malformed publications", () => {
+    assert.equal(
+      isInvalidAuthenticatedPublicationMessage(
+        {
+          type: "previewEvent",
+          messageToken: "token",
+          event: { type: "full", previewSessionId: "preview" },
+        },
+        "token",
+      ),
+      true,
+    );
+    for (const publication of [undefined, null, 7, "invalid"]) {
+      assert.equal(
+        isInvalidAuthenticatedPublicationMessage(
+          {
+            type: "initializePreview",
+            messageToken: "token",
+            ...(publication === undefined ? {} : { publication }),
+          },
+          "token",
+        ),
+        true,
+      );
+    }
+    for (const value of [
+      {
+        type: "previewEvent",
+        messageToken: "token",
+        event: { type: "selection", nodeIds: "invalid" },
+      },
+      {
+        type: "previewEvent",
+        messageToken: "token",
+        event: { type: "unknown" },
+      },
+      {
+        type: "previewEvent",
+        messageToken: "other",
+        event: { type: "patch" },
+      },
+    ])
+      assert.equal(
+        isInvalidAuthenticatedPublicationMessage(value, "token"),
+        false,
+      );
+  });
+
+  test("runs browser failure cleanup exactly once", () => {
+    let closed = 0;
+    let disposed = 0;
+    let reloaded = 0;
+    const failure = new PreviewFailureGuard(
+      () => closed++,
+      () => disposed++,
+      () => reloaded++,
+    );
+    failure.fail();
+    failure.fail();
+    assert.equal(failure.failed, true);
+    assert.deepEqual(
+      { closed, disposed, reloaded },
+      {
+        closed: 1,
+        disposed: 1,
+        reloaded: 1,
+      },
+    );
+  });
+
+  test("forwards editor navigation only for the current preview revision", () => {
+    const current = {
+      type: "selectNode",
+      previewSessionId: "preview",
+      renderRevision: 4,
+      nodeId: "a",
+    };
+    assert.equal(shouldForwardEditorNavigation(current, "preview", 4), true);
+    assert.equal(shouldForwardEditorNavigation(current, "other", 4), false);
+    assert.equal(shouldForwardEditorNavigation(current, "preview", 5), false);
+  });
+
+  test("accepts Rust selection wire with null or object activePosition", () => {
+    for (const event of [
+      {
+        type: "selection",
+        previewSessionId: "preview",
+        renderRevision: 1,
+        nodeIds: ["document-root"],
+        activePosition: null,
+      },
+      {
+        type: "selection",
+        previewSessionId: "preview",
+        renderRevision: 2,
+        nodeIds: ["paragraph"],
+        activePosition: { line: 3, character: 5 },
+      },
+    ]) {
+      const message = {
+        type: "previewEvent",
+        messageToken: "token",
+        event,
+      };
+      assert.equal(
+        isPreviewHostMessage(JSON.parse(JSON.stringify(message))),
+        true,
+      );
+    }
+  });
+
+  test("requests a full snapshot and preserves DOM for nested malformed publication data", () => {
+    assert.equal(preview.applySnapshot(snapshot()), true);
+    const beforeDom = root.innerHTML;
+    const beforeNavigation = [...preview.navigation];
+    const malformedNavigation = {
+      ...snapshot(),
+      resultRenderRevision: 2,
+      navigation: [
+        {
+          ...navigation("a", 0),
+          sourceRange: {
+            ...navigation("a", 0).sourceRange,
+            start: { line: 0, character: 0, encoding: "bytes" },
+          },
+        },
+      ],
+    } as unknown as RenderSnapshot;
+
+    assert.equal(preview.applySnapshot(malformedNavigation), false);
+    assert.equal(root.innerHTML, beforeDom);
+    assert.deepEqual(preview.navigation, beforeNavigation);
+    assert.equal(preview.renderRevision, 1);
+    assert.equal(requested, 1);
+  });
+
+  test("requests a full snapshot and preserves DOM for a nested malformed patch operation", () => {
+    assert.equal(preview.applySnapshot(snapshot()), true);
+    const beforeDom = root.innerHTML;
+    const malformed = {
+      ...patch([]),
+      operations: [
+        {
+          type: "replace",
+          nodeId: "a",
+          parentId: "document-root",
+          contentNodeIds: ["a"],
+          content: '<p data-fleximark-node-id="a">changed</p>',
+          precondition: {
+            nodeExists: false,
+            currentParentId: "document-root",
+          },
+        },
+      ],
+    } as unknown as RenderPatch;
+
+    assert.equal(preview.applyPatch(malformed), false);
+    assert.equal(root.innerHTML, beforeDom);
+    assert.equal(preview.renderRevision, 1);
+    assert.equal(requested, 1);
+  });
+
+  test("stops a host batch after an invalid publication and requests one full snapshot", () => {
+    const host = new PreviewHost(
+      root,
+      () => requested++,
+      () => undefined,
+    );
+    const malformed = {
+      ...patch([]),
+      operations: [
+        {
+          type: "remove",
+          nodeId: "missing",
+          parentId: "document-root",
+          precondition: {
+            nodeExists: true,
+            currentParentId: "document-root",
+          },
+        },
+      ],
+    } as RenderPatch;
+
+    host.apply([
+      snapshot(),
+      malformed,
+      { ...snapshot(), resultRenderRevision: 3, html: "not applied" },
+    ]);
+
+    assert.equal(host.renderRevision, 1);
+    assert.match(root.innerHTML, />one</);
+    assert.equal(requested, 1);
+    host.dispose();
+  });
+
+  test("ignores stale or mismatched navigation without requesting a snapshot", () => {
+    const host = new PreviewHost(
+      root,
+      () => requested++,
+      () => undefined,
+    );
+    host.apply([snapshot()]);
+    const beforeDom = root.innerHTML;
+
+    host.apply([
+      {
+        type: "selection",
+        previewSessionId: "other-preview",
+        renderRevision: 1,
+        nodeIds: ["a"],
+        activePosition: null,
+      },
+      {
+        type: "viewport",
+        previewSessionId: "preview-1",
+        renderRevision: 999,
+        nodeId: "a",
+      },
+    ]);
+
+    assert.equal(root.innerHTML, beforeDom);
+    assert.equal(host.renderRevision, 1);
+    assert.equal(requested, 0);
+    host.dispose();
   });
 
   test("debounces preview scroll and suppresses viewport echo", async () => {

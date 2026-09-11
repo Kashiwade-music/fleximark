@@ -19,7 +19,10 @@
     "test/pure.test.mts",
     "test/contributions.test.mts",
     "test/adapter/**/*.mts",
+    "test/browser-host.test.mts",
     "test/preview-client.test.mts",
+    "test/protocol-method-map.type-test.mts",
+    "test/protocol-contract.test.mts",
     "test/release.test.mts"
   ]
 }

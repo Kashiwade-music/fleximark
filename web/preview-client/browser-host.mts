@@ -1,5 +1,10 @@
-import { PreviewHost, type PreviewHostEvent } from "./host.mjs";
+import {
+  PreviewFailureGuard,
+  PreviewHost,
+  type PreviewHostEvent,
+} from "./host.mjs";
 import type { RenderPublication } from "./index.mjs";
+import { isPreviewHostEvent, isRenderPublication } from "./protocol.mjs";
 
 interface PreviewHandle {
   dispose(): void;
@@ -23,16 +28,25 @@ window.FlexiMarkPreview = {
       () => undefined,
       () => undefined,
     );
-    preview.apply(publications);
+    if (publications.every(isRenderPublication)) preview.apply(publications);
     return preview;
   },
 };
 
 if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   const events = new EventSource(`${location.pathname}/events`);
-  const preview = new PreviewHost(
-    root,
+  const state: { preview?: PreviewHost } = {};
+  const failure = new PreviewFailureGuard(
+    () => events.close(),
+    () => {
+      state.preview?.dispose();
+      state.preview = undefined;
+    },
     () => location.reload(),
+  );
+  state.preview = new PreviewHost(
+    root,
+    () => failure.fail(),
     (event) => {
       void fetch(`${location.pathname}/navigation`, {
         method: "POST",
@@ -43,12 +57,22 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
     },
   );
   events.addEventListener("message", (event) => {
-    preview.apply(
-      JSON.parse((event as MessageEvent<string>).data) as PreviewHostEvent[],
-    );
+    if (failure.failed) return;
+    try {
+      const value = JSON.parse((event as MessageEvent<string>).data) as unknown;
+      if (!Array.isArray(value) || !value.every(isPreviewHostEvent)) {
+        failure.fail();
+        return;
+      }
+      state.preview?.apply(value as PreviewHostEvent[]);
+    } catch {
+      failure.fail();
+    }
   });
   window.addEventListener("unload", () => {
-    events.close();
-    preview.dispose();
+    if (!failure.failed) {
+      events.close();
+      state.preview?.dispose();
+    }
   });
 }

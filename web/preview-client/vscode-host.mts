@@ -1,4 +1,8 @@
-import { PreviewHost, isPreviewHostMessageEvent } from "./host.mjs";
+import {
+  PreviewHost,
+  isInvalidAuthenticatedPublicationMessage,
+  isPreviewHostMessageEvent,
+} from "./host.mjs";
 import type { EditorNavigationEvent } from "./navigation.mjs";
 
 declare const acquireVsCodeApi: () => {
@@ -28,7 +32,11 @@ const preview = new PreviewHost(
 );
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
-  if (!isPreviewHostMessageEvent(event.data, messageToken)) return;
+  if (!isPreviewHostMessageEvent(event.data, messageToken)) {
+    if (isInvalidAuthenticatedPublicationMessage(event.data, messageToken))
+      vscode.postMessage({ type: "requestSnapshot" });
+    return;
+  }
   const value =
     event.data.type === "initializePreview"
       ? event.data.publication

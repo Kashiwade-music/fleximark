@@ -10,19 +10,19 @@ import type {
   SourcePosition,
 } from "../../../web/preview-client/index.mjs";
 import {
-  type AttachDocumentResult,
   type CommandResult,
   type CreatePreviewResult,
   type ExecuteCommandParams,
   type GetNoteOptionsParams,
   type GetNoteOptionsResult,
-  type InitializeResult,
-  type PreviewClientEvent,
+  type LspMethod,
   type PreviewEvent,
   type PreviewTarget,
   type RequestFullTextParams,
   type SourceNavigationEvent,
+  isWebviewInboundMessage,
   protocolVersion,
+  shouldForwardEditorNavigation,
 } from "./protocol.mjs";
 import {
   JsonRpcConnection,
@@ -110,6 +110,33 @@ export function sourcePositionToCharacter(
     utf16Units += character.length;
   }
   return utf16Units;
+}
+
+export function sourcePositionWithinLine(
+  line: string,
+  position: SourcePosition,
+): boolean {
+  const length =
+    position.encoding === "utf8"
+      ? Buffer.byteLength(line, "utf8")
+      : position.encoding === "utf32"
+        ? [...line].length
+        : line.length;
+  return position.character <= length;
+}
+
+export function previewEventAction(
+  currentRevision: number,
+  params: PreviewEvent,
+): "apply" | "ignore" | "reload" {
+  const event = params.event;
+  if (event.type === "full")
+    return event.resultRenderRevision <= currentRevision ? "ignore" : "apply";
+  if (event.type === "patch") {
+    if (event.resultRenderRevision <= currentRevision) return "ignore";
+    return event.baseRenderRevision === currentRevision ? "apply" : "reload";
+  }
+  return params.renderRevision === currentRevision ? "apply" : "ignore";
 }
 
 interface VisibleSourceEditor {
@@ -250,7 +277,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async requestLanguageFeature<T>(
-    method: string,
+    method: LspMethod,
     document: vscode.TextDocument,
     params: object = {},
   ): Promise<T | undefined> {
@@ -258,7 +285,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (!this.#daemon.rpc) throw new Error("FlexiMark daemon is unavailable");
     const rpc = this.#daemon.rpc;
     try {
-      return await rpc.request<T>(method, {
+      return await rpc.requestLsp<T>(method, {
         textDocument: { uri: document.uri.toString() },
         ...params,
       });
@@ -339,58 +366,52 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     };
     runtime.previews.set(result.previewSessionId, preview);
     this.#log(`embedded preview created revision=${preview.renderRevision}`);
-    panel.webview.onDidReceiveMessage(
-      (event: {
-        type?: string;
-        nodeId?: unknown;
-        previewSessionId?: unknown;
-        renderRevision?: unknown;
-      }) => {
-        if (event.type === "ready") {
-          this.#log("embedded preview webview ready");
-          void panel.webview
-            .postMessage({
-              type: "initializePreview",
-              messageToken,
-              publication: preview.initialPublication,
-            })
-            .then((delivered) =>
-              this.#log(
-                `embedded preview initial publication delivered=${delivered}`,
-              ),
-            );
-          return;
-        }
-        if (
-          event.type === "rendered" &&
-          event.previewSessionId === preview.previewSessionId &&
-          event.renderRevision === preview.renderRevision
-        ) {
-          preview.renderedRevision = event.renderRevision;
-          this.#log(
-            `embedded preview rendered revision=${event.renderRevision}`,
+    panel.webview.onDidReceiveMessage((event: unknown) => {
+      if (!isWebviewInboundMessage(event)) return;
+      if (event.type === "ready") {
+        this.#log("embedded preview webview ready");
+        void panel.webview
+          .postMessage({
+            type: "initializePreview",
+            messageToken,
+            publication: preview.initialPublication,
+          })
+          .then((delivered) =>
+            this.#log(
+              `embedded preview initial publication delivered=${delivered}`,
+            ),
           );
-          return;
-        }
-        if (event.type === "requestSnapshot") {
-          void this.#reloadPreview(runtime, preview);
-          return;
-        }
-        if (
-          (event.type === "selectNode" || event.type === "revealNode") &&
-          typeof event.nodeId === "string" &&
-          typeof event.previewSessionId === "string" &&
-          typeof event.renderRevision === "number"
-        ) {
-          this.#daemon.rpc?.notify("fleximark/previewEvent", {
-            daemonInstanceId: this.#daemon.daemonInstanceId,
-            previewSessionId: event.previewSessionId,
-            renderRevision: event.renderRevision,
-            event: event as PreviewClientEvent,
-          });
-        }
-      },
-    );
+        return;
+      }
+      if (
+        event.type === "rendered" &&
+        event.previewSessionId === preview.previewSessionId &&
+        event.renderRevision === preview.renderRevision
+      ) {
+        preview.renderedRevision = event.renderRevision;
+        this.#log(`embedded preview rendered revision=${event.renderRevision}`);
+        return;
+      }
+      if (event.type === "requestSnapshot") {
+        void this.#reloadPreview(runtime, preview);
+        return;
+      }
+      if (
+        shouldForwardEditorNavigation(
+          event,
+          preview.previewSessionId,
+          preview.renderRevision,
+        )
+      ) {
+        if (!this.#daemon.daemonInstanceId) return;
+        this.#daemon.rpc?.notify("fleximark/previewEvent", {
+          daemonInstanceId: this.#daemon.daemonInstanceId,
+          previewSessionId: event.previewSessionId,
+          renderRevision: event.renderRevision,
+          event,
+        });
+      }
+    });
     panel.onDidDispose(() => void this.#disposePreview(runtime, preview));
     panel.webview.html = shell;
   }
@@ -399,7 +420,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (document.languageId !== "markdown") return;
     const workspace = vscode.workspace.getWorkspaceFolder(document.uri);
     const runtime = await this.start(workspace);
-    if (!runtime || !this.#daemon.rpc) return;
+    if (!runtime || !this.#daemon.rpc || !this.#daemon.daemonInstanceId) return;
     await this.#syncDocument(runtime, document);
   }
 
@@ -408,6 +429,9 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     document: vscode.TextDocument,
   ): Promise<void> {
     const uri = document.uri.toString();
+    const rpc = this.#daemon.rpc;
+    const daemonInstanceId = this.#daemon.daemonInstanceId;
+    if (!rpc || !daemonInstanceId) return;
     const existing = runtime.documents.get(uri);
     if (existing?.sessionId) return;
     if (existing?.syncing) return existing.syncing;
@@ -415,18 +439,15 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     state.syncing = (async () => {
       const version = document.version;
       const text = document.getText();
-      this.#daemon.rpc?.notify("textDocument/didOpen", {
+      rpc.notifyLsp("textDocument/didOpen", {
         textDocument: { uri, languageId: document.languageId, version, text },
       });
-      const attached = await this.#daemon.rpc?.request<AttachDocumentResult>(
-        "fleximark/attachDocument",
-        {
-          daemonInstanceId: this.#daemon.daemonInstanceId,
-          uri,
-          expectedDocumentVersion: version,
-          contentHash: createHash("sha256").update(text).digest("hex"),
-        },
-      );
+      const attached = await rpc.request("fleximark/attachDocument", {
+        daemonInstanceId,
+        uri,
+        expectedDocumentVersion: version,
+        contentHash: createHash("sha256").update(text).digest("hex"),
+      });
       if (!attached) return;
       state.sessionId = attached.documentSessionId;
       state.version = version;
@@ -442,7 +463,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     const state = runtime?.documents.get(document.uri.toString());
     if (!state?.sessionId || !runtime || !this.#daemon.rpc) return;
     state.version = document.version;
-    this.#daemon.rpc?.notify("textDocument/didChange", {
+    this.#daemon.rpc?.notifyLsp("textDocument/didChange", {
       textDocument: { uri: document.uri.toString(), version: document.version },
       contentChanges: [{ text: document.getText() }],
     });
@@ -460,7 +481,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (!runtime) return;
     const state = runtime.documents.get(uri);
     if (state?.checkpoint) clearTimeout(state.checkpoint);
-    this.#daemon.rpc?.notify("textDocument/didClose", {
+    this.#daemon.rpc?.notifyLsp("textDocument/didClose", {
       textDocument: { uri },
     });
     for (const preview of [...runtime.previews.values()]) {
@@ -555,18 +576,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         ? await executeCreateNote(
             params,
             (optionParams) =>
-              rpc.request<GetNoteOptionsResult>(
-                "fleximark/getNoteOptions",
-                optionParams,
-              ),
+              rpc.request("fleximark/getNoteOptions", optionParams),
             vscode.window.showQuickPick,
             (commandParams) =>
-              rpc.request<CommandResult>(
-                "fleximark/executeCommand",
-                commandParams,
-              ),
+              rpc.request("fleximark/executeCommand", commandParams),
           )
-        : await rpc.request<CommandResult>("fleximark/executeCommand", params);
+        : await rpc.request("fleximark/executeCommand", params);
     if (!result) return;
     await openCommandResult(
       params,
@@ -575,7 +590,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         await vscode.window.showTextDocument(vscode.Uri.parse(uri));
       },
       (acknowledgement) =>
-        rpc.request<CommandResult>("fleximark/executeCommand", acknowledgement),
+        rpc.request("fleximark/executeCommand", acknowledgement),
     );
     if (result?.message) {
       const show =
@@ -603,7 +618,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     const rpc = this.#daemon.rpc;
     const daemonInstanceId = this.#daemon.daemonInstanceId;
     if (!runtime || !rpc || !daemonInstanceId) return;
-    await rpc.request<null>("fleximark/reconfigureWorkspace", {
+    await rpc.request("fleximark/reconfigureWorkspace", {
       daemonInstanceId,
       workspaceUri: workspace.uri.toString(),
       trusted: vscode.workspace.isTrusted,
@@ -684,7 +699,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       if (state.checkpoint) clearTimeout(state.checkpoint);
     }
     for (const [uri] of runtime.documents)
-      this.#daemon.rpc?.notify("textDocument/didClose", {
+      this.#daemon.rpc?.notifyLsp("textDocument/didClose", {
         textDocument: { uri },
       });
     for (const preview of runtime.previews.values()) {
@@ -705,10 +720,10 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     this.#daemon.daemonInstanceId = undefined;
     if (rpc) {
       void rpc
-        .request("shutdown", undefined, 1_000)
+        .requestLsp("shutdown", undefined, 1_000)
         .catch(() => undefined)
         .finally(() => {
-          rpc.notify("exit");
+          rpc.notifyLsp("exit");
           rpc.close();
           child?.kill();
         });
@@ -730,6 +745,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       }
       if (
         this.#daemon.rpc &&
+        !this.#daemon.rpc.closed &&
         this.#daemon.daemonInstanceId &&
         this.#daemon.appliedWorkspaceRevision === this.#daemon.workspaceRevision
       )
@@ -809,7 +825,21 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       }
     });
     rpc.on("message", (message: JsonRpcRequest) => {
-      void this.#handleDaemonMessage(message, rpc, generation);
+      void this.#handleDaemonMessage(message, rpc, generation).catch(
+        (error: unknown) => this.#report(error),
+      );
+    });
+    rpc.on("invalidMessage", (message: JsonRpcRequest) => {
+      this.#handleInvalidDaemonMessage(message, rpc, generation);
+    });
+    rpc.on("close", () => {
+      if (
+        this.#daemon.rpc === rpc &&
+        this.#daemon.process === child &&
+        !this.#stopping &&
+        !this.#daemon.restarting
+      )
+        child.kill();
     });
     child.once("exit", (code, signal) =>
       this.#daemonExited(child, code, signal),
@@ -818,7 +848,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       child.once("spawn", resolve);
       child.once("error", reject);
     });
-    await rpc.request("initialize", {
+    await rpc.requestLsp("initialize", {
       processId: process.pid,
       clientInfo: {
         name: "FlexiMark VS Code",
@@ -827,7 +857,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       rootUri: null,
       capabilities: { general: { positionEncodings: ["utf-16"] } },
     });
-    rpc.notify("initialized", {});
+    rpc.notifyLsp("initialized", {});
     const workspaceRevision = this.#daemon.workspaceRevision;
     await this.#initializeWorkspaces(rpc);
     if (this.#daemon.process !== child) return;
@@ -888,27 +918,24 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #initializeWorkspaces(rpc: JsonRpcConnection): Promise<void> {
-    const initialized = await rpc.request<InitializeResult>(
-      "fleximark/initialize",
-      {
-        protocolVersion,
-        client: {
-          name: "vscode",
-          version: this.#context.extension.packageJSON.version,
-        },
-        capabilities: {
-          embeddedHtml: true,
-          structuredPreview: false,
-          selectionEvents: true,
-          viewportEvents: true,
-          openExternal: true,
-        },
-        workspaces: [...this.#runtimes.values()].map(({ workspace }) => ({
-          uri: workspace.uri.toString(),
-          trusted: vscode.workspace.isTrusted,
-        })),
+    const initialized = await rpc.request("fleximark/initialize", {
+      protocolVersion,
+      client: {
+        name: "vscode",
+        version: this.#context.extension.packageJSON.version,
       },
-    );
+      capabilities: {
+        embeddedHtml: true,
+        structuredPreview: false,
+        selectionEvents: true,
+        viewportEvents: true,
+        openExternal: true,
+      },
+      workspaces: [...this.#runtimes.values()].map(({ workspace }) => ({
+        uri: workspace.uri.toString(),
+        trusted: vscode.workspace.isTrusted,
+      })),
+    });
     if (initialized.protocolVersion !== protocolVersion) {
       throw new Error(
         `Unsupported FlexiMark protocol version ${initialized.protocolVersion}`,
@@ -942,15 +969,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     )
       return;
     await this.#checkpoint(runtime, document, state);
-    return this.#daemon.rpc.request<CreatePreviewResult>(
-      "fleximark/createPreview",
-      {
-        daemonInstanceId: this.#daemon.daemonInstanceId,
-        documentSessionId: state.sessionId,
-        expectedDocumentVersion: document.version,
-        target,
-      },
-    );
+    return this.#daemon.rpc.request("fleximark/createPreview", {
+      daemonInstanceId: this.#daemon.daemonInstanceId,
+      documentSessionId: state.sessionId,
+      expectedDocumentVersion: document.version,
+      target,
+    });
   }
 
   async #checkpoint(
@@ -1027,6 +1051,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       );
       const preview = found?.previews.get(event.previewSessionId);
       if (!preview) return;
+      const action = previewEventAction(preview.renderRevision, event);
+      if (action === "ignore") return;
+      if (action === "reload") {
+        if (found) void this.#reloadPreview(found, preview);
+        return;
+      }
       if (
         event.event.type === "selectSource" ||
         event.event.type === "revealSource"
@@ -1034,8 +1064,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         await this.#applySourceNavigation(preview, event.event);
         return;
       }
-      if (event.event.type === "full" || event.event.type === "patch")
+      if (event.event.type === "full") {
         preview.renderRevision = event.event.resultRenderRevision;
+      } else if (event.event.type === "patch") {
+        preview.renderRevision = event.event.resultRenderRevision;
+      }
       await preview.panel?.webview.postMessage({
         type: "previewEvent",
         messageToken: preview.messageToken,
@@ -1057,7 +1090,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         (item) => item.uri.toString() === params.uri,
       );
       if (document) {
-        connection.notify("textDocument/didChange", {
+        connection.notifyLsp("textDocument/didChange", {
           textDocument: { uri: params.uri, version: document.version },
           contentChanges: [{ text: document.getText() }],
         });
@@ -1105,6 +1138,39 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     }
   }
 
+  #handleInvalidDaemonMessage(
+    message: JsonRpcRequest,
+    connection: JsonRpcConnection,
+    generation: number,
+  ): void {
+    if (
+      connection !== this.#daemon.rpc ||
+      generation !== this.#daemon.connectionGeneration ||
+      message.method !== "fleximark/previewEvent" ||
+      !message.params
+    )
+      return;
+    const params = message.params as Record<string, unknown>;
+    const event = params.event;
+    if (
+      params.daemonInstanceId !== this.#daemon.daemonInstanceId ||
+      typeof params.previewSessionId !== "string" ||
+      event === null ||
+      typeof event !== "object" ||
+      !["full", "patch"].includes(
+        (event as Record<string, unknown>).type as string,
+      )
+    )
+      return;
+    for (const runtime of this.#runtimes.values()) {
+      const preview = runtime.previews.get(params.previewSessionId);
+      if (preview) {
+        void this.#reloadPreview(runtime, preview);
+        return;
+      }
+    }
+  }
+
   async #applySourceNavigation(
     preview: PreviewState,
     event: SourceNavigationEvent,
@@ -1114,6 +1180,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
     if (!document) return;
     const { start, end } = event.sourceRange;
+    if (
+      !this.#sourcePositionInDocument(document, start) ||
+      !this.#sourcePositionInDocument(document, end)
+    )
+      return;
     const range = new vscode.Range(
       start.line,
       sourcePositionToCharacter(document.lineAt(start.line).text, start),
@@ -1162,13 +1233,24 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     }, 500);
   }
 
+  #sourcePositionInDocument(
+    document: vscode.TextDocument,
+    position: SourcePosition,
+  ): boolean {
+    if (position.line < 0 || position.line >= document.lineCount) return false;
+    const line = document.lineAt(position.line).text;
+    return sourcePositionWithinLine(line, position);
+  }
+
   async #reloadPreview(
     runtime: WorkspaceRuntime,
     preview: PreviewState,
   ): Promise<void> {
     try {
-      await this.#daemon.rpc?.request<unknown>("fleximark/reloadPreview", {
-        daemonInstanceId: this.#daemon.daemonInstanceId,
+      const daemonInstanceId = this.#daemon.daemonInstanceId;
+      if (!daemonInstanceId) return;
+      await this.#daemon.rpc?.request("fleximark/reloadPreview", {
+        daemonInstanceId,
         previewSessionId: preview.previewSessionId,
       });
     } catch (error) {
@@ -1182,10 +1264,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   ): Promise<void> {
     if (!runtime.previews.delete(preview.previewSessionId)) return;
     try {
-      await this.#daemon.rpc?.request<unknown>("fleximark/disposePreview", {
-        daemonInstanceId: this.#daemon.daemonInstanceId,
-        previewSessionId: preview.previewSessionId,
-      });
+      const daemonInstanceId = this.#daemon.daemonInstanceId;
+      if (daemonInstanceId)
+        await this.#daemon.rpc?.request("fleximark/disposePreview", {
+          daemonInstanceId,
+          previewSessionId: preview.previewSessionId,
+        });
     } catch (error) {
       this.#output.appendLine(`preview disposal failed: ${String(error)}`);
     }

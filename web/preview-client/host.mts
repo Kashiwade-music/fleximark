@@ -3,11 +3,15 @@ import { PreviewDocument, type RenderPublication } from "./index.mjs";
 import {
   type EditorNavigationEvent,
   PreviewNavigation,
-  type PreviewNavigationEvent,
 } from "./navigation.mjs";
+import {
+  type PreviewHostEvent,
+  isPreviewHostEvent,
+  isRenderPublication,
+} from "./protocol.mjs";
 import { previewRuntimes } from "./runtimes.mjs";
 
-export type PreviewHostEvent = RenderPublication | PreviewNavigationEvent;
+export type { PreviewHostEvent } from "./protocol.mjs";
 
 export type PreviewHostMessage =
   | {
@@ -17,16 +21,8 @@ export type PreviewHostMessage =
     }
   | { type: "previewEvent"; messageToken: string; event: PreviewHostEvent };
 
-function isPosition(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const position = value as Record<string, unknown>;
-  return (
-    Number.isSafeInteger(position.line) &&
-    (position.line as number) >= 0 &&
-    Number.isSafeInteger(position.character) &&
-    (position.character as number) >= 0
-  );
-}
+const object = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 export function isPreviewHostMessageEvent(
   value: unknown,
@@ -38,44 +34,67 @@ export function isPreviewHostMessageEvent(
 export function isPreviewHostMessage(
   value: unknown,
 ): value is PreviewHostMessage {
-  if (!value || typeof value !== "object") return false;
-  const message = value as Record<string, unknown>;
-  if (typeof message.messageToken !== "string") return false;
-  const payload =
-    message.type === "initializePreview"
-      ? message.publication
-      : message.type === "previewEvent"
-        ? message.event
-        : undefined;
-  if (!payload || typeof payload !== "object") return false;
-  const event = payload as Record<string, unknown>;
-  if (event.type === "full")
+  if (!object(value) || typeof value.messageToken !== "string") return false;
+  if (value.type === "initializePreview")
     return (
-      typeof event.previewSessionId === "string" &&
-      typeof event.resultRenderRevision === "number" &&
-      typeof event.html === "string" &&
-      Array.isArray(event.nodeIds) &&
-      Array.isArray(event.navigation) &&
-      Array.isArray(event.assets)
-    );
-  if (event.type === "patch")
-    return (
-      typeof event.previewSessionId === "string" &&
-      typeof event.baseRenderRevision === "number" &&
-      typeof event.resultRenderRevision === "number" &&
-      Array.isArray(event.navigation) &&
-      Array.isArray(event.operations)
+      Object.keys(value).every((key) =>
+        ["type", "messageToken", "publication"].includes(key),
+      ) && isRenderPublication(value.publication)
     );
   return (
-    typeof event.previewSessionId === "string" &&
-    typeof event.renderRevision === "number" &&
-    ((event.type === "selection" &&
-      Array.isArray(event.nodeIds) &&
-      (event.activePosition === undefined ||
-        event.activePosition === null ||
-        isPosition(event.activePosition))) ||
-      (event.type === "viewport" && typeof event.nodeId === "string"))
+    value.type === "previewEvent" &&
+    Object.keys(value).every((key) =>
+      ["type", "messageToken", "event"].includes(key),
+    ) &&
+    isPreviewHostEvent(value.event)
   );
+}
+
+export function isInvalidAuthenticatedPublicationMessage(
+  value: unknown,
+  messageToken: string,
+): boolean {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    isPreviewHostMessageEvent(value, messageToken)
+  )
+    return false;
+  const message = value as Record<string, unknown>;
+  if (message.messageToken !== messageToken) return false;
+  if (message.type === "initializePreview") return true;
+  const payload = message.type === "previewEvent" ? message.event : undefined;
+  return (
+    payload !== null &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    ["full", "patch"].includes(
+      (payload as Record<string, unknown>).type as string,
+    )
+  );
+}
+
+export class PreviewFailureGuard {
+  #failed = false;
+
+  constructor(
+    private readonly close: () => void,
+    private readonly dispose: () => void,
+    private readonly reload: () => void,
+  ) {}
+
+  get failed(): boolean {
+    return this.#failed;
+  }
+
+  fail(): void {
+    if (this.#failed) return;
+    this.#failed = true;
+    this.close();
+    this.dispose();
+    this.reload();
+  }
 }
 
 export class PreviewHost {

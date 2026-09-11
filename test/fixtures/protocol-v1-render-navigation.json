@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "type": "selection",
+      "previewSessionId": "preview",
+      "renderRevision": 1,
+      "nodeIds": []
+    },
+    {
+      "type": "selection",
+      "previewSessionId": "preview",
+      "renderRevision": 1,
+      "nodeIds": ["document-root"],
+      "activePosition": null
+    },
+    {
+      "type": "selection",
+      "previewSessionId": "preview",
+      "renderRevision": 2,
+      "nodeIds": ["paragraph"],
+      "activePosition": { "line": 3, "character": 5 }
+    }
+  ]
+}

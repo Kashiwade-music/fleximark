@@ -23,6 +23,15 @@
         }
       ]
     },
+    "structuredParams": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } }
+      ]
+    },
     "position": {
       "type": "object",
       "additionalProperties": false,
@@ -397,6 +406,9 @@
               "type": "array",
               "uniqueItems": true,
               "items": { "type": "string", "minLength": 1 }
+            },
+            "activePosition": {
+              "oneOf": [{ "$ref": "#/$defs/position" }, { "type": "null" }]
             }
           },
           "required": ["type", "previewSessionId", "renderRevision", "nodeIds"]
@@ -644,9 +656,29 @@
         "previewSessionId": { "type": "string" },
         "renderRevision": { "type": "integer", "minimum": 1 },
         "event": {
+          "$ref": "#/$defs/previewNavigationEvent"
+        }
+      },
+      "required": [
+        "daemonInstanceId",
+        "previewSessionId",
+        "renderRevision",
+        "event"
+      ]
+    },
+    "clientPreviewEventParams": {
+      "$ref": "#/$defs/previewEventParams"
+    },
+    "serverPreviewEventParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "daemonInstanceId": { "type": "string" },
+        "previewSessionId": { "type": "string" },
+        "renderRevision": { "type": "integer", "minimum": 1 },
+        "event": {
           "anyOf": [
             { "$ref": "#/$defs/renderPublication" },
-            { "$ref": "#/$defs/previewNavigationEvent" },
             { "$ref": "#/$defs/sourceNavigationEvent" },
             { "$ref": "#/$defs/renderNavigationEvent" }
           ]
@@ -658,6 +690,59 @@
         "renderRevision",
         "event"
       ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "range": { "$ref": "#/$defs/range" },
+        "severity": { "type": "integer" },
+        "code": { "type": ["integer", "string"] },
+        "codeDescription": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "href": { "type": "string" } },
+          "required": ["href"]
+        },
+        "source": { "type": "string" },
+        "message": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "integer" } },
+        "relatedInformation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "location": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "uri": { "type": "string" },
+                  "range": { "$ref": "#/$defs/range" }
+                },
+                "required": ["uri", "range"]
+              },
+              "message": { "type": "string" }
+            },
+            "required": ["location", "message"]
+          }
+        },
+        "data": { "$ref": "#/$defs/jsonValue" }
+      },
+      "required": ["range", "message"]
+    },
+    "publishDiagnosticsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uri": { "type": "string" },
+        "version": { "type": "integer" },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        }
+      },
+      "required": ["uri", "diagnostics"]
     },
     "executeCommandParams": {
       "type": "object",
@@ -958,7 +1043,12 @@
             {
               "properties": {
                 "method": { "const": "fleximark/previewEvent" },
-                "params": { "$ref": "#/$defs/previewEventParams" }
+                "params": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/clientPreviewEventParams" },
+                    { "$ref": "#/$defs/serverPreviewEventParams" }
+                  ]
+                }
               }
             }
           ]
@@ -1006,12 +1096,29 @@
             "textDocument/hover",
             "textDocument/documentSymbol",
             "textDocument/codeAction",
-            "textDocument/diagnostic"
+            "textDocument/diagnostic",
+            "textDocument/publishDiagnostics"
           ]
         },
-        "params": { "$ref": "#/$defs/jsonValue" }
+        "params": { "$ref": "#/$defs/structuredParams" }
       },
-      "required": ["jsonrpc", "method"]
+      "required": ["jsonrpc", "method"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": { "const": "textDocument/publishDiagnostics" }
+            },
+            "required": ["method"]
+          },
+          "then": {
+            "properties": {
+              "params": { "$ref": "#/$defs/publishDiagnosticsParams" }
+            },
+            "required": ["params"]
+          }
+        }
+      ]
     },
     "response": {
       "type": "object",

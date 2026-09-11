@@ -62,7 +62,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Owner | Source | Responsibility |
 | --- | --- | --- |
 | Adapter | `adapters/vscode` | VS Code activation, settings, commands, editor/workspace events, daemon recovery, panels and browser launch |
-| Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `adapters/vscode/src/protocol.mts` | Protocol version, custom method names, JSON DTOs and stdio framing |
+| Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
 | Daemon | `crates/fleximarkd/src/main.rs` | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
 | LSP/session | `crates/fleximark-lsp` | URI-to-session authority, document versions, diagnostics/navigation and preview publication state |
@@ -139,8 +139,8 @@ the authority to perform them.
 | Format | Canonical location | Compatibility notes |
 | --- | --- | --- |
 | JSON-RPC/LSP stdio | `fleximark-protocol`, `schemas/protocol.schema.json` | Protocol version 1, UTF-8 JSON, `Content-Length: N\r\n\r\n`; custom names are `fleximark/*` and fields use the casing declared by serde/schema |
-| Custom request/result DTOs | Rust protocol types, protocol schema, adapter types | Optional fields are omitted on serialization where declared; error codes/messages and result envelopes are external behavior |
-| Preview publications | protocol schema and `web/preview-client/index.mts` | Discriminated `full`/`patch` JSON, camelCase fields, session/version/revision/fingerprint identity, navigation and optional style/assets |
+| Custom request/result DTOs | Rust protocol types, protocol schema, `web/preview-client/protocol.mts` | Optional fields are omitted on serialization where declared; error codes/messages and result envelopes are external behavior |
+| Preview publications | protocol schema and `web/preview-client/protocol.mts` | Discriminated `full`/`patch` JSON, camelCase fields, session/version/revision/fingerprint identity, navigation and optional style/assets |
 | Embedded preview messages | `web/preview-client/host.mts` | `initializePreview` and `previewEvent` envelopes include a per-panel `messageToken`; client events return through VS Code webview messaging |
 | Browser preview | `fleximarkd/src/main.rs`, `browser-host.mts` | Tokenized loopback HTTP page, SSE publication stream and JSON POST navigation events |
 | Plugin manifest and ABI | `schemas/plugin-manifest.schema.json`, `fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit` | TOML manifest `schema_version = 1`, plugin `api_version = 1`, versioned WIT world and signed artifact digest |

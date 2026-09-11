@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 0 まで完了しており、製品コードとschemaを変えずにarchitecture文書、characterization test、独立test入口、local/CI gateを追加した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 1 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -35,6 +35,17 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - 全17 custom methodは共有fixtureをRust serdeとJSON Schemaの両方へ通し、params/result/envelope、optional omission、notification/void result、method set driftを固定した。
 - ARCHITECTURE.md と REFACTORING_PLAN.md は `.vscodeignore` で明示的に除外し、Phase 0 前の配布内容を維持した。
 - Pythonの限定JSON Schema validatorではJSON型を考慮した `const` / `enum` 比較が必要だった。Python固有の `True == 1` を受理しないnegative testを保持する。
+
+### Phase 1 完了時のベースライン
+
+- cargo test --workspace --all-targets: 115 tests passed
+- Node pure RPC/preview/protocol tests: 54 tests passed
+- VS Code Electron tests: 75 tests passed
+- Python unittest discovery: 18 tests passed
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- 全13 custom requestのparams/resultと全4 custom notificationを共有fixtureからTypeScript runtime validatorへ通し、Rust serde、JSON Schema、TypeScriptのmethod set、方向、optional-present DTOを同じ通常gateで固定した。
+- malformed envelope/resultはconnectionを終端して既存daemon recoveryへ接続し、未知・late messageはignore、invalid publicationはatomicに拒否してsnapshot/reloadを一度だけ要求する方針を回帰testで固定した。
+- schemaの整数はRustの `u64` 全域を表現できる一方、JavaScript runtime validatorは精度を守るためsafe integerを要求する。protocol v1の受理範囲を狭める変更は行わず、将来大きなversion/revision値を必要とする場合はversioned contractとしてmaximumまたはstring表現を決める。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -226,6 +237,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 1 — Protocol/schema/runtime boundaryの強化
 
+- 状態: 2026-09-12 完了。3周の独立レビューで見つかったRPC終端/recovery、合法array params、direction drift、session/revision相関、host failure隔離、optional DTOの不足を修正し、最終レビューで未解決P0〜P3なし、`mise run verify` 成功を確認した。
 - 優先度 / ROI: P0 / 高。
 - 目的: Rust、schema、TS間のdriftとmalformed messageによる未制御例外を防ぐ。
 - 問題点: method→params/result対応が型で表現されず、request<T>とasが未検証JSONを信頼する。

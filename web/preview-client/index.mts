@@ -1,107 +1,24 @@
-export interface RenderSnapshot {
-  type: "full";
-  previewSessionId: string;
-  documentVersion: number;
-  resultRenderRevision: number;
-  rendererFingerprint: string;
-  nodeIds: string[];
-  navigation: NavigationEntry[];
-  style: RenderStyle | null;
-  assets: RenderAsset[];
-  html: string;
-}
+import type {
+  NavigationEntry,
+  RenderAsset,
+  RenderPatch,
+  RenderPublication,
+  RenderSnapshot,
+  RenderStyle,
+} from "./protocol.mjs";
+import { isRenderPublication } from "./protocol.mjs";
 
-export interface RenderStyle {
-  css: string;
-  fingerprint: string;
-}
-
-export interface RenderAsset {
-  reference: string;
-  mediaType: string;
-  contentHash: string;
-  byteLength: number;
-  data: string;
-}
-
-export interface NavigationEntry {
-  nodeId: string;
-  sourceRange: {
-    byteStart: number;
-    byteEnd: number;
-    start: SourcePosition;
-    end: SourcePosition;
-  };
-  depth: number;
-}
-
-export interface SourcePosition {
-  line: number;
-  character: number;
-  encoding: "utf8" | "utf16" | "utf32";
-}
-
-interface Precondition {
-  nodeExists: true;
-  currentParentId: string;
-}
-
-export type PatchOperation =
-  | {
-      type: "insert";
-      nodeId: string;
-      parentId: string;
-      beforeId: string | null;
-      afterId: string | null;
-      atEnd: boolean;
-      contentNodeIds: string[];
-      content: string;
-    }
-  | {
-      type: "remove";
-      nodeId: string;
-      parentId: string;
-      precondition: Precondition;
-    }
-  | {
-      type: "replace";
-      nodeId: string;
-      parentId: string;
-      contentNodeIds: string[];
-      content: string;
-      precondition: Precondition;
-    }
-  | {
-      type: "move";
-      nodeId: string;
-      parentId: string;
-      beforeId: string | null;
-      afterId: string | null;
-      atEnd: boolean;
-      precondition: Precondition;
-    }
-  | {
-      type: "setAttributes";
-      nodeId: string;
-      parentId: string;
-      attributes: Record<string, string | null>;
-      precondition: Precondition;
-    };
-
-export interface RenderPatch {
-  type: "patch";
-  previewSessionId: string;
-  documentVersion: number;
-  baseRenderRevision: number;
-  resultRenderRevision: number;
-  baseRendererFingerprint: string;
-  resultRendererFingerprint: string;
-  navigation: NavigationEntry[];
-  style: RenderStyle | null;
-  operations: PatchOperation[];
-}
-
-export type RenderPublication = RenderSnapshot | RenderPatch;
+export type {
+  NavigationEntry,
+  PatchOperation,
+  RenderAsset,
+  RenderPatch,
+  RenderPublication,
+  RenderSnapshot,
+  RenderStyle,
+  SourcePosition,
+  SourceRange,
+} from "./protocol.mjs";
 
 function identityMap(root: ParentNode): Map<string, HTMLElement> | undefined {
   const elements =
@@ -335,6 +252,10 @@ export class PreviewDocument {
   }
 
   apply(publication: RenderPublication): boolean {
+    if (!isRenderPublication(publication)) {
+      this.#requestSnapshot();
+      return false;
+    }
     return publication.type === "full"
       ? this.applySnapshot(publication)
       : this.applyPatch(publication);

@@ -1,5 +1,10 @@
 import type { NavigationEntry } from "./index.mjs";
 
+export type {
+  EditorNavigationEvent,
+  PreviewNavigationEvent,
+} from "./protocol.mjs";
+
 export type PreviewNavigationUpdate =
   | {
       type: "selection";
@@ -11,19 +16,9 @@ export type PreviewNavigationUpdate =
       nodeId: string;
     };
 
-export type PreviewNavigationEvent = PreviewNavigationUpdate & {
-  previewSessionId: string;
-  renderRevision: number;
-};
-
 export type PreviewNodeEvent =
   | { type: "selectNode"; nodeId: string }
   | { type: "revealNode"; nodeId: string };
-
-export type EditorNavigationEvent = PreviewNodeEvent & {
-  previewSessionId: string;
-  renderRevision: number;
-};
 
 export class PreviewNavigation {
   readonly #root: HTMLElement;

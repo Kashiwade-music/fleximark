@@ -2,8 +2,10 @@ import * as assert from "node:assert/strict";
 
 import {
   findVisibleSourceEditor,
+  previewEventAction,
   selectWorkspaceUri,
   sourcePositionToCharacter,
+  sourcePositionWithinLine,
 } from "../../adapters/vscode/src/adapter.mjs";
 
 export const suiteName = "Multi-root workspace adapter";
@@ -62,6 +64,92 @@ export function suite(): void {
         encoding: "utf16",
       }),
       4,
+    );
+  });
+
+  test("rejects source characters outside their contextual encoding bounds", () => {
+    const line = "A😀éZ";
+    assert.equal(
+      sourcePositionWithinLine(line, {
+        line: 0,
+        character: Buffer.byteLength(line, "utf8"),
+        encoding: "utf8",
+      }),
+      true,
+    );
+    assert.equal(
+      sourcePositionWithinLine(line, {
+        line: 0,
+        character: Buffer.byteLength(line, "utf8") + 1,
+        encoding: "utf8",
+      }),
+      false,
+    );
+    assert.equal(
+      sourcePositionWithinLine(line, {
+        line: 0,
+        character: [...line].length + 1,
+        encoding: "utf32",
+      }),
+      false,
+    );
+  });
+
+  test("classifies stale preview events without changing adapter state", () => {
+    const base = {
+      daemonInstanceId: "daemon",
+      previewSessionId: "preview",
+      renderRevision: 4,
+    };
+    assert.equal(
+      previewEventAction(4, {
+        ...base,
+        event: {
+          type: "full",
+          previewSessionId: "preview",
+          documentVersion: 1,
+          resultRenderRevision: 4,
+          rendererFingerprint: "sha256:renderer",
+          nodeIds: ["document-root"],
+          navigation: [],
+          style: null,
+          assets: [],
+          html: '<main data-fleximark-node-id="document-root"></main>',
+        },
+      }),
+      "ignore",
+    );
+    assert.equal(
+      previewEventAction(4, {
+        ...base,
+        renderRevision: 6,
+        event: {
+          type: "patch",
+          previewSessionId: "preview",
+          documentVersion: 2,
+          baseRenderRevision: 5,
+          resultRenderRevision: 6,
+          baseRendererFingerprint: "sha256:renderer",
+          resultRendererFingerprint: "sha256:renderer",
+          navigation: [],
+          style: null,
+          operations: [],
+        },
+      }),
+      "reload",
+    );
+    assert.equal(
+      previewEventAction(4, {
+        ...base,
+        renderRevision: 3,
+        event: {
+          type: "viewport",
+          previewSessionId: "preview",
+          renderRevision: 3,
+          nodeId: "a",
+        },
+      }),
+      "ignore",
     );
   });
 
