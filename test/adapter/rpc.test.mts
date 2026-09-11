@@ -41,5 +41,6 @@ export function suite(): void {
     const pending = connection.request("fleximark/test");
     connection.close(new Error("gone"));
     await assert.rejects(pending, /gone/);
+    assert.equal(connection.closed, true);
   });
 }

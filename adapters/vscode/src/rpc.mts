@@ -24,6 +24,16 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
 }
 
+export class JsonRpcResponseError extends Error {
+  constructor(
+    message: string,
+    readonly code: number,
+    readonly data?: JsonValue,
+  ) {
+    super(`${message} (${code})`);
+  }
+}
+
 export class JsonRpcConnection extends EventEmitter {
   readonly #output: Writable;
   readonly #pending = new Map<number, PendingRequest>();
@@ -44,6 +54,10 @@ export class JsonRpcConnection extends EventEmitter {
     input.on("error", (error) => this.close(error));
     input.on("end", () => this.close(new Error("FlexiMark daemon exited")));
     output.on("error", (error) => this.close(error));
+  }
+
+  get closed(): boolean {
+    return this.#closed;
   }
 
   request<T>(method: string, params?: object, timeoutMs = 15_000): Promise<T> {
@@ -135,7 +149,11 @@ export class JsonRpcConnection extends EventEmitter {
       clearTimeout(pending.timer);
       if (message.error) {
         pending.reject(
-          new Error(`${message.error.message} (${message.error.code})`),
+          new JsonRpcResponseError(
+            message.error.message,
+            message.error.code,
+            message.error.data,
+          ),
         );
       } else {
         pending.resolve(message.result);

@@ -22,7 +22,11 @@ import {
   type SourceNavigationEvent,
   protocolVersion,
 } from "./protocol.mjs";
-import { JsonRpcConnection, type JsonRpcRequest } from "./rpc.mjs";
+import {
+  JsonRpcConnection,
+  type JsonRpcRequest,
+  JsonRpcResponseError,
+} from "./rpc.mjs";
 
 interface DocumentState {
   sessionId?: string;
@@ -208,13 +212,25 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     method: string,
     document: vscode.TextDocument,
     params: object = {},
-  ): Promise<T> {
+  ): Promise<T | undefined> {
     await this.activateDocument(document);
     if (!this.#daemon.rpc) throw new Error("FlexiMark daemon is unavailable");
-    return this.#daemon.rpc.request<T>(method, {
-      textDocument: { uri: document.uri.toString() },
-      ...params,
-    });
+    const rpc = this.#daemon.rpc;
+    try {
+      return await rpc.request<T>(method, {
+        textDocument: { uri: document.uri.toString() },
+        ...params,
+      });
+    } catch (error) {
+      if (
+        rpc.closed ||
+        (error instanceof JsonRpcResponseError &&
+          error.code === -32602 &&
+          error.message.startsWith("document is not open"))
+      )
+        return undefined;
+      throw error;
+    }
   }
 
   async openPreview(target: PreviewTarget): Promise<void> {
