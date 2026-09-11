@@ -10,9 +10,12 @@
 ### 必要なもの
 
 - VS Code 1.137.0 以降
-- Node.js 24.21.0 と npm 12.0.2（`package.json` の指定に合わせる）
-- Rust 1.85 以降
+- mise 2026.5.12 以降
 - Git
+
+Node.js、Yarn、Python、uv、Rust の正確なバージョンは `mise.toml` と
+`package.json` の指定から mise が導入する。シェルへの mise activation は任意であり、
+以下の `mise run` command は activation なしでも利用できる。
 
 Rust/Wasmtime の初回 build は `target` に数 GB の空き容量を必要とする。空き容量が
 100 MB 程度しかない状態では linker が長時間停止したように見えたり、build が失敗したりするため、
@@ -21,25 +24,34 @@ Rust/Wasmtime の初回 build は `target` に数 GB の空き容量を必要と
 ### 依存関係のインストール
 
 ```sh
-npm ci
+mise install
+mise run install
 ```
 
-### npm scripts
+`yarn.lock` と `uv.lock` は必ず commit する。CI では JavaScript と Python の両方を
+immutable/frozen mode で復元する。
+Yarn は VS Code tooling と VSCE の互換性のため `nodeLinker: node-modules` を使用する。
+配布物は esbuild で bundle 済みなので、VSIX package 時は常に `--no-dependencies` を指定する。
 
-`package.json` の command は、利用者が選択すべき入口だけに絞っている。内部工程を個別に調べる場合は、
-後述の Node/Cargo command を直接実行する。
+### 開発タスク
 
-| command                     | 内容                                                                                                                                                     |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`             | external browser 用 preview client、release版 `fleximarkd`、release manifest、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
-| `npm run dev`               | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                                            |
-| `npm test`                  | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                                    |
-| `npm run verify`            | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。                      |
-| `npm run package`           | `verify`を通した後、依存packageを同梱しないVSIXを作る。`-- --out <file>`で出力名を指定できる。                                                           |
-| `npm run smoke -- <vsix>`   | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                                            |
-| `npm run l10n`              | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                                        |
-| `npm run clean`             | 生成した`dist/`と`out/test/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                                    |
-| `npm run vscode:prepublish` | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                                               |
+`mise.toml` の task は、利用者が選択すべき入口だけに絞っている。実処理は
+`scripts/*.py` に責務別に分割し、`scripts/tasks.py` が orchestration を担当する。
+esbuild、VSCE、VS Code test runner などの Node 製ツールは Python から Yarn 経由で呼び出す。
+JavaScript の custom task は、semantic-release が module として直接 import する hook だけである。
+`package.json` の scripts は VSCE lifecycle と Yarn 利用者向けの互換入口である。
+
+| command                                  | 内容                                                                                                                                                     |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mise run build`                         | external browser 用 preview client、release版 `fleximarkd`、release manifest、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
+| `mise run dev`                           | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                                            |
+| `mise run test`                          | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                                    |
+| `mise run verify`                        | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。                      |
+| `mise run package -- --out <file>`       | `verify`を通した後、依存packageを同梱しないVSIXを作る。                                                                                                  |
+| `mise run smoke -- <vsix>`               | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                                            |
+| `mise run l10n`                          | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                                        |
+| `mise run clean`                         | 生成した`dist/`と`out/test/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                                    |
+| `yarn run vscode:prepublish`             | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                                               |
 
 ## Extension Development Host での手動動作確認
 
@@ -51,7 +63,7 @@ npm ci
 リポジトリのルートで次を実行する。
 
 ```sh
-npm run build
+mise run build
 ```
 
 `build` は release build した実行ファイルを、現在の platform/CPU に対応する
@@ -66,8 +78,8 @@ Rust を変更した場合は、先に実行中の Extension Development Host �
 F5 で起動し直す。Windows では実行中の daemon を上書きできないため、停止が先である。
 
 ```sh
-cargo build --release -p fleximarkd
-node scripts/stage-daemon.mjs
+mise exec -- cargo build --release -p fleximarkd
+mise exec -- uv run --frozen python scripts/stage_daemon.py
 ```
 
 ### 2. 検証用 workspace を初期化する
@@ -238,7 +250,7 @@ Extension Development Host は開発 bundle の確認であり、最終 package 
 配布物も確認する場合は次を実行する。
 
 ```sh
-npm run package -- --out fleximark-dev.vsix
+mise run package -- --out fleximark-dev.vsix
 code --install-extension fleximark-dev.vsix --force
 ```
 
@@ -248,10 +260,10 @@ code --install-extension fleximark-dev.vsix --force
 
 ## トラブルシューティング
 
-- `spawn ... fleximarkd ENOENT`: `npm run build` を再実行し、`bin/<platform>-<arch>/` を確認する。
+- `spawn ... fleximarkd ENOENT`: `mise run build` を再実行し、`bin/<platform>-<arch>/` を確認する。
 - 別の daemon を直接使う: Settings の `FlexiMark: Daemon Path` に絶対パスを指定し、window を reload する。
-- TypeScript 変更が反映されない: F5 セッションを停止し、`npm run build` 後に再起動する。
-- Rust 変更が反映されない: F5 セッションを停止し、release build と `stage-daemon.mjs` を再実行する。
+- TypeScript 変更が反映されない: F5 セッションを停止し、`mise run build` 後に再起動する。
+- Rust 変更が反映されない: F5 セッションを停止し、release build と `stage_daemon.py` を再実行する。
 - command が書き込みを拒否する: folder を workspace として開いたこと、Workspace Trust、
   `.fleximark/config.toml` の `schema_version = 1` を確認する。
 - preview が開かない、または復旧しない: Output の `FlexiMark` channel で launch/recovery ID と
@@ -260,7 +272,7 @@ code --install-extension fleximark-dev.vsix --force
 ## 自動検証
 
 ```sh
-npm run verify
+mise run verify
 ```
 
 `verify` は TypeScript/Rust の静的検査とtest、release asset build、architecture inventory、
@@ -269,19 +281,19 @@ performance budget、VS Code integration suiteをまとめて実行する。
 Linux では VS Code integration test を Xvfb 上で実行する。
 
 ```sh
-xvfb-run -a npm test
+xvfb-run -a mise run test
 ```
 
 ## Package
 
 ```sh
-npm run package
+mise run package
 ```
 
 The VSIX file list can be inspected before publishing:
 
 ```sh
-npm exec vsce ls
+mise exec -- yarn exec vsce ls --no-dependencies
 ```
 
 ## Localization
@@ -289,7 +301,7 @@ npm exec vsce ls
 Source files use `.mts` directly. No temporary renaming is required.
 
 ```sh
-npm run l10n
+mise run l10n
 git diff -- l10n
 ```
 

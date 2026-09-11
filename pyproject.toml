@@ -1,0 +1,9 @@
+[project]
+name = "fleximark-dev"
+version = "0.0.0"
+description = "Cross-platform development tasks for FlexiMark"
+requires-python = "==3.14.*"
+dependencies = []
+
+[tool.uv]
+package = false

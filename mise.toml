@@ -1,0 +1,49 @@
+min_version = "2026.5.12"
+
+[tools]
+node = "24.21.0"
+python = "3.14.7"
+rust = "1.95.0"
+uv = "0.12.12"
+
+[settings]
+idiomatic_version_file_enable_tools = ["yarn"]
+
+[tasks.install]
+description = "Install the locked JavaScript and Python dependencies"
+run = [
+  "yarn install --immutable",
+  "uv sync --frozen",
+]
+
+[tasks.build]
+description = "Build the browser client, daemon, manifest, and VS Code adapter"
+run = "uv run --frozen python scripts/tasks.py build"
+
+[tasks.clean]
+description = "Remove generated JavaScript and test output"
+run = "uv run --frozen python scripts/tasks.py clean"
+
+[tasks.dev]
+description = "Watch the VS Code adapter, preview bundles, and TypeScript types"
+run = "uv run --frozen python scripts/tasks.py dev"
+
+[tasks.test]
+description = "Build the product and run the VS Code integration suite"
+run = "uv run --frozen python scripts/tasks.py test"
+
+[tasks.verify]
+description = "Run the complete local release gate"
+run = "uv run --frozen python scripts/tasks.py verify"
+
+[tasks.package]
+description = "Verify and package a dependency-free VSIX"
+run = "uv run --frozen python scripts/tasks.py package"
+
+[tasks.smoke]
+description = "Smoke-test a packaged VSIX"
+run = "uv run --frozen python scripts/tasks.py smoke"
+
+[tasks.l10n]
+description = "Regenerate the English localization bundle"
+run = "uv run --frozen python scripts/tasks.py l10n"

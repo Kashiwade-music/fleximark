@@ -32,27 +32,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup toolchain
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          node-version-file: package.json
-          cache: npm
-
-      - name: Setup npm
-        run: npm install --global npm@12.0.2
-        working-directory: ${{ runner.temp }}
+          version: 2026.7.13
 
       - name: Install dependencies
-        run: npm ci
+        run: mise run install
 
       - name: Verify architecture contract
-        run: node scripts/verify-architecture.mjs
+        run: uv run --frozen python scripts/verify_architecture.py
 
       - name: Verify performance budgets
-        run: node scripts/check-performance-budgets.mjs
+        run: uv run --frozen python scripts/check_performance_budgets.py
 
       - name: Build external preview client
-        run: node scripts/build-browser-client.mjs
+        run: uv run --frozen python scripts/build.py browser
 
       - name: Check Rust formatting
         run: cargo fmt --all --check
@@ -67,7 +62,7 @@ jobs:
         run: cargo build --release -p fleximarkd
 
       - name: Stage daemon
-        run: node scripts/stage-daemon.mjs
+        run: uv run --frozen python scripts/stage_daemon.py
 
       - name: Upload daemon
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -85,24 +80,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup toolchain
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          node-version-file: package.json
-          cache: npm
-
-      - name: Setup npm
-        run: npm install --global npm@12.0.2
-        working-directory: ${{ runner.temp }}
+          version: 2026.7.13
 
       - name: Install dependencies
-        run: npm ci
+        run: mise run install
 
-      - name: Verify dependency signatures
-        run: npm audit signatures
+      - name: Verify dependency lock metadata
+        env:
+          YARN_ENABLE_HARDENED_MODE: "1"
+        run: yarn install --immutable --refresh-lockfile
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: yarn npm audit --all --recursive --severity high
 
       - name: Download platform daemons
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -112,10 +104,10 @@ jobs:
           merge-multiple: true
 
       - name: Build external preview client
-        run: node scripts/build-browser-client.mjs
+        run: uv run --frozen python scripts/build.py browser
 
       - name: Verify architecture contract
-        run: node scripts/verify-architecture.mjs
+        run: uv run --frozen python scripts/verify_architecture.py
 
       - name: Check Rust formatting
         run: cargo fmt --all --check
@@ -127,30 +119,30 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Check types
-        run: npm exec -- tsc --noEmit
+        run: yarn exec tsc --noEmit
 
       - name: Lint
-        run: npm exec -- eslint adapters web test scripts
+        run: yarn exec eslint adapters web test scripts
 
       - name: Check localization bundles
         run: |
-          node scripts/l10n-export.mjs
+          uv run --frozen python scripts/l10n_export.py
           git diff --exit-code -- l10n
 
       - name: Build production extension
-        run: node esbuild.js --production
+        run: uv run --frozen python scripts/build.py extension --production
 
       - name: Run VS Code integration tests on stable
-        run: xvfb-run -a npm test
+        run: xvfb-run -a mise run test
 
       - name: Create final release manifest
-        run: node scripts/create-release-manifest.mjs --require-all
+        run: uv run --frozen python scripts/create_release_manifest.py --require-all
 
       - name: Inspect extension contents
-        run: npm exec -- vsce ls
+        run: yarn exec vsce ls --no-dependencies
 
       - name: Package release candidate
-        run: npm exec -- vsce package --out fleximark.vsix
+        run: yarn exec vsce package --no-dependencies --out fleximark.vsix
 
       - name: Upload release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -178,14 +170,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup toolchain
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          node-version-file: package.json
-          cache: npm
+          version: 2026.7.13
 
       - name: Install dependencies
-        run: npm ci
+        run: mise run install
 
       - name: Download release candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -194,11 +185,11 @@ jobs:
 
       - name: Install packaged extension
         if: runner.os != 'Linux'
-        run: npm run smoke -- fleximark.vsix
+        run: mise run smoke -- fleximark.vsix
 
       - name: Install packaged extension on Linux
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run smoke -- fleximark.vsix
+        run: xvfb-run -a mise run smoke -- fleximark.vsix
 
   release:
     name: Release
@@ -218,18 +209,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup toolchain
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          node-version-file: package.json
-          cache: npm
-
-      - name: Setup npm
-        run: npm install --global npm@12.0.2
-        working-directory: ${{ runner.temp }}
+          version: 2026.7.13
 
       - name: Install dependencies
-        run: npm ci
+        run: mise run install
 
       - name: Download platform daemons
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -240,8 +226,8 @@ jobs:
 
       - name: Assemble signed-input package
         run: |
-          node scripts/create-release-manifest.mjs --require-all
-          node esbuild.js --production
+          uv run --frozen python scripts/create_release_manifest.py --require-all
+          uv run --frozen python scripts/build.py extension --production
 
       - name: Record current version
         id: before-release
@@ -251,7 +237,7 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm exec -- semantic-release
+        run: yarn exec semantic-release
 
       - name: Detect new release
         id: release-state
@@ -305,18 +291,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup toolchain
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          node-version-file: package.json
-          cache: npm
-
-      - name: Setup npm
-        run: npm install --global npm@12.0.2
-        working-directory: ${{ runner.temp }}
+          version: 2026.7.13
 
       - name: Install dependencies
-        run: npm ci
+        run: mise run install
 
       - name: Download attested VSIX
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -324,4 +305,4 @@ jobs:
           name: fleximark-release-vsix
 
       - name: Publish exact VSIX with OIDC
-        run: npm exec -- vsce publish --packagePath fleximark.vsix --oidc
+        run: yarn exec vsce publish --packagePath fleximark.vsix --oidc
