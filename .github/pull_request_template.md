@@ -4,11 +4,7 @@
 
 ## Validation
 
-- [ ] `npm run check-types`
-- [ ] `npm run lint`
-- [ ] `npm run build`
-- [ ] `npm test`
-- [ ] `npm run l10n:check` when user-facing strings changed
+- [ ] `npm run verify`
 - [ ] VSIX contents inspected when packaging changed
 
 ## Security and compatibility

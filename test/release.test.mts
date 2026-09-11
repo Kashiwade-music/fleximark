@@ -25,7 +25,7 @@ export function suite(): void {
     );
     assert.match(workflow, /pattern: daemon-\*/);
     assert.match(workflow, /create-release-manifest\.mjs --require-all/);
-    assert.match(workflow, /npm run build:adapter/);
+    assert.match(workflow, /node esbuild\.js --production/);
   });
 
   test("builds the external preview client before compiling the daemon", () => {
@@ -35,10 +35,19 @@ export function suite(): void {
         "utf8",
       ),
     );
-    assert.match(
-      packageJson.scripts.build,
-      /build:preview-client build:daemon build:adapter/,
+    assert.equal(packageJson.scripts.build, "node scripts/tasks.mjs build");
+    const tasks = fs.readFileSync(
+      path.join(extension.extensionPath, "scripts/tasks.mjs"),
+      "utf8",
     );
+    const preview = tasks.indexOf(
+      'runNode("scripts/build-browser-client.mjs")',
+    );
+    const daemon = tasks.indexOf('runCargo("build", "--release"');
+    const stage = tasks.indexOf('runNode("scripts/stage-daemon.mjs")');
+    const adapter = tasks.indexOf('runNode("esbuild.js", "--production")');
+    assert.ok(preview >= 0 && preview < daemon);
+    assert.ok(daemon < stage && stage < adapter);
     assert.match(
       fs.readFileSync(
         path.join(extension.extensionPath, "crates/fleximarkd/src/main.rs"),
@@ -55,7 +64,7 @@ export function suite(): void {
         "utf8",
       );
       assert.match(workflow, /os: \[ubuntu-latest, macos-13, windows-latest\]/);
-      assert.match(workflow, /npm run smoke:vsix -- fleximark\.vsix/);
+      assert.match(workflow, /npm run smoke -- fleximark\.vsix/);
     }
     const smoke = fs.readFileSync(
       path.join(extension.extensionPath, "scripts/smoke-vsix.mjs"),

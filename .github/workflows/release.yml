@@ -40,13 +40,13 @@ jobs:
         run: npm ci
 
       - name: Verify architecture contract
-        run: npm run verify:architecture
+        run: node scripts/verify-architecture.mjs
 
       - name: Verify performance budgets
-        run: npm run verify:performance
+        run: node scripts/check-performance-budgets.mjs
 
       - name: Build external preview client
-        run: npm run build:preview-client
+        run: node scripts/build-browser-client.mjs
 
       - name: Check Rust formatting
         run: cargo fmt --all --check
@@ -106,10 +106,10 @@ jobs:
           merge-multiple: true
 
       - name: Build external preview client
-        run: npm run build:preview-client
+        run: node scripts/build-browser-client.mjs
 
       - name: Verify architecture contract
-        run: npm run verify:architecture
+        run: node scripts/verify-architecture.mjs
 
       - name: Check Rust formatting
         run: cargo fmt --all --check
@@ -121,16 +121,18 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Check types
-        run: npm run check-types
+        run: npm exec -- tsc --noEmit
 
       - name: Lint
-        run: npm run lint
+        run: npm exec -- eslint adapters web test scripts
 
       - name: Check localization bundles
-        run: npm run l10n:check
+        run: |
+          node scripts/l10n-export.mjs
+          git diff --exit-code -- l10n
 
       - name: Build production extension
-        run: npm run build:adapter
+        run: node esbuild.js --production
 
       - name: Run VS Code integration tests on stable
         run: xvfb-run -a npm test
@@ -180,11 +182,11 @@ jobs:
 
       - name: Install packaged extension
         if: runner.os != 'Linux'
-        run: npm run smoke:vsix -- fleximark.vsix
+        run: npm run smoke -- fleximark.vsix
 
       - name: Install packaged extension on Linux
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run smoke:vsix -- fleximark.vsix
+        run: xvfb-run -a npm run smoke -- fleximark.vsix
 
   release:
     name: Release
@@ -227,7 +229,7 @@ jobs:
       - name: Assemble signed-input package
         run: |
           node scripts/create-release-manifest.mjs --require-all
-          npm run build:adapter
+          node esbuild.js --production
 
       - name: Record current version
         id: before-release
