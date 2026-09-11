@@ -26,7 +26,7 @@ Windows release build で成功している。残る中心課題は cancellation
 - [x] Clippy、ESLint、VSIX source exclusion を修正する
 - [x] benchmark に update/render の段階別時間を出す
 - [x] performance timeout時に最後の完了段階を出力する
-- [x] `verify:all` に Rust、integration、performanceを含む完全検査を追加する
+- [x] `verify` に Rust、integration、performanceを含む完全検査を集約する
 
 完了条件: CI の失敗から、失敗した層と再現コマンドを一意に特定できる。
 
@@ -35,8 +35,6 @@ Windows release build で成功している。残る中心課題は cancellation
 - [x] 同位置 NodeId の差分生成に O(1) fast path を追加する
 - [x] source position検証で共有line indexを使い O(n²) 走査を除去する
 - [x] Windows release buildで既存performance budgetを通過する
-- [ ] CIの基準環境でperformance budgetを確認する
-- [ ] 実利用で再度問題が出た場合だけ追加最適化を行う
 
 完了条件: CIの基準環境でrelease benchmarkがtimeoutせず、承認済みbudgetを満たす。
 
