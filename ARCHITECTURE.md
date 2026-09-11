@@ -61,7 +61,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 
 | Owner | Source | Responsibility |
 | --- | --- | --- |
-| Adapter | `adapters/vscode` | VS Code activation, settings, commands, editor/workspace events, daemon recovery, panels and browser launch |
+| Adapter | `adapters/vscode`; `adapter.mts` facade plus `daemon-supervisor`, `release-manifest`, `workspace-selection`, `position`, and `error-policy` modules | VS Code activation, settings, commands, editor/workspace events, daemon recovery, panels and browser launch |
 | Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
 | Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
@@ -121,6 +121,13 @@ compatibility configuration and the ordered rooted configurations, including the
 longest segment-prefix matching policy. `error.rs` is the single EngineError-to-SessionError
 mapping boundary. Registry operations retain their public signatures and delegate lookup and
 configuration selection to these owners.
+
+Within the VS Code adapter, `DaemonSupervisor` is a framework-independent owner of daemon
+process/RPC identity, concurrent startup, workspace revisions, restart/backoff, recovery status,
+and shutdown. Process, clock, timer, RPC, logging, status, and replay effects are injected by the
+`FlexiMarkAdapter` facade. `release-manifest.mts` verifies the selected bundled executable before
+spawn; `workspace-selection.mts`, `position.mts`, and `error-policy.mts` own their pure policies.
+Document and preview state remain adapter-owned until their Phase 10 coordinators are introduced.
 
 ## Entry points
 

@@ -166,7 +166,19 @@ export function suite(): void {
       path.join(extension.extensionPath, "adapters/vscode/src/adapter.mts"),
       "utf8",
     );
+    const manifest = fs.readFileSync(
+      path.join(
+        extension.extensionPath,
+        "adapters/vscode/src/release-manifest.mts",
+      ),
+      "utf8",
+    );
     assert.match(adapter, /#verifiedBundledDaemon/);
-    assert.match(adapter, /checksum !== artifact\.sha256/);
+    assert.match(
+      adapter,
+      /configuredPath \|\| this\.#verifiedBundledDaemon\(\)/,
+    );
+    assert.match(adapter, /verifiedBundledDaemon\(/);
+    assert.match(manifest, /checksum !== artifact\.sha256/);
   });
 }

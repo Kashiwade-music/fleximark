@@ -53,6 +53,33 @@ export function suite(): void {
     assert.equal(connection.closed, true);
   });
 
+  test("close is idempotent and permanently suppresses later writes", async () => {
+    const daemonOutput = new PassThrough();
+    const daemonInput = new PassThrough();
+    const connection = new JsonRpcConnection(daemonOutput, daemonInput);
+    const outgoing: Buffer[] = [];
+    let closeEvents = 0;
+    daemonInput.on("data", (chunk: Buffer) => outgoing.push(chunk));
+    connection.on("close", () => (closeEvents += 1));
+    const pending = connection.requestLsp("shutdown");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const bytesBeforeClose = Buffer.concat(outgoing);
+
+    connection.close(new Error("stopped"));
+    connection.close(new Error("late close"));
+    await assert.rejects(pending, /^Error: stopped$/);
+    connection.notifyLsp("exit");
+    connection.respond(7, null);
+    await assert.rejects(
+      connection.requestLsp("shutdown"),
+      /^Error: JSON-RPC connection is closed$/,
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(closeEvents, 1);
+    assert.deepEqual(Buffer.concat(outgoing), bytesBeforeClose);
+  });
+
   test("preserves valid notification and error response wire bytes", async () => {
     const daemonOutput = new PassThrough();
     const daemonInput = new PassThrough();

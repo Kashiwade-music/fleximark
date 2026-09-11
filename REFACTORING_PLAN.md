@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 8 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。Phase 7ではplugin hostをsandbox runtime、package検証、hook pipeline、edit-map、candidate、errorへ分割し、trust gateとfailure dispositionだけを共通化した。Phase 8ではLSPのURI↔session index、default/rooted workspace authority、EngineError mapperをprivate ownerへ集約した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 9 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。Phase 7ではplugin hostをsandbox runtime、package検証、hook pipeline、edit-map、candidate、errorへ分割し、trust gateとfailure dispositionだけを共通化した。Phase 8ではLSPのURI↔session index、default/rooted workspace authority、EngineError mapperをprivate ownerへ集約した。Phase 9ではadapterからpure helperとdaemon process/recovery state machineを分離した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -122,6 +122,17 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - duplicate open/close/reopenとsession ID衝突、UTF-8/16/32 edit、nested root/sibling、default configの4組合せ、2文書stage後のreconfigure rollbackと正常retry、EngineError category mappingをcharacterizationした。daemonのinvalid-root隔離、multi-root trust、exact wire error testも通過した。
 - raw URI比較はcase-sensitiveかつpercent-literalであり、case/percent aliasがuntrusted nested rootを外れてtrusted parentへfallbackし得る。また `file:///` はtrim後 `file:`、empty rootは空文字列になる。既存挙動をtest化したがsecurity-sensitiveな正規化は挙動変更になるため、Phase 12後の独立security fixでURI canonicalizationとworkspace authority policyを設計する。
 - 2巡の実装と各巡2名の独立レビュー後に未解決の新規P0〜P3はない。
+
+### Phase 9 完了時のベースライン
+
+- cargo test --workspace --all-targets: 150 tests passed。Node pure RPC/preview/protocol/supervisor testsは68件、VS Code Electron testsは79件、Python unittest discoveryは71件（WindowsではPOSIX executable mode test 1件をskip）が成功した。
+- TypeScript noEmit、ESLint、Prettier、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- `adapter.mts` は1,374行から1,175行になり、release manifest、workspace selection、position conversion、error/redaction policyをpure moduleへ移した。既存9 exportsとFlexiMarkAdapterのpublic API、command/status/user-visible textは維持した。
+- framework非依存の `DaemonSupervisor` がprocess/RPC identity、connection generation、concurrent ensure、workspace revision、restart timer、250/500/1000/2000/4000ms backoff、5回上限、30秒超過reset、recovery status、stop/disposeを所有する。spawn/clock/timer/RPC/log/status/replayを注入し、raceを決定的なfakeで検証する。
+- launchはbinary resolve→spawn/bind→protocol initialize→workspace initialize→document replay→preview replay、shutdownはrequest→exit notification→RPC close→process killの順を維持する。dispose/pending resolve、deferred exit、late generation、workspace revision中のreplay、preview replay中exit、dialogのretry/open-output/dismiss/rejectをtest化した。
+- runtime manifestはexact root/artifact schema、protocol version、current target一意性、canonical contained path、lowercase SHA-256とexact file bytesをspawn前に検証する。OutputChannelの全content sinkは共通scannerを通り、legacy key、structured JSON、Authorization scheme、escaped/unclosed quote、Unicode case-fold前置でもcredentialを伏せる。通常のUI error textは維持する。
+- 6巡の実装と各巡複数の独立レビュー後に未解決の新規P0〜P3はない。異常系では停止後のlate continuation、停止済みgenerationのready通知、曖昧なmanifestをfail closedにし、credential redactionを強化した。
+- `openPreview` がcreate-preview RPCを待つ間にdisposeされると、応答後に切り離されたruntimeへpreviewを登録してpanelまたは外部URLを開き得る既存raceがある。Phase 10のpreview coordinator抽出前にdeferred RPC testで固定し、disposed/removed/generation gateをcoordinator内へ置く。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -475,6 +486,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 - 具体的な変更:
   - didOpen/didChange/checkpoint/full-text requestをdocument coordinatorへ移す。
   - CSP/token、preview session/revision/dispose/recreate、navigation/echoをpreview coordinatorへ移す。
+  - create-preview RPC待機中のdispose/remove/generation変更をcommit前に再検証し、late応答がpanelまたは外部URLを生成しないようにする。
   - DTO converter、command registration、event wiringを小関数moduleへ分ける。class/interface階層は増やさない。
 - 維持すべき挙動: 150ms checkpoint、unsaved recovery、CSP/token、column、revision/session、open/ack順、echo、diagnostics、command/provider IDs。
 - リスク: 高。event順、double dispose、stale generation、selection echo、subscription漏れ。
@@ -599,4 +611,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11、Phase 1〜8は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 9へ進む。
+Phase 0は2026-09-11、Phase 1〜9は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 10へ進む。

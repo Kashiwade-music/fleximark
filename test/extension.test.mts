@@ -1,6 +1,7 @@
 import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 
+import * as daemonRuntime from "./adapter/daemon-runtime.test.mjs";
 import * as exportAck from "./adapter/export-ack.test.mjs";
 import * as multiRootRuntime from "./adapter/multi-root-runtime.test.mjs";
 import * as noteOptions from "./adapter/note-options.test.mjs";
@@ -65,6 +66,7 @@ suite("Extension Test Suite", () => {
 
   suite(contributions.suiteName, contributions.suite);
   suite(rpc.suiteName, rpc.suite);
+  suite(daemonRuntime.suiteName, daemonRuntime.suite);
   suite(exportAck.suiteName, exportAck.suite);
   suite(noteOptions.suiteName, noteOptions.suite);
   suite(workspaceSelection.suiteName, workspaceSelection.suite);
