@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import process from "node:process";
 
-const sourceRoot = resolve("src");
+const sourceRoot = resolve("adapters/vscode/src");
 const outputRoot = resolve("l10n");
 const temporaryRoot = await mkdtemp(join(resolve("."), ".fleximark-l10n-"));
 const temporarySource = join(temporaryRoot, "src");

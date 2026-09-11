@@ -1,0 +1,1091 @@
+{
+  "schemaVersion": 1,
+  "baseline": "v0.16.14",
+  "capabilities": [
+    {
+      "id": "command.preview-default",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.previewMarkdown"
+      ],
+      "contract": [
+        "13",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-preference"
+      ]
+    },
+    {
+      "id": "command.preview-vscode",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.previewMarkdownOnVscode"
+      ],
+      "contract": [
+        "10",
+        "13.3",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-vscode"
+      ]
+    },
+    {
+      "id": "command.preview-browser",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.previewMarkdownOnBrowser"
+      ],
+      "contract": [
+        "10",
+        "13.3",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-browser"
+      ]
+    },
+    {
+      "id": "command.preview-reload",
+      "decision": "keep",
+      "owner": "service",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.forceReloadPreview"
+      ],
+      "contract": [
+        "11.2",
+        "13.2"
+      ],
+      "tests": [
+        "protocol/revision-resync"
+      ]
+    },
+    {
+      "id": "command.export-html",
+      "decision": "keep",
+      "owner": "service",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.exportHtml"
+      ],
+      "contract": [
+        "10",
+        "18"
+      ],
+      "tests": [
+        "snapshot/export-html",
+        "security/raw-html-policy",
+        "security/export-assets",
+        "security/export-journal",
+        "security/export-preflight",
+        "security/export-ownership",
+        "security/export-recovery"
+      ]
+    },
+    {
+      "id": "command.edit-theme",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.editTheme",
+        "v0.16.14:package.json#fleximark.openWorkspaceFleximarkCss"
+      ],
+      "contract": [
+        "10.4",
+        "15"
+      ],
+      "tests": [
+        "e2e/edit-theme",
+        "e2e/preview-theme-style"
+      ],
+      "cleanBreakId": "clean-break.workspace-css",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    {
+      "id": "command.edit-global-css",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.openGlobalFleximarkCss"
+      ],
+      "contract": [
+        "15.1"
+      ],
+      "tests": [
+        "e2e/edit-theme",
+        "e2e/preview-theme-style"
+      ],
+      "cleanBreakId": "clean-break.global-css",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    {
+      "id": "command.reset-global-css",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.resetGlobalFleximarkCss"
+      ],
+      "contract": [
+        "15.1"
+      ],
+      "tests": [
+        "e2e/edit-theme",
+        "e2e/preview-theme-style"
+      ],
+      "cleanBreakId": "clean-break.global-css",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    {
+      "id": "command.create-note",
+      "decision": "keep",
+      "owner": "service",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.createNote"
+      ],
+      "contract": [
+        "11",
+        "15"
+      ],
+      "tests": [
+        "e2e/create-note-categories",
+        "e2e/create-note-template"
+      ]
+    },
+    {
+      "id": "command.initialize-workspace",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.initializeWorkspace"
+      ],
+      "contract": [
+        "15",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/init-clean"
+      ],
+      "cleanBreakId": "clean-break.workspace-marker",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "command.collect-admonitions",
+      "decision": "keep",
+      "owner": "service",
+      "baselineEvidence": [
+        "package.json#/contributes/commands/fleximark.collectAdmonitions"
+      ],
+      "contract": [
+        "11",
+        "16"
+      ],
+      "tests": [
+        "e2e/collect-admonitions"
+      ]
+    },
+    {
+      "id": "command.check-workspace-settings-updatable",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.checkWorkspaceSettingsUpdatable"
+      ],
+      "contract": [
+        "15.1"
+      ],
+      "tests": [
+        "clean-break/unsupported-old-layout"
+      ],
+      "cleanBreakId": "clean-break.legacy-settings-update",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "command.update-workspace-settings",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.updateWorkspaceSettings"
+      ],
+      "contract": [
+        "15.1"
+      ],
+      "tests": [
+        "clean-break/unsupported-old-layout"
+      ],
+      "cleanBreakId": "clean-break.legacy-settings-update",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "setting.settings-version",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.settingsVersion"
+      ],
+      "contract": [
+        "15.1"
+      ],
+      "tests": [
+        "clean-break/unsupported-old-layout"
+      ],
+      "cleanBreakId": "clean-break.legacy-settings-update",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "command.open-workspace-js-plugin",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.openWorkspaceParserPluginFile"
+      ],
+      "contract": [
+        "14",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/plugin-replacement",
+        "service/plugin-package-loader"
+      ],
+      "cleanBreakId": "clean-break.workspace-js-plugin",
+      "releaseNoteId": "architecture-v1.wasm-plugins"
+    },
+    {
+      "id": "command.open-global-js-plugin",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.openGlobalParserPluginFile"
+      ],
+      "contract": [
+        "14",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/plugin-replacement",
+        "service/plugin-package-loader"
+      ],
+      "cleanBreakId": "clean-break.global-js-plugin",
+      "releaseNoteId": "architecture-v1.wasm-plugins"
+    },
+    {
+      "id": "setting.preview-target",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/configuration/fleximark.previewTarget",
+        "v0.16.14:package.json#fleximark.defaultPreviewMode"
+      ],
+      "contract": [
+        "13.3",
+        "15",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-preference"
+      ],
+      "cleanBreakId": "clean-break.preview-target",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    {
+      "id": "setting.daemon-path",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/configuration/fleximark.daemonPath"
+      ],
+      "contract": [
+        "16",
+        "19"
+      ],
+      "tests": [
+        "e2e/daemon-resolution"
+      ],
+      "cleanBreakId": "clean-break.daemon-path",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    {
+      "id": "setting.preview-column",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/configuration/fleximark.previewColumn"
+      ],
+      "contract": [
+        "15",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-preference"
+      ],
+      "cleanBreakId": "clean-break.preview-column",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    {
+      "id": "setting.auto-open-preview",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/configuration/fleximark.autoOpenPreview"
+      ],
+      "contract": [
+        "15",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-preference"
+      ],
+      "cleanBreakId": "clean-break.auto-open",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    {
+      "id": "setting.adapter-log-level",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/configuration/fleximark.logLevel"
+      ],
+      "contract": [
+        "15",
+        "16",
+        "19"
+      ],
+      "tests": [
+        "e2e/adapter-logging"
+      ],
+      "cleanBreakId": "clean-break.log-level",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    {
+      "id": "setting.browser-preview-port",
+      "decision": "remove",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.browserPreviewPort"
+      ],
+      "contract": [
+        "13.3",
+        "15"
+      ],
+      "tests": [
+        "e2e/preview-preference",
+        "security/loopback-preview"
+      ],
+      "cleanBreakId": "clean-break.preview-port",
+      "releaseNoteId": "architecture-v1.preview-transport"
+    },
+    {
+      "id": "setting.scroll-sync",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.shouldSyncScroll"
+      ],
+      "contract": [
+        "13.2",
+        "16"
+      ],
+      "tests": [
+        "e2e/preview-preference",
+        "e2e/scroll-selection",
+        "e2e/navigation-loop-suppression"
+      ],
+      "cleanBreakId": "clean-break.scroll-capability",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    {
+      "id": "setting.note-categories",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.noteCategories"
+      ],
+      "contract": [
+        "15",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/create-note-categories"
+      ],
+      "cleanBreakId": "clean-break.note-categories",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "setting.note-filename-prefix",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.noteFileNamePrefix"
+      ],
+      "contract": [
+        "15",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/create-note-template"
+      ],
+      "cleanBreakId": "clean-break.note-filename-prefix",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "setting.note-filename-suffix",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.noteFileNameSuffix"
+      ],
+      "contract": [
+        "15",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/create-note-template"
+      ],
+      "cleanBreakId": "clean-break.note-filename-suffix",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "setting.note-templates",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:package.json#fleximark.noteTemplates"
+      ],
+      "contract": [
+        "15",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/create-note-template"
+      ],
+      "cleanBreakId": "clean-break.note-templates",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "syntax.admonition",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/remarkDirectiveAdmonitions.mts"
+      ],
+      "contract": [
+        "7",
+        "22"
+      ],
+      "tests": [
+        "fixtures/admonition"
+      ]
+    },
+    {
+      "id": "syntax.details",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/remarkDirectiveDetails.mts"
+      ],
+      "contract": [
+        "7",
+        "22"
+      ],
+      "tests": [
+        "fixtures/details"
+      ]
+    },
+    {
+      "id": "syntax.tabs",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/remarkDirectiveTabs.mts"
+      ],
+      "contract": [
+        "7",
+        "22"
+      ],
+      "tests": [
+        "fixtures/tabs"
+      ]
+    },
+    {
+      "id": "syntax.youtube",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/remarkYouTube.mts"
+      ],
+      "contract": [
+        "7",
+        "10"
+      ],
+      "tests": [
+        "fixtures/youtube"
+      ]
+    },
+    {
+      "id": "syntax.math",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:package.json#remark-math"
+      ],
+      "contract": [
+        "7",
+        "10"
+      ],
+      "tests": [
+        "fixtures/math",
+        "e2e/preview-math"
+      ]
+    },
+    {
+      "id": "syntax.mermaid",
+      "decision": "keep",
+      "owner": "preview-client",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/index.mts#mermaid"
+      ],
+      "contract": [
+        "7",
+        "10"
+      ],
+      "tests": [
+        "fixtures/mermaid",
+        "e2e/preview-mermaid"
+      ]
+    },
+    {
+      "id": "syntax.abc",
+      "decision": "keep",
+      "owner": "preview-client",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/index.mts#abc"
+      ],
+      "contract": [
+        "7",
+        "10",
+        "16"
+      ],
+      "tests": [
+        "fixtures/abc",
+        "e2e/preview-abc",
+        "e2e/preview-abc-audio"
+      ]
+    },
+    {
+      "id": "workflow.abc-completion",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:src/completion/completionAbc.mts"
+      ],
+      "contract": [
+        "13.1",
+        "16"
+      ],
+      "tests": [
+        "lsp/abc-completion",
+        "e2e/vscode-completion"
+      ],
+      "cleanBreakId": "clean-break.abc-completion",
+      "releaseNoteId": "architecture-v1.lsp"
+    },
+    {
+      "id": "workflow.source-preview-navigation",
+      "decision": "keep",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/unist/getBlockLineAndOffset.mts"
+      ],
+      "contract": [
+        "8.2",
+        "8.3",
+        "11.2",
+        "13.3"
+      ],
+      "tests": [
+        "property/source-provenance",
+        "protocol/navigation-ranges",
+        "protocol/navigation-wire",
+        "e2e/scroll-selection",
+        "e2e/navigation-loop-suppression",
+        "e2e/source-position-adapter"
+      ]
+    },
+    {
+      "id": "file.workspace-marker",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:.fleximark/fleximark.json"
+      ],
+      "contract": [
+        "15",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/init-clean"
+      ],
+      "cleanBreakId": "clean-break.workspace-marker",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    {
+      "id": "file.workspace-css",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:.fleximark/fleximark.css"
+      ],
+      "contract": [
+        "10.4",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/edit-theme",
+        "e2e/preview-theme-style"
+      ],
+      "cleanBreakId": "clean-break.workspace-css",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    {
+      "id": "file.global-css",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:globalStorage/fleximark.css"
+      ],
+      "contract": [
+        "10.4",
+        "15.1"
+      ],
+      "tests": [
+        "e2e/edit-theme",
+        "e2e/preview-theme-style"
+      ],
+      "cleanBreakId": "clean-break.global-css",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    {
+      "id": "file.workspace-js-plugin",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:.fleximark/parserPlugin.js"
+      ],
+      "contract": [
+        "14",
+        "15.1"
+      ],
+      "tests": [
+        "fixture/plugin-inventory",
+        "e2e/plugin-replacement"
+      ],
+      "cleanBreakId": "clean-break.workspace-js-plugin",
+      "releaseNoteId": "architecture-v1.wasm-plugins"
+    },
+    {
+      "id": "file.global-js-plugin",
+      "decision": "remove",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:globalStorage/parserPlugin.js"
+      ],
+      "contract": [
+        "14",
+        "15.1"
+      ],
+      "tests": [
+        "fixture/plugin-inventory",
+        "e2e/plugin-replacement"
+      ],
+      "cleanBreakId": "clean-break.global-js-plugin",
+      "releaseNoteId": "architecture-v1.wasm-plugins"
+    },
+    {
+      "id": "syntax.gfm",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:package.json#remark-gfm"
+      ],
+      "contract": [
+        "7",
+        "22"
+      ],
+      "tests": [
+        "fixtures/gfm"
+      ]
+    },
+    {
+      "id": "syntax.front-matter",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:package.json#remark-frontmatter"
+      ],
+      "contract": [
+        "7",
+        "22"
+      ],
+      "tests": [
+        "fixtures/front-matter"
+      ]
+    },
+    {
+      "id": "syntax.raw-html",
+      "decision": "change",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:package.json#rehype-raw"
+      ],
+      "contract": [
+        "7",
+        "10.4",
+        "22"
+      ],
+      "tests": [
+        "security/raw-html-policy"
+      ],
+      "cleanBreakId": "clean-break.raw-html-policy",
+      "releaseNoteId": "architecture-v1.render-security"
+    },
+    {
+      "id": "syntax.code-title",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/rehypeCodeTitleAndLineNumbers.mts#title"
+      ],
+      "contract": [
+        "7",
+        "10"
+      ],
+      "tests": [
+        "fixtures/code-info"
+      ]
+    },
+    {
+      "id": "syntax.code-line-numbers",
+      "decision": "keep",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/rehypeCodeTitleAndLineNumbers.mts#line-numbers"
+      ],
+      "contract": [
+        "7",
+        "10"
+      ],
+      "tests": [
+        "fixtures/code-info"
+      ]
+    },
+    {
+      "id": "syntax.syntax-highlighting",
+      "decision": "change",
+      "owner": "engine",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/rehypeShikiCached.mts"
+      ],
+      "contract": [
+        "7",
+        "10"
+      ],
+      "tests": [
+        "fixtures/code-info"
+      ],
+      "cleanBreakId": "clean-break.syntax-highlighting",
+      "releaseNoteId": "architecture-v1.rendering"
+    },
+    {
+      "id": "asset.local",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/rehypeLocalSrcConvert.mts"
+      ],
+      "contract": [
+        "10.3",
+        "18"
+      ],
+      "tests": [
+        "security/asset-policy"
+      ],
+      "cleanBreakId": "clean-break.asset-policy",
+      "releaseNoteId": "architecture-v1.assets"
+    },
+    {
+      "id": "asset.data-url",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/rehypeLocalSrcConvert.mts#data"
+      ],
+      "contract": [
+        "10.3",
+        "18"
+      ],
+      "tests": [
+        "security/asset-policy"
+      ],
+      "cleanBreakId": "clean-break.asset-policy",
+      "releaseNoteId": "architecture-v1.assets"
+    },
+    {
+      "id": "asset.remote-url",
+      "decision": "change",
+      "owner": "service",
+      "baselineEvidence": [
+        "v0.16.14:src/command/lib/convert/convertMdToHtml/rehypeLocalSrcConvert.mts#remote"
+      ],
+      "contract": [
+        "10.3",
+        "18"
+      ],
+      "tests": [
+        "security/asset-policy"
+      ],
+      "cleanBreakId": "clean-break.asset-policy",
+      "releaseNoteId": "architecture-v1.assets"
+    },
+    {
+      "id": "grammar.markdown-admonition",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/grammars/./syntaxes/markdown.tmLanguage.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/grammars"
+      ]
+    },
+    {
+      "id": "grammar.markdown-mermaid",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/grammars/./syntaxes/markdown-mermaid.tmLanguage.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/grammars"
+      ]
+    },
+    {
+      "id": "grammar.markdown-abc",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/grammars/./syntaxes/markdown-abc.tmLanguage.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/grammars"
+      ]
+    },
+    {
+      "id": "grammar.abc",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/grammars/./language-support/abc/abc.tmLanguage.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/grammars"
+      ]
+    },
+    {
+      "id": "snippet.abc",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/snippets/./snippets/abc.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/snippets"
+      ]
+    },
+    {
+      "id": "snippet.admonition",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/snippets/./snippets/admonition.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/snippets"
+      ]
+    },
+    {
+      "id": "snippet.tabs",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/snippets/./snippets/tabs.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/snippets"
+      ]
+    },
+    {
+      "id": "snippet.details",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/snippets/./snippets/details.json"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/snippets"
+      ]
+    },
+    {
+      "id": "language.abc",
+      "decision": "keep",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "package.json#/contributes/languages/abc"
+      ],
+      "contract": [
+        "16",
+        "22"
+      ],
+      "tests": [
+        "contribution/languages"
+      ]
+    },
+    {
+      "id": "distribution.linux-x64",
+      "decision": "change",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:.github/workflows/release.yml#ubuntu-latest"
+      ],
+      "contract": [
+        "19",
+        "21"
+      ],
+      "tests": [
+        "distribution/platform-artifacts"
+      ],
+      "cleanBreakId": "clean-break.native-daemon",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    {
+      "id": "distribution.darwin-x64",
+      "decision": "change",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#extensionKind"
+      ],
+      "contract": [
+        "19",
+        "21"
+      ],
+      "tests": [
+        "distribution/platform-artifacts"
+      ],
+      "cleanBreakId": "clean-break.native-daemon",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    {
+      "id": "distribution.win32-x64",
+      "decision": "change",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:package.json#extensionKind"
+      ],
+      "contract": [
+        "19",
+        "21"
+      ],
+      "tests": [
+        "distribution/platform-artifacts"
+      ],
+      "cleanBreakId": "clean-break.native-daemon",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    {
+      "id": "distribution.release-manifest",
+      "decision": "change",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:.github/workflows/release.yml#vsix"
+      ],
+      "contract": [
+        "19",
+        "21"
+      ],
+      "tests": [
+        "distribution/release-assembly"
+      ],
+      "cleanBreakId": "clean-break.release-manifest",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    {
+      "id": "workflow.clean-install",
+      "decision": "change",
+      "owner": "release",
+      "baselineEvidence": [
+        "v0.16.14:.github/workflows/ci.yml#Package VSIX"
+      ],
+      "contract": [
+        "19",
+        "21"
+      ],
+      "tests": [
+        "distribution/clean-install"
+      ],
+      "cleanBreakId": "clean-break.install-verification",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    {
+      "id": "workflow.multi-root-workspace-authority",
+      "decision": "change",
+      "owner": "adapter",
+      "baselineEvidence": [
+        "v0.16.14:src/extension.mts#getWorkspaceFolder"
+      ],
+      "contract": [
+        "4",
+        "13",
+        "16"
+      ],
+      "tests": [
+        "e2e/multi-root-workspace",
+        "e2e/workspace-command-selection"
+      ],
+      "cleanBreakId": "clean-break.workspace-authority",
+      "releaseNoteId": "architecture-v1.multi-root"
+    }
+  ]
+}

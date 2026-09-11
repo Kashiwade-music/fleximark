@@ -42,9 +42,9 @@ async function main() {
     return;
   }
 
-  // Extension build
+  // Thin VS Code adapter. The legacy TypeScript runtime is not shipped.
   const extensionCtx = await esbuild.context({
-    entryPoints: ["src/extension.mts"],
+    entryPoints: ["adapters/vscode/src/extension.mts"],
     bundle: true,
     format: "cjs",
     minify: production,
@@ -66,75 +66,29 @@ async function main() {
     },
   });
 
-  // Script for Webview build
+  // Both preview targets use the same client-side renderers and local assets.
   const mediaCtx = await esbuild.context({
     entryPoints: [
-      "media/client/browser.mts",
-      "media/client/file.mts",
-      "media/client/webview.mts",
+      "web/preview-client/vscode-host.mts",
+      "web/preview-client/browser-host.mts",
     ],
     bundle: true,
     format: "iife",
     platform: "browser",
     minify: production,
     sourcemap: !production,
-    outdir: "dist/media",
+    outdir: "dist/web/preview-client",
     logLevel: "silent",
     plugins: [esbuildProblemMatcherPlugin],
   });
 
-  const copyAssets = async () => {
-    const mediaDir = path.join(distDir, "media");
-    await fs.mkdir(mediaDir, { recursive: true });
-
-    const assets = [
-        {
-          src: path.join(__dirname, "media", "workspaceSettingsJsonTemplate"),
-          dest: path.join(mediaDir, "workspaceSettingsJsonTemplate"),
-        },
-        {
-          src: path.join(__dirname, "node_modules", "abcjs", "abcjs-audio.css"),
-          dest: path.join(mediaDir, "abcjs-audio.css"),
-        },
-        {
-          src: path.join(
-            __dirname,
-            "node_modules",
-            "katex",
-            "dist",
-            "katex.min.css",
-          ),
-          dest: path.join(mediaDir, "katex.min.css"),
-        },
-        {
-          src: path.join(__dirname, "node_modules", "katex", "dist", "fonts"),
-          dest: path.join(mediaDir, "fonts"),
-        },
-    ];
-
-    for (const { src, dest } of assets) {
-      const stat = await fs.stat(src);
-      if (stat.isDirectory()) {
-        await fs.cp(src, dest, { recursive: true });
-      } else if (stat.isFile()) {
-        await fs.copyFile(src, dest);
-      } else {
-        throw new Error(`Unsupported asset type: ${src}`);
-      }
-    }
-
-    console.log("Assets successfully copied to dist/media");
-  };
-
   if (watch) {
     await extensionCtx.watch();
     await mediaCtx.watch();
-    await copyAssets();
   } else {
     try {
       await extensionCtx.rebuild();
       await mediaCtx.rebuild();
-      await copyAssets();
     } finally {
       await Promise.all([extensionCtx.dispose(), mediaCtx.dispose()]);
     }

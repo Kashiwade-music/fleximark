@@ -4,13 +4,21 @@
     "moduleResolution": "NodeNext",
     "target": "ES2024",
     "lib": ["ES2024", "DOM"],
-    "types": ["node", "mocha", "vscode", "trusted-types"],
+    "types": ["node", "mocha", "vscode"],
     "skipLibCheck": true,
     "sourceMap": true,
     "rootDir": ".",
     "strict": true,
     "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "media", "test"]
+  "include": [
+    "adapters/**/*.mts",
+    "web/**/*.mts",
+    "test/extension.test.mts",
+    "test/contributions.test.mts",
+    "test/adapter/**/*.mts",
+    "test/preview-client.test.mts",
+    "test/release.test.mts"
+  ]
 }

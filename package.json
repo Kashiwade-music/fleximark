@@ -42,7 +42,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "FlexiMark executes workspace parser plugins and writes workspace files."
+      "description": "FlexiMark requires explicit trust for workspace writes, local assets, and optional WebAssembly components."
     },
     "virtualWorkspaces": {
       "supported": false,
@@ -51,7 +51,7 @@
   },
   "activationEvents": [
     "onLanguage:markdown",
-    "workspaceContains:.fleximark/fleximark.json"
+    "workspaceContains:.fleximark/config.toml"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {
@@ -83,18 +83,8 @@
         "category": "FlexiMark"
       },
       {
-        "command": "fleximark.openWorkspaceFleximarkCss",
-        "title": "%command.openWorkspaceFleximarkCss%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.openGlobalFleximarkCss",
-        "title": "%command.openGlobalFleximarkCss%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.resetGlobalFleximarkCss",
-        "title": "%command.resetGlobalFleximarkCss%",
+        "command": "fleximark.editTheme",
+        "title": "%command.editTheme%",
         "category": "FlexiMark"
       },
       {
@@ -111,16 +101,6 @@
         "command": "fleximark.collectAdmonitions",
         "title": "%command.collectAdmonitions%",
         "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.openWorkspaceParserPluginFile",
-        "title": "%command.openWorkspaceParserPluginFile%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.openGlobalParserPluginFile",
-        "title": "%command.openGlobalParserPluginFile%",
-        "category": "FlexiMark"
       }
     ],
     "menus": {
@@ -136,64 +116,45 @@
       "title": "%configuration.title%",
       "type": "object",
       "properties": {
-        "fleximark.defaultPreviewMode": {
+        "fleximark.daemonPath": {
           "type": "string",
-          "default": "vscode",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "%configuration.daemonPath.description%"
+        },
+        "fleximark.previewTarget": {
+          "type": "string",
+          "default": "embeddedHtml",
           "enum": [
-            "vscode",
-            "browser"
+            "embeddedHtml",
+            "externalBrowser"
           ],
-          "description": "%configuration.defaultPreviewMode.description%"
+          "description": "%configuration.previewTarget.description%"
         },
-        "fleximark.browserPreviewPort": {
-          "type": "number",
-          "default": 3000,
-          "description": "%configuration.browserPreviewPort.description%"
+        "fleximark.previewColumn": {
+          "type": "string",
+          "default": "beside",
+          "enum": [
+            "active",
+            "beside"
+          ],
+          "description": "%configuration.previewColumn.description%"
         },
-        "fleximark.shouldSyncScroll": {
+        "fleximark.autoOpenPreview": {
           "type": "boolean",
-          "default": true,
-          "description": "%configuration.shouldSyncScroll.description%"
+          "default": false,
+          "description": "%configuration.autoOpenPreview.description%"
         },
-        "fleximark.noteCategories": {
-          "type": "object",
-          "description": "%configuration.noteCategories.description%",
-          "default": {},
-          "scope": "resource",
-          "order": 40,
-          "additionalProperties": {
-            "type": "object"
-          }
-        },
-        "fleximark.noteFileNamePrefix": {
+        "fleximark.logLevel": {
           "type": "string",
-          "description": "%configuration.noteFileNamePrefix.description%",
-          "default": "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
-        },
-        "fleximark.noteFileNameSuffix": {
-          "type": "string",
-          "description": "%configuration.noteFileNameSuffix.description%",
-          "default": ""
-        },
-        "fleximark.noteTemplates": {
-          "type": "object",
-          "description": "%configuration.noteTemplates.description%",
-          "scope": "resource",
-          "order": 60,
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "default": {
-            "default": [
-              "# ${1:first tabstop}",
-              "Note Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
-              "",
-              "## ${2:second tabstop}"
-            ]
-          }
+          "default": "info",
+          "enum": [
+            "off",
+            "error",
+            "info",
+            "debug"
+          ],
+          "description": "%configuration.logLevel.description%"
         }
       }
     },
@@ -267,15 +228,19 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "clean": "node esbuild.js --clean && node esbuild-test.js --clean",
-    "build": "node esbuild.js --production",
+    "build": "run-s build:preview-client build:daemon build:adapter",
+    "build:adapter": "node esbuild.js --production",
+    "build:preview-client": "node scripts/build-browser-client.mjs",
+    "build:daemon": "cargo build --release -p fleximarkd && node scripts/stage-daemon.mjs",
     "build:dev": "node esbuild.js",
+    "build:manifest": "node scripts/create-release-manifest.mjs",
     "compile": "npm run build:dev",
     "watch": "run-p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src media test",
-    "lint:fix": "eslint src media test --fix",
+    "lint": "eslint adapters web test scripts",
+    "lint:fix": "eslint adapters web test scripts --fix",
     "test:compile": "node esbuild-test.js",
     "test:integration": "vscode-test",
     "pretest": "npm run test:compile && npm run build",
@@ -284,7 +249,10 @@
     "prepackage:vsix": "npm run verify",
     "package:vsix": "vsce package --no-dependencies",
     "package": "npm run package:vsix",
-    "verify": "run-s check-types lint build test:compile package:list",
+    "smoke:vsix": "node scripts/smoke-vsix.mjs",
+    "verify:architecture": "node scripts/verify-architecture.mjs",
+    "verify:performance": "node scripts/check-performance-budgets.mjs",
+    "verify": "run-s verify:architecture check-types lint build test:compile package:list",
     "release": "semantic-release",
     "l10n:export": "node scripts/l10n-export.mjs",
     "l10n:check": "npm run l10n:export && git diff --exit-code -- l10n"
@@ -298,12 +266,9 @@
     "@semantic-release/npm": "13.1.5",
     "@semantic-release/release-notes-generator": "14.1.1",
     "@trivago/prettier-plugin-sort-imports": "6.0.2",
-    "@types/express": "5.0.6",
     "@types/mocha": "10.0.10",
     "@types/node": "24.13.4",
-    "@types/trusted-types": "2.0.7",
     "@types/vscode": "1.137.0",
-    "@types/ws": "8.18.1",
     "@vscode/l10n-dev": "0.0.35",
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
@@ -312,6 +277,7 @@
     "eslint": "10.10.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-prettier": "5.5.6",
+    "linkedom": "0.18.13",
     "npm-run-all2": "9.0.3",
     "prettier": "3.9.6",
     "semantic-release": "25.0.9",
@@ -335,26 +301,13 @@
     "node": "24.21.0",
     "npm": "12.0.2"
   },
-  "dependencies": {
-    "@shikijs/rehype": "4.4.3",
-    "@shikijs/transformers": "4.4.3",
-    "abcjs": "6.7.0",
-    "express": "5.2.1",
-    "mermaid": "11.17.2",
-    "rehype-katex": "7.0.1",
-    "rehype-raw": "7.0.0",
-    "rehype-stringify": "10.0.1",
-    "remark": "15.0.1",
-    "remark-directive": "4.0.0",
-    "remark-frontmatter": "5.0.0",
-    "remark-gfm": "4.0.1",
-    "remark-math": "6.0.0",
-    "remark-rehype": "11.1.2",
-    "shiki": "4.4.3",
-    "ws": "8.21.3"
-  },
   "overrides": {
     "diff": "8.0.3",
     "serialize-javascript": "7.0.5"
+  },
+  "dependencies": {
+    "abcjs": "6.7.0",
+    "katex": "0.16.47",
+    "mermaid": "11.17.2"
   }
 }
