@@ -1,10 +1,17 @@
 import * as vscode from "vscode";
 
-import { FlexiMarkAdapter } from "./adapter.mjs";
+import { type AdapterRecoveryState, FlexiMarkAdapter } from "./adapter.mjs";
 
 let adapter: FlexiMarkAdapter | undefined;
 
-export function activate(context: vscode.ExtensionContext): void {
+export interface FlexiMarkTestApi {
+  crashDaemon(): void;
+  recoveryState(): AdapterRecoveryState;
+}
+
+export function activate(
+  context: vscode.ExtensionContext,
+): FlexiMarkTestApi | undefined {
   adapter = new FlexiMarkAdapter(context);
   context.subscriptions.push(adapter);
   const run = (action: () => void | Promise<void>) => () =>
@@ -231,6 +238,16 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     })
     .catch((error: unknown) => adapter?.report(error));
+
+  if (context.extensionMode === vscode.ExtensionMode.Test) {
+    return {
+      crashDaemon: () => adapter?.crashDaemonForTest(),
+      recoveryState: () => {
+        if (!adapter) throw new Error("FlexiMark adapter is unavailable");
+        return adapter.recoveryStateForTest();
+      },
+    };
+  }
 }
 
 export function deactivate(): void {

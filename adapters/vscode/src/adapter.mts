@@ -60,6 +60,16 @@ interface DaemonRuntime {
   workspaceRevision: number;
   appliedWorkspaceRevision: number;
   restarting: boolean;
+  recoverySequence: number;
+  recoveryId?: string;
+  recoveryStatus?: vscode.Disposable;
+}
+
+export interface AdapterRecoveryState {
+  connectionGeneration: number;
+  daemonInstanceId?: string;
+  documentSessions: Record<string, string | undefined>;
+  previewSessions: Record<string, string>;
 }
 
 export function sourcePositionToCharacter(
@@ -155,6 +165,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     workspaceRevision: 0,
     appliedWorkspaceRevision: -1,
     restarting: false,
+    recoverySequence: 0,
   };
   #stopping = false;
   #selectionEcho?: { uri: string; value: string };
@@ -522,8 +533,41 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     for (const runtime of this.#runtimes.values()) this.#stop(runtime);
     this.#runtimes.clear();
     this.#stopDaemon();
+    this.#daemon.recoveryStatus?.dispose();
     this.#diagnostics.dispose();
     this.#output.dispose();
+  }
+
+  /** Test-only hook returned from activate() while running under ExtensionMode.Test. */
+  crashDaemonForTest(): void {
+    if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
+      throw new Error("daemon crash hook is only available in extension tests");
+    if (!this.#daemon.process)
+      throw new Error("FlexiMark daemon is unavailable");
+    this.#daemon.process.kill();
+  }
+
+  /** Test-only snapshot used to verify that crash recovery replaced daemon sessions. */
+  recoveryStateForTest(): AdapterRecoveryState {
+    if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
+      throw new Error("recovery state is only available in extension tests");
+    return {
+      connectionGeneration: this.#daemon.connectionGeneration,
+      daemonInstanceId: this.#daemon.daemonInstanceId,
+      documentSessions: Object.fromEntries(
+        [...this.#runtimes.values()].flatMap((runtime) =>
+          [...runtime.documents].map(([uri, state]) => [uri, state.sessionId]),
+        ),
+      ),
+      previewSessions: Object.fromEntries(
+        [...this.#runtimes.values()].flatMap((runtime) =>
+          [...runtime.previews.values()].map((preview) => [
+            preview.documentUri,
+            preview.previewSessionId,
+          ]),
+        ),
+      ),
+    };
   }
 
   removeWorkspace(workspace: vscode.WorkspaceFolder): void {
@@ -611,6 +655,10 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         this.#daemon.daemonInstanceId = undefined;
         rpc?.close(error instanceof Error ? error : new Error(String(error)));
         child?.kill();
+        if (this.#daemon.recoveryId && !this.#stopping && this.#runtimes.size)
+          this.#scheduleRecovery(
+            `launch failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
         throw error;
       });
       this.#daemon.startPromise = operation;
@@ -660,6 +708,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     this.#daemon.process = child;
     const rpc = new JsonRpcConnection(child.stdout, child.stdin);
     const generation = ++this.#daemon.connectionGeneration;
+    const recoveryId =
+      this.#daemon.recoveryId ?? `launch-${this.#daemon.recoverySequence + 1}`;
+    this.#log(
+      `[${recoveryId}] launching daemon generation=${generation} workspaces=${this.#runtimes.size} workspaceRevision=${this.#daemon.workspaceRevision}`,
+    );
     this.#daemon.rpc = rpc;
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (value: string) => {
@@ -675,7 +728,9 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     rpc.on("message", (message: JsonRpcRequest) => {
       void this.#handleDaemonMessage(message, rpc, generation);
     });
-    child.once("exit", () => this.#daemonExited(child));
+    child.once("exit", (code, signal) =>
+      this.#daemonExited(child, code, signal),
+    );
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);
@@ -697,6 +752,25 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     this.#daemon.lastStartedAt = Date.now();
     for (const runtime of this.#runtimes.values())
       await this.#recreatePreviews(runtime);
+    const documentCount = [...this.#runtimes.values()].reduce(
+      (count, runtime) => count + runtime.documents.size,
+      0,
+    );
+    const previewCount = [...this.#runtimes.values()].reduce(
+      (count, runtime) => count + runtime.previews.size,
+      0,
+    );
+    this.#log(
+      `[${recoveryId}] daemon ready generation=${generation}; replayed documents=${documentCount} previews=${previewCount}`,
+    );
+    if (this.#daemon.recoveryId) {
+      this.#daemon.recoveryId = undefined;
+      this.#daemon.recoveryStatus?.dispose();
+      this.#daemon.recoveryStatus = vscode.window.setStatusBarMessage(
+        vscode.l10n.t("FlexiMark recovered"),
+        3_000,
+      );
+    }
   }
 
   async #initializeWorkspaces(rpc: JsonRpcConnection): Promise<void> {
@@ -994,7 +1068,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (preview.panel) preview.panel.dispose();
   }
 
-  #daemonExited(process: ChildProcessWithoutNullStreams): void {
+  #daemonExited(
+    process: ChildProcessWithoutNullStreams,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
     if (this.#daemon.process !== process || this.#stopping) return;
     this.#daemon.rpc?.close(new Error("FlexiMark daemon exited"));
     this.#daemon.rpc = undefined;
@@ -1006,20 +1084,57 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (this.#daemon.restarting) return;
     if (Date.now() - this.#daemon.lastStartedAt > 30_000)
       this.#daemon.restartCount = 0;
+    const recoveryId = `recovery-${++this.#daemon.recoverySequence}`;
+    this.#daemon.recoveryId = recoveryId;
+    this.#scheduleRecovery(
+      `daemon exited code=${code ?? "none"} signal=${signal ?? "none"}`,
+    );
+  }
+
+  #scheduleRecovery(reason: string): void {
+    const recoveryId =
+      this.#daemon.recoveryId ?? `recovery-${++this.#daemon.recoverySequence}`;
+    this.#daemon.recoveryId = recoveryId;
     this.#daemon.restartCount += 1;
+    this.#log(
+      `[${recoveryId}] ${reason}; attempt=${this.#daemon.restartCount}`,
+    );
+    this.#daemon.recoveryStatus?.dispose();
+    this.#daemon.recoveryStatus = vscode.window.setStatusBarMessage(
+      vscode.l10n.t("FlexiMark daemon stopped; reconnecting…"),
+    );
     if (this.#daemon.restartCount > 5) {
-      void vscode.window.showErrorMessage(
-        vscode.l10n.t(
-          "FlexiMark daemon repeatedly failed. Check the FlexiMark output.",
-        ),
-      );
+      this.#daemon.recoveryStatus?.dispose();
+      this.#daemon.recoveryStatus = undefined;
+      void vscode.window
+        .showErrorMessage(
+          vscode.l10n.t("FlexiMark daemon repeatedly failed."),
+          vscode.l10n.t("Retry"),
+          vscode.l10n.t("Open Output"),
+        )
+        .then((choice) => {
+          if (choice === vscode.l10n.t("Open Output")) {
+            this.#output.show(true);
+            return;
+          }
+          if (choice === vscode.l10n.t("Retry")) {
+            this.#daemon.restartCount = 0;
+            void this.#ensureDaemon().catch((error: unknown) =>
+              this.#report(error),
+            );
+          }
+        });
       return;
     }
     const delay = Math.min(250 * 2 ** (this.#daemon.restartCount - 1), 4_000);
+    this.#log(`[${recoveryId}] retry scheduled in ${delay}ms`);
     if (this.#daemon.restartTimer) clearTimeout(this.#daemon.restartTimer);
     this.#daemon.restartTimer = setTimeout(() => {
       this.#daemon.restartTimer = undefined;
-      void this.#ensureDaemon().catch((error: unknown) => this.#report(error));
+      void this.#ensureDaemon().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.#log(`[${recoveryId}] retry failed: ${message}`);
+      });
     }, delay);
   }
 
@@ -1038,5 +1153,14 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     void vscode.window.showErrorMessage(
       vscode.l10n.t("FlexiMark failed: {0}", message),
     );
+  }
+
+  #log(message: string): void {
+    if (
+      vscode.workspace
+        .getConfiguration("fleximark")
+        .get<string>("logLevel", "info") !== "off"
+    )
+      this.#output.appendLine(message);
   }
 }

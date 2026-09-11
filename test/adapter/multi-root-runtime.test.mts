@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
+import type { FlexiMarkTestApi } from "../../adapters/vscode/src/extension.mjs";
+
 export const suiteName = "Single-daemon multi-root runtime";
 
 export function suite(): void {
@@ -46,7 +48,7 @@ export function suite(): void {
       await vscode.window.showTextDocument(alphaText);
       await vscode.commands.executeCommand("fleximark.previewMarkdownOnVscode");
       const edit = new vscode.WorkspaceEdit();
-      edit.insert(alphaDocument, new vscode.Position(1, 0), "unsaved\n");
+      edit.insert(alphaDocument, new vscode.Position(1, 0), "# Unsaved\n");
       assert.equal(await vscode.workspace.applyEdit(edit), true);
 
       const betaText = await vscode.workspace.openTextDocument(betaDocument);
@@ -70,6 +72,58 @@ export function suite(): void {
       }
       assert.ok(previewLabels.some((label) => label.includes("alpha.md")));
       assert.ok(previewLabels.some((label) => label.includes("beta.md")));
+
+      const extension = vscode.extensions.getExtension<FlexiMarkTestApi>(
+        "Kashiwade.fleximark",
+      );
+      assert.ok(extension);
+      const api = extension.isActive
+        ? extension.exports
+        : await extension.activate();
+      const beforeCrash = api.recoveryState();
+      assert.ok(beforeCrash.daemonInstanceId);
+      assert.ok(beforeCrash.documentSessions[alphaDocument.toString()]);
+      assert.ok(beforeCrash.documentSessions[betaDocument.toString()]);
+      assert.ok(beforeCrash.previewSessions[alphaDocument.toString()]);
+      assert.ok(beforeCrash.previewSessions[betaDocument.toString()]);
+
+      api.crashDaemon();
+      let afterCrash = api.recoveryState();
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        afterCrash = api.recoveryState();
+        if (
+          afterCrash.connectionGeneration > beforeCrash.connectionGeneration &&
+          afterCrash.daemonInstanceId &&
+          afterCrash.documentSessions[alphaDocument.toString()] &&
+          afterCrash.documentSessions[betaDocument.toString()] &&
+          afterCrash.previewSessions[alphaDocument.toString()] !==
+            beforeCrash.previewSessions[alphaDocument.toString()] &&
+          afterCrash.previewSessions[betaDocument.toString()] !==
+            beforeCrash.previewSessions[betaDocument.toString()]
+        )
+          break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.ok(
+        afterCrash.connectionGeneration > beforeCrash.connectionGeneration,
+        "daemon connection was not replaced after the crash",
+      );
+      assert.notEqual(
+        afterCrash.daemonInstanceId,
+        beforeCrash.daemonInstanceId,
+      );
+      assert.notEqual(
+        afterCrash.documentSessions[alphaDocument.toString()],
+        beforeCrash.documentSessions[alphaDocument.toString()],
+      );
+      assert.notEqual(
+        afterCrash.previewSessions[alphaDocument.toString()],
+        beforeCrash.previewSessions[alphaDocument.toString()],
+      );
+      const symbols = await vscode.commands.executeCommand<
+        vscode.DocumentSymbol[]
+      >("vscode.executeDocumentSymbolProvider", alphaDocument);
+      assert.ok(symbols?.some((symbol) => symbol.name === "Unsaved"));
 
       const alphaIndex = vscode.workspace.workspaceFolders?.findIndex(
         (folder) => folder.uri.toString() === alpha.toString(),
