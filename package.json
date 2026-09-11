@@ -252,7 +252,9 @@
     "smoke:vsix": "node scripts/smoke-vsix.mjs",
     "verify:architecture": "node scripts/verify-architecture.mjs",
     "verify:performance": "node scripts/check-performance-budgets.mjs",
+    "verify:rust": "cargo fmt --all --check && cargo test --workspace --all-targets && cargo clippy --workspace --all-targets -- -D warnings",
     "verify": "run-s verify:architecture check-types lint build test:compile package:list",
+    "verify:all": "run-s verify verify:rust verify:performance test:integration",
     "release": "semantic-release",
     "l10n:export": "node scripts/l10n-export.mjs",
     "l10n:check": "npm run l10n:export && git diff --exit-code -- l10n"

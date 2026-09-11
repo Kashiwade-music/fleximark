@@ -14,7 +14,7 @@ Windows release build で成功している。残る判断は3 platformでの再
 - [x] Clippy、ESLint、VSIX source exclusion を修正する
 - [x] benchmark に update/render の段階別時間を出す
 - [x] performance timeout時に最後の完了段階を出力する
-- [ ] `verify` に Rust、integration、performanceを含む完全版を追加する
+- [x] `verify:all` に Rust、integration、performanceを含む完全検査を追加する
 
 完了条件: CI の失敗から、失敗した層と再現コマンドを一意に特定できる。
 

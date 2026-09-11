@@ -2,6 +2,11 @@
 
 ## How to
 
+### Design and roadmap
+
+- [Current architecture](ARCHITECTURE.md)
+- [Completion roadmap](ROADMAP.md)
+
 ### Install
 
 ```sh
@@ -11,11 +16,12 @@ npm ci
 ### Validate
 
 ```sh
-npm run check-types
-npm run lint
-npm run build
-npm test
+npm run verify:all
 ```
+
+`verify:all` runs the TypeScript and Rust checks, builds release assets, checks
+the architecture inventory and performance budgets, and runs the VS Code
+integration suite. Use `npm run verify` for the faster packaging prerequisite.
 
 On Linux, run the VS Code integration tests under Xvfb:
 
