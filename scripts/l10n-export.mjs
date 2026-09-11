@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import process from "node:process";
 
@@ -40,6 +48,9 @@ try {
     ],
     { stdio: "inherit" },
   );
+  const bundle = join(outputRoot, "bundle.l10n.json");
+  const contents = await readFile(bundle, "utf8");
+  if (!contents.endsWith("\n")) await writeFile(bundle, `${contents}\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
