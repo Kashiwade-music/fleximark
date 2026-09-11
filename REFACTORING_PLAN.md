@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 3 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 4 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -69,6 +69,16 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - GitHub Releaseはdraftのまま6 target clean installとattestationを待ち、その後に公開する。Marketplaceは公開済みGitHub Releaseと同じActions artifact/hashだけをOIDCでpublishする。
 - 完全なdraftまたは公開済みreleaseからの再実行はartifactを再検証して自動復旧する。release commitだけがpushされtagがない状態、またはtag/draft/assetsが不完全・不一致な状態は推測して補修せずfail closedとし、手動復旧を要求する。
 - 独立レビューを4巡し、既知の手動復旧境界を除いて未解決P0〜P3がないことを確認した。
+
+### Phase 4 完了時のベースライン
+
+- cargo test --workspace --all-targets: Windowsで120 tests passed。fleximarkd packageはservice unit 25件、daemon 17件、service contract 5件の合計47件が成功した。
+- Node pure RPC/preview/protocol tests: 54 tests passed、VS Code Electron tests: 75 tests passed、Python unittest discovery: 71 tests discovered（WindowsではPOSIX executable mode test 1件をskip）。
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- `fleximarkd/src/lib.rs` は3,666行から24行のprivate module宣言と明示的re-exportだけのfacadeになった。workspace、notes、theme、assets、plugins、uri、errorと、exportのmodel/journal/filesystem/recoveryを責務別のownerへ移動した。
+- crate rootの既存20 functionsと3 typesの公開path/signature、config/default、marker/registry/journalの正確なserialization bytesとdigest chainをservice contract testで固定した。
+- Unixのmanaged-entry symlinkとWindowsのcontrol/destination junctionをplatform固有testでfail closedに固定した。ローカルWindows gateに加え、Unix側のcfgと実装同一性を独立レビューし、3 OS CIで各platform testを実行する。
+- 関数body、serde shape、export checkpoint、fsync/rename/recovery順序を移動前後で比較した。複数巡の独立レビュー後に未解決P0〜P3はない。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -315,6 +325,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 4 — fleximark_serviceのmove-only module分割
 
+- 状態: 2026-09-12 完了。3,666行のcrate rootを24行のprivate facadeへ縮小し、定義とtestを責務別moduleへ移動した。公開pathとvisibilityを維持し、export state machineのlogic整理は行っていない。永続化bytes/digestとUnix symlink・Windows junction境界を追加contract testで固定し、独立レビューを複数巡した後に `mise run verify` に成功した。
 - 優先度 / ROI: P1 / 高。
 - 目的: filesystem/security-sensitive exportと通常workspace commandのreview範囲を分ける。
 - 問題点: 3,644行にnote/theme/config/plugin/assets/export/recoveryが同居する。
@@ -479,7 +490,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 | 11 | 高 | core move、enhancer、最適化を分ける |
 | 12 | 中 | tsconfig/test、Cargo依存、docsを分ける |
 
-Phase 3、5〜11は並行実施せず、直前のfull gateがgreenであることを着手条件とする。
+Phase 5〜11は並行実施せず、直前のfull gateがgreenであることを着手条件とする。
 
 ## 6. テスト・検証方法
 
@@ -543,4 +554,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11、Phase 1〜3は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 4へ進む。
+Phase 0は2026-09-11、Phase 1〜4は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 5へ進む。

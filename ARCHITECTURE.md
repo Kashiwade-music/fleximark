@@ -64,7 +64,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Adapter | `adapters/vscode` | VS Code activation, settings, commands, editor/workspace events, daemon recovery, panels and browser launch |
 | Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
 | Daemon | `crates/fleximarkd/src/main.rs` | LSP/custom RPC routing, cancellation, preview server and process-level composition |
-| Service | `crates/fleximarkd/src/lib.rs` (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
+| Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
 | LSP/session | `crates/fleximark-lsp` | URI-to-session authority, document versions, diagnostics/navigation and preview publication state |
 | Engine | `crates/fleximark-engine` | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
 | Model | `crates/fleximark-model` | IR, node identity, source provenance and navigation data |
@@ -79,6 +79,14 @@ The capability inventory is the detailed owner map. In particular, adapter setti
 `package.json`; note, asset, plugin, theme and export policy remain service-owned workspace
 configuration; Markdown semantics remain engine-owned; Mermaid/ABC enhancement remains
 preview-client-owned.
+
+Within `fleximark_service`, `lib.rs` is a compatibility facade that explicitly re-exports the
+existing public operations and types. `workspace.rs`, `notes.rs`, `theme.rs`, `assets.rs`,
+`plugins.rs`, `uri.rs`, and `error.rs` own their named responsibilities. `export/mod.rs` owns the
+export coordinator and public export operations, while its private `model`, `journal`,
+`filesystem`, and `recovery` modules own the persistent representation, digest-chained journal,
+filesystem primitives, and crash recovery respectively. These module boundaries do not add new
+public module paths or alter transaction ordering.
 
 ## Entry points
 
@@ -177,7 +185,9 @@ FlexiMark has no database or database schema. Compatibility-sensitive filesystem
 - exported portable HTML/assets plus the destination `.fleximark-export.json` ownership marker;
 - `.fleximark/export-targets/<destination-hash>.json` registry records and adjacent
   `.*.fleximark-export-journal.json` transaction journals. Staging and backup names are also part
-  of crash recovery;
+  of crash recovery. Their representations and journal encoding are owned by the private
+  `export/model.rs` and `export/journal.rs` modules; filesystem mutation and recovery remain
+  coordinated through `export/mod.rs`;
 - generated `bin/manifest.json`, whose entries select and authenticate packaged daemon binaries;
 - the repository capability inventory and clean-break catalog, which are source-controlled
   governance contracts rather than user runtime state.
