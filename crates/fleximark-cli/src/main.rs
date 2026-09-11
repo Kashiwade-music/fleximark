@@ -378,13 +378,7 @@ fn render_source(uri: String, source: &str) -> Result<String, Box<dyn std::error
 }
 
 fn path_to_uri(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    let canonical = path.canonicalize()?;
-    let normalized = canonical.to_string_lossy().replace('\\', "/");
-    Ok(if normalized.starts_with('/') {
-        format!("file://{normalized}")
-    } else {
-        format!("file:///{normalized}")
-    })
+    Ok(fleximark_service::path_to_file_uri(path)?)
 }
 
 #[cfg(test)]
@@ -419,7 +413,12 @@ mod tests {
         .unwrap();
         let document = root.join("doc.md");
         fs::write(&document, "# Safe\n").unwrap();
-        let session = open_session(path_to_uri(&document).unwrap(), "# Safe\n".into(), false)
+        let document_uri = path_to_uri(&document).unwrap();
+        assert_eq!(
+            fleximark_service::workspace_for_document(&document_uri).unwrap(),
+            workspace_uri
+        );
+        let session = open_session(document_uri, "# Safe\n".into(), false)
             .expect("untrusted CLI never loads configured plugins");
         assert_eq!(session.document().blocks.len(), 1);
         fs::remove_dir_all(root).unwrap();
