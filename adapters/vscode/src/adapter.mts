@@ -38,11 +38,14 @@ interface DocumentState {
 
 interface PreviewState {
   documentUri: string;
+  sourceViewColumn?: vscode.ViewColumn;
   previewSessionId: string;
   target: PreviewTarget;
   url?: string;
   initialPublication: RenderPublication;
   renderRevision: number;
+  renderedRevision?: number;
+  messageToken?: string;
   panel?: vscode.WebviewPanel;
 }
 
@@ -87,6 +90,7 @@ export interface AdapterRecoveryState {
   daemonInstanceId?: string;
   documentSessions: Record<string, string | undefined>;
   previewSessions: Record<string, string>;
+  previewRenderRevisions: Record<string, number | undefined>;
 }
 
 export function sourcePositionToCharacter(
@@ -105,6 +109,29 @@ export function sourcePositionToCharacter(
     utf16Units += character.length;
   }
   return utf16Units;
+}
+
+interface VisibleSourceEditor {
+  readonly document: {
+    readonly uri: {
+      toString(): string;
+    };
+  };
+  readonly viewColumn?: vscode.ViewColumn;
+}
+
+export function findVisibleSourceEditor<T extends VisibleSourceEditor>(
+  editors: readonly T[],
+  documentUri: string,
+  sourceViewColumn?: vscode.ViewColumn,
+): T | undefined {
+  const matchingEditors = editors.filter(
+    (editor) => editor.document.uri.toString() === documentUri,
+  );
+  return (
+    matchingEditors.find((editor) => editor.viewColumn === sourceViewColumn) ??
+    matchingEditors[0]
+  );
 }
 
 export async function executeCreateNote(
@@ -248,6 +275,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   async openPreview(target: PreviewTarget): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
+    const sourceViewColumn = vscode.window.activeTextEditor?.viewColumn;
     if (!document || document.languageId !== "markdown") {
       void vscode.window.showInformationMessage(
         vscode.l10n.t("Open a Markdown document first."),
@@ -265,6 +293,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         throw new Error("daemon omitted the external preview URL");
       runtime.previews.set(result.previewSessionId, {
         documentUri: document.uri.toString(),
+        sourceViewColumn,
         previewSessionId: result.previewSessionId,
         target,
         url: result.url,
@@ -294,17 +323,21 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
     const scriptUri = panel.webview.asWebviewUri(htmlUri);
     const nonce = randomBytes(16).toString("base64");
-    const shell = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'unsafe-inline'; img-src ${panel.webview.cspSource} data: blob:; media-src ${panel.webview.cspSource} blob:; frame-src https://www.youtube-nocookie.com; object-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#preview{min-height:100%;margin:0}[data-fleximark-selected=true]{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}.fleximark-token-keyword{color:var(--vscode-symbolIcon-keywordForeground)}.fleximark-token-string{color:var(--vscode-symbolIcon-stringForeground)}.fleximark-token-number{color:var(--vscode-symbolIcon-numberForeground)}.fleximark-token-comment{color:var(--vscode-descriptionForeground)}</style></head><body><main id="preview"></main><script nonce="${nonce}" src="${scriptUri}"></script></body></html>`;
+    const messageToken = randomBytes(32).toString("base64url");
+    const shell = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'unsafe-inline'; img-src ${panel.webview.cspSource} data: blob:; media-src ${panel.webview.cspSource} blob:; frame-src https://www.youtube-nocookie.com; object-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="fleximark-message-token" content="${messageToken}"><style>html,body,#preview{min-height:100%;margin:0}html{color-scheme:light}body{box-sizing:border-box;padding:0 1.5rem;color:#1f2328;background:#fff;font-family:var(--vscode-font-family);font-size:var(--vscode-font-size)}a{color:#0969da}code,pre{font-family:var(--vscode-editor-font-family)}[data-fleximark-selected=true]{outline:2px solid #0969da;outline-offset:2px}.fleximark-token-keyword{color:#cf222e}.fleximark-token-string{color:#0a3069}.fleximark-token-number{color:#0550ae}.fleximark-token-comment{color:#6e7781}</style></head><body><main id="preview"></main><script nonce="${nonce}" src="${scriptUri}"></script></body></html>`;
     const preview: PreviewState = {
       documentUri: document.uri.toString(),
+      sourceViewColumn,
       previewSessionId: result.previewSessionId,
       target,
       url: result.url,
       initialPublication: result.initialPublication,
       renderRevision: result.initialPublication.resultRenderRevision,
+      messageToken,
       panel,
     };
     runtime.previews.set(result.previewSessionId, preview);
+    this.#log(`embedded preview created revision=${preview.renderRevision}`);
     panel.webview.onDidReceiveMessage(
       (event: {
         type?: string;
@@ -313,10 +346,29 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         renderRevision?: unknown;
       }) => {
         if (event.type === "ready") {
-          void panel.webview.postMessage({
-            type: "initializePreview",
-            publication: preview.initialPublication,
-          });
+          this.#log("embedded preview webview ready");
+          void panel.webview
+            .postMessage({
+              type: "initializePreview",
+              messageToken,
+              publication: preview.initialPublication,
+            })
+            .then((delivered) =>
+              this.#log(
+                `embedded preview initial publication delivered=${delivered}`,
+              ),
+            );
+          return;
+        }
+        if (
+          event.type === "rendered" &&
+          event.previewSessionId === preview.previewSessionId &&
+          event.renderRevision === preview.renderRevision
+        ) {
+          preview.renderedRevision = event.renderRevision;
+          this.#log(
+            `embedded preview rendered revision=${event.renderRevision}`,
+          );
           return;
         }
         if (event.type === "requestSnapshot") {
@@ -593,6 +645,14 @@ export class FlexiMarkAdapter implements vscode.Disposable {
           [...runtime.previews.values()].map((preview) => [
             preview.documentUri,
             preview.previewSessionId,
+          ]),
+        ),
+      ),
+      previewRenderRevisions: Object.fromEntries(
+        [...this.#runtimes.values()].flatMap((runtime) =>
+          [...runtime.previews.values()].map((preview) => [
+            preview.documentUri,
+            preview.renderedRevision,
           ]),
         ),
       ),
@@ -929,10 +989,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         preview.url = result.url;
         preview.initialPublication = result.initialPublication;
         preview.renderRevision = result.initialPublication.resultRenderRevision;
+        preview.renderedRevision = undefined;
         runtime.previews.set(result.previewSessionId, preview);
         if (preview.panel) {
           await preview.panel.webview.postMessage({
             type: "initializePreview",
+            messageToken: preview.messageToken,
             publication: result.initialPublication,
           });
         } else {
@@ -975,6 +1037,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         preview.renderRevision = event.event.resultRenderRevision;
       await preview.panel?.webview.postMessage({
         type: "previewEvent",
+        messageToken: preview.messageToken,
         event: event.event,
       });
       return;
@@ -1056,10 +1119,17 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       end.line,
       sourcePositionToCharacter(document.lineAt(end.line).text, end),
     );
-    const editor = await vscode.window.showTextDocument(document, {
-      preserveFocus: event.type === "revealSource",
-      preview: false,
-    });
+    const editor =
+      findVisibleSourceEditor(
+        vscode.window.visibleTextEditors,
+        preview.documentUri,
+        preview.sourceViewColumn,
+      ) ??
+      (await vscode.window.showTextDocument(document, {
+        viewColumn: preview.sourceViewColumn,
+        preserveFocus: true,
+        preview: false,
+      }));
     if (event.type === "selectSource") {
       const selection = new vscode.Selection(range.start, range.end);
       const selectionEcho = {

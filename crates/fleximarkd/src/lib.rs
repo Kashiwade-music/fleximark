@@ -556,7 +556,13 @@ pub fn resolve_render_assets(
     if !source.starts_with(&workspace) {
         return Err(ServiceError::InvalidWorkspaceUri);
     }
-    let config = validate_config(&workspace.join(".fleximark/config.toml"))?;
+    let config = match validate_config(&workspace.join(".fleximark/config.toml")) {
+        Ok(config) => config,
+        Err(ServiceError::NotInitialized) => {
+            FlexiMarkConfig::from_toml(CONFIG).map_err(|_| ServiceError::InvalidConfig)?
+        }
+        Err(error) => return Err(error),
+    };
     let workspace_dir = Dir::open_ambient_dir(&workspace, ambient_authority())?;
     let mut allowed_roots = vec![
         source
@@ -3223,6 +3229,31 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
         assert!(
             resolve_render_assets(&document_uri, &workspace_uri, traversal.document()).is_err()
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn live_assets_use_default_config_outside_a_fleximark_workspace() {
+        let root = test_workspace("uninitialized-live-assets-test");
+        let workspace_uri = path_to_file_uri(&root).unwrap();
+        fs::write(root.join("image.png"), b"\x89PNG\r\n\x1a\ncontent").unwrap();
+        let source = "# Ordinary Markdown\n\n![inline](image.png)\n";
+        let document_path = root.join("doc.md");
+        fs::write(&document_path, source).unwrap();
+        let document_uri = path_to_file_uri(&document_path).unwrap();
+        let session = fleximark_engine::DocumentSession::open(
+            fleximark_model::DocumentUri(document_uri.clone()),
+            1,
+            source.into(),
+            fleximark_model::PositionEncoding::Utf8,
+        )
+        .unwrap();
+
+        let assets = resolve_render_assets(&document_uri, &workspace_uri, session.document())
+            .expect("ordinary Markdown preview uses the default workspace configuration");
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].source(), "image.png");
         fs::remove_dir_all(root).unwrap();
     }
 

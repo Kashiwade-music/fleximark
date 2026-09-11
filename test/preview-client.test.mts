@@ -8,6 +8,7 @@ import {
 import {
   PreviewHost,
   isPreviewHostMessage,
+  isPreviewHostMessageEvent,
 } from "../web/preview-client/host.mjs";
 import {
   PreviewDocument,
@@ -634,12 +635,13 @@ export function suite(): void {
     host.dispose();
   });
 
-  test("rejects cross-frame and malformed webview host messages", () => {
+  test("accepts VS Code host messages and rejects cross-frame or malformed messages", () => {
     assert.equal(isPreviewHostMessage(undefined), false);
     assert.equal(isPreviewHostMessage({ type: "initializePreview" }), false);
     assert.equal(
       isPreviewHostMessage({
         type: "previewEvent",
+        messageToken: "token",
         event: { type: "youtube" },
       }),
       false,
@@ -647,6 +649,7 @@ export function suite(): void {
     assert.equal(
       isPreviewHostMessage({
         type: "initializePreview",
+        messageToken: "token",
         publication: snapshot(),
       }),
       true,
@@ -654,6 +657,7 @@ export function suite(): void {
     assert.equal(
       isPreviewHostMessage({
         type: "previewEvent",
+        messageToken: "token",
         event: {
           type: "viewport",
           previewSessionId: "preview-1",
@@ -663,6 +667,14 @@ export function suite(): void {
       }),
       true,
     );
+    const valid = {
+      type: "initializePreview",
+      messageToken: "token",
+      publication: snapshot(),
+    };
+    assert.equal(isPreviewHostMessageEvent(valid, "token"), true);
+    assert.equal(isPreviewHostMessageEvent(valid, "other-token"), false);
+    assert.equal(isPreviewHostMessageEvent({}, "token"), false);
   });
 
   test("debounces preview scroll and suppresses viewport echo", async () => {

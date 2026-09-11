@@ -80,12 +80,23 @@ export function suite(): void {
       const api = extension.isActive
         ? extension.exports
         : await extension.activate();
-      const beforeCrash = api.recoveryState();
+      let beforeCrash = api.recoveryState();
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        beforeCrash = api.recoveryState();
+        if (
+          beforeCrash.previewRenderRevisions[alphaDocument.toString()] &&
+          beforeCrash.previewRenderRevisions[betaDocument.toString()]
+        )
+          break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
       assert.ok(beforeCrash.daemonInstanceId);
       assert.ok(beforeCrash.documentSessions[alphaDocument.toString()]);
       assert.ok(beforeCrash.documentSessions[betaDocument.toString()]);
       assert.ok(beforeCrash.previewSessions[alphaDocument.toString()]);
       assert.ok(beforeCrash.previewSessions[betaDocument.toString()]);
+      assert.ok(beforeCrash.previewRenderRevisions[alphaDocument.toString()]);
+      assert.ok(beforeCrash.previewRenderRevisions[betaDocument.toString()]);
 
       api.crashDaemon();
       let afterCrash = api.recoveryState();

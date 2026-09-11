@@ -10,14 +10,26 @@ import { previewRuntimes } from "./runtimes.mjs";
 export type PreviewHostEvent = RenderPublication | PreviewNavigationEvent;
 
 export type PreviewHostMessage =
-  | { type: "initializePreview"; publication: RenderPublication }
-  | { type: "previewEvent"; event: PreviewHostEvent };
+  | {
+      type: "initializePreview";
+      messageToken: string;
+      publication: RenderPublication;
+    }
+  | { type: "previewEvent"; messageToken: string; event: PreviewHostEvent };
+
+export function isPreviewHostMessageEvent(
+  value: unknown,
+  messageToken: string,
+): value is PreviewHostMessage {
+  return isPreviewHostMessage(value) && value.messageToken === messageToken;
+}
 
 export function isPreviewHostMessage(
   value: unknown,
 ): value is PreviewHostMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
+  if (typeof message.messageToken !== "string") return false;
   const payload =
     message.type === "initializePreview"
       ? message.publication
@@ -73,6 +85,14 @@ export class PreviewHost {
         renderRevision: this.#preview.renderRevision,
       });
     });
+  }
+
+  get previewSessionId(): string | undefined {
+    return this.#preview.previewSessionId;
+  }
+
+  get renderRevision(): number {
+    return this.#preview.renderRevision;
   }
 
   apply(events: readonly PreviewHostEvent[]): void {

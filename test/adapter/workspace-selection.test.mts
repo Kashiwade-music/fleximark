@@ -1,6 +1,7 @@
 import * as assert from "node:assert/strict";
 
 import {
+  findVisibleSourceEditor,
   selectWorkspaceUri,
   sourcePositionToCharacter,
 } from "../../adapters/vscode/src/adapter.mjs";
@@ -61,6 +62,35 @@ export function suite(): void {
         encoding: "utf16",
       }),
       4,
+    );
+  });
+
+  test("reuses the source editor in its original column", () => {
+    const sourceUri = "file:///notes/example.md";
+    const otherColumn = {
+      document: { uri: { toString: () => sourceUri } },
+      viewColumn: 2,
+    };
+    const originalColumn = {
+      document: { uri: { toString: () => sourceUri } },
+      viewColumn: 1,
+    };
+
+    assert.equal(
+      findVisibleSourceEditor([otherColumn, originalColumn], sourceUri, 1),
+      originalColumn,
+    );
+  });
+
+  test("does not reuse an editor for a different document", () => {
+    const editor = {
+      document: { uri: { toString: () => "file:///notes/other.md" } },
+      viewColumn: 1,
+    };
+
+    assert.equal(
+      findVisibleSourceEditor([editor], "file:///notes/example.md", 1),
+      undefined,
     );
   });
 }
