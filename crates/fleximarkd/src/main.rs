@@ -16,6 +16,7 @@ use fleximark_lsp::{
 use fleximark_model::{
     Block, BlockKind, Document, Inline, InlineKind, NavigationEntry, Node, NodeId, PositionEncoding,
 };
+use fleximark_plugin_host::CancellationToken;
 use fleximark_protocol::{
     AttachDocumentParams, CONTENT_MODIFIED, CheckpointDocumentParams, CreatePreviewParams,
     CreatePreviewResult, DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams,
@@ -159,8 +160,6 @@ fn serve_document(path: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let stdin = io::stdin();
-    let mut reader = BufReader::new(stdin.lock());
     let (outgoing, incoming) = mpsc::channel::<Value>();
     thread::spawn(move || {
         let mut writer = BufWriter::new(io::stdout());
@@ -172,12 +171,49 @@ fn run(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    let coordinator = Arc::new(CancellationCoordinator::default());
+    let input_coordinator = Arc::clone(&coordinator);
+    let (input_sender, input_receiver) = mpsc::channel::<InputEvent>();
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        let mut reader = BufReader::new(stdin.lock());
+        loop {
+            match read_frame(&mut reader) {
+                Ok(Some(body)) => {
+                    let message = match serde_json::from_slice::<IncomingMessage>(&body) {
+                        Ok(message) if message.jsonrpc == "2.0" => message,
+                        _ => {
+                            if input_sender.send(InputEvent::Invalid).is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                    };
+                    let permit = input_coordinator.prepare(&message);
+                    if input_sender
+                        .send(InputEvent::Message { message, permit })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    let _ = input_sender.send(InputEvent::Closed);
+                    break;
+                }
+                Err(error) => {
+                    let _ = input_sender.send(InputEvent::Failed(error.to_string()));
+                    break;
+                }
+            }
+        }
+    });
     let mut server = Server::with_sender(mode == "lsp", outgoing.clone());
 
-    while let Some(body) = read_frame(&mut reader)? {
-        let message = match serde_json::from_slice::<IncomingMessage>(&body) {
-            Ok(message) if message.jsonrpc == "2.0" => message,
-            _ => {
+    loop {
+        let (message, permit) = match input_receiver.recv()? {
+            InputEvent::Message { message, permit } => (message, permit),
+            InputEvent::Invalid => {
                 outgoing.send(response_value(Response::error(
                     Value::Null,
                     -32700,
@@ -185,15 +221,245 @@ fn run(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
                 )))?;
                 continue;
             }
+            InputEvent::Closed => break,
+            InputEvent::Failed(error) => return Err(error.into()),
         };
-        for message in server.handle(message) {
-            outgoing.send(message)?;
+        let cancelled_before_start = permit
+            .as_ref()
+            .is_some_and(|permit| !coordinator.should_execute(permit));
+        let mut messages = if cancelled_before_start {
+            Vec::new()
+        } else {
+            server.handle_cancellable(
+                message.clone(),
+                permit.as_ref().map(|p| p.token.clone()),
+                permit.as_ref().map(|p| p.publication_token.clone()),
+            )
+        };
+        server.bind_document_alias(&message, &coordinator);
+        let cancelled = permit
+            .as_ref()
+            .is_some_and(|permit| !coordinator.is_current(permit));
+        if cancelled {
+            messages.clear();
+            if let Some(id) = message.id.clone() {
+                messages.push(response_value(Response::error(
+                    id,
+                    -32800,
+                    "request cancelled",
+                )));
+            }
+        }
+        if let Some(permit) = permit {
+            coordinator.finish(&permit);
+        }
+        for outgoing_message in messages {
+            outgoing.send(outgoing_message)?;
         }
         if server.exit {
             break;
         }
     }
     Ok(())
+}
+
+enum InputEvent {
+    Message {
+        message: IncomingMessage,
+        permit: Option<WorkPermit>,
+    },
+    Invalid,
+    Closed,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum DocumentKey {
+    Uri(String),
+    Session(String),
+}
+
+struct WorkPermit {
+    work_id: u64,
+    request_id: Option<String>,
+    document: Option<DocumentKey>,
+    generation: u64,
+    is_mutation: bool,
+    token: CancellationToken,
+    publication_token: CancellationToken,
+}
+
+#[derive(Default)]
+struct CancellationCoordinator {
+    state: Mutex<CancellationState>,
+}
+
+#[derive(Default)]
+struct CancellationState {
+    next_work_id: u64,
+    generations: HashMap<DocumentKey, u64>,
+    session_uris: HashMap<String, String>,
+    work: HashMap<u64, (Option<DocumentKey>, CancellationToken, CancellationToken)>,
+    requests: HashMap<String, (u64, CancellationToken, CancellationToken)>,
+}
+
+impl CancellationCoordinator {
+    fn prepare(&self, message: &IncomingMessage) -> Option<WorkPermit> {
+        let mut state = self.state.lock().expect("cancellation state poisoned");
+        if message.method == "$/cancelRequest" {
+            if let Some(id) = message.params.get("id").and_then(rpc_id_key)
+                && let Some((_, token, publication_token)) = state.requests.get(&id)
+            {
+                token.cancel();
+                publication_token.cancel();
+            }
+            return None;
+        }
+
+        let document = document_key(message);
+        let is_mutation = is_document_mutation(&message.method);
+        if is_mutation && let Some(document) = document.as_ref() {
+            let canonical = canonical_document(&state, document);
+            let generation = state.generations.entry(canonical.clone()).or_default();
+            *generation += 1;
+            for (active_document, _, publication_token) in state.work.values() {
+                if active_document
+                    .as_ref()
+                    .is_some_and(|active| canonical_document(&state, active) == canonical)
+                {
+                    publication_token.cancel();
+                }
+            }
+        }
+
+        state.next_work_id += 1;
+        let work_id = state.next_work_id;
+        let generation = document
+            .as_ref()
+            .map(|document| {
+                let canonical = canonical_document(&state, document);
+                state.generations.get(&canonical).copied().unwrap_or(0)
+            })
+            .unwrap_or(0);
+        let token = CancellationToken::default();
+        let publication_token = if is_mutation {
+            CancellationToken::default()
+        } else {
+            token.clone()
+        };
+        let request_id = message.id.as_ref().and_then(rpc_id_key);
+        state.work.insert(
+            work_id,
+            (document.clone(), token.clone(), publication_token.clone()),
+        );
+        if let Some(request_id) = &request_id {
+            state.requests.insert(
+                request_id.clone(),
+                (work_id, token.clone(), publication_token.clone()),
+            );
+        }
+        Some(WorkPermit {
+            work_id,
+            request_id,
+            document,
+            generation,
+            is_mutation,
+            token,
+            publication_token,
+        })
+    }
+
+    fn should_execute(&self, permit: &WorkPermit) -> bool {
+        !permit.token.is_cancelled() && (permit.is_mutation || self.is_current(permit))
+    }
+
+    fn is_current(&self, permit: &WorkPermit) -> bool {
+        if permit.publication_token.is_cancelled() {
+            return false;
+        }
+        let state = self.state.lock().expect("cancellation state poisoned");
+        permit.document.as_ref().is_none_or(|document| {
+            let canonical = canonical_document(&state, document);
+            state.generations.get(&canonical).copied().unwrap_or(0) == permit.generation
+        })
+    }
+
+    fn finish(&self, permit: &WorkPermit) {
+        let mut state = self.state.lock().expect("cancellation state poisoned");
+        state.work.remove(&permit.work_id);
+        if let Some(request_id) = &permit.request_id
+            && state
+                .requests
+                .get(request_id)
+                .is_some_and(|(work_id, _, _)| *work_id == permit.work_id)
+        {
+            state.requests.remove(request_id);
+        }
+    }
+
+    fn bind(&self, session_id: &str, uri: &str) {
+        let mut state = self.state.lock().expect("cancellation state poisoned");
+        state
+            .session_uris
+            .insert(session_id.to_owned(), uri.to_owned());
+        let session_key = DocumentKey::Session(session_id.to_owned());
+        let uri_key = DocumentKey::Uri(uri.to_owned());
+        let generation = state
+            .generations
+            .get(&session_key)
+            .copied()
+            .unwrap_or(0)
+            .max(state.generations.get(&uri_key).copied().unwrap_or(0));
+        state.generations.insert(uri_key, generation);
+        state.generations.remove(&session_key);
+    }
+}
+
+fn canonical_document(state: &CancellationState, document: &DocumentKey) -> DocumentKey {
+    match document {
+        DocumentKey::Session(session_id) => state
+            .session_uris
+            .get(session_id)
+            .cloned()
+            .map(DocumentKey::Uri)
+            .unwrap_or_else(|| document.clone()),
+        DocumentKey::Uri(_) => document.clone(),
+    }
+}
+
+fn rpc_id_key(value: &Value) -> Option<String> {
+    match value {
+        Value::String(_) | Value::Number(_) => serde_json::to_string(value).ok(),
+        _ => None,
+    }
+}
+
+fn document_key(message: &IncomingMessage) -> Option<DocumentKey> {
+    message
+        .params
+        .pointer("/textDocument/uri")
+        .or_else(|| message.params.get("uri"))
+        .and_then(Value::as_str)
+        .map(|uri| DocumentKey::Uri(uri.to_owned()))
+        .or_else(|| {
+            message
+                .params
+                .get("documentSessionId")
+                .and_then(Value::as_str)
+                .map(|session| DocumentKey::Session(session.to_owned()))
+        })
+}
+
+fn is_document_mutation(method_name: &str) -> bool {
+    matches!(
+        method_name,
+        "textDocument/didOpen"
+            | "textDocument/didChange"
+            | "textDocument/didClose"
+            | method::OPEN_DOCUMENT
+            | method::CHANGE_DOCUMENT
+            | method::CLOSE_DOCUMENT
+    )
 }
 
 struct Server {
@@ -211,6 +477,8 @@ struct Server {
     previews: PreviewServer,
     preview_states: HashMap<String, PreviewState>,
     outgoing_events: Vec<Value>,
+    work_cancellation: CancellationToken,
+    publication_cancellation: CancellationToken,
 }
 
 impl Server {
@@ -239,6 +507,39 @@ impl Server {
             previews: PreviewServer::start(sender).expect("loopback preview server must start"),
             preview_states: HashMap::new(),
             outgoing_events: Vec::new(),
+            work_cancellation: CancellationToken::default(),
+            publication_cancellation: CancellationToken::default(),
+        }
+    }
+
+    fn handle_cancellable(
+        &mut self,
+        message: IncomingMessage,
+        cancellation: Option<CancellationToken>,
+        publication_cancellation: Option<CancellationToken>,
+    ) -> Vec<Value> {
+        self.work_cancellation = cancellation.unwrap_or_default();
+        self.publication_cancellation = publication_cancellation.unwrap_or_default();
+        let outgoing = self.handle(message);
+        self.work_cancellation = CancellationToken::default();
+        self.publication_cancellation = CancellationToken::default();
+        outgoing
+    }
+
+    fn bind_document_alias(
+        &self,
+        message: &IncomingMessage,
+        coordinator: &CancellationCoordinator,
+    ) {
+        let uri = message
+            .params
+            .pointer("/textDocument/uri")
+            .or_else(|| message.params.get("uri"))
+            .and_then(Value::as_str);
+        if let Some(uri) = uri
+            && let Some(session_id) = self.registry.session_id_for_uri(uri)
+        {
+            coordinator.bind(session_id, uri);
         }
     }
 
@@ -255,6 +556,7 @@ impl Server {
                 self.exit = true;
                 None
             }
+            "$/cancelRequest" => None,
             "textDocument/didOpen" if self.lsp_mode => self.open_lsp_document(id, message.params),
             "textDocument/didChange" if self.lsp_mode => self.change_document(id, message.params),
             "textDocument/didClose" if self.lsp_mode => self.close_document(id, message.params),
@@ -287,11 +589,9 @@ impl Server {
             method::GET_NOTE_OPTIONS => self.get_note_options(id, message.params),
             method::RECONFIGURE_WORKSPACE => self.reconfigure_workspace(id, message.params),
             method::OPEN_DOCUMENT if !self.lsp_mode => self.open_rpc_document(id, message.params),
-            method::CHANGE_DOCUMENT if !self.lsp_mode => self.request(
-                id,
-                message.params,
-                |registry, params: RpcChangeDocumentParams| registry.change_rpc(params),
-            ),
+            method::CHANGE_DOCUMENT if !self.lsp_mode => {
+                self.change_rpc_document(id, message.params)
+            }
             method::CLOSE_DOCUMENT if !self.lsp_mode => self.request(
                 id,
                 message.params,
@@ -691,7 +991,7 @@ impl Server {
     }
 
     fn publish_lsp_diagnostics(&mut self, uri: &str) {
-        if !self.lsp_mode {
+        if !self.lsp_mode || self.publication_cancellation.is_cancelled() {
             return;
         }
         let Some(session_id) = self.registry.session_id_for_uri(uri) else {
@@ -753,15 +1053,19 @@ impl Server {
             Err(error) => return Some(invalid_params(id, error)),
         };
         let preview_id = format!("render-{}", params.document_session_id);
-        let publication = match self.registry.render(
+        let publication = match self.registry.render_with_cancellation(
             &params.daemon_instance_id,
             &params.document_session_id,
             params.document_version,
             &preview_id,
+            &self.work_cancellation,
         ) {
             Ok(publication) => publication,
             Err(error) => return Some(session_error(id, error)),
         };
+        if self.publication_cancellation.is_cancelled() {
+            return None;
+        }
         Some(response_value(Response::success(id, publication)))
     }
 
@@ -789,11 +1093,12 @@ impl Server {
             }
         };
         let preview_id = format!("preview-{preview_nonce}");
-        let publication = match self.registry.render(
+        let publication = match self.registry.render_with_cancellation(
             &params.daemon_instance_id,
             &params.document_session_id,
             params.expected_document_version,
             &preview_id,
+            &self.work_cancellation,
         ) {
             Ok(publication) => publication,
             Err(error) => return Some(session_error(id, error)),
@@ -805,6 +1110,9 @@ impl Server {
                 "new preview did not produce a full snapshot",
             )));
         };
+        if self.publication_cancellation.is_cancelled() {
+            return None;
+        }
         let (token, url) = if params.target == PreviewTarget::ExternalBrowser {
             let token = match random_token() {
                 Ok(token) => token,
@@ -945,7 +1253,7 @@ impl Server {
         }
         if let Err(error) = self
             .registry
-            .open(params)
+            .open_with_cancellation(params, &self.work_cancellation)
             .and_then(|_| self.refresh_assets(&uri))
         {
             let _ = error;
@@ -974,14 +1282,42 @@ impl Server {
             )));
         }
         Some(
-            match self.registry.open_rpc(params).and_then(|result| {
-                self.refresh_assets(&uri)?;
-                Ok(result)
-            }) {
+            match self
+                .registry
+                .open_rpc_with_cancellation(params, &self.work_cancellation)
+                .and_then(|result| {
+                    self.refresh_assets(&uri)?;
+                    Ok(result)
+                }) {
                 Ok(result) => response_value(Response::success(id, result)),
                 Err(error) => session_error(id, error),
             },
         )
+    }
+
+    fn change_rpc_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
+        let id = id?;
+        if !self.fleximark_initialized {
+            return Some(response_value(Response::error(
+                id,
+                -32002,
+                "FlexiMark connection is not initialized",
+            )));
+        }
+        let params = match serde_json::from_value::<RpcChangeDocumentParams>(params) {
+            Ok(params) => params,
+            Err(error) => return Some(invalid_params(id, error)),
+        };
+        match self
+            .registry
+            .change_rpc_with_cancellation(params, &self.work_cancellation)
+        {
+            Ok(result) if !self.publication_cancellation.is_cancelled() => {
+                Some(response_value(Response::success(id, result)))
+            }
+            Ok(_) => None,
+            Err(error) => Some(session_error(id, error)),
+        }
     }
 
     fn refresh_assets(&mut self, uri: &str) -> Result<(), SessionError> {
@@ -1033,7 +1369,10 @@ impl Server {
         let trace = OperationalTrace::new(Some(&uri), None, Some(document_version));
         trace.log("change-received");
         let transform_started = Instant::now();
-        if let Err(error) = self.registry.change(params) {
+        if let Err(error) = self
+            .registry
+            .change_with_cancellation(params, &self.work_cancellation)
+        {
             let _ = error;
             eprintln!(
                 "{}",
@@ -1047,6 +1386,9 @@ impl Server {
                     false,
                 )
             );
+            return None;
+        }
+        if self.publication_cancellation.is_cancelled() {
             return None;
         }
         eprintln!(
@@ -1099,11 +1441,22 @@ impl Server {
                 .is_some_and(|token| self.previews.needs_full(token));
             let publication = if force_full {
                 self.registry
-                    .render_full(&daemon_id, &session_id, version, &preview_id)
+                    .render_full_with_cancellation(
+                        &daemon_id,
+                        &session_id,
+                        version,
+                        &preview_id,
+                        &self.work_cancellation,
+                    )
                     .map(RenderPublication::Full)
             } else {
-                self.registry
-                    .render(&daemon_id, &session_id, version, &preview_id)
+                self.registry.render_with_cancellation(
+                    &daemon_id,
+                    &session_id,
+                    version,
+                    &preview_id,
+                    &self.work_cancellation,
+                )
             };
             let publication = match publication {
                 Ok(publication) => publication,
@@ -1122,17 +1475,21 @@ impl Server {
                 RenderPublication::Full(snapshot) => snapshot.result_render_revision,
                 RenderPublication::Patch(patch) => patch.result_render_revision,
             };
+            if self.publication_cancellation.is_cancelled() {
+                return None;
+            }
             if let Some(token) = self
                 .preview_states
                 .get(&preview_id)
                 .and_then(|state| state.token.as_deref())
             {
                 if !self.previews.update(token, &publication) {
-                    let full = match self.registry.render_full(
+                    let full = match self.registry.render_full_with_cancellation(
                         &daemon_id,
                         &session_id,
                         version,
                         &preview_id,
+                        &self.work_cancellation,
                     ) {
                         Ok(snapshot) => RenderPublication::Full(snapshot),
                         Err(error) => {
@@ -1357,15 +1714,19 @@ impl Server {
             Ok(version) => version,
             Err(error) => return id.map(|id| session_error(id, error)),
         };
-        let snapshot = match self.registry.render_full(
+        let snapshot = match self.registry.render_full_with_cancellation(
             &params.daemon_instance_id,
             &state.document_session_id,
             document_version,
             &params.preview_session_id,
+            &self.work_cancellation,
         ) {
             Ok(snapshot) => snapshot,
             Err(error) => return id.map(|id| session_error(id, error)),
         };
+        if self.publication_cancellation.is_cancelled() {
+            return None;
+        }
         let revision = snapshot.result_render_revision;
         if let Some(token) = &state.token {
             self.previews
@@ -1671,15 +2032,19 @@ impl Server {
                 Ok(version) => version,
                 Err(error) => return Some(session_error(id, error)),
             };
-            let snapshot = match self.registry.render_full(
+            let snapshot = match self.registry.render_full_with_cancellation(
                 &daemon,
                 &state.document_session_id,
                 version,
                 &preview_id,
+                &self.work_cancellation,
             ) {
                 Ok(snapshot) => snapshot,
                 Err(error) => return Some(session_error(id, error)),
             };
+            if self.publication_cancellation.is_cancelled() {
+                return None;
+            }
             if let Some(token) = &state.token {
                 self.previews
                     .update(token, &RenderPublication::Full(snapshot.clone()));
@@ -2366,6 +2731,45 @@ mod tests {
             method: method.into(),
             params,
         }
+    }
+
+    #[test]
+    fn cancellation_intake_stops_requests_and_obsolete_document_work() {
+        let coordinator = CancellationCoordinator::default();
+        let render = message(
+            Some(7),
+            method::RENDER,
+            json!({"documentSessionId":"session-1"}),
+        );
+        let render_permit = coordinator.prepare(&render).unwrap();
+        coordinator.bind("session-1", "file:///document.md");
+
+        let change = message(
+            None,
+            "textDocument/didChange",
+            json!({"textDocument":{"uri":"file:///document.md","version":2}}),
+        );
+        let change_permit = coordinator.prepare(&change).unwrap();
+        let next_change = message(
+            None,
+            "textDocument/didChange",
+            json!({"textDocument":{"uri":"file:///document.md","version":3}}),
+        );
+        let next_change_permit = coordinator.prepare(&next_change).unwrap();
+        assert!(!coordinator.is_current(&render_permit));
+        assert!(coordinator.should_execute(&change_permit));
+        assert!(!coordinator.is_current(&change_permit));
+        assert!(coordinator.is_current(&next_change_permit));
+
+        let request = message(
+            Some(8),
+            "textDocument/hover",
+            json!({"textDocument":{"uri":"file:///other.md"}}),
+        );
+        let request_permit = coordinator.prepare(&request).unwrap();
+        let cancel = message(None, "$/cancelRequest", json!({"id":8}));
+        assert!(coordinator.prepare(&cancel).is_none());
+        assert!(!coordinator.is_current(&request_permit));
     }
 
     #[test]

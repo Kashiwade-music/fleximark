@@ -688,6 +688,15 @@ impl DocumentSession {
     }
 
     pub fn change_full_text(&mut self, version: u64, source: String) -> Result<(), EngineError> {
+        self.change_full_text_with_cancellation(version, source, &CancellationToken::default())
+    }
+
+    pub fn change_full_text_with_cancellation(
+        &mut self,
+        version: u64,
+        source: String,
+        cancellation: &CancellationToken,
+    ) -> Result<(), EngineError> {
         if version <= self.document.document_version {
             self.out_of_sync = true;
             return Err(EngineError::StaleVersion {
@@ -699,12 +708,8 @@ impl DocumentSession {
             return Err(EngineError::ContentModified);
         }
         if let Some(plugins) = self.plugins.clone() {
-            self.plugin_diagnostics = self.install_source_with_plugins(
-                version,
-                source,
-                &plugins,
-                &CancellationToken::default(),
-            )?;
+            self.plugin_diagnostics =
+                self.install_source_with_plugins(version, source, &plugins, cancellation)?;
             Ok(())
         } else {
             self.install_source(version, source)
@@ -712,6 +717,15 @@ impl DocumentSession {
     }
 
     pub fn resynchronize(&mut self, version: u64, source: String) -> Result<(), EngineError> {
+        self.resynchronize_with_cancellation(version, source, &CancellationToken::default())
+    }
+
+    pub fn resynchronize_with_cancellation(
+        &mut self,
+        version: u64,
+        source: String,
+        cancellation: &CancellationToken,
+    ) -> Result<(), EngineError> {
         if version < self.document.document_version
             || (!self.out_of_sync && version == self.document.document_version)
         {
@@ -721,12 +735,8 @@ impl DocumentSession {
             });
         }
         if let Some(plugins) = self.plugins.clone() {
-            self.plugin_diagnostics = self.install_source_with_plugins(
-                version,
-                source,
-                &plugins,
-                &CancellationToken::default(),
-            )?;
+            self.plugin_diagnostics =
+                self.install_source_with_plugins(version, source, &plugins, cancellation)?;
         } else {
             self.install_source(version, source)?;
         }
@@ -900,6 +910,9 @@ impl DocumentSession {
         let extension = host
             .extend_render_model(&self.document, target, cancellation)
             .map_err(|error| EngineError::Plugin(error.to_string()))?;
+        if cancellation.is_cancelled() {
+            return Err(EngineError::Plugin("operation cancelled".to_owned()));
+        }
         let publication = self.render_internal(preview_session_id, context, &extension.value)?;
         Ok(PluginRenderPublication {
             publication,
@@ -913,6 +926,9 @@ impl DocumentSession {
         preview_session_id: PreviewSessionId,
         cancellation: &CancellationToken,
     ) -> Result<PluginRenderPublication, EngineError> {
+        if cancellation.is_cancelled() {
+            return Err(EngineError::Plugin("operation cancelled".to_owned()));
+        }
         let context = self.render_config.context.clone();
         let Some(host) = self.plugins.clone() else {
             return Ok(PluginRenderPublication {
@@ -933,6 +949,9 @@ impl DocumentSession {
         preview_session_id: PreviewSessionId,
         cancellation: &CancellationToken,
     ) -> Result<PluginRenderPublication, EngineError> {
+        if cancellation.is_cancelled() {
+            return Err(EngineError::Plugin("operation cancelled".to_owned()));
+        }
         let context = self.render_config.context.clone();
         let extension = match self.plugins.clone() {
             Some(host) => host
@@ -950,6 +969,9 @@ impl DocumentSession {
                 diagnostics: Vec::new(),
             },
         };
+        if cancellation.is_cancelled() {
+            return Err(EngineError::Plugin("operation cancelled".to_owned()));
+        }
         let snapshot = self.render_full_internal(preview_session_id, &context, &extension.value)?;
         Ok(PluginRenderPublication {
             publication: RenderPublication::Full(snapshot),

@@ -30,7 +30,7 @@ pub mod method {
     pub const CLOSE_DOCUMENT: &str = "fleximark/closeDocument";
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IncomingMessage {
     pub jsonrpc: String,

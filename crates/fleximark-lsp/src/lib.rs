@@ -317,6 +317,14 @@ impl SessionRegistry {
     }
 
     pub fn open(&mut self, params: DidOpenParams) -> Result<(), SessionError> {
+        self.open_with_cancellation(params, &CancellationToken::default())
+    }
+
+    pub fn open_with_cancellation(
+        &mut self,
+        params: DidOpenParams,
+        cancellation: &CancellationToken,
+    ) -> Result<(), SessionError> {
         let item = params.text_document;
         let version = u64::try_from(item.version).map_err(|_| SessionError::StaleVersion)?;
         let workspace = self
@@ -333,7 +341,7 @@ impl SessionRegistry {
                 self.position_encoding,
                 config,
                 host,
-                &CancellationToken::default(),
+                cancellation,
             )
             .map_err(engine_error),
             None if self.plugin_host.is_none() => EngineSession::open(
@@ -352,7 +360,7 @@ impl SessionRegistry {
                     SessionError::Engine("plugin host is missing render configuration".into())
                 })?,
                 Arc::clone(self.plugin_host.as_ref().expect("checked above")),
-                &CancellationToken::default(),
+                cancellation,
             )
             .map_err(engine_error),
         }?;
@@ -401,6 +409,14 @@ impl SessionRegistry {
     }
 
     pub fn change(&mut self, params: DidChangeParams) -> Result<(), SessionError> {
+        self.change_with_cancellation(params, &CancellationToken::default())
+    }
+
+    pub fn change_with_cancellation(
+        &mut self,
+        params: DidChangeParams,
+        cancellation: &CancellationToken,
+    ) -> Result<(), SessionError> {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         let current = self.documents.get(&uri).ok_or(SessionError::NotOpen)?;
@@ -452,9 +468,15 @@ impl SessionRegistry {
 
         let session = self.documents.get_mut(&uri).expect("checked above");
         let result = if session.engine.is_out_of_sync() {
-            session.engine.resynchronize(version_u64, text.clone())
+            session
+                .engine
+                .resynchronize_with_cancellation(version_u64, text.clone(), cancellation)
         } else {
-            session.engine.change_full_text(version_u64, text.clone())
+            session.engine.change_full_text_with_cancellation(
+                version_u64,
+                text.clone(),
+                cancellation,
+            )
         };
         result.map_err(engine_error)?;
         session.content_hash = content_hash(&text);
@@ -471,15 +493,26 @@ impl SessionRegistry {
         &mut self,
         params: RpcOpenDocumentParams,
     ) -> Result<AttachDocumentResult, SessionError> {
+        self.open_rpc_with_cancellation(params, &CancellationToken::default())
+    }
+
+    pub fn open_rpc_with_cancellation(
+        &mut self,
+        params: RpcOpenDocumentParams,
+        cancellation: &CancellationToken,
+    ) -> Result<AttachDocumentResult, SessionError> {
         self.verify_daemon(&params.daemon_instance_id)?;
         let hash = content_hash(&params.text);
-        self.open(DidOpenParams {
-            text_document: TextDocumentItem {
-                uri: params.uri.clone(),
-                version: params.document_version,
-                text: params.text,
+        self.open_with_cancellation(
+            DidOpenParams {
+                text_document: TextDocumentItem {
+                    uri: params.uri.clone(),
+                    version: params.document_version,
+                    text: params.text,
+                },
             },
-        })?;
+            cancellation,
+        )?;
         self.attach(&AttachDocumentParams {
             daemon_instance_id: params.daemon_instance_id,
             uri: params.uri,
@@ -491,6 +524,14 @@ impl SessionRegistry {
     pub fn change_rpc(
         &mut self,
         params: RpcChangeDocumentParams,
+    ) -> Result<CheckpointDocumentResult, SessionError> {
+        self.change_rpc_with_cancellation(params, &CancellationToken::default())
+    }
+
+    pub fn change_rpc_with_cancellation(
+        &mut self,
+        params: RpcChangeDocumentParams,
+        cancellation: &CancellationToken,
     ) -> Result<CheckpointDocumentResult, SessionError> {
         self.verify_daemon(&params.daemon_instance_id)?;
         let uri = self
@@ -511,16 +552,19 @@ impl SessionRegistry {
             self.mark_out_of_sync(&uri, "standalone RPC change base mismatch");
             return Err(SessionError::ContentModified);
         }
-        self.change(DidChangeParams {
-            text_document: VersionedTextDocumentIdentifier {
-                uri,
-                version: params.document_version,
+        self.change_with_cancellation(
+            DidChangeParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri,
+                    version: params.document_version,
+                },
+                content_changes: vec![ContentChange {
+                    range: None,
+                    text: params.text,
+                }],
             },
-            content_changes: vec![ContentChange {
-                range: None,
-                text: params.text,
-            }],
-        })?;
+            cancellation,
+        )?;
         let session = self
             .documents
             .get(
@@ -680,6 +724,23 @@ impl SessionRegistry {
         version: i64,
         preview_id: &str,
     ) -> Result<RenderPublication, SessionError> {
+        self.render_with_cancellation(
+            daemon,
+            session_id,
+            version,
+            preview_id,
+            &CancellationToken::default(),
+        )
+    }
+
+    pub fn render_with_cancellation(
+        &mut self,
+        daemon: &str,
+        session_id: &str,
+        version: i64,
+        preview_id: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<RenderPublication, SessionError> {
         self.verify_daemon(daemon)?;
         let uri = self
             .session_uris
@@ -698,10 +759,7 @@ impl SessionRegistry {
         }
         session
             .engine
-            .render_configured(
-                PreviewSessionId(preview_id.to_owned()),
-                &CancellationToken::default(),
-            )
+            .render_configured(PreviewSessionId(preview_id.to_owned()), cancellation)
             .map(|result| result.publication)
             .map_err(engine_error)
     }
@@ -712,6 +770,23 @@ impl SessionRegistry {
         session_id: &str,
         version: i64,
         preview_id: &str,
+    ) -> Result<fleximark_engine::RenderSnapshot, SessionError> {
+        self.render_full_with_cancellation(
+            daemon,
+            session_id,
+            version,
+            preview_id,
+            &CancellationToken::default(),
+        )
+    }
+
+    pub fn render_full_with_cancellation(
+        &mut self,
+        daemon: &str,
+        session_id: &str,
+        version: i64,
+        preview_id: &str,
+        cancellation: &CancellationToken,
     ) -> Result<fleximark_engine::RenderSnapshot, SessionError> {
         self.verify_daemon(daemon)?;
         let uri = self
@@ -731,10 +806,7 @@ impl SessionRegistry {
         }
         let publication = session
             .engine
-            .render_full_configured(
-                PreviewSessionId(preview_id.to_owned()),
-                &CancellationToken::default(),
-            )
+            .render_full_configured(PreviewSessionId(preview_id.to_owned()), cancellation)
             .map_err(engine_error)?
             .publication;
         match publication {
