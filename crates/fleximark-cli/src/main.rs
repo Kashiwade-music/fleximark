@@ -55,6 +55,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             let mut results = Vec::new();
             for lines in [1_000_usize, 10_000, 100_000] {
+                eprintln!("benchmark: start {lines} lines");
                 let source = (0..lines)
                     .map(|index| format!("line {index}\n"))
                     .collect::<String>();
@@ -76,16 +77,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let mut patch_bytes = 0;
                 let mut max_patch_bytes = 0;
                 let mut full_fallbacks = 0;
+                let mut edit_update_ms = 0.0;
+                let mut edit_render_ms = 0.0;
                 let edits_started = Instant::now();
                 for edit in 0..20_u64 {
                     let replacement = if edit % 2 == 0 { "Line" } else { "line" };
                     let mut changed = source.clone();
                     changed.replace_range(..4, replacement);
+                    let update_started = Instant::now();
                     session.change_full_text(edit + 2, changed)?;
-                    match session.render(
+                    edit_update_ms += update_started.elapsed().as_secs_f64() * 1_000.0;
+                    let edit_render_started = Instant::now();
+                    let publication = session.render(
                         PreviewSessionId(format!("benchmark-{lines}")),
                         &fleximark_render_html::RenderContext::default(),
-                    )? {
+                    )?;
+                    edit_render_ms += edit_render_started.elapsed().as_secs_f64() * 1_000.0;
+                    match publication {
                         fleximark_engine::RenderPublication::Patch(patch) => {
                             let bytes = serde_json::to_vec(&patch)?.len();
                             patch_bytes += bytes;
@@ -95,6 +103,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 let edit_burst_ms = edits_started.elapsed().as_secs_f64() * 1_000.0;
+                eprintln!(
+                    "benchmark: complete {lines} lines (update={edit_update_ms:.1}ms, render={edit_render_ms:.1}ms)"
+                );
                 results.push(serde_json::json!({
                     "lines": lines,
                     "parseMs": parse_ms,
@@ -102,6 +113,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     "fullBytes": full_bytes,
                     "editCount": 20,
                     "editBurstMs": edit_burst_ms,
+                    "editUpdateMs": edit_update_ms,
+                    "editRenderMs": edit_render_ms,
                     "patchBytes": patch_bytes,
                     "maxPatchBytes": max_patch_bytes,
                     "fullFallbacks": full_fallbacks

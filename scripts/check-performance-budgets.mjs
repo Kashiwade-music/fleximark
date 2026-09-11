@@ -54,6 +54,11 @@ try {
     timeout: 60000,
     maxBuffer: 1024 * 1024,
   });
+  if (benchmark.error?.code === "ETIMEDOUT") {
+    assert.fail(
+      `benchmark timed out after 60000ms; progress:\n${benchmark.stderr}`,
+    );
+  }
   assert.equal(benchmark.status, 0, `benchmark failed: ${benchmark.stderr}`);
   const report = JSON.parse(benchmark.stdout);
   assert.equal(report.schemaVersion, 1);

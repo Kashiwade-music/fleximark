@@ -268,6 +268,10 @@ impl SourceProvenance {
     }
 
     pub fn validate(&self, source: &str) -> Result<(), ValidationError> {
+        self.validate_with_index(&SourceIndex::new(source))
+    }
+
+    fn validate_with_index(&self, source: &SourceIndex<'_>) -> Result<(), ValidationError> {
         let (ranges, primary) = match self {
             Self::Original {
                 ranges,
@@ -360,9 +364,10 @@ impl Document {
                 expected: DOCUMENT_SCHEMA_VERSION,
             });
         }
+        let source = SourceIndex::new(source);
         let mut ids = HashSet::new();
         for block in &self.blocks {
-            validate_block(block, source, &mut ids)?;
+            validate_block(block, &source, &mut ids)?;
         }
         Ok(())
     }
@@ -370,13 +375,13 @@ impl Document {
 
 fn validate_block(
     block: &Block,
-    source: &str,
+    source: &SourceIndex<'_>,
     ids: &mut HashSet<NodeId>,
 ) -> Result<(), ValidationError> {
     if !ids.insert(block.id.clone()) {
         return Err(ValidationError::DuplicateNodeId(block.id.0.clone()));
     }
-    block.provenance.validate(source)?;
+    block.provenance.validate_with_index(source)?;
     for child in &block.children {
         match child {
             Node::Block(block) => validate_block(block, source, ids)?,
@@ -386,8 +391,8 @@ fn validate_block(
     Ok(())
 }
 
-fn validate_inline(inline: &Inline, source: &str) -> Result<(), ValidationError> {
-    inline.provenance.validate(source)?;
+fn validate_inline(inline: &Inline, source: &SourceIndex<'_>) -> Result<(), ValidationError> {
+    inline.provenance.validate_with_index(source)?;
     let children = match &inline.kind {
         InlineKind::Emphasis { children }
         | InlineKind::Strong { children }
@@ -402,50 +407,63 @@ fn validate_inline(inline: &Inline, source: &str) -> Result<(), ValidationError>
     Ok(())
 }
 
-fn validate_range(range: &SourceRange, source: &str) -> Result<(), ValidationError> {
+fn validate_range(range: &SourceRange, source: &SourceIndex<'_>) -> Result<(), ValidationError> {
     let start = usize::try_from(range.byte_start).map_err(|_| ValidationError::InvalidRange)?;
     let end = usize::try_from(range.byte_end).map_err(|_| ValidationError::InvalidRange)?;
-    if start > end || end > source.len() {
+    if start > end || end > source.source.len() {
         return Err(ValidationError::InvalidRange);
     }
-    if !source.is_char_boundary(start) || !source.is_char_boundary(end) {
+    if !source.source.is_char_boundary(start) || !source.source.is_char_boundary(end) {
         return Err(ValidationError::InvalidUtf8Boundary);
     }
-    if position_to_byte(source, &range.start) != Some(start)
-        || position_to_byte(source, &range.end) != Some(end)
+    if source.position_to_byte(&range.start) != Some(start)
+        || source.position_to_byte(&range.end) != Some(end)
     {
         return Err(ValidationError::InvalidPosition);
     }
     Ok(())
 }
 
-fn position_to_byte(source: &str, position: &SourcePosition) -> Option<usize> {
-    let line = usize::try_from(position.line).ok()?;
-    let character = usize::try_from(position.character).ok()?;
-    let line_start = if line == 0 {
-        0
-    } else {
-        source.match_indices('\n').nth(line - 1)?.0 + 1
-    };
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |offset| line_start + offset);
-    let line_text = &source[line_start..line_end];
-    let mut units = 0;
-    for (offset, value) in line_text.char_indices() {
-        if units == character {
-            return Some(line_start + offset);
-        }
-        units += match position.encoding {
-            PositionEncoding::Utf8 => value.len_utf8(),
-            PositionEncoding::Utf16 => value.len_utf16(),
-            PositionEncoding::Utf32 => 1,
-        };
-        if units > character {
-            return None;
+struct SourceIndex<'a> {
+    source: &'a str,
+    line_starts: Vec<usize>,
+}
+
+impl<'a> SourceIndex<'a> {
+    fn new(source: &'a str) -> Self {
+        let mut line_starts = vec![0];
+        line_starts.extend(source.match_indices('\n').map(|(index, _)| index + 1));
+        Self {
+            source,
+            line_starts,
         }
     }
-    (units == character).then_some(line_end)
+
+    fn position_to_byte(&self, position: &SourcePosition) -> Option<usize> {
+        let line = usize::try_from(position.line).ok()?;
+        let character = usize::try_from(position.character).ok()?;
+        let line_start = *self.line_starts.get(line)?;
+        let line_end = self
+            .line_starts
+            .get(line + 1)
+            .map_or(self.source.len(), |next_start| next_start - 1);
+        let line_text = &self.source[line_start..line_end];
+        let mut units = 0;
+        for (offset, value) in line_text.char_indices() {
+            if units == character {
+                return Some(line_start + offset);
+            }
+            units += match position.encoding {
+                PositionEncoding::Utf8 => value.len_utf8(),
+                PositionEncoding::Utf16 => value.len_utf16(),
+                PositionEncoding::Utf32 => 1,
+            };
+            if units > character {
+                return None;
+            }
+        }
+        (units == character).then_some(line_end)
+    }
 }
 
 #[cfg(test)]

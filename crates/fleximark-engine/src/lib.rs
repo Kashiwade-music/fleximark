@@ -1316,7 +1316,12 @@ fn diff_blocks(previous: &[RenderedBlock], current: &[RenderedBlock]) -> Vec<Pat
         }
     }
     for (index, block) in current.iter().enumerate() {
-        if let Some(position) = working.iter().position(|id| id == &block.id) {
+        let position = if working.get(index) == Some(&block.id) {
+            Some(index)
+        } else {
+            working.iter().position(|id| id == &block.id)
+        };
+        if let Some(position) = position {
             if position != index {
                 working.remove(position);
                 let before_id = working.get(index).cloned();
