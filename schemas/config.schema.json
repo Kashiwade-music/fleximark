@@ -100,7 +100,6 @@
       "properties": {
         "read_workspace": { "type": "boolean", "default": false },
         "write_workspace": { "type": "boolean", "default": false },
-        "network": { "type": "boolean", "default": false },
         "environment": { "type": "boolean", "default": false },
         "unsafe_html_output": { "type": "boolean", "default": false }
       }

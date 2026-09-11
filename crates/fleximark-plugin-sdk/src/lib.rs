@@ -46,8 +46,6 @@ pub struct PluginCapabilities {
     #[serde(default)]
     pub write_workspace: bool,
     #[serde(default)]
-    pub network: bool,
-    #[serde(default)]
     pub environment: bool,
     #[serde(default)]
     pub unsafe_html_output: bool,

@@ -62,7 +62,6 @@ pub struct HostPolicy {
 pub struct SandboxPolicy {
     pub read_roots: Vec<String>,
     pub write_roots: Vec<String>,
-    pub network: bool,
     pub environment: BTreeMap<String, String>,
     pub unsafe_html_output: bool,
     pub max_linear_memory_bytes: u64,
@@ -198,11 +197,6 @@ impl PluginRuntime for WasmtimeRuntime {
             .map_err(|_| RuntimeError::Trap("plugin invocation lock was poisoned".to_owned()))?;
         if cancellation.is_cancelled() {
             return Err(RuntimeError::Cancelled);
-        }
-        if sandbox.network {
-            return Err(RuntimeError::Policy(
-                "network is unavailable in the WASIp1 runtime".to_owned(),
-            ));
         }
         let mut wasi = WasiCtxBuilder::new();
         wasi.allow_blocking_current_thread(true);
@@ -1007,7 +1001,6 @@ fn sandbox_policy(
         } else {
             Vec::new()
         },
-        network: requested.network && granted.network,
         environment: if requested.environment && granted.environment {
             plugin.environment.clone()
         } else {
@@ -1603,7 +1596,6 @@ mod tests {
         SandboxPolicy {
             read_roots: Vec::new(),
             write_roots: Vec::new(),
-            network: false,
             environment: BTreeMap::new(),
             unsafe_html_output: false,
             max_linear_memory_bytes: 16 * 1024 * 1024,
@@ -1863,7 +1855,6 @@ mod tests {
         requested.capabilities = PluginCapabilities {
             read_workspace: true,
             write_workspace: true,
-            network: true,
             environment: true,
             unsafe_html_output: true,
         };
@@ -1875,7 +1866,7 @@ mod tests {
         let sandbox = observed.lock().unwrap().clone().unwrap();
         assert!(sandbox.read_roots.is_empty() && sandbox.write_roots.is_empty());
         assert!(sandbox.environment.is_empty());
-        assert!(!sandbox.network && !sandbox.unsafe_html_output);
+        assert!(!sandbox.unsafe_html_output);
 
         let observed = Arc::new(Mutex::new(None));
         let observed_by_runtime = Arc::clone(&observed);
@@ -2260,20 +2251,6 @@ mod tests {
                     .collect()
             }
         );
-    }
-
-    #[test]
-    fn wasmtime_network_capability_fails_closed_when_runtime_cannot_provide_it() {
-        let runtime = component_runtime();
-        let result = runtime.invoke(
-            wasm_request(),
-            SandboxPolicy {
-                network: true,
-                ..wasm_sandbox()
-            },
-            CancellationToken::default(),
-        );
-        assert!(matches!(result, Err(RuntimeError::Policy(_))));
     }
 
     #[test]
