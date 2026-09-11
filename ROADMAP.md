@@ -4,7 +4,7 @@
 
 主要な runtime と product flow は実装され、Rust 105件、VS Code 44件、型検査、lint、Clippy、
 architecture inventory 検査はローカルで成功している。性能 gate も二つの O(n²) 経路を除去した後、
-Windows release build で成功している。残る中心課題は cancellation、実利用時の復旧、配布である。
+Windows release build で成功している。cancellation と実利用時の復旧も完了し、残る中心課題は配布である。
 
 ## テスト方針
 
@@ -40,21 +40,21 @@ Windows release build で成功している。残る中心課題は cancellation
 
 ## M2: cancellation と復旧を完成させる
 
-- [ ] daemon request loop と worker execution を分離する
-- [ ] `$/cancelRequest` と document-generation cancellation を実装する
-- [ ] stale generation の snapshot/patch/diagnostic をpublishしない
-- [ ] retry/backoff/session replay の相関ログを追加する
-- [ ] 既存のmulti-root integration testを、実daemon crash/replayも確認する形へ拡張する
+- [x] daemon request loop と worker execution を分離する
+- [x] `$/cancelRequest` と document-generation cancellation を実装する
+- [x] stale generation の snapshot/patch/diagnostic をpublishしない
+- [x] retry/backoff/session replay の相関ログを追加する
+- [x] 既存のmulti-root integration testを、実daemon crash/replayも確認する形へ拡張する
 
 完了条件: cancel/restart中にも古い結果がUIへ出ず、open bufferとpreviewが復旧する。
 
 ## M3: 実利用の仕上げ
 
-- [ ] preview、navigation、note、exportを実際のworkspaceで一巡して不具合を修正する
-- [ ] daemon/adapterのエラー表示と復旧導線を整える
-- [ ] unsupportedなplugin network capabilityをschemaと表示から除く
-- [ ] capability inventoryを現行機能の一覧として簡素化する
-- [ ] 重複している既存テストと、実装を拘束しすぎるテストを整理する
+- [x] preview、navigation、note、exportを実際のworkspaceで一巡して不具合を修正する
+- [x] daemon/adapterのエラー表示と復旧導線を整える
+- [x] unsupportedなplugin network capabilityをschemaと表示から除く
+- [x] capability inventoryを現行機能の一覧として簡素化する
+- [x] 重複している既存テストと、実装を拘束しすぎるテストを整理する
 
 完了条件: 必須user flowを通して使用でき、発見されたblockerが残っていない。
 
