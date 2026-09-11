@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 5 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 6 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -90,6 +90,17 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - mode別routing、全workspace commandのsuccess/trust、exact deserialize error、response/notification順、実LSP obsolete publication抑止、HTTP header/CSP/status、duplicate/size/body境界、SSE replay、navigation revisionをcharacterization testで固定した。4巡の実装・複数独立レビュー後に未解決の新規P0〜P3はない。
 - 既存HTTP parserは、最初の `Content-Length` が解析不能で後続値が正しい場合に後続値を採用する。loopback・single-request・`Connection: close` に限定される既存P3だが、修正は挙動変更になるためPhase 5では行わず、現行境界をtest化した。Phase 12後の独立security fixではseen flagを値のparse結果から分離し、両header順を拒否する。
 - 2秒slowloris deadline、4 worker/16 queue飽和、Unix/macOSのsocket shutdown/timingはローカルWindowsで負荷再現していない。該当production bodyは移動前と同一であり、platform CIと将来のdeterministic load harnessへ委ねる。
+
+### Phase 6 完了時のベースライン
+
+- cargo test --workspace --all-targets: 139 tests passed。fleximark-engineは追加characterization 4件を含む20件が成功した。
+- Node pure RPC/preview/protocol tests: 54 tests passed、VS Code Electron tests: 75 tests passed、Python unittest discovery: 71 tests discovered（WindowsではPOSIX executable mode test 1件をskip）。
+- cargo fmt、cargo clippy、TypeScript noEmit、ESLint、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- `fleximark-engine/src/lib.rs` は2,392行から21行のprivate module宣言と明示re-exportだけのfacadeになった。assets、diff、error、identity、pipeline、provenance、render、sessionは明示importで一方向に依存し、module cycleはない。
+- 18 public types、43 public methods、41 public fields、serde attribute/field orderを維持した。plugin pipelineはbase candidateのpreprocess→parse→provenance remap→NodeId reconcile→validate→block/document transform→validate順を一箇所へ集約し、全成功後だけauthoritative stateをcommitする。
+- renderはfingerprint、blocks、revisionの準備とcache commitを共通化し、full snapshotを直接構築する。patchだけが旧cacheをcloneし、full renderに不要なO(cache size) copyを入れない。exact full/patch JSON bytesとcache revision継続をtestで固定した。
+- configured pluginではpreprocess provenanceがDerivedとなり、plain sessionと同じsource rangeでもNodeIdが異なる既存挙動を明示的にcharacterizeした。session ID生成はbase validation後・transform hook前という旧順序を維持する。
+- 3巡の実装と複数独立レビュー後に未解決P0〜P3はない。fixture componentは明示した同一target directoryへbuild/readし、Cargo target-dir overrideやstale artifactによるfalse-greenを避ける。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -368,6 +379,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 6 — engine document/render pipelineの一元化
 
+- 状態: 2026-09-12 完了。engineを8つのprivate owner moduleへ分割し、plugin document candidate、sync state/source commit、render preparation/cache commit、snapshot builderを一元化した。cache clone、module cycle、session ID lifecycle、fixture pathのレビュー指摘を解消し、3巡の実装・複数独立レビュー後に `mise run verify` に成功した。
 - 優先度 / ROI: P1 / 高。
 - 目的: authoritative parse/plugin/validate/render順序を1つのprivate pipelineにする。
 - 問題点: open/update、plugin有無、change/resync、full/patchで類似処理が重複する。
@@ -502,7 +514,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 | 11 | 高 | core move、enhancer、最適化を分ける |
 | 12 | 中 | tsconfig/test、Cargo依存、docsを分ける |
 
-Phase 6〜11は並行実施せず、直前のfull gateがgreenであることを着手条件とする。
+Phase 7〜11は並行実施せず、直前のfull gateがgreenであることを着手条件とする。
 
 ## 6. テスト・検証方法
 
@@ -566,4 +578,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11、Phase 1〜5は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 6へ進む。
+Phase 0は2026-09-11、Phase 1〜6は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 7へ進む。

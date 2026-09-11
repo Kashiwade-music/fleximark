@@ -669,6 +669,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "ed25519-dalek",
  "fleximark-model",
  "fleximark-parser",
  "fleximark-plugin-host",

@@ -66,7 +66,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
 | LSP/session | `crates/fleximark-lsp` | URI-to-session authority, document versions, diagnostics/navigation and preview publication state |
-| Engine | `crates/fleximark-engine` | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
+| Engine | `crates/fleximark-engine` facade with private `session`, `pipeline`, `render`, `diff`, `identity`, `provenance`, `assets`, and `error` modules | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
 | Model | `crates/fleximark-model` | IR, node identity, source provenance and navigation data |
 | Parser | `crates/fleximark-parser` | Markdown/Comrak AST to validated FlexiMark IR |
 | HTML renderer | `crates/fleximark-render-html` | Safe HTML and render-model serialization |
@@ -96,6 +96,15 @@ operation; `cancellation.rs` owns request/document generations and cancellation 
 `preview_http.rs` owns the bounded loopback listener, request parsing, authority policy, SSE
 history, navigation and exact HTTP responses. `telemetry.rs` owns redacted operational traces.
 All of these modules are private implementation boundaries of the binary.
+
+Within `fleximark-engine`, `lib.rs` preserves the existing public type and method paths as an
+explicit facade. `pipeline.rs` prepares a document candidate through preprocess, parse,
+provenance remap, identity reconciliation, base validation, block/document transforms and final
+validation; `session.rs` commits a successful candidate and owns synchronization and preview
+cache state. `render.rs` prepares fingerprints, rendered blocks and revisions, builds full or
+patch publications and commits cache state only after publication construction succeeds.
+`diff.rs`, `identity.rs`, `provenance.rs`, `assets.rs`, and `error.rs` are one-directional leaf or
+supporting owners; the private module dependency graph is acyclic.
 
 ## Entry points
 
