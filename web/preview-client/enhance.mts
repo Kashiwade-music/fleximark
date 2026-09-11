@@ -31,6 +31,31 @@ export interface PreviewRuntimes {
   };
 }
 
+interface AbcSelectable {
+  absEl: { abcelem: { startChar: number; endChar: number } };
+  svgEl: Element;
+}
+
+function abcSelectables(visual: unknown): AbcSelectable[] {
+  if (!visual || typeof visual !== "object") return [];
+  const getSelectableArray = Reflect.get(visual, "getSelectableArray");
+  if (typeof getSelectableArray !== "function") return [];
+  const values: unknown = Reflect.apply(getSelectableArray, visual, []);
+  if (!Array.isArray(values)) return [];
+  return values.filter((value): value is AbcSelectable => {
+    if (!value || typeof value !== "object") return false;
+    const selectable = value as Partial<AbcSelectable>;
+    const range = selectable.absEl?.abcelem;
+    return (
+      selectable.svgEl instanceof Element &&
+      Number.isSafeInteger(range?.startChar) &&
+      Number.isSafeInteger(range?.endChar) &&
+      (range?.startChar ?? -1) >= 0 &&
+      (range?.endChar ?? -1) > (range?.startChar ?? -1)
+    );
+  });
+}
+
 export class PreviewEnhancer {
   readonly #runtimes: PreviewRuntimes;
   readonly #audio = new Set<
@@ -121,6 +146,16 @@ export class PreviewEnhancer {
   #renderAbc(block: HTMLElement, generation: number): void {
     const output = this.#output(block);
     const visual = this.#runtimes.abc.render(output, this.#payload(block))[0];
+    for (const selectable of abcSelectables(visual)) {
+      selectable.svgEl.setAttribute(
+        "data-relative-char-number-start",
+        String(selectable.absEl.abcelem.startChar),
+      );
+      selectable.svgEl.setAttribute(
+        "data-relative-char-number-end",
+        String(selectable.absEl.abcelem.endChar),
+      );
+    }
     if (!visual || !this.#runtimes.abc.supportsAudio()) return;
     const button = document.createElement("button");
     button.type = "button";

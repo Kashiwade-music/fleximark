@@ -315,6 +315,10 @@ export class PreviewDocument {
   readonly #root: HTMLElement;
   readonly #style: HTMLStyleElement;
   readonly #requestSnapshot: () => void;
+  readonly #highlightTimers = new Map<
+    HTMLElement,
+    ReturnType<typeof setTimeout>
+  >();
   #sessionId?: string;
   #revision = 0;
   #fingerprint?: string;
@@ -349,6 +353,7 @@ export class PreviewDocument {
   }
 
   dispose(): void {
+    this.#clearHighlights();
     this.#style.remove();
     for (const url of this.#assetUrls.values()) URL.revokeObjectURL(url);
     this.#assetUrls.clear();
@@ -381,6 +386,7 @@ export class PreviewDocument {
       this.#requestSnapshot();
       return false;
     }
+    this.#clearHighlights();
     this.#root.replaceChildren(...content.childNodes);
     this.#sessionId = snapshot.previewSessionId;
     this.#revision = snapshot.resultRenderRevision;
@@ -413,12 +419,17 @@ export class PreviewDocument {
     }
 
     const shadow = this.#root.cloneNode(true) as HTMLElement;
+    for (const element of shadow.querySelectorAll<HTMLElement>(
+      ".fade-highlight, .fade-highlight-cursor-abc",
+    ))
+      element.classList.remove("fade-highlight", "fade-highlight-cursor-abc");
     const initialIdentities = identityMap(shadow);
     if (!initialIdentities) {
       this.#requestSnapshot();
       return false;
     }
     const expectedIds = new Set(initialIdentities.keys());
+    const highlightedIds = new Set<string>();
     try {
       for (const operation of patch.operations) {
         const identities = identityMap(shadow);
@@ -473,6 +484,7 @@ export class PreviewDocument {
             if (value === null) existingTarget.removeAttribute(name);
             else existingTarget.setAttribute(name, value);
           }
+          highlightedIds.add(operation.nodeId);
           continue;
         }
         const content =
@@ -506,6 +518,7 @@ export class PreviewDocument {
         }
         if (operation.type === "replace") {
           existingTarget.replaceWith(content);
+          highlightedIds.add(operation.nodeId);
           continue;
         }
 
@@ -545,10 +558,33 @@ export class PreviewDocument {
       return false;
     }
 
+    this.#clearHighlights();
     this.#root.replaceChildren(...shadow.childNodes);
+    const identities = identityMap(this.#root);
+    for (const nodeId of highlightedIds) {
+      const element = identities?.get(nodeId);
+      if (element) this.#highlight(element);
+    }
     this.#revision = patch.resultRenderRevision;
     this.#fingerprint = patch.resultRendererFingerprint;
     this.#navigation = patch.navigation;
     return true;
+  }
+
+  #highlight(element: HTMLElement): void {
+    element.classList.add("fade-highlight");
+    const timer = setTimeout(() => {
+      element.classList.remove("fade-highlight");
+      this.#highlightTimers.delete(element);
+    }, 1_000);
+    this.#highlightTimers.set(element, timer);
+  }
+
+  #clearHighlights(): void {
+    for (const [element, timer] of this.#highlightTimers) {
+      clearTimeout(timer);
+      element.classList.remove("fade-highlight");
+    }
+    this.#highlightTimers.clear();
   }
 }

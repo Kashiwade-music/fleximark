@@ -17,6 +17,17 @@ export type PreviewHostMessage =
     }
   | { type: "previewEvent"; messageToken: string; event: PreviewHostEvent };
 
+function isPosition(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const position = value as Record<string, unknown>;
+  return (
+    Number.isSafeInteger(position.line) &&
+    (position.line as number) >= 0 &&
+    Number.isSafeInteger(position.character) &&
+    (position.character as number) >= 0
+  );
+}
+
 export function isPreviewHostMessageEvent(
   value: unknown,
   messageToken: string,
@@ -58,7 +69,11 @@ export function isPreviewHostMessage(
   return (
     typeof event.previewSessionId === "string" &&
     typeof event.renderRevision === "number" &&
-    ((event.type === "selection" && Array.isArray(event.nodeIds)) ||
+    ((event.type === "selection" &&
+      Array.isArray(event.nodeIds) &&
+      (event.activePosition === undefined ||
+        event.activePosition === null ||
+        isPosition(event.activePosition))) ||
       (event.type === "viewport" && typeof event.nodeId === "string"))
   );
 }
@@ -110,6 +125,7 @@ export class PreviewHost {
       if (!this.#preview.apply(event)) break;
       this.#navigation.setKnownIds(
         this.#preview.navigation.map(({ nodeId }) => nodeId),
+        this.#preview.navigation,
       );
       changed = true;
     }

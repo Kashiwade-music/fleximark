@@ -1560,6 +1560,10 @@ impl Server {
                     preview_session_id: preview_id.clone(),
                     render_revision: state.delivered_revision,
                     node_ids: node_ids.clone(),
+                    active_position: params
+                        .selections
+                        .first()
+                        .map(|selection| selection.active.clone()),
                 };
                 if let Some(token) = &state.token {
                     self.previews.navigate(token, &event);
@@ -2398,8 +2402,9 @@ impl PreviewServer {
 }
 
 fn preview_shell(token: &str) -> String {
+    const DEFAULT_PREVIEW_CSS: &str = include_str!("../../../web/preview-client/fleximark.css");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>[data-fleximark-selected=true]{{outline:2px solid Highlight;outline-offset:2px}}.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script data-fleximark-live src=\"/preview/{token}/client.js\"></script></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>{DEFAULT_PREVIEW_CSS}</style></head><body><main id=\"preview\" class=\"markdown-body\"></main><script data-fleximark-live src=\"/preview/{token}/client.js\"></script></body></html>"
     )
 }
 

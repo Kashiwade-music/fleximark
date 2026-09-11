@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
+import defaultPreviewCss from "../../../web/preview-client/fleximark.css";
 import type {
   RenderPublication,
   SourcePosition,
@@ -324,7 +325,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     const scriptUri = panel.webview.asWebviewUri(htmlUri);
     const nonce = randomBytes(16).toString("base64");
     const messageToken = randomBytes(32).toString("base64url");
-    const shell = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'unsafe-inline'; img-src ${panel.webview.cspSource} data: blob:; media-src ${panel.webview.cspSource} blob:; frame-src https://www.youtube-nocookie.com; object-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="fleximark-message-token" content="${messageToken}"><style>html,body,#preview{min-height:100%;margin:0}html{color-scheme:light}body{box-sizing:border-box;padding:0 1.5rem;color:#1f2328;background:#fff;font-family:var(--vscode-font-family);font-size:var(--vscode-font-size)}a{color:#0969da}code,pre{font-family:var(--vscode-editor-font-family)}[data-fleximark-selected=true]{outline:2px solid #0969da;outline-offset:2px}.fleximark-token-keyword{color:#cf222e}.fleximark-token-string{color:#0a3069}.fleximark-token-number{color:#0550ae}.fleximark-token-comment{color:#6e7781}</style></head><body><main id="preview"></main><script nonce="${nonce}" src="${scriptUri}"></script></body></html>`;
+    const shell = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'unsafe-inline'; img-src ${panel.webview.cspSource} data: blob:; media-src ${panel.webview.cspSource} blob:; frame-src https://www.youtube-nocookie.com; object-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="fleximark-message-token" content="${messageToken}"><style>${defaultPreviewCss}</style></head><body><main id="preview" class="markdown-body"></main><script nonce="${nonce}" src="${scriptUri}"></script></body></html>`;
     const preview: PreviewState = {
       documentUri: document.uri.toString(),
       sourceViewColumn,

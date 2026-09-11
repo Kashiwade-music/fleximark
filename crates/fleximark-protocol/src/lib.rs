@@ -347,6 +347,7 @@ pub enum RenderNavigationEvent {
         preview_session_id: String,
         render_revision: u64,
         node_ids: Vec<NodeId>,
+        active_position: Option<TextPosition>,
     },
     Viewport {
         preview_session_id: String,
