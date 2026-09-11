@@ -24,6 +24,23 @@ Rust/Wasmtime の初回 build は `target` に数 GB の空き容量を必要と
 npm ci
 ```
 
+### npm scripts
+
+`package.json` の command は、利用者が選択すべき入口だけに絞っている。内部工程を個別に調べる場合は、
+後述の Node/Cargo command を直接実行する。
+
+| command                     | 内容                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`             | external browser 用 preview client、release版 `fleximarkd`、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
+| `npm run dev`               | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                          |
+| `npm test`                  | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                  |
+| `npm run verify`            | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。    |
+| `npm run package`           | `verify`を通した後、依存packageを同梱しないVSIXを作る。`-- --out <file>`で出力名を指定できる。                                         |
+| `npm run smoke -- <vsix>`   | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                          |
+| `npm run l10n`              | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                      |
+| `npm run clean`             | 生成した`dist/`と`out/test/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                  |
+| `npm run vscode:prepublish` | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                             |
+
 ## Extension Development Host での手動動作確認
 
 以下は、ソースから build した拡張機能について、人間が主要 user flow を一巡する手順である。
@@ -34,11 +51,10 @@ npm ci
 リポジトリのルートで次を実行する。
 
 ```sh
-npm run build:daemon
-npm run build:adapter
+npm run build
 ```
 
-`build:daemon` は release build した実行ファイルを、現在の platform/CPU に対応する
+`build` は release build した実行ファイルを、現在の platform/CPU に対応する
 `bin/<platform>-<arch>/fleximarkd`（Windows は `.exe`）へコピーする。現在の配布対象は
 Windows/Linux/macOS の x64 である。
 
@@ -222,7 +238,7 @@ Extension Development Host は開発 bundle の確認であり、最終 package 
 配布物も確認する場合は次を実行する。
 
 ```sh
-npm run package:vsix -- --out fleximark-dev.vsix
+npm run package -- --out fleximark-dev.vsix
 code --install-extension fleximark-dev.vsix --force
 ```
 
@@ -232,9 +248,9 @@ code --install-extension fleximark-dev.vsix --force
 
 ## トラブルシューティング
 
-- `spawn ... fleximarkd ENOENT`: `npm run build:daemon` を再実行し、`bin/<platform>-<arch>/` を確認する。
+- `spawn ... fleximarkd ENOENT`: `npm run build` を再実行し、`bin/<platform>-<arch>/` を確認する。
 - 別の daemon を直接使う: Settings の `FlexiMark: Daemon Path` に絶対パスを指定し、window を reload する。
-- TypeScript 変更が反映されない: F5 セッションを停止し、`npm run build:adapter` 後に再起動する。
+- TypeScript 変更が反映されない: F5 セッションを停止し、`npm run build` 後に再起動する。
 - Rust 変更が反映されない: F5 セッションを停止し、release build と `stage-daemon.mjs` を再実行する。
 - command が書き込みを拒否する: folder を workspace として開いたこと、Workspace Trust、
   `.fleximark/config.toml` の `schema_version = 1` を確認する。
@@ -244,12 +260,11 @@ code --install-extension fleximark-dev.vsix --force
 ## 自動検証
 
 ```sh
-npm run verify:all
+npm run verify
 ```
 
-`verify:all` runs the TypeScript and Rust checks, builds release assets, checks
-the architecture inventory and performance budgets, and runs the VS Code
-integration suite. Use `npm run verify` for the faster packaging prerequisite.
+`verify` は TypeScript/Rust の静的検査とtest、release asset build、architecture inventory、
+performance budget、VS Code integration suiteをまとめて実行する。
 
 Linux では VS Code integration test を Xvfb 上で実行する。
 
@@ -260,7 +275,7 @@ xvfb-run -a npm test
 ## Package
 
 ```sh
-npm run package:vsix
+npm run package
 ```
 
 The VSIX file list can be inspected before publishing:
@@ -274,8 +289,8 @@ npm exec vsce ls
 Source files use `.mts` directly. No temporary renaming is required.
 
 ```sh
-npm run l10n:export
-npm run l10n:check
+npm run l10n
+git diff -- l10n
 ```
 
 Commit the generated English bundle and update the translated bundles in the
