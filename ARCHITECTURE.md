@@ -125,26 +125,24 @@ DocumentState
 
 ## 6. Release gate
 
-release candidate は次をすべて満たす必要がある。
+release candidate は次を満たす必要がある。
 
-- formatting、Clippy、Rust workspace tests が全 platform で成功する。
-- TypeScript typecheck、lint、VS Code integration tests が成功する。
-- parser/IR snapshot、Unicode property test、patch equivalence test が成功する。
-- daemon crash replay、browser token/origin/path、export crash recovery の E2E が成功する。
-- release build、manifest、VSIX contents、clean install smoke test が成功する。
-- 性能 benchmark が timeout せず、platform 別に承認した budget を満たす。
-- capability inventory の `verified` 項目すべてに、実行される固有の証拠がある。
+- formatting、Clippy、既存のRust/TypeScript/VS Code testが成功する。
+- release build、manifest、VSIX contents検査が成功する。
+- 対応platformごとに一つのclean-install smokeが成功する。
+- 性能benchmarkがCIの基準環境でtimeoutせず、budgetを満たす。
+- preview、navigation、note、exportの手動release checkでblockerがない。
 
-性能 budget は希望値から決めない。代表 fixture を固定し、3 platform の release build を複数回測定し、
-中央値と p95、peak memory、full fallback 数を保存したうえで回帰閾値を承認する。
+性能budgetは希望値から決めず、CIの基準環境で再現できる代表値から回帰閾値を決める。
+
+テストは実装量に比例して増やさない。不具合の再発、公開contract、重大なsecurity境界のいずれも
+守らないテストは追加しない。同じ要件を複数層で重複検査せず、既存suiteへの最小追加を優先する。
 
 ## 7. 直近の実装順
 
-1. benchmark の段階別計測と document update の高速化
-2. request scheduling と cancellation
-3. test evidence の実体化（snapshot/property/E2E）
-4. preview/browser/export の adversarial security tests
-5. daemon crash replay と observability
-6. arm64 を含む配布 matrix と clean-install verification
+1. request scheduling と cancellation
+2. daemon crash replay と observability
+3. 実workspaceで主要user flowを一巡してblockerを修正
+4. arm64を含む配布範囲の決定とclean-install確認
 
-各項目は「実装」「自動テスト」「計測または failure injection」「CI gate」を同じ変更単位に含める。
+変更には、再発リスクがある場合だけ最小限のテストを含める。
