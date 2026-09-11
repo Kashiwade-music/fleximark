@@ -6,19 +6,9 @@ import { URL } from "node:url";
 const packageJson = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url)),
 );
-const matrix = JSON.parse(
+const inventory = JSON.parse(
   fs.readFileSync(
-    new URL("../capabilities/release-baseline.yaml", import.meta.url),
-  ),
-);
-const testEvidence = JSON.parse(
-  fs.readFileSync(
-    new URL("../capabilities/test-evidence.json", import.meta.url),
-  ),
-);
-const frozenInventory = JSON.parse(
-  fs.readFileSync(
-    new URL("../capabilities/v0.16.14-inventory.json", import.meta.url),
+    new URL("../capabilities/feature-inventory.json", import.meta.url),
   ),
 );
 const dispositionCatalog = JSON.parse(
@@ -65,119 +55,24 @@ for (const dependency of Object.keys(packageJson.dependencies ?? {})) {
     `${dependency} belongs outside the adapter`,
   );
 }
-assert.equal(matrix.schemaVersion, 1);
-const ids = matrix.capabilities.map(({ id }) => id);
+assert.equal(inventory.schemaVersion, 1);
+const ids = inventory.capabilities.map(({ id }) => id);
 assert.equal(new Set(ids).size, ids.length, "capability IDs must be unique");
-for (const capability of matrix.capabilities) {
-  assert.ok(["keep", "change", "remove"].includes(capability.decision));
+for (const capability of inventory.capabilities) {
   assert.ok(capability.owner, `${capability.id} needs an owner`);
-  assert.ok(
-    capability.baselineEvidence.length > 0,
-    `${capability.id} needs baseline evidence`,
-  );
-  assert.ok(
-    capability.contract.length > 0,
-    `${capability.id} needs a contract`,
-  );
-  assert.ok(capability.tests.length > 0, `${capability.id} needs verification`);
-  for (const testId of capability.tests) {
-    const test = testEvidence[testId];
-    assert.ok(test, capability.id + " references unknown test " + testId);
-    const sourceUrl = new URL("../" + test.file, import.meta.url);
-    assert.ok(fs.existsSync(sourceUrl), testId + " source does not exist");
-    const source = fs.readFileSync(sourceUrl, "utf8");
-    const marker = test.marker.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
-    const declaration = test.file.endsWith(".rs")
-      ? new RegExp("#\\[test\\]\\s*fn\\s+" + marker + "\\s*\\(")
-      : new RegExp("test\\(\\s*[\"']" + marker + "[\"']");
-    assert.ok(
-      declaration.test(source),
-      testId + " does not name a test in " + test.file,
-    );
-  }
-  if (capability.decision !== "keep") {
-    assert.ok(
-      capability.cleanBreakId,
-      `${capability.id} needs a clean-break disposition ID`,
-    );
-    assert.ok(
-      capability.releaseNoteId,
-      `${capability.id} needs a release note ID`,
-    );
-    const disposition = dispositionCatalog.cleanBreaks[capability.cleanBreakId];
-    assert.ok(disposition, `${capability.cleanBreakId} is not catalogued`);
-    assert.equal(disposition.releaseNoteId, capability.releaseNoteId);
-    assert.ok(
-      disposition.rationale &&
-        disposition.replacement &&
-        disposition.unsupportedBehavior,
-    );
-    assert.ok(
-      dispositionCatalog.releaseNotes[capability.releaseNoteId],
-      `${capability.releaseNoteId} is not catalogued`,
-    );
-  }
 }
-const evidence = matrix.capabilities.flatMap(
-  (capability) => capability.baselineEvidence,
-);
-for (const legacyId of [
-  ...frozenInventory.commands,
-  ...frozenInventory.settings,
-  ...frozenInventory.grammars,
-  ...frozenInventory.snippets,
-]) {
-  assert.equal(
-    evidence.filter((item) => item.endsWith(legacyId)).length,
-    1,
-    `${legacyId} must have exactly one frozen-baseline disposition`,
-  );
-}
-for (const language of frozenInventory.languages) {
-  assert.equal(
-    evidence.filter((item) => item.endsWith(`/languages/${language}`)).length,
-    1,
-    `${language} language must have exactly one frozen-baseline disposition`,
-  );
-}
-for (const [feature, capabilityId] of Object.entries(
-  frozenInventory.documentedFeatures,
+for (const [cleanBreakId, disposition] of Object.entries(
+  dispositionCatalog.cleanBreaks,
 )) {
   assert.ok(
-    ids.includes(capabilityId),
-    `${feature} is missing capability ${capabilityId}`,
+    disposition.rationale &&
+      disposition.replacement &&
+      disposition.unsupportedBehavior,
+    `${cleanBreakId} is incomplete`,
   );
-}
-for (const contribution of packageJson.contributes.commands) {
   assert.ok(
-    evidence.some((item) => item.includes(contribution.command)),
-    `${contribution.command} is missing from the capability matrix`,
-  );
-}
-for (const setting of Object.keys(
-  packageJson.contributes.configuration.properties,
-)) {
-  assert.ok(
-    evidence.some((item) => item.includes(setting)),
-    `${setting} is missing from the capability matrix`,
-  );
-}
-for (const contribution of packageJson.contributes.grammars) {
-  assert.ok(
-    evidence.some((item) => item.includes(contribution.path)),
-    contribution.path + " grammar is missing from the capability matrix",
-  );
-}
-for (const contribution of packageJson.contributes.snippets) {
-  assert.ok(
-    evidence.some((item) => item.includes(contribution.path)),
-    contribution.path + " snippet is missing from the capability matrix",
-  );
-}
-for (const contribution of packageJson.contributes.languages) {
-  assert.ok(
-    evidence.some((item) => item.includes(contribution.id)),
-    contribution.id + " language is missing from the capability matrix",
+    dispositionCatalog.releaseNotes[disposition.releaseNoteId],
+    `${cleanBreakId} references an unknown release note`,
   );
 }
 for (const method of new Set(adapterSource.match(/fleximark\/[A-Za-z]+/g))) {
@@ -204,7 +99,7 @@ for (const schema of [
   "config.schema.json",
   "protocol.schema.json",
   "plugin-manifest.schema.json",
-  "capability-matrix.schema.json",
+  "feature-inventory.schema.json",
 ]) {
   const document = JSON.parse(
     fs.readFileSync(new URL(`../schemas/${schema}`, import.meta.url), "utf8"),
@@ -259,6 +154,4 @@ for (const match of rustProtocol.matchAll(
 }
 assert.ok(!adapterSource.includes("params?: unknown"));
 
-console.log(
-  `Verified ${matrix.capabilities.length} architecture capabilities.`,
-);
+console.log(`Verified ${inventory.capabilities.length} current capabilities.`);

@@ -38,7 +38,7 @@ preview client  ◀── snapshot/patch ──┘
 3. executable test と計測結果
 4. この文書
 
-`capabilities/release-baseline.yaml` は機能インベントリであり、テスト名が存在するだけでは完成を意味しない。
+`capabilities/feature-inventory.json` は現行機能と責務の簡潔な一覧であり、項目が存在するだけでは完成を意味しない。
 release gate に使う証拠は、実行したコマンド、対象 platform、結果を機械的に検証できるものに限定する。
 
 ## 3. 採用する責務分割
