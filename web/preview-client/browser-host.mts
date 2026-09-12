@@ -1,3 +1,4 @@
+import { BrowserNavigationTransport } from "./browser-navigation.mjs";
 import {
   PreviewFailureGuard,
   PreviewHost,
@@ -35,10 +36,14 @@ window.FlexiMarkPreview = {
 
 if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   const events = new EventSource(`${location.pathname}/events`);
+  const navigation = new BrowserNavigationTransport(
+    `${location.pathname}/navigation`,
+  );
   const state: { preview?: PreviewHost } = {};
   const failure = new PreviewFailureGuard(
     () => events.close(),
     () => {
+      navigation.dispose();
       state.preview?.dispose();
       state.preview = undefined;
     },
@@ -47,14 +52,7 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   state.preview = new PreviewHost(
     root,
     () => failure.fail(),
-    (event) => {
-      void fetch(`${location.pathname}/navigation`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(event),
-        credentials: "same-origin",
-      });
-    },
+    (event) => navigation.send(event),
   );
   events.addEventListener("message", (event) => {
     if (failure.failed) return;
@@ -72,6 +70,7 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   window.addEventListener("unload", () => {
     if (!failure.failed) {
       events.close();
+      navigation.dispose();
       state.preview?.dispose();
     }
   });

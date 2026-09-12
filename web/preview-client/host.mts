@@ -1,3 +1,4 @@
+import { AsyncTaskObserver } from "./async-tasks.mjs";
 import { PreviewEnhancer } from "./enhance.mjs";
 import { PreviewDocument, type RenderPublication } from "./index.mjs";
 import {
@@ -102,6 +103,8 @@ export class PreviewHost {
   readonly #preview: PreviewDocument;
   readonly #enhancer = new PreviewEnhancer(previewRuntimes);
   readonly #navigation: PreviewNavigation;
+  readonly #tasks = new AsyncTaskObserver();
+  #disposed = false;
 
   constructor(
     root: HTMLElement,
@@ -130,6 +133,7 @@ export class PreviewHost {
   }
 
   apply(events: readonly PreviewHostEvent[]): void {
+    if (this.#disposed) return;
     let changed = false;
     for (const event of events) {
       if (event.type === "selection" || event.type === "viewport") {
@@ -148,10 +152,16 @@ export class PreviewHost {
       );
       changed = true;
     }
-    if (changed) void this.#enhancer.render(this.#root);
+    if (changed && !this.#disposed)
+      this.#tasks.observe(this.#enhancer.render(this.#root));
   }
 
   dispose(): void {
+    if (this.#disposed) {
+      this.#enhancer.dispose();
+      return;
+    }
+    this.#disposed = true;
     this.#navigation.dispose();
     this.#enhancer.dispose();
     this.#preview.dispose();

@@ -8,6 +8,7 @@ import * as rpc from "./adapter/rpc.test.mjs";
 import * as browserHost from "./browser-host.test.mjs";
 import * as previewClient from "./preview-client.test.mjs";
 import * as protocolContract from "./protocol-contract.test.mjs";
+import * as vscodeHost from "./vscode-host.test.mjs";
 
 // The suites continue to use Mocha globals in the VS Code Electron runner. Map only the
 // registration primitives they need to Node's standard test runner for this independent entry.
@@ -24,4 +25,5 @@ describe(previewCoordinator.suiteName, previewCoordinator.suite);
 describe(releaseManifest.suiteName, releaseManifest.suite);
 describe(browserHost.suiteName, browserHost.suite);
 describe(previewClient.suiteName, previewClient.suite);
+describe(vscodeHost.suiteName, vscodeHost.suite);
 describe(protocolContract.suiteName, protocolContract.suite);

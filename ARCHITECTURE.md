@@ -71,7 +71,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 | Parser | `crates/fleximark-parser` | Markdown/Comrak AST to validated FlexiMark IR |
 | HTML renderer | `crates/fleximark-render-html` | Safe HTML and render-model serialization |
 | Plugin SDK/host | `crates/fleximark-plugin-sdk`; `crates/fleximark-plugin-host` facade with private `runtime`, `package`, `pipeline`, `edit_map`, `candidate`, and `error` modules | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
-| Preview client | `web/preview-client` | Atomic full/patch DOM application, navigation and opt-in enhancement runtimes |
+| Preview client | `web/preview-client`; `index.mts` and `enhance.mts` facades plus security, asset, patch, host/transport and feature modules | Atomic full/patch DOM application, navigation, host failure isolation and opt-in enhancement runtimes |
 | CLI | `crates/fleximark-cli` | Direct render, benchmark and workspace/service commands |
 | Release | `scripts/_targets.py`, `scripts/release_artifact.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, exact-artifact identity, VSIX validation and publishing |
 
@@ -133,6 +133,16 @@ publication recovery, panels, external URLs, disposal/recreation, navigation and
 `diagnostics.mts` converts validated protocol diagnostics. `commands.mts`, `providers.mts`, and
 `events.mts` register their VS Code surfaces, while `runtime-state.mts` is the shared in-memory
 shape. The facade supplies VS Code and supervisor effects and remains the public adapter API.
+
+Within the preview client, `index.mts` remains the `PreviewDocument` compatibility facade and the
+only owner of live DOM, revision, navigation, style and blob-URL commits. `content-security.mts`,
+`assets.mts`, `patch-attributes.mts` and `patch-transaction.mts` prepare and validate detached
+snapshot or patch candidates without committing live state. `enhance.mts` remains the
+`PreviewEnhancer` facade and owns generation, fingerprint, tab and audio lifetimes; the functions
+under `enhancers/` render Mermaid, ABC, math, YouTube, tabs and code highlighting. `host.mts`
+sequences publications and observes asynchronous enhancement, while the browser navigation
+transport owns pending POST cancellation. VS Code rendered acknowledgements still confirm the
+core DOM commit and do not wait for asynchronous enhancement.
 
 ## Entry points
 

@@ -2,7 +2,7 @@
 
 ## 0. 位置づけと調査範囲
 
-この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 10 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。Phase 7ではplugin hostをsandbox runtime、package検証、hook pipeline、edit-map、candidate、errorへ分割し、trust gateとfailure dispositionだけを共通化した。Phase 8ではLSPのURI↔session index、default/rooted workspace authority、EngineError mapperをprivate ownerへ集約した。Phase 9ではadapterからpure helperとdaemon process/recovery state machineを分離し、Phase 10ではdocument/preview coordinatorとextension registration wiringを独立ownerへ分離した。
+この文書は 2026-09-11 時点のリポジトリを読み取り調査した結果と、既存の外部仕様・挙動を維持するための段階的なリファクタリング計画である。Phase 11 まで完了している。Phase 0ではarchitecture文書、characterization test、独立test入口、local/CI gateを追加し、Phase 1ではprotocol/schema/TypeScript runtime boundaryを方向別の型とvalidatorで固定した。Phase 2ではbuild/release toolingのtarget・subprocess・entry point契約を集約し、build済みCI経路の重複buildを除去した。Phase 3ではversion確定後の最終VSIXを一度だけ生成し、その同一hashを6 target clean install、attestation、GitHub Release、Marketplaceへ引き渡すrelease DAGへ変更した。Phase 4ではfleximark_serviceをprivateな責務別moduleへmove-only分割し、crate rootの公開facadeとfilesystem/exportの挙動を契約testで固定した。Phase 5ではdaemonをtransport、cancellation、routing/handler、preview HTTP、telemetryへ分割し、message/HTTP security orderingを明示的なprivate operationへ整理した。Phase 6ではengineを責務別moduleへ分割し、plugin document candidateとrender preparation/cache commitを単一のprivate pipelineへ統合した。Phase 7ではplugin hostをsandbox runtime、package検証、hook pipeline、edit-map、candidate、errorへ分割し、trust gateとfailure dispositionだけを共通化した。Phase 8ではLSPのURI↔session index、default/rooted workspace authority、EngineError mapperをprivate ownerへ集約した。Phase 9ではadapterからpure helperとdaemon process/recovery state machineを分離し、Phase 10ではdocument/preview coordinatorとextension registration wiringを独立ownerへ分離した。Phase 11ではpreviewのDOM security transaction、asset staging、patch transaction、機能別enhancerとhost transportをprivate ownerへ分離し、非同期rendererとaudio/blob cleanupの失敗を隔離した。
 
 README.md、README_DEV.md、全 Cargo.toml、package.json、pyproject.toml、mise.toml、build/release scripts、GitHub Actions、tests、主要 entry point、Rust/TypeScript の依存、schemas、capability inventory を確認した。
 
@@ -143,6 +143,15 @@ TypeScript tests は49件あるが、pure unit testもVS Code Electron suiteへ�
 - unmatched preview event queueはpreview単位64件/1 MiB、全体256 streams/1024 events/4 MiBでUTF-8実byteを上限とする。全体overflowは影響したexact originをbounded snapshotへ保持し、各RPCを閉じてsupervisor replayへ接続する。publication failureとversion driftはreload markerを保持し、authoritative fullだけでreadyへ復帰する。
 - 8巡の実装と各巡複数の独立レビュー後に未解決の新規P0〜P3はない。旧async continuationはimmutable committed incarnation gateを通らない限りstate、dispose、reportを変更しない。
 - test-only `FlexiMarkTestApi` がmodule-global adapterを参照するcross-activation挙動は既存互換として維持した。Phase 12のtest境界整理でinstance ownershipへ移せるか検討する。外部preview URL schemeとdiagnostics/code-action URI containmentは既存のtrust debtであり、挙動変更を伴うためPhase 12後の独立security fixで扱う。
+
+### Phase 11 完了時のベースライン
+
+- cargo test --workspace --all-targets: 150 tests passed。Node pure RPC/preview/protocol/coordinator testsは162件、VS Code Electron testsは114件、Python unittest discoveryは71件（WindowsではPOSIX executable mode test 1件をskip）が成功した。
+- TypeScript noEmit、ESLint、Prettier、architecture 56 capabilities、production browser/extension build、performance budget、VSIX内容検査を含む `mise run verify` が成功した。
+- `web/preview-client/index.mts` は511行から186行、`enhance.mts` は413行から115行になった。前者はlive DOM/state commit facade、後者はgeneration/audio/fingerprint/tabs coordinatorとして残し、content/security、asset staging、patch transaction、host async task、browser navigation transportと7種のfeature rendererを一方向のprivate moduleへ分離した。
+- snapshot/patchのatomic clone-commit、単一sourceのpatch属性allowlist、1 MiB/8 MiB asset境界、staged/owned blob URL revoke、host batch、VS Code即時ACK、browser SSE再接続とnavigation POSTをcharacterizationした。stale Mermaid、dispose後enhance、invalid batch後enhance、途中URL生成失敗、audio init/prime/start/stop/close失敗を他blockとlive stateから隔離した。
+- 4巡の実装と各巡2名の独立レビュー後に未解決P0〜P3はない。実audio runtimeはcontext/oscillatorを生成直後から所有し、同期throw・非同期reject・pending coalesceを上位trackerへ伝播して、成功時だけ解放し失敗時は後続disposeで再試行する。
+- FORM/actionとCSP `form-action`、Mermaid SVG sanitizer依存、asset contentHash/CSS fingerprintの再計算、VS Code message source/originは既存security debtとして挙動を変えず、Phase 12後の独立security fixへ残す。asset二重atobは別commit、identityMap最適化はbenchmark後という計画を維持した。
 
 ## 1. 現在のアーキテクチャ概要
 
@@ -507,6 +516,7 @@ modelはIR/provenance/navigation、parserはComrak AST変換、rendererは安全
 
 ### Phase 11 — Preview core/enhancerの分割と失敗隔離
 
+- 状態: 2026-09-12 完了。DOM/security、asset、patch、feature renderer、host/transportをprivate ownerへ分離し、27件の永続的なcharacterization/regression testと4巡の複数独立レビューでatomic commit、stale async、blob/audio cleanupを検証した後、`mise run verify` に成功した。
 - 優先度 / ROI: P1 / 中〜高。
 - 目的: DOM security transactionと機能別async rendererを分け、失敗したenhancerがpreview全体を壊さないようにする。
 - 問題点: PreviewDocument.applyPatchとPreviewEnhancerが多機能・多状態で、host間のvalidation/error処理が不一致。
@@ -622,4 +632,4 @@ Performance最適化はcapabilities/performance-budgets.jsonと追加benchmark�
 3. Python build/release scriptsを実行するunit testを追加する。
 4. pure RPC/preview testsの独立入口を作るが、既存Electron suiteは残す。
 
-Phase 0は2026-09-11、Phase 1〜10は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 11へ進む。
+Phase 0は2026-09-11、Phase 1〜11は2026-09-12に完了した。固定した外部挙動を基準に、現在の実施指示どおりPhaseを混在させずPhase 12へ進む。

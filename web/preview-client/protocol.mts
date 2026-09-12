@@ -1,4 +1,5 @@
 /** Browser-neutral FlexiMark protocol types and runtime validators. */
+import { isSafePatchAttribute } from "./patch-attributes.mjs";
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -622,16 +623,7 @@ const isPatchOperation: Validator<PatchOperation> = (value) => {
           precondition: isPrecondition,
         }) &&
         Object.entries(value.attributes as Record<string, unknown>).every(
-          ([name, item]) =>
-            [
-              "role",
-              "aria-checked",
-              "open",
-              "class",
-              "data-line-numbers",
-              "data-admonition-kind",
-            ].includes(name) &&
-            (item === null || (string(item) && item.length <= 4096)),
+          ([name, item]) => isSafePatchAttribute(name, item),
         )
       );
     default:
