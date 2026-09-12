@@ -105,6 +105,29 @@ fn observing_runtime(observed: Arc<Mutex<Option<SandboxPolicy>>>) -> Arc<dyn Plu
     })
 }
 
+fn observed_sandbox(
+    requested: PluginCapabilities,
+    grants: PluginCapabilities,
+    environment: BTreeMap<String, String>,
+) -> SandboxPolicy {
+    let observed = Arc::new(Mutex::new(None));
+    let mut plugin = manifest("observed", false);
+    plugin.capabilities = requested;
+    let mut host = trusted_host(ExecutionLimits::default());
+    host.register_hashed(
+        plugin,
+        grants,
+        environment,
+        sha256(b"manifest"),
+        sha256(b"test"),
+        observing_runtime(Arc::clone(&observed)),
+    )
+    .unwrap();
+    host.transform_document("hello\n", &document(), &CancellationToken::default())
+        .unwrap();
+    observed.lock().unwrap().clone().unwrap()
+}
+
 fn pass_runtime() -> Arc<dyn PluginRuntime> {
     runtime(|request, _, _| {
         let HookRequest::TransformDocument { document } = request else {
@@ -260,12 +283,115 @@ fn passing_hook_runtime(ran: Arc<AtomicBool>) -> Arc<dyn PluginRuntime> {
                 }
             }
             HookRequest::ExtendRenderModel { .. } => HookResponse::RenderAnnotations {
-                annotations: BTreeMap::new(),
+                annotations: BTreeMap::from([("mode".into(), "test".into())]),
             },
             HookRequest::UnsafeExportHtml { html, .. } => HookResponse::UnsafeExportHtml { html },
         };
         successful_response(response)
     })
+}
+
+fn committing_hook_runtime() -> Arc<dyn PluginRuntime> {
+    runtime(|request, _, _| {
+        let response = match request {
+            HookRequest::PreprocessSource { text, .. } => {
+                let end = text.len() as u64;
+                HookResponse::PreprocessedSource {
+                    candidate: PreprocessedSource {
+                        text: format!("{text}!"),
+                        segments: vec![
+                            fleximark_plugin_sdk::EditMapSegment {
+                                output_start: 0,
+                                output_end: end,
+                                origin: EditOrigin::Original {
+                                    ranges: vec![utf8_source_range(&text, 0, end).unwrap()],
+                                    primary_range_index: 0,
+                                },
+                            },
+                            fleximark_plugin_sdk::EditMapSegment {
+                                output_start: end,
+                                output_end: end + 1,
+                                origin: EditOrigin::Generated { anchor: None },
+                            },
+                        ],
+                    },
+                }
+            }
+            HookRequest::TransformDocument { document } => {
+                let mut candidate = CandidateDocument::from_document(&document);
+                candidate.blocks[0]
+                    .attributes
+                    .insert("data-prefix".into(), "document".into());
+                HookResponse::Document { candidate }
+            }
+            HookRequest::TransformBlock {
+                document_version,
+                block,
+            } => {
+                let wrapper = Document {
+                    schema_version: 1,
+                    document_version,
+                    uri: DocumentUri("file:///hook-commit.md".into()),
+                    metadata: Default::default(),
+                    blocks: vec![block],
+                };
+                let mut candidate = CandidateDocument::from_document(&wrapper).blocks.remove(0);
+                candidate
+                    .attributes
+                    .insert("data-prefix".into(), "block".into());
+                HookResponse::Block { candidate }
+            }
+            HookRequest::ExtendRenderModel { .. } => HookResponse::RenderAnnotations {
+                annotations: BTreeMap::from([("prefix".into(), "annotation".into())]),
+            },
+            HookRequest::UnsafeExportHtml { html, .. } => HookResponse::UnsafeExportHtml {
+                html: format!("{html}<prefix>"),
+            },
+        };
+        successful_response(response)
+    })
+}
+
+fn assert_committed_hook(host: &PluginHost, hook: &Hook) -> Vec<PluginDiagnostic> {
+    let original = document();
+    match hook {
+        Hook::PreprocessSource => {
+            let run = host
+                .preprocess_source(1, "hello\n", &CancellationToken::default())
+                .unwrap();
+            assert_eq!(run.value.text, "hello\n!");
+            run.diagnostics
+        }
+        Hook::TransformDocument => {
+            let run = host
+                .transform_document("hello\n", &original, &CancellationToken::default())
+                .unwrap();
+            assert_eq!(run.value.blocks[0].attributes["data-prefix"], "document");
+            run.diagnostics
+        }
+        Hook::TransformBlock => {
+            let run = host
+                .transform_blocks("hello\n", &original, &CancellationToken::default())
+                .unwrap();
+            assert_eq!(run.value.blocks[0].attributes["data-prefix"], "block");
+            run.diagnostics
+        }
+        Hook::ExtendRenderModel => {
+            let run = host
+                .extend_render_model(&original, "preview", &CancellationToken::default())
+                .unwrap();
+            assert_eq!(run.value["prefix"], "annotation");
+            run.diagnostics
+        }
+        Hook::UnsafeExportHtml => {
+            let run = host
+                .unsafe_export_html(1, "safe".into(), &CancellationToken::default())
+                .unwrap();
+            assert_eq!(run.value.html, "safe<prefix>");
+            assert!(run.value.unsafe_output_used);
+            run.diagnostics
+        }
+    }
 }
 
 fn invoke_hook(host: &PluginHost, hook: &Hook) -> Result<Vec<PluginDiagnostic>, HostError> {
@@ -290,7 +416,7 @@ fn invoke_hook(host: &PluginHost, hook: &Hook) -> Result<Vec<PluginDiagnostic>, 
         Hook::ExtendRenderModel => {
             let run =
                 host.extend_render_model(&original, "preview", &CancellationToken::default())?;
-            assert!(run.value.is_empty());
+            assert_eq!(run.value["mode"], "test");
             Ok(run.diagnostics)
         }
         Hook::UnsafeExportHtml => {
@@ -407,185 +533,18 @@ fn every_hook_preserves_optional_and_required_malformed_failure_boundaries() {
 
 #[test]
 fn optional_failure_preserves_the_previous_plugin_commit_for_every_hook() {
-    let mut preprocess = trusted_host(ExecutionLimits::default());
-    register_hook_runtime(
-        &mut preprocess,
-        &Hook::PreprocessSource,
-        "preprocess-prefix",
-        false,
-        runtime(|request, _, _| {
-            let HookRequest::PreprocessSource { text, .. } = request else {
-                unreachable!()
-            };
-            let end = text.len() as u64;
-            successful_response(HookResponse::PreprocessedSource {
-                candidate: PreprocessedSource {
-                    text: format!("{text}!"),
-                    segments: vec![
-                        fleximark_plugin_sdk::EditMapSegment {
-                            output_start: 0,
-                            output_end: end,
-                            origin: EditOrigin::Original {
-                                ranges: vec![utf8_source_range(&text, 0, end).unwrap()],
-                                primary_range_index: 0,
-                            },
-                        },
-                        fleximark_plugin_sdk::EditMapSegment {
-                            output_start: end,
-                            output_end: end + 1,
-                            origin: EditOrigin::Generated { anchor: None },
-                        },
-                    ],
-                },
-            })
-        }),
-    );
-    register_hook_runtime(
-        &mut preprocess,
-        &Hook::PreprocessSource,
-        "preprocess-failure",
-        false,
-        malformed_hook_runtime(),
-    );
-    let preprocess = preprocess
-        .preprocess_source(1, "hello\n", &CancellationToken::default())
-        .unwrap();
-    assert_eq!(preprocess.value.text, "hello\n!");
-    assert_eq!(preprocess.diagnostics.len(), 1);
-
-    let mut transform_document = trusted_host(ExecutionLimits::default());
-    register_hook_runtime(
-        &mut transform_document,
-        &Hook::TransformDocument,
-        "document-prefix",
-        false,
-        runtime(|request, _, _| {
-            let HookRequest::TransformDocument { document } = request else {
-                unreachable!()
-            };
-            let mut candidate = CandidateDocument::from_document(&document);
-            candidate.blocks[0]
-                .attributes
-                .insert("data-prefix".to_owned(), "document".to_owned());
-            successful_response(HookResponse::Document { candidate })
-        }),
-    );
-    register_hook_runtime(
-        &mut transform_document,
-        &Hook::TransformDocument,
-        "document-failure",
-        false,
-        malformed_hook_runtime(),
-    );
-    let transformed = transform_document
-        .transform_document("hello\n", &document(), &CancellationToken::default())
-        .unwrap();
-    assert_eq!(
-        transformed.value.blocks[0].attributes["data-prefix"],
-        "document"
-    );
-    assert_eq!(transformed.diagnostics.len(), 1);
-
-    let mut transform_block = trusted_host(ExecutionLimits::default());
-    register_hook_runtime(
-        &mut transform_block,
-        &Hook::TransformBlock,
-        "block-prefix",
-        false,
-        runtime(|request, _, _| {
-            let HookRequest::TransformBlock {
-                document_version,
-                block,
-            } = request
-            else {
-                unreachable!()
-            };
-            let wrapper = Document {
-                schema_version: 1,
-                document_version,
-                uri: DocumentUri("file:///hook-commit.md".into()),
-                metadata: Default::default(),
-                blocks: vec![block],
-            };
-            let mut candidate = CandidateDocument::from_document(&wrapper).blocks.remove(0);
-            candidate
-                .attributes
-                .insert("data-prefix".to_owned(), "block".to_owned());
-            successful_response(HookResponse::Block { candidate })
-        }),
-    );
-    register_hook_runtime(
-        &mut transform_block,
-        &Hook::TransformBlock,
-        "block-failure",
-        false,
-        malformed_hook_runtime(),
-    );
-    let transformed = transform_block
-        .transform_blocks("hello\n", &document(), &CancellationToken::default())
-        .unwrap();
-    assert_eq!(
-        transformed.value.blocks[0].attributes["data-prefix"],
-        "block"
-    );
-    assert_eq!(transformed.diagnostics.len(), 1);
-
-    let mut extend = trusted_host(ExecutionLimits::default());
-    register_hook_runtime(
-        &mut extend,
-        &Hook::ExtendRenderModel,
-        "extend-prefix",
-        false,
-        runtime(|request, _, _| {
-            let HookRequest::ExtendRenderModel { .. } = request else {
-                unreachable!()
-            };
-            successful_response(HookResponse::RenderAnnotations {
-                annotations: BTreeMap::from([("prefix".to_owned(), "annotation".to_owned())]),
-            })
-        }),
-    );
-    register_hook_runtime(
-        &mut extend,
-        &Hook::ExtendRenderModel,
-        "extend-failure",
-        false,
-        malformed_hook_runtime(),
-    );
-    let extended = extend
-        .extend_render_model(&document(), "preview", &CancellationToken::default())
-        .unwrap();
-    assert_eq!(extended.value["prefix"], "annotation");
-    assert_eq!(extended.diagnostics.len(), 1);
-
-    let mut unsafe_export = trusted_host(ExecutionLimits::default());
-    register_hook_runtime(
-        &mut unsafe_export,
-        &Hook::UnsafeExportHtml,
-        "unsafe-prefix",
-        false,
-        runtime(|request, _, _| {
-            let HookRequest::UnsafeExportHtml { html, .. } = request else {
-                unreachable!()
-            };
-            successful_response(HookResponse::UnsafeExportHtml {
-                html: format!("{html}<prefix>"),
-            })
-        }),
-    );
-    register_hook_runtime(
-        &mut unsafe_export,
-        &Hook::UnsafeExportHtml,
-        "unsafe-failure",
-        false,
-        malformed_hook_runtime(),
-    );
-    let exported = unsafe_export
-        .unsafe_export_html(1, "safe".to_owned(), &CancellationToken::default())
-        .unwrap();
-    assert_eq!(exported.value.html, "safe<prefix>");
-    assert!(exported.value.unsafe_output_used);
-    assert_eq!(exported.diagnostics.len(), 1);
+    for hook in [
+        Hook::PreprocessSource,
+        Hook::TransformDocument,
+        Hook::TransformBlock,
+        Hook::ExtendRenderModel,
+        Hook::UnsafeExportHtml,
+    ] {
+        let mut host = trusted_host(ExecutionLimits::default());
+        register_hook_runtime(&mut host, &hook, "prefix", false, committing_hook_runtime());
+        register_hook_runtime(&mut host, &hook, "failure", false, malformed_hook_runtime());
+        assert_eq!(assert_committed_hook(&host, &hook).len(), 1, "{hook:?}");
+    }
 }
 
 #[test]
@@ -856,87 +815,49 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
 
 #[test]
 fn capabilities_are_deny_by_default_even_when_requested() {
-    let observed = Arc::new(Mutex::new(None));
-    let denied_runtime = observing_runtime(Arc::clone(&observed));
-    let mut requested = manifest("requests-all", false);
-    requested.capabilities = PluginCapabilities {
+    let all = PluginCapabilities {
         read_workspace: true,
         write_workspace: true,
         environment: true,
         unsafe_html_output: true,
     };
-    let mut host = trusted_host(ExecutionLimits::default());
-    host.register(requested, PluginCapabilities::default(), denied_runtime)
-        .unwrap();
-    host.transform_document("hello\n", &document(), &CancellationToken::default())
-        .unwrap();
-    let sandbox = observed.lock().unwrap().clone().unwrap();
+    let sandbox = observed_sandbox(all.clone(), PluginCapabilities::default(), BTreeMap::new());
     assert!(sandbox.read_roots.is_empty() && sandbox.write_roots.is_empty());
     assert!(sandbox.environment.is_empty());
     assert!(!sandbox.unsafe_html_output);
 
-    let observed = Arc::new(Mutex::new(None));
-    let granted_runtime = observing_runtime(Arc::clone(&observed));
-    let mut requested = manifest("read-only", false);
-    requested.capabilities.read_workspace = true;
-    requested.capabilities.write_workspace = true;
-    let grants = PluginCapabilities {
+    let requested = PluginCapabilities {
         read_workspace: true,
+        write_workspace: true,
         ..PluginCapabilities::default()
     };
-    let mut host = trusted_host(ExecutionLimits::default());
-    host.register(requested, grants, granted_runtime).unwrap();
-    host.transform_document("hello\n", &document(), &CancellationToken::default())
-        .unwrap();
-    let sandbox = observed.lock().unwrap().clone().unwrap();
+    let sandbox = observed_sandbox(
+        requested,
+        PluginCapabilities {
+            read_workspace: true,
+            ..PluginCapabilities::default()
+        },
+        BTreeMap::new(),
+    );
     assert_eq!(sandbox.read_roots, vec!["C:/workspace"]);
     assert!(sandbox.write_roots.is_empty());
 
-    let observed = Arc::new(Mutex::new(None));
-    let enabled_runtime = observing_runtime(Arc::clone(&observed));
-    let mut requested = manifest("write-and-env", false);
-    requested.capabilities.write_workspace = true;
-    requested.capabilities.environment = true;
-    let grants = requested.capabilities.clone();
+    let requested = PluginCapabilities {
+        write_workspace: true,
+        environment: true,
+        ..PluginCapabilities::default()
+    };
     let environment = BTreeMap::from([("FLEXIMARK_MODE".to_owned(), "test".to_owned())]);
-    let mut host = trusted_host(ExecutionLimits::default());
-    host.register_hashed(
-        requested,
-        grants,
-        environment.clone(),
-        sha256(b"manifest"),
-        sha256(b"test"),
-        enabled_runtime,
-    )
-    .unwrap();
-    host.transform_document("hello\n", &document(), &CancellationToken::default())
-        .unwrap();
-    let sandbox = observed.lock().unwrap().clone().unwrap();
+    let sandbox = observed_sandbox(requested.clone(), requested, environment.clone());
     assert!(sandbox.read_roots.is_empty());
     assert_eq!(sandbox.write_roots, vec!["C:/workspace"]);
     assert_eq!(sandbox.environment, environment);
 
-    let observed = Arc::new(Mutex::new(None));
-    let granted_without_request = observing_runtime(Arc::clone(&observed));
-    let all_grants = PluginCapabilities {
-        read_workspace: true,
-        write_workspace: true,
-        environment: true,
-        unsafe_html_output: true,
-    };
-    let mut host = trusted_host(ExecutionLimits::default());
-    host.register_hashed(
-        manifest("granted-not-requested", false),
-        all_grants.clone(),
+    let sandbox = observed_sandbox(
+        PluginCapabilities::default(),
+        all.clone(),
         BTreeMap::from([("SECRET".to_owned(), "not-exposed".to_owned())]),
-        sha256(b"manifest"),
-        sha256(b"test"),
-        granted_without_request,
-    )
-    .unwrap();
-    host.transform_document("hello\n", &document(), &CancellationToken::default())
-        .unwrap();
-    let sandbox = observed.lock().unwrap().clone().unwrap();
+    );
     assert!(sandbox.read_roots.is_empty() && sandbox.write_roots.is_empty());
     assert!(sandbox.environment.is_empty());
     assert!(!sandbox.unsafe_html_output);
@@ -951,7 +872,7 @@ fn capabilities_are_deny_by_default_even_when_requested() {
         document_response(&document)
     });
     let mut requested = manifest("untrusted-fully-granted", false);
-    requested.capabilities = all_grants.clone();
+    requested.capabilities = all.clone();
     let mut host = PluginHost::new(
         ExecutionLimits::default(),
         HostPolicy {
@@ -959,8 +880,7 @@ fn capabilities_are_deny_by_default_even_when_requested() {
             workspace_root: "C:/workspace".to_owned(),
         },
     );
-    host.register(requested, all_grants, untrusted_runtime)
-        .unwrap();
+    host.register(requested, all, untrusted_runtime).unwrap();
     let result = host
         .transform_document("hello\n", &document(), &CancellationToken::default())
         .unwrap();
@@ -1445,46 +1365,14 @@ fn all_typed_hooks_run_through_the_same_transaction_boundary() {
     let mut host = trusted_host(ExecutionLimits::default());
     let mut all_hooks = manifest("all-hooks", false);
     all_hooks.capabilities.unsafe_html_output = true;
+    let ran = Arc::new(AtomicBool::new(false));
     host.register(
         all_hooks,
         PluginCapabilities {
             unsafe_html_output: true,
             ..PluginCapabilities::default()
         },
-        runtime(|request, _, _| {
-            let response = match request {
-                HookRequest::PreprocessSource { text, edit_map, .. } => {
-                    HookResponse::PreprocessedSource {
-                        candidate: PreprocessedSource {
-                            text,
-                            segments: edit_map,
-                        },
-                    }
-                }
-                HookRequest::TransformDocument { document } => HookResponse::Document {
-                    candidate: CandidateDocument::from_document(&document),
-                },
-                HookRequest::TransformBlock { block, .. } => {
-                    let wrapper = Document {
-                        schema_version: 1,
-                        document_version: 1,
-                        uri: DocumentUri("file:///hook.md".into()),
-                        metadata: Default::default(),
-                        blocks: vec![block],
-                    };
-                    HookResponse::Block {
-                        candidate: CandidateDocument::from_document(&wrapper).blocks.remove(0),
-                    }
-                }
-                HookRequest::ExtendRenderModel { .. } => HookResponse::RenderAnnotations {
-                    annotations: BTreeMap::from([("mode".to_owned(), "test".to_owned())]),
-                },
-                HookRequest::UnsafeExportHtml { html, .. } => {
-                    HookResponse::UnsafeExportHtml { html }
-                }
-            };
-            successful_response(response)
-        }),
+        passing_hook_runtime(Arc::clone(&ran)),
     )
     .unwrap();
     let original = document();
@@ -1522,6 +1410,7 @@ fn all_typed_hooks_run_through_the_same_transaction_boundary() {
             unsafe_output_used: false,
         }
     );
+    assert!(ran.load(Ordering::Acquire));
 }
 
 #[test]

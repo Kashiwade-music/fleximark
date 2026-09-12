@@ -9,6 +9,7 @@
   },
   "include": [
     "test/pure.test.mts",
+    "test/adapter/async-helpers.mts",
     "test/adapter/rpc.test.mts",
     "test/adapter/daemon-supervisor.test.mts",
     "test/adapter/document-coordinator.test.mts",

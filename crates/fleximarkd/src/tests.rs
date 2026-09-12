@@ -48,6 +48,21 @@ fn initialize_daemon(server: &mut Server, params: Value) -> String {
     )
 }
 
+trait TestServer {
+    fn request(&mut self, id: i64, method: &str, params: Value) -> Vec<Value>;
+    fn notify(&mut self, method: &str, params: Value) -> Vec<Value>;
+}
+
+impl TestServer for Server {
+    fn request(&mut self, id: i64, method: &str, params: Value) -> Vec<Value> {
+        self.handle(message(Some(id), method, params))
+    }
+
+    fn notify(&mut self, method: &str, params: Value) -> Vec<Value> {
+        self.handle(message(None, method, params))
+    }
+}
+
 struct TestDirectory(PathBuf);
 
 impl Deref for TestDirectory {
@@ -159,6 +174,14 @@ fn preview_navigation_request(
         "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: {content_length}\r\n\r\n{body}"
     )
     .into_bytes()
+}
+
+fn preview_server_request(address: &str, request: impl AsRef<[u8]>) -> String {
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream.write_all(request.as_ref()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
 }
 
 #[test]
@@ -448,8 +471,8 @@ fn every_workspace_command_preserves_its_success_dispatch() {
     std::fs::write(&document_path, document_text).unwrap();
     let document_uri = fleximark_service::path_to_file_uri(&document_path).unwrap();
     let mut server = Server::new(false);
-    let initialized = server.handle(message(
-        Some(1),
+    let initialized = server.request(
+        1,
         method::INITIALIZE,
         json!({
             "protocolVersion":1,
@@ -457,7 +480,7 @@ fn every_workspace_command_preserves_its_success_dispatch() {
             "capabilities":{},
             "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
         }),
-    ));
+    );
     let daemon = initialized[0]["result"]["daemonInstanceId"]
         .as_str()
         .unwrap()
@@ -473,81 +496,81 @@ fn every_workspace_command_preserves_its_success_dispatch() {
         ])
     );
 
-    let initialize = server.handle(message(
-        Some(2),
+    let initialize = server.request(
+        2,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"initializeWorkspace",
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(initialize[0]["id"], 2);
     assert_eq!(
         initialize[0]["result"]["message"],
         json!({"level":"info","text":"Initialized .fleximark/config.toml and .fleximark/theme.css"})
     );
 
-    let edit_theme = server.handle(message(
-        Some(3),
+    let edit_theme = server.request(
+        3,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"editTheme",
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert!(edit_theme[0]["result"]["message"].is_null());
     assert_eq!(
         edit_theme[0]["result"]["openUri"],
         fleximark_service::path_to_file_uri(&workspace.join(".fleximark/theme.css")).unwrap()
     );
 
-    let create_note = server.handle(message(
-        Some(4),
+    let create_note = server.request(
+        4,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"createNote",
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(
         create_note[0]["result"]["message"],
         json!({"level":"info","text":"Created a new note"})
     );
     assert!(create_note[0]["result"]["openUri"].is_string());
 
-    let opened = server.handle(message(
-        Some(5),
+    let opened = server.request(
+        5,
         method::OPEN_DOCUMENT,
         json!({"daemonInstanceId":daemon,"uri":document_uri,
                 "documentVersion":1,"text":document_text}),
-    ));
+    );
     let session = result_string(&opened, "documentSessionId");
 
-    let collected = server.handle(message(
-        Some(6),
+    let collected = server.request(
+        6,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"collectAdmonitions",
                 "documentSessionId":session,"expectedDocumentVersion":1,
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(
         collected[0]["result"]["message"],
         json!({"level":"info","text":"Collected 1 admonition(s)"})
     );
 
-    let exported = server.handle(message(
-        Some(7),
+    let exported = server.request(
+        7,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"exportHtml",
                 "documentSessionId":session,"expectedDocumentVersion":1,
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(
         exported[0]["result"]["message"],
         json!({"level":"info","text":"Exported generation 1"})
     );
 
-    let acknowledged = server.handle(message(
-        Some(8),
+    let acknowledged = server.request(
+        8,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"acknowledgeExport",
                 "documentSessionId":session,"expectedDocumentVersion":1,
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(
         acknowledged[0],
         json!({
@@ -668,53 +691,45 @@ fn operational_trace_is_correlated_and_redacts_document_data() {
 fn lsp_and_fleximark_requests_use_the_same_document() {
     let (browser_sender, browser_events) = mpsc::channel();
     let mut server = Server::build(true, Some(browser_sender));
-    let workspace = std::env::temp_dir().join(format!(
-        "fleximark-command-test-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir(&workspace).unwrap();
+    let workspace = test_directory("command");
     let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
     fleximark_service::initialize_workspace(&workspace_uri).unwrap();
     let document_path = workspace.join("doc.md");
     std::fs::write(&document_path, "# Hello\n").unwrap();
     let document_uri = fleximark_service::path_to_file_uri(&document_path).unwrap();
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         "initialize",
         json!({"capabilities": {"general":{"positionEncodings":["utf-8"]}}}),
-    ));
-    server.handle(message(
-        Some(2),
+    );
+    server.request(
+        2,
         method::INITIALIZE,
         json!({
             "protocolVersion": 1, "client":{"name":"test","version":"1"},
             "capabilities":{"selectionEvents":true,"viewportEvents":true},
             "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
         }),
-    ));
-    server.handle(message(
-        None,
+    );
+    server.notify(
         "textDocument/didOpen",
         json!({
             "textDocument":{"uri":document_uri.clone(),"version":1,"text":"# Hello\n"}
         }),
-    ));
-    let attached = server.handle(message(
-        Some(3),
+    );
+    let attached = server.request(
+        3,
         method::ATTACH_DOCUMENT,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
             "uri":document_uri.clone(), "expectedDocumentVersion":1,
             "contentHash":content_hash("# Hello\n")
         }),
-    ));
+    );
     assert!(attached[0].get("result").is_some(), "{attached:?}");
     let session_id = result_string(&attached, "documentSessionId");
-    let checkpoint = server.handle(message(
-        Some(4),
+    let checkpoint = server.request(
+        4,
         method::CHECKPOINT_DOCUMENT,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
@@ -722,17 +737,17 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             "documentVersion":1,
             "contentHash":content_hash("# Hello\n")
         }),
-    ));
+    );
     assert_eq!(checkpoint[0]["result"]["documentVersion"], 1);
-    let rendered = server.handle(message(
-        Some(5),
+    let rendered = server.request(
+        5,
         method::RENDER,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
             "documentSessionId":session_id.clone(),
             "documentVersion":1
         }),
-    ));
+    );
     assert!(
         rendered[0]["result"]["html"]
             .as_str()
@@ -740,8 +755,8 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             .contains("Hello")
     );
 
-    let preview = server.handle(message(
-        Some(6),
+    let preview = server.request(
+        6,
         method::CREATE_PREVIEW,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
@@ -749,7 +764,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             "expectedDocumentVersion":1,
             "target":"externalBrowser"
         }),
-    ));
+    );
     assert_eq!(preview[0]["result"]["initialPublication"]["type"], "full");
     assert!(
         preview[0]["result"]["url"]
@@ -760,42 +775,30 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
     let url = preview[0]["result"]["url"].as_str().unwrap();
     let address_and_path = url.strip_prefix("http://").unwrap();
     let (address, path) = address_and_path.split_once('/').unwrap();
-    let mut stream = TcpStream::connect(address).unwrap();
-    write!(stream, "GET /{path} HTTP/1.1\r\nHost: {address}\r\n\r\n").unwrap();
-    let mut response = String::new();
-    std::io::Read::read_to_string(&mut stream, &mut response).unwrap();
+    let response = preview_server_request(
+        address,
+        format!("GET /{path} HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+    );
     assert!(response.starts_with("HTTP/1.1 200 OK"));
     assert!(response.contains("Content-Security-Policy: default-src 'none'"));
-    let mut events = TcpStream::connect(address).unwrap();
-    write!(
-        events,
-        "GET /{path}/events HTTP/1.1\r\nHost: {address}\r\n\r\n"
-    )
-    .unwrap();
-    let mut event_response = String::new();
-    std::io::Read::read_to_string(&mut events, &mut event_response).unwrap();
+    let event_response = preview_server_request(
+        address,
+        format!("GET /{path}/events HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+    );
     assert!(event_response.contains("Content-Type: text/event-stream"));
     assert!(event_response.contains("Hello"));
     assert!(event_response.contains("resultRenderRevision"));
-    let mut client = TcpStream::connect(address).unwrap();
-    write!(
-        client,
-        "GET /{path}/client.js HTTP/1.1\r\nHost: {address}\r\n\r\n"
-    )
-    .unwrap();
-    let mut client_response = String::new();
-    std::io::Read::read_to_string(&mut client, &mut client_response).unwrap();
+    let client_response = preview_server_request(
+        address,
+        format!("GET /{path}/client.js HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+    );
     assert!(client_response.contains("Content-Type: application/javascript"));
     assert!(client_response.contains("EventSource"));
 
-    let mut hostile = TcpStream::connect(address).unwrap();
-    write!(
-        hostile,
-        "GET /{path} HTTP/1.1\r\nHost: {address}\r\nOrigin: https://evil.example\r\n\r\n"
-    )
-    .unwrap();
-    let mut rejected = String::new();
-    std::io::Read::read_to_string(&mut hostile, &mut rejected).unwrap();
+    let rejected = preview_server_request(
+        address,
+        format!("GET /{path} HTTP/1.1\r\nHost: {address}\r\nOrigin: https://evil.example\r\n\r\n"),
+    );
     assert!(rejected.starts_with("HTTP/1.1 403 Forbidden"));
 
     let mut oversized = TcpStream::connect(address).unwrap();
@@ -814,8 +817,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         .as_str()
         .unwrap()
         .to_owned();
-    let selection = server.handle(message(
-        None,
+    let selection = server.notify(
         method::SET_SELECTION,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
@@ -823,7 +825,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             "expectedDocumentVersion":1,
             "selections":[{"anchor":{"line":0,"character":0},"active":{"line":0,"character":1}}]
         }),
-    ));
+    );
     assert_eq!(selection[0]["method"], method::PREVIEW_EVENT);
     assert_eq!(
         selection[0]["params"]["daemonInstanceId"],
@@ -835,8 +837,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         .expect("selection resolves through the authoritative navigation map")
         .to_owned();
 
-    let viewport = server.handle(message(
-        None,
+    let viewport = server.notify(
         method::SET_VIEWPORT,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
@@ -844,11 +845,10 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             "expectedDocumentVersion":1,
             "ranges":[{"start":{"line":0,"character":0},"end":{"line":1,"character":0}}]
         }),
-    ));
+    );
     assert_eq!(viewport[0]["params"]["event"]["type"], "viewport");
 
-    let browser_event = server.handle(message(
-        None,
+    let browser_event = server.notify(
         method::PREVIEW_EVENT,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),
@@ -857,7 +857,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             "event":{"type":"selectNode","previewSessionId":preview_id,
                 "renderRevision":1,"nodeId":selected_node_id}
         }),
-    ));
+    );
     assert_eq!(browser_event[0]["params"]["event"]["type"], "selectSource");
     assert_eq!(
         browser_event[0]["params"]["event"]["sourceRange"]["start"]["line"],
@@ -869,78 +869,64 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         "renderRevision":1, "nodeId":selected_node_id
     }))
     .unwrap();
-    let mut browser_post = TcpStream::connect(address).unwrap();
-    write!(
-            browser_post,
-            "POST /{path}/navigation HTTP/1.1\r\nHost: {address}\r\nOrigin: http://{address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{post_body}",
-            post_body.len()
-        )
-        .unwrap();
-    let mut post_response = String::new();
-    std::io::Read::read_to_string(&mut browser_post, &mut post_response).unwrap();
+    let navigation_request = format!(
+        "POST /{path}/navigation HTTP/1.1\r\nHost: {address}\r\nOrigin: http://{address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{post_body}",
+        post_body.len()
+    );
+    let post_response = preview_server_request(address, &navigation_request);
     assert!(post_response.starts_with("HTTP/1.1 204 No Content"));
     let external_event = browser_events.recv_timeout(Duration::from_secs(1)).unwrap();
     assert_eq!(external_event["method"], method::PREVIEW_EVENT);
     assert_eq!(external_event["params"]["event"]["type"], "revealSource");
     assert_eq!(external_event["params"]["previewSessionId"], preview_id);
 
-    let mut repeated_post = TcpStream::connect(address).unwrap();
-    write!(
-            repeated_post,
-            "POST /{path}/navigation HTTP/1.1\r\nHost: {address}\r\nOrigin: http://{address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{post_body}",
-            post_body.len()
-        )
-        .unwrap();
-    let mut repeated_response = String::new();
-    std::io::Read::read_to_string(&mut repeated_post, &mut repeated_response).unwrap();
+    let repeated_response = preview_server_request(address, navigation_request);
     assert!(
         repeated_response.starts_with("HTTP/1.1 429 Too Many Requests"),
         "{repeated_response}"
     );
 
-    let reload = server.handle(message(
-            None,
+    let reload = server.notify(
             method::RELOAD_PREVIEW,
             json!({"daemonInstanceId":server.registry.daemon_instance_id(),"previewSessionId":preview_id.clone()}),
-        ));
+        );
     assert_eq!(reload[0]["params"]["renderRevision"], 2);
 
-    let exported = server.handle(message(
-        Some(9),
+    let exported = server.request(
+        9,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),"command":"exportHtml",
                 "documentSessionId":session_id.clone(),"expectedDocumentVersion":1,
                 "workspaceUri":workspace_uri.clone()}),
-    ));
+    );
     assert!(
         exported[0]["result"]["openUri"]
             .as_str()
             .unwrap()
             .ends_with("index.html")
     );
-    let collected = server.handle(message(
-        Some(8),
+    let collected = server.request(
+        8,
         method::EXECUTE_COMMAND,
         json!({
             "daemonInstanceId":server.registry.daemon_instance_id(),"command":"collectAdmonitions",
             "documentSessionId":session_id,"expectedDocumentVersion":1,
             "workspaceUri":workspace_uri
         }),
-    ));
+    );
     assert!(
         collected[0]["result"]["message"]["text"]
             .as_str()
             .unwrap()
             .contains("0 admonition")
     );
-    let update = server.handle(message(
-        None,
+    let update = server.notify(
         "textDocument/didChange",
         json!({
             "textDocument":{"uri":document_uri.clone(),"version":2},
             "contentChanges":[{"text":"# Updated\n"}]
         }),
-    ));
+    );
     let preview_update = update
         .iter()
         .find(|item| item["method"] == method::PREVIEW_EVENT)
@@ -948,14 +934,13 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
     assert_eq!(preview_update["params"]["event"]["type"], "patch");
 
     for version in 3..103 {
-        server.handle(message(
-            None,
+        server.notify(
             "textDocument/didChange",
             json!({
                 "textDocument":{"uri":document_uri.clone(),"version":version},
                 "contentChanges":[{"text":format!("# Updated {version}\n")}]
             }),
-        ));
+        );
     }
     let token = server.preview_states[&preview_id]
         .token
@@ -970,17 +955,15 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
     );
     drop(pages);
 
-    server.handle(message(
-        None,
+    server.notify(
         "textDocument/didClose",
         json!({"textDocument":{"uri":document_uri}}),
-    ));
-    let mut expired = TcpStream::connect(address).unwrap();
-    write!(expired, "GET /{path} HTTP/1.1\r\nHost: {address}\r\n\r\n").unwrap();
-    let mut expired_response = String::new();
-    std::io::Read::read_to_string(&mut expired, &mut expired_response).unwrap();
+    );
+    let expired_response = preview_server_request(
+        address,
+        format!("GET /{path} HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+    );
     assert!(expired_response.starts_with("HTTP/1.1 403 Forbidden"));
-    std::fs::remove_dir_all(workspace).unwrap();
 }
 
 #[test]
@@ -1017,14 +1000,7 @@ fn stale_notification_emits_full_text_request() {
 
 #[test]
 fn untrusted_workspace_cannot_run_write_commands() {
-    let workspace = std::env::temp_dir().join(format!(
-        "fleximark-untrusted-test-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir(&workspace).unwrap();
+    let workspace = test_directory("untrusted");
     let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
     let mut server = Server::new(true);
     server.handle(message(
@@ -1044,7 +1020,6 @@ fn untrusted_workspace_cannot_run_write_commands() {
     ));
     assert_eq!(denied[0]["error"]["code"], -32021);
     assert!(!workspace.join(".fleximark").exists());
-    std::fs::remove_dir(workspace).unwrap();
 }
 
 #[test]
@@ -1108,11 +1083,7 @@ fn workspace_command_authority_policy_is_checked_before_command_parameters() {
 
 #[test]
 fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("fleximark-multi-root-{nonce}"));
+    let root = test_directory("multi-root");
     let trusted = root.join("trusted");
     let untrusted = trusted.join("nested-untrusted");
     std::fs::create_dir_all(&trusted).unwrap();
@@ -1214,16 +1185,11 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
         publication["params"]["event"]["style"]["css"],
         ":root { color: green; }"
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn invalid_workspace_is_disabled_without_disabling_other_roots() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("fleximark-root-status-{nonce}"));
+    let root = test_directory("root-status");
     let valid = root.join("valid");
     let invalid = root.join("invalid");
     std::fs::create_dir_all(&valid).unwrap();
@@ -1286,19 +1252,11 @@ fn invalid_workspace_is_disabled_without_disabling_other_roots() {
                 "documentVersion":1,"text":"# Invalid\n"}),
     ));
     assert_eq!(denied[0]["error"]["code"], -32022);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn note_options_rpc_reads_only_the_granted_canonical_config() {
-    let workspace = std::env::temp_dir().join(format!(
-        "fleximark-note-options-rpc-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir(&workspace).unwrap();
+    let workspace = test_directory("note-options");
     let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
     fleximark_service::initialize_workspace(&workspace_uri).unwrap();
     std::fs::write(
@@ -1324,19 +1282,11 @@ fn note_options_rpc_reads_only_the_granted_canonical_config() {
     ));
     assert_eq!(response[0]["result"]["categories"], json!(["work"]));
     assert_eq!(response[0]["result"]["templates"], json!(["daily"]));
-    std::fs::remove_dir_all(workspace).unwrap();
 }
 
 #[test]
 fn export_preflight_rejects_unmanaged_destination_before_render_hooks() {
-    let workspace = std::env::temp_dir().join(format!(
-        "fleximark-export-preflight-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir(&workspace).unwrap();
+    let workspace = test_directory("export-preflight");
     let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
     fleximark_service::initialize_workspace(&workspace_uri).unwrap();
     let document_path = workspace.join("doc.md");
@@ -1378,7 +1328,6 @@ fn export_preflight_rejects_unmanaged_destination_before_render_hooks() {
         "keep"
     );
     assert!(!destination.join(".fleximark-export.json").exists());
-    std::fs::remove_dir_all(workspace).unwrap();
 }
 
 #[test]

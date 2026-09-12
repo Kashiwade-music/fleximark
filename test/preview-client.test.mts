@@ -6,6 +6,7 @@ import {
   type PreviewRuntimes,
 } from "../web/preview-client/enhance.mjs";
 import {
+  type AudioSynth,
   stopAudio,
   trackAudio,
 } from "../web/preview-client/enhancers/audio.mjs";
@@ -23,6 +24,7 @@ import {
 import { PreviewNavigation } from "../web/preview-client/navigation.mjs";
 import { shouldForwardEditorNavigation } from "../web/preview-client/protocol.mjs";
 import { previewRuntimes } from "../web/preview-client/runtimes.mjs";
+import { deferred, flushMicrotasks, signal } from "./adapter/async-helpers.mjs";
 
 export const suiteName = "Preview client";
 
@@ -690,23 +692,21 @@ export function suite(): void {
   test("retries transient audio cleanup without delaying other handles", () => {
     let transientStops = 0;
     let stableStops = 0;
-    const transient = trackAudio({
-      init: async () => undefined,
-      prime: async () => undefined,
-      start: () => undefined,
-      stop: () => {
-        transientStops += 1;
-        if (transientStops === 1) throw new Error("temporary stop failure");
-      },
-    });
-    const stable = trackAudio({
-      init: async () => undefined,
-      prime: async () => undefined,
-      start: () => undefined,
-      stop: () => {
-        stableStops += 1;
-      },
-    });
+    const transient = trackAudio(
+      audioSynth({
+        stop: () => {
+          transientStops += 1;
+          if (transientStops === 1) throw new Error("temporary stop failure");
+        },
+      }),
+    );
+    const stable = trackAudio(
+      audioSynth({
+        stop: () => {
+          stableStops += 1;
+        },
+      }),
+    );
     const handles = new Set([transient, stable]);
 
     stopAudio(handles);
@@ -736,15 +736,13 @@ export function suite(): void {
     try {
       previewRuntimes.abc.render = () => [{}];
       previewRuntimes.abc.supportsAudio = () => true;
-      previewRuntimes.abc.createSynth = () => ({
-        init: async () => undefined,
-        prime: async () => undefined,
-        start: () => undefined,
-        stop: () => {
-          stopAttempts += 1;
-          return stopAttempts === 1 ? firstStop.promise : secondStop.promise;
-        },
-      });
+      previewRuntimes.abc.createSynth = () =>
+        audioSynth({
+          stop: () => {
+            stopAttempts += 1;
+            return stopAttempts === 1 ? firstStop.promise : secondStop.promise;
+          },
+        });
       host.apply([specialSnapshot("abc", "X:1\nK:C\nC")]);
       root.querySelector<HTMLButtonElement>("[data-fleximark-audio]")?.click();
       await flushMicrotasks();
@@ -916,12 +914,12 @@ export function suite(): void {
     const runtimes = inertRuntimes();
     runtimes.abc.render = () => [{}];
     runtimes.abc.supportsAudio = () => true;
-    runtimes.abc.createSynth = () => ({
-      init: () => pendingInit.promise,
-      prime: async () => undefined,
-      start: () => started++,
-      stop: () => stopped++,
-    });
+    runtimes.abc.createSynth = () =>
+      audioSynth({
+        init: () => pendingInit.promise,
+        start: () => started++,
+        stop: () => stopped++,
+      });
     const enhancer = new PreviewEnhancer(runtimes);
     await enhancer.render(root);
     const button = root.querySelector<HTMLButtonElement>(
@@ -955,7 +953,7 @@ export function suite(): void {
       runtimes.abc.createSynth = () => {
         synthAttempt += 1;
         const fail = synthAttempt === 1;
-        return {
+        return audioSynth({
           init: async () => {
             if (fail && failedStage === "init") throw new Error("init failed");
           },
@@ -971,7 +969,7 @@ export function suite(): void {
           stop: () => {
             stops += 1;
           },
-        };
+        });
       };
       const enhancer = new PreviewEnhancer(runtimes);
       await enhancer.render(root);
@@ -1030,15 +1028,14 @@ export function suite(): void {
       return [{}];
     };
     runtimes.abc.supportsAudio = () => true;
-    runtimes.abc.createSynth = () => ({
-      init: async () => undefined,
-      prime: async () => undefined,
-      start: () => {
-        started += 1;
-        startSignal.resolve();
-      },
-      stop: () => stopped++,
-    });
+    runtimes.abc.createSynth = () =>
+      audioSynth({
+        start: () => {
+          started += 1;
+          startSignal.resolve();
+        },
+        stop: () => stopped++,
+      });
     const enhancer = new PreviewEnhancer(runtimes);
     await enhancer.render(root);
     assert.ok(root.querySelector("[data-fleximark-output] svg"));
@@ -1233,26 +1230,23 @@ export function suite(): void {
   });
 
   test("accepts VS Code host messages and rejects cross-frame or malformed messages", () => {
-    assert.equal(isPreviewHostMessage(undefined), false);
-    assert.equal(isPreviewHostMessage({ type: "initializePreview" }), false);
-    assert.equal(
-      isPreviewHostMessage({
+    for (const value of [
+      undefined,
+      { type: "initializePreview" },
+      {
         type: "previewEvent",
         messageToken: "token",
         event: { type: "youtube" },
-      }),
-      false,
-    );
-    assert.equal(
-      isPreviewHostMessage({
+      },
+    ])
+      assert.equal(isPreviewHostMessage(value), false);
+    for (const value of [
+      {
         type: "initializePreview",
         messageToken: "token",
         publication: snapshot(),
-      }),
-      true,
-    );
-    assert.equal(
-      isPreviewHostMessage({
+      },
+      {
         type: "previewEvent",
         messageToken: "token",
         event: {
@@ -1261,9 +1255,9 @@ export function suite(): void {
           renderRevision: 1,
           nodeId: "a",
         },
-      }),
-      true,
-    );
+      },
+    ])
+      assert.equal(isPreviewHostMessage(value), true);
     const valid = {
       type: "initializePreview",
       messageToken: "token",
@@ -1394,24 +1388,9 @@ export function suite(): void {
       () => requested++,
       () => undefined,
     );
-    const malformed = {
-      ...patch([]),
-      operations: [
-        {
-          type: "remove",
-          nodeId: "missing",
-          parentId: "document-root",
-          precondition: {
-            nodeExists: true,
-            currentParentId: "document-root",
-          },
-        },
-      ],
-    } as RenderPatch;
-
     host.apply([
       snapshot(),
-      malformed,
+      malformedPatch(),
       { ...snapshot(), resultRenderRevision: 3, html: "not applied" },
     ]);
 
@@ -1433,22 +1412,11 @@ export function suite(): void {
       () => host.dispose(),
       () => undefined,
     );
-    const malformed = {
-      ...patch([]),
-      operations: [
-        {
-          type: "remove",
-          nodeId: "missing",
-          parentId: "document-root",
-          precondition: {
-            nodeExists: true,
-            currentParentId: "document-root",
-          },
-        },
-      ],
-    } as RenderPatch;
     try {
-      host.apply([specialSnapshot("mermaid", "graph TD; A-->B"), malformed]);
+      host.apply([
+        specialSnapshot("mermaid", "graph TD; A-->B"),
+        malformedPatch(),
+      ]);
       await Promise.resolve();
       assert.equal(host.renderRevision, 1);
       assert.equal(mermaidRenders, 0);
@@ -1512,39 +1480,6 @@ export function suite(): void {
   });
 }
 
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve(value: T): void;
-  reject(reason?: unknown): void;
-} {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((accept, decline) => {
-    resolve = accept;
-    reject = decline;
-  });
-  return { promise, resolve, reject };
-}
-
-function signal(): {
-  promise: Promise<void>;
-  resolve(): void;
-  reject(reason?: unknown): void;
-} {
-  const value = deferred<undefined>();
-  return {
-    promise: value.promise,
-    resolve: () => value.resolve(undefined),
-    reject: value.reject,
-  };
-}
-
 async function waitForSignal(
   signal: Promise<void>,
   label: string,
@@ -1586,14 +1521,19 @@ function inertRuntimes(): PreviewRuntimes {
     abc: {
       render: () => [],
       supportsAudio: () => false,
-      createSynth: () => ({
-        init: async () => undefined,
-        prime: async () => undefined,
-        start: () => undefined,
-        stop: () => undefined,
-      }),
+      createSynth: audioSynth,
     },
     math: { render: () => undefined },
+  };
+}
+
+function audioSynth(overrides: Partial<AudioSynth> = {}): AudioSynth {
+  return {
+    init: async () => undefined,
+    prime: async () => undefined,
+    start: () => undefined,
+    stop: () => undefined,
+    ...overrides,
   };
 }
 
@@ -1625,6 +1565,20 @@ function patch(operations: RenderPatch["operations"]): RenderPatch {
     style: null,
     operations,
   };
+}
+
+function malformedPatch(): RenderPatch {
+  return patch([
+    {
+      type: "remove",
+      nodeId: "missing",
+      parentId: "document-root",
+      precondition: {
+        nodeExists: true,
+        currentParentId: "document-root",
+      },
+    },
+  ]);
 }
 
 function navigation(nodeId: string, line: number) {

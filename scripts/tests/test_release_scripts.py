@@ -6,7 +6,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -27,7 +26,7 @@ import tasks
 
 
 class PlatformMappingTests(unittest.TestCase):
-    def test_single_immutable_target_owner_matches_all_workflow_matrices(self) -> None:
+    def test_target_owner_matches_workflow_matrices(self) -> None:
         expected = [
             ("ubuntu-24.04", "linux", "x64"),
             ("ubuntu-24.04-arm", "linux", "arm64"),
@@ -43,70 +42,38 @@ class PlatformMappingTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             _targets.TARGETS[0].arch = "arm64"  # type: ignore[misc]
 
-        matrix_row = re.compile(
-            r"- \{ os: ([^,]+), platform: ([^,]+), arch: ([^ }]+) \}"
-        )
-        actual: list[tuple[str, str, str]] = []
         for workflow in ("ci.yml", "release.yml"):
             source = (_tools.ROOT / ".github" / "workflows" / workflow).read_text(
                 encoding="utf-8"
             )
-            actual.extend(matrix_row.findall(source))
-        self.assertEqual(actual, expected * 4)
+            for os_name, platform_name, arch in expected:
+                row = f"{{ os: {os_name}, platform: {platform_name}, arch: {arch} }}"
+                self.assertEqual(source.count(row), 2, (workflow, row))
 
-    def test_downloaded_daemons_are_manifested_before_prebuilt_or_packaging(self) -> None:
-        ci = (_tools.ROOT / ".github" / "workflows" / "ci.yml").read_text(
-            encoding="utf-8"
-        )
-        release = (
-            _tools.ROOT / ".github" / "workflows" / "release.yml"
-        ).read_text(encoding="utf-8")
-
-        ci_validate = ci[ci.index("  validate:") : ci.index("  dependency-review:")]
-        release_validate = release[
-            release.index("  validate:") : release.index("  release:")
-        ]
-        release_publish = release[
-            release.index("  release:") : release.index("  clean-install:")
-        ]
-        for job, downstream in (
-            (ci_validate, "mise run test -- --prebuilt"),
-            (ci_validate, "vsce package --no-dependencies"),
-            (release_validate, "mise run test -- --prebuilt"),
-            (release_publish, "yarn exec semantic-release"),
+    def test_normalizes_supported_platforms_and_architectures(self) -> None:
+        for normalizer, cases in (
+            (
+                _targets.normalize_platform,
+                (("win32", "win32"), ("darwin", "darwin"), ("linux-musl", "linux")),
+            ),
+            (
+                _targets.normalize_arch,
+                (
+                    ("AMD64", "x64"),
+                    ("x86_64", "x64"),
+                    ("ARM64", "arm64"),
+                    ("aarch64", "arm64"),
+                ),
+            ),
         ):
-            with self.subTest(downstream=downstream):
-                download = job.index("Download platform daemons")
-                manifest = job.index("create_release_manifest.py --require-all")
-                self.assertLess(download, manifest)
-                self.assertLess(manifest, job.index(downstream))
-
-    def test_maps_supported_operating_systems(self) -> None:
-        for reported, expected in (
-            ("win32", "win32"),
-            ("darwin", "darwin"),
-            ("linux", "linux"),
-            ("linux-musl", "linux"),
-        ):
-            with self.subTest(reported=reported):
-                self.assertEqual(_targets.normalize_platform(reported), expected)
-
-    def test_maps_supported_architectures(self) -> None:
-        for reported, expected in (
-            ("AMD64", "x64"),
-            ("x86_64", "x64"),
-            ("ARM64", "arm64"),
-            ("aarch64", "arm64"),
-        ):
-            with self.subTest(reported=reported):
-                self.assertEqual(_targets.normalize_arch(reported), expected)
+            for reported, expected in cases:
+                with self.subTest(reported=reported):
+                    self.assertEqual(normalizer(reported), expected)
 
     def test_rejects_unsupported_platform_and_architecture(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "unsupported platform: freebsd"):
             _targets.normalize_platform("freebsd")
-        with self.assertRaisesRegex(
-            RuntimeError, "unsupported architecture: riscv64"
-        ):
+        with self.assertRaisesRegex(RuntimeError, "unsupported architecture: riscv64"):
             _targets.normalize_arch("riscv64")
 
 

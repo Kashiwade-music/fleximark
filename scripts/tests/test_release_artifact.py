@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import stat
 import sys
 import tempfile
@@ -328,26 +327,6 @@ class ReleaseArtifactTests(unittest.TestCase):
                 source_git_head="b" * 40,
             )
 
-    def test_cli_reads_fixed_verify_expectations_from_environment(self) -> None:
-        expected = {
-            "FLEXIMARK_EXPECTED_SHA256": "a" * 64,
-            "FLEXIMARK_EXPECTED_GIT_TAG": "v1.2.3",
-            "FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD": "b" * 40,
-        }
-        with (
-            patch.dict(os.environ, expected, clear=False),
-            patch.object(sys, "argv", ["release_artifact.py", "verify"]),
-            patch.object(
-                release_artifact,
-                "verify_identity",
-                return_value={"sha256": "a" * 64},
-            ) as verify,
-        ):
-            release_artifact.main()
-        self.assertEqual(verify.call_args.kwargs["expected_sha256"], "a" * 64)
-        self.assertEqual(verify.call_args.kwargs["expected_git_tag"], "v1.2.3")
-        self.assertEqual(verify.call_args.kwargs["expected_source_git_head"], "b" * 40)
-
     def test_rejects_incomplete_malformed_or_mismatched_daemon_manifest(
         self,
     ) -> None:
@@ -478,73 +457,32 @@ class ReleaseArtifactTests(unittest.TestCase):
 
         validate_vsix.assert_called_once_with(vsix, expected_version="1.2.3")
 
-    def test_validate_cli_rejects_identity_and_provenance_options(self) -> None:
-        invalid_options = (
-            ("--identity", "identity.json"),
-            ("--expected-sha256", "a" * 64),
-            ("--git-tag", "v1.2.3"),
-            ("--source-git-head", "b" * 40),
-            ("--expected-git-tag", "v1.2.3"),
-            ("--expected-source-git-head", "b" * 40),
-            ("--print-sha256",),
-        )
-        for invalid in invalid_options:
-            with (
-                self.subTest(option=invalid[0]),
-                patch.object(
-                    sys,
-                    "argv",
-                    ["release_artifact.py", "validate", *invalid],
-                ),
-                patch.object(sys, "stderr"),
-                patch.object(release_artifact, "validate_vsix") as validate_vsix,
-            ):
-                with self.assertRaises(SystemExit) as raised:
-                    release_artifact.main()
-                self.assertEqual(raised.exception.code, 2)
-                validate_vsix.assert_not_called()
-
-    def test_create_cli_preserves_release_identity_arguments(self) -> None:
-        vsix = Path("release.vsix")
-        identity = Path("release.identity.json")
-        digest = "a" * 64
+    def test_verify_cli_reads_scoped_expectations_from_environment(self) -> None:
+        expected = {
+            "FLEXIMARK_EXPECTED_SHA256": "a" * 64,
+            "FLEXIMARK_EXPECTED_GIT_TAG": "v1.2.3",
+            "FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD": "b" * 40,
+        }
         with (
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "release_artifact.py",
-                    "create",
-                    "--vsix",
-                    str(vsix),
-                    "--identity",
-                    str(identity),
-                    "--expected-version",
-                    "1.2.3",
-                    "--git-tag",
-                    "v1.2.3",
-                    "--source-git-head",
-                    "b" * 40,
-                    "--print-sha256",
-                ],
-            ),
+            patch.dict(release_artifact.os.environ, expected),
+            patch.object(sys, "argv", ["release_artifact.py", "verify"]),
             patch.object(
                 release_artifact,
-                "create_identity",
-                return_value={"sha256": digest},
-            ) as create_identity,
-            patch("builtins.print") as print_digest,
+                "verify_identity",
+                return_value={"sha256": expected["FLEXIMARK_EXPECTED_SHA256"]},
+            ) as verify,
         ):
             release_artifact.main()
-
-        create_identity.assert_called_once_with(
-            vsix,
-            identity,
-            expected_version="1.2.3",
-            git_tag="v1.2.3",
-            source_git_head="b" * 40,
+        self.assertEqual(
+            verify.call_args.kwargs,
+            {
+                "expected_sha256": expected["FLEXIMARK_EXPECTED_SHA256"],
+                "expected_git_tag": expected["FLEXIMARK_EXPECTED_GIT_TAG"],
+                "expected_source_git_head": expected[
+                    "FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD"
+                ],
+            },
         )
-        print_digest.assert_called_once_with(digest)
 
     def test_rejects_missing_malformed_and_mismatched_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

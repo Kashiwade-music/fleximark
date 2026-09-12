@@ -29,6 +29,7 @@ import type {
   PreviewState,
   WorkspaceRuntime,
 } from "../../adapters/vscode/src/runtime-state.mjs";
+import { deferred, signal } from "./async-helpers.mjs";
 
 export const suiteName = "Preview coordinator";
 
@@ -1108,7 +1109,6 @@ export function suite(): void {
       markReload: () => undefined,
       reload: async () => true,
       openExternal: async () => undefined,
-      report: assert.fail,
     });
     assert.deepEqual(rejected, ["preview"]);
     assert.equal(runtime.previews.size, 0);
@@ -1132,7 +1132,6 @@ export function suite(): void {
     const reports: string[] = [];
     const queue = new UnmatchedPreviewEventQueue();
     await recreatePreviews(runtime, candidate, {
-      reject: async () => assert.fail("committed candidate uses disposal"),
       dispose: async (owner, item) => {
         disposed += 1;
         owner.previews.delete(item.previewSessionId);
@@ -1146,7 +1145,6 @@ export function suite(): void {
           },
           report: (error) => reports.push(String(error)),
         }),
-      activate: async () => assert.fail("failed delivery cannot activate"),
       discardQueued: () => undefined,
       markReload: (origin, previewSessionId) =>
         queue.markReloadRequired(origin, previewSessionId),
@@ -1154,7 +1152,6 @@ export function suite(): void {
         reloaded += 1;
         return true;
       },
-      openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(String(error)),
     });
     assert.equal(reloaded, 1);
@@ -1192,7 +1189,6 @@ export function suite(): void {
 
     await recreatePreviews(runtime, candidate, {
       candidateCurrent: () => versionCurrent,
-      reject: async () => assert.fail("committed candidate is retained"),
       dispose: async (owner, item) => {
         disposals += 1;
         owner.previews.delete(item.previewSessionId);
@@ -1213,7 +1209,6 @@ export function suite(): void {
           currentOrigin: () => candidate.origin,
           reportFailure: (message) => reports.push(message),
         }),
-      openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(String(error)),
     });
 
@@ -1289,7 +1284,6 @@ export function suite(): void {
     await recreatePreviews(runtime, candidate, {
       candidateCurrent: () => versionCurrent,
       candidateIdentityCurrent: () => !candidate.origin.rpc.closed,
-      reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
         disposals += 1;
       },
@@ -1301,7 +1295,6 @@ export function suite(): void {
         );
         versionCurrent = false;
       },
-      activate: async () => assert.fail("drift requires a full event"),
       discardQueued: () => undefined,
       markReload: (origin, previewSessionId) => {
         const overflow = queue.markReloadRequired(origin, previewSessionId);
@@ -1318,7 +1311,6 @@ export function suite(): void {
           currentOrigin: () => candidate.origin,
           reportFailure: (message) => reports.push(message),
         }),
-      openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(String(error)),
     });
 
@@ -1347,7 +1339,6 @@ export function suite(): void {
 
     await recreatePreviews(runtime, candidate, {
       candidateIdentityCurrent: () => !candidate.origin.rpc.closed,
-      reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
         disposals += 1;
       },
@@ -1363,10 +1354,6 @@ export function suite(): void {
         activations += 1;
       },
       discardQueued: () => undefined,
-      markReload: () => assert.fail("identity loss is not version drift"),
-      reload: async () => assert.fail("identity loss is not version drift"),
-      openExternal: async () => assert.fail("embedded preview"),
-      report: assert.fail,
     });
 
     assert.equal(disposals, 0);
@@ -1390,7 +1377,6 @@ export function suite(): void {
     const reports: unknown[] = [];
 
     const recreating = recreatePreviews(runtime, candidate, {
-      reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
         disposals += 1;
       },
@@ -1398,14 +1384,12 @@ export function suite(): void {
         handshakeStarted.resolve();
         await pendingHandshake.promise;
       },
-      activate: async () => assert.fail("rejected handshake cannot activate"),
       discardQueued: () => undefined,
       markReload: () => undefined,
       reload: async () => {
         reloads += 1;
         return true;
       },
-      openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(error),
     });
     await handshakeStarted.promise;
@@ -1439,7 +1423,6 @@ export function suite(): void {
     const reports: unknown[] = [];
 
     const recreating = recreatePreviews(runtime, candidate, {
-      reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
         disposals += 1;
       },
@@ -1453,7 +1436,6 @@ export function suite(): void {
       discardQueued: () => undefined,
       markReload: () => undefined,
       reload: async () => true,
-      openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(error),
     });
     await activationStarted.promise;
@@ -1481,10 +1463,6 @@ export function suite(): void {
     const reports: unknown[] = [];
 
     await recreatePreviews(runtime, candidate, {
-      reject: async () => assert.fail("committed candidate is retained"),
-      dispose: async () => assert.fail("external failure retains membership"),
-      handshake: async () => assert.fail("external preview has no handshake"),
-      activate: async () => assert.fail("rejected URL open cannot activate"),
       discardQueued: () => undefined,
       markReload: () => undefined,
       reload: async () => true,
@@ -1542,7 +1520,6 @@ export function suite(): void {
     assert.deepEqual(posts, ["old-preview"]);
 
     await recreatePreviews(runtime, candidate, {
-      reject: async () => assert.fail("candidate is committed"),
       dispose: async (owner, item) => {
         disposals += 1;
         owner.previews.delete(item.previewSessionId);
@@ -1558,7 +1535,6 @@ export function suite(): void {
         reloads += 1;
         return true;
       },
-      openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(error),
     });
     const completedEpoch = previous.handshakeEpoch;
@@ -1687,7 +1663,6 @@ export function suite(): void {
         opened.resolve();
         await pendingOpen.promise;
       },
-      report: assert.fail,
     });
     await opened.promise;
     runtime.removed = true;
@@ -1715,9 +1690,6 @@ export function suite(): void {
 
     await recreatePreviews(runtime, candidate, {
       candidateCurrent: () => versionCurrent,
-      reject: async () => assert.fail("current candidate is retained"),
-      dispose: async () => assert.fail("current candidate is retained"),
-      handshake: async () => assert.fail("external preview has no handshake"),
       activate,
       discardQueued: () => undefined,
       markReload: (origin, previewSessionId) =>
@@ -1730,7 +1702,6 @@ export function suite(): void {
         effects.push("open");
         versionCurrent = false;
       },
-      report: assert.fail,
     });
 
     assert.deepEqual(effects, ["open", "reload"]);
@@ -2076,40 +2047,37 @@ export function suite(): void {
     }
   });
 
-  test("marks a count-overflowed stream as reload-required", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
-    const queue = new UnmatchedPreviewEventQueue({
-      maxEventsPerPreview: 2,
-      maxBytesPerPreview: 100_000,
-    });
-    queue.enqueue(origin, previewEvent("preview", "full", 1));
-    queue.enqueue(origin, previewEvent("preview", "patch", 2));
-    queue.enqueue(origin, previewEvent("preview", "viewport", 2));
-
-    assert.deepEqual(queue.take(origin, "preview"), {
-      events: [],
-      reloadRequired: true,
-    });
-  });
-
-  test("marks a stream whose conservative byte total overflows", () => {
+  test("marks locally overflowed streams as reload-required", () => {
     const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
     const first = previewEvent("preview", "full", 1);
     const second = previewEvent("preview", "patch", 2);
-    const queue = new UnmatchedPreviewEventQueue({
-      maxEventsPerPreview: 64,
-      maxBytesPerPreview:
-        conservativePreviewEventBytes(first) +
-        conservativePreviewEventBytes(second) -
-        1,
-    });
-    queue.enqueue(origin, first);
-    queue.enqueue(origin, second);
-
-    assert.deepEqual(queue.take(origin, "preview"), {
-      events: [],
-      reloadRequired: true,
-    });
+    const cases = [
+      {
+        name: "count",
+        limits: { maxEventsPerPreview: 2, maxBytesPerPreview: 100_000 },
+        events: [first, second, previewEvent("preview", "viewport", 2)],
+      },
+      {
+        name: "bytes",
+        limits: {
+          maxEventsPerPreview: 64,
+          maxBytesPerPreview:
+            conservativePreviewEventBytes(first) +
+            conservativePreviewEventBytes(second) -
+            1,
+        },
+        events: [first, second],
+      },
+    ];
+    for (const { name, limits, events } of cases) {
+      const queue = new UnmatchedPreviewEventQueue(limits);
+      for (const event of events) queue.enqueue(origin, event);
+      assert.deepEqual(
+        queue.take(origin, "preview"),
+        { events: [], reloadRequired: true },
+        name,
+      );
+    }
   });
 
   test("measures the exact UTF-8 JSON bytes", () => {
@@ -2250,33 +2218,6 @@ export function suite(): void {
   });
 }
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve(value: T): void;
-  reject(reason?: unknown): void;
-} {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((accept, decline) => {
-    resolve = accept;
-    reject = decline;
-  });
-  return { promise, resolve, reject };
-}
-
-function signal(): {
-  promise: Promise<void>;
-  resolve(): void;
-  reject(reason?: unknown): void;
-} {
-  const value = deferred<undefined>();
-  return {
-    promise: value.promise,
-    resolve: () => value.resolve(undefined),
-    reject: value.reject,
-  };
-}
-
 function globallyLimitedQueue(
   overrides: Partial<{
     maxStreams: number;
@@ -2356,6 +2297,7 @@ function recreatePreviews(
   candidate: PreviewCandidate,
   overrides: Partial<Parameters<typeof recreatePreviewsLifecycle>[1]>,
 ): Promise<void> {
+  // Every effect is forbidden until a case explicitly opts in by overriding it.
   return recreatePreviewsLifecycle(runtime, {
     document: () => ({}) as never,
     request: async () => candidate,

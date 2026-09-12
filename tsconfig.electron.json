@@ -19,5 +19,8 @@
     "test/adapter/workspace-migration-runtime.test.mts",
     "test/adapter/multi-root-runtime.test.mts"
   ],
-  "references": [{ "path": "./tsconfig.adapter.json" }]
+  "references": [
+    { "path": "./tsconfig.adapter.json" },
+    { "path": "./tsconfig.unit.json" }
+  ]
 }

@@ -402,46 +402,50 @@ def _archive_version(
     return version
 
 
-def _validate_daemon_manifest(
-    archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo]
-) -> None:
-    manifest = _json_object(
-        archive.read("extension/bin/manifest.json"), "packaged daemon manifest"
-    )
+def _daemon_manifest_artifacts(payload: bytes, label: str) -> list[dict[str, Any]]:
+    manifest = _json_object(payload, label)
     if set(manifest) != {"schemaVersion", "protocolVersion", "artifacts"}:
-        raise RuntimeError("packaged daemon manifest has unexpected fields")
+        raise RuntimeError(f"{label} has unexpected fields")
     if (
         type(manifest.get("schemaVersion")) is not int
         or manifest["schemaVersion"] != 1
         or type(manifest.get("protocolVersion")) is not int
         or manifest["protocolVersion"] != 1
     ):
-        raise RuntimeError("packaged daemon manifest has unsupported versions")
+        raise RuntimeError(f"{label} has unsupported versions")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or len(artifacts) != len(TARGETS):
-        raise RuntimeError("packaged daemon manifest must contain all six targets")
+        raise RuntimeError(f"{label} must contain all six targets")
 
     for artifact, target in zip(artifacts, TARGETS, strict=True):
         if not isinstance(artifact, dict):
-            raise RuntimeError("packaged daemon manifest artifact must be an object")
+            raise RuntimeError(f"{label} artifact must be an object")
         if set(artifact) != {"platform", "arch", "path", "sha256"}:
-            raise RuntimeError(
-                "packaged daemon manifest artifact has unexpected fields"
-            )
+            raise RuntimeError(f"{label} artifact has unexpected fields")
         expected_path = target.bin_relative_path.as_posix()
         if (
             artifact.get("platform") != target.platform
             or artifact.get("arch") != target.arch
             or artifact.get("path") != expected_path
         ):
-            raise RuntimeError(
-                "packaged daemon manifest target order or path is invalid"
-            )
+            raise RuntimeError(f"{label} target order or path is invalid")
         expected_hash = artifact.get("sha256")
         if not isinstance(expected_hash, str) or not SHA256_PATTERN.fullmatch(
             expected_hash
         ):
-            raise RuntimeError("packaged daemon manifest has an invalid SHA-256")
+            raise RuntimeError(f"{label} has an invalid SHA-256")
+    return artifacts
+
+
+def _validate_daemon_manifest(
+    archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo]
+) -> None:
+    artifacts = _daemon_manifest_artifacts(
+        archive.read("extension/bin/manifest.json"), "packaged daemon manifest"
+    )
+    for artifact, target in zip(artifacts, TARGETS, strict=True):
+        expected_path = target.bin_relative_path.as_posix()
+        expected_hash = artifact["sha256"]
         info = by_name[f"extension/{expected_path}"]
         if info.file_size <= 0:
             raise RuntimeError("packaged daemon must not be empty")
@@ -485,38 +489,13 @@ def validate_prebuilt_inputs(root: Path = ROOT) -> None:
         raise RuntimeError("release prebuilt manifest is missing") from error
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_METADATA_SIZE:
         raise RuntimeError("release prebuilt manifest has an invalid size or type")
-    manifest = _json_object(manifest_path.read_bytes(), "release prebuilt manifest")
-    if set(manifest) != {"schemaVersion", "protocolVersion", "artifacts"}:
-        raise RuntimeError("release prebuilt manifest has unexpected fields")
-    if (
-        type(manifest.get("schemaVersion")) is not int
-        or manifest["schemaVersion"] != 1
-        or type(manifest.get("protocolVersion")) is not int
-        or manifest["protocolVersion"] != 1
-    ):
-        raise RuntimeError("release prebuilt manifest has unsupported versions")
-    artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, list) or len(artifacts) != len(TARGETS):
-        raise RuntimeError("release prebuilt manifest must contain all six targets")
+    artifacts = _daemon_manifest_artifacts(
+        manifest_path.read_bytes(), "release prebuilt manifest"
+    )
 
     for artifact, target in zip(artifacts, TARGETS, strict=True):
         expected_path = target.bin_relative_path.as_posix()
-        if not isinstance(artifact, dict) or set(artifact) != {
-            "platform",
-            "arch",
-            "path",
-            "sha256",
-        }:
-            raise RuntimeError("release prebuilt manifest artifact is invalid")
-        expected_hash = artifact.get("sha256")
-        if (
-            artifact.get("platform") != target.platform
-            or artifact.get("arch") != target.arch
-            or artifact.get("path") != expected_path
-            or not isinstance(expected_hash, str)
-            or not SHA256_PATTERN.fullmatch(expected_hash)
-        ):
-            raise RuntimeError("release prebuilt manifest target or hash is invalid")
+        expected_hash = artifact["sha256"]
         daemon = root / target.bin_relative_path
         try:
             daemon_metadata = daemon.lstat()

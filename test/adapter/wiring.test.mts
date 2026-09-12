@@ -14,6 +14,7 @@ import {
   type ProviderRegistrar,
   registerProviders,
 } from "../../adapters/vscode/src/providers.mjs";
+import { deferred, flushMicrotasks } from "./async-helpers.mjs";
 
 export const suiteName = "Extension wiring registrars";
 
@@ -23,37 +24,25 @@ function disposable(): vscode.Disposable {
   return { dispose: () => undefined };
 }
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve(value: T): void;
-  reject(error: unknown): void;
-} {
-  let resolvePromise: (value: T) => void = () => undefined;
-  let rejectPromise: (error: unknown) => void = () => undefined;
-  const promise = new Promise<T>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
-  });
-  return { promise, resolve: resolvePromise, reject: rejectPromise };
-}
-
-async function settleCallbacks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+function commandRegistrar(
+  callbacks: Map<string, CommandCallback>,
+  registrations: vscode.Disposable[] = [],
+): CommandRegistrar {
+  return {
+    registerCommand(command, callback) {
+      callbacks.set(command, callback);
+      const registration = disposable();
+      registrations.push(registration);
+      return registration;
+    },
+  };
 }
 
 export function suite(): void {
   test("registers commands, delegates representative callbacks, and reports failures", async () => {
     const callbacks = new Map<string, CommandCallback>();
     const registeredDisposables: vscode.Disposable[] = [];
-    const registrar = {
-      registerCommand(command: string, callback: CommandCallback) {
-        callbacks.set(command, callback);
-        const registration = disposable();
-        registeredDisposables.push(registration);
-        return registration;
-      },
-    } as unknown as CommandRegistrar;
+    const registrar = commandRegistrar(callbacks, registeredDisposables);
     const calls: string[] = [];
     const previews: string[] = [];
     const reported: unknown[] = [];
@@ -104,12 +93,7 @@ export function suite(): void {
 
   test("suppresses only reporting while preserving a retired command rejection", async () => {
     const callbacks = new Map<string, CommandCallback>();
-    const registrar = {
-      registerCommand(command: string, callback: CommandCallback) {
-        callbacks.set(command, callback);
-        return disposable();
-      },
-    } as unknown as CommandRegistrar;
+    const registrar = commandRegistrar(callbacks);
     const pendingCommand = deferred<undefined>();
     const reported: unknown[] = [];
     let active = true;
@@ -492,16 +476,12 @@ export function suite(): void {
         onDidChangeTextEditorVisibleRanges: register("window.visibleRanges"),
       },
     } as unknown as EditorEventRegistrar;
-    const activations: (vscode.TextDocument | undefined)[] = [];
-    const changes: vscode.TextDocument[] = [];
-    const closes: vscode.TextDocument[] = [];
-    const reconfigurations: vscode.WorkspaceFolder[] = [];
-    const removals: vscode.WorkspaceFolder[] = [];
-    const migrationAdditions: vscode.WorkspaceFolder[] = [];
-    const migrationRemovals: vscode.WorkspaceFolder[] = [];
-    let migrationTrustGrants = 0;
-    const selections: vscode.TextEditorSelectionChangeEvent[] = [];
-    const viewports: vscode.TextEditorVisibleRangesChangeEvent[] = [];
+    const calls = new Map<string, unknown[]>();
+    const record = (name: string, value?: unknown): void => {
+      const values = calls.get(name) ?? [];
+      values.push(value);
+      calls.set(name, values);
+    };
     const reported: unknown[] = [];
     let active = true;
     const pendingActivation: {
@@ -513,32 +493,27 @@ export function suite(): void {
     } = {};
     const adapter = {
       async activateDocument(document?: vscode.TextDocument) {
-        activations.push(document);
+        record("activate", document);
         await pendingActivation.value?.promise;
         if (failures.activation) throw failures.activation;
       },
-      changeDocument(document: vscode.TextDocument) {
-        changes.push(document);
-      },
-      closeDocument(document: vscode.TextDocument) {
-        closes.push(document);
-      },
+      changeDocument: (document: vscode.TextDocument) =>
+        record("change", document),
+      closeDocument: (document: vscode.TextDocument) =>
+        record("close", document),
       async reconfigureWorkspace(workspace: vscode.WorkspaceFolder) {
-        reconfigurations.push(workspace);
+        record("reconfigure", workspace);
         if (failures.reconfiguration) throw failures.reconfiguration;
       },
-      removeWorkspace(workspace: vscode.WorkspaceFolder) {
-        removals.push(workspace);
-      },
+      removeWorkspace: (workspace: vscode.WorkspaceFolder) =>
+        record("remove", workspace),
       report(error: unknown) {
         reported.push(error);
       },
-      selectionChanged(event: vscode.TextEditorSelectionChangeEvent) {
-        selections.push(event);
-      },
-      viewportChanged(event: vscode.TextEditorVisibleRangesChangeEvent) {
-        viewports.push(event);
-      },
+      selectionChanged: (event: vscode.TextEditorSelectionChangeEvent) =>
+        record("selection", event),
+      viewportChanged: (event: vscode.TextEditorVisibleRangesChangeEvent) =>
+        record("viewport", event),
     };
 
     const registrations = registerEditorEvents(
@@ -546,11 +521,9 @@ export function suite(): void {
       registrar,
       () => active,
       {
-        added: (workspace) => migrationAdditions.push(workspace),
-        removed: (workspace) => migrationRemovals.push(workspace),
-        trustGranted: () => {
-          migrationTrustGrants += 1;
-        },
+        added: (workspace) => record("migration.add", workspace),
+        removed: (workspace) => record("migration.remove", workspace),
+        trustGranted: () => record("migration.trust"),
       },
     );
     assert.equal(
@@ -602,18 +575,22 @@ export function suite(): void {
     handlers.get("workspace.trust")?.(undefined);
     handlers.get("window.selection")?.(selectionEvent);
     handlers.get("window.visibleRanges")?.(viewportEvent);
-    await settleCallbacks();
+    await flushMicrotasks(2);
 
-    assert.deepEqual(activations, [openedDocument, undefined, openedDocument]);
-    assert.deepEqual(changes, [otherDocument]);
-    assert.deepEqual(closes, [otherDocument]);
-    assert.deepEqual(removals, [folder]);
-    assert.deepEqual(migrationAdditions, [secondFolder]);
-    assert.deepEqual(migrationRemovals, [folder]);
-    assert.equal(migrationTrustGrants, 1);
-    assert.deepEqual(reconfigurations, [folder, folder]);
-    assert.deepEqual(selections, [selectionEvent]);
-    assert.deepEqual(viewports, [viewportEvent]);
+    assert.deepEqual(calls.get("activate"), [
+      openedDocument,
+      undefined,
+      openedDocument,
+    ]);
+    assert.deepEqual(calls.get("change"), [otherDocument]);
+    assert.deepEqual(calls.get("close"), [otherDocument]);
+    assert.deepEqual(calls.get("remove"), [folder]);
+    assert.deepEqual(calls.get("migration.add"), [secondFolder]);
+    assert.deepEqual(calls.get("migration.remove"), [folder]);
+    assert.deepEqual(calls.get("migration.trust"), [undefined]);
+    assert.deepEqual(calls.get("reconfigure"), [folder, folder]);
+    assert.deepEqual(calls.get("selection"), [selectionEvent]);
+    assert.deepEqual(calls.get("viewport"), [viewportEvent]);
 
     failures.activation = new Error("activation failed");
     failures.reconfiguration = new Error("reconfiguration failed");
@@ -621,7 +598,7 @@ export function suite(): void {
     handlers.get("watcher.change")?.(
       vscode.Uri.joinPath(folder.uri, ".fleximark", "theme.css"),
     );
-    await settleCallbacks();
+    await flushMicrotasks(2);
     assert.equal(reported.length, 2);
     assert.ok(reported.includes(failures.activation));
     assert.ok(reported.includes(failures.reconfiguration));
@@ -633,7 +610,7 @@ export function suite(): void {
     handlers.get("window.activeEditor")?.(openedEditor);
     active = false;
     pendingActivation.value.reject(retiredFailure);
-    await settleCallbacks();
+    await flushMicrotasks(2);
     assert.deepEqual(reported, []);
   });
 }
