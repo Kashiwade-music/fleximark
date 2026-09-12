@@ -6,19 +6,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension (foam-notes)",
-      "type": "extensionHost",
-      "request": "launch",
-      "args": [
-        "${workspaceFolder}${/}..${/}foam-notes",
-        "--disable-extensions",
-        "--extensionDevelopmentPath=${workspaceFolder}"
-      ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
-      "preLaunchTask": "${defaultBuildTask}"
-    },
-    {
-      "name": "Run Extension (extension workspace)",
+      "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
       "args": [
