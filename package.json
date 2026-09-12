@@ -126,6 +126,7 @@
         "fleximark.previewTarget": {
           "type": "string",
           "default": "embeddedHtml",
+          "scope": "resource",
           "enum": [
             "embeddedHtml",
             "externalBrowser"

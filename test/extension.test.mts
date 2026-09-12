@@ -45,6 +45,7 @@ suite("Extension Test Suite", () => {
       properties["fleximark.daemonPath"].scope,
       "machine-overridable",
     );
+    assert.equal(properties["fleximark.previewTarget"].scope, "resource");
     assert.deepEqual(properties["fleximark.logLevel"].enum, [
       "off",
       "error",
