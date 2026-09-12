@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Build external preview client
+        run: uv run --frozen python scripts/build.py browser
+
       - name: Install minimum supported Rust version
         run: rustup toolchain install 1.85.0 --profile minimal
 
@@ -53,9 +56,6 @@ jobs:
 
       - name: Verify performance budgets
         run: uv run --frozen python scripts/check_performance_budgets.py
-
-      - name: Build external preview client
-        run: uv run --frozen python scripts/build.py browser
 
       - name: Check Rust formatting
         run: cargo fmt --all --check
@@ -100,6 +100,9 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Build external preview client
+        run: uv run --frozen python scripts/build.py browser
+
       - name: Install minimum supported Rust version
         run: rustup toolchain install 1.85.0 --profile minimal
 
@@ -130,9 +133,6 @@ jobs:
           pattern: daemon-*
           path: bin
           merge-multiple: true
-
-      - name: Build external preview client
-        run: uv run --frozen python scripts/build.py browser
 
       - name: Create final release manifest
         run: uv run --frozen python scripts/create_release_manifest.py --require-all

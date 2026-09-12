@@ -610,6 +610,13 @@ class CargoBoundaryContract(unittest.TestCase):
                     "cargo +1.85.0 check --workspace --all-targets --locked",
                     source,
                 )
+                self.assertLess(
+                    source.index("Build external preview client"),
+                    source.index(
+                        "cargo +1.85.0 check --workspace --all-targets --locked"
+                    ),
+                    "the generated preview client must exist before Rust include_str! checks",
+                )
                 self.assertRegex(
                     source,
                     r"(?s)CARGO_TARGET_DIR: target/msrv-1\.85\s+run: cargo \+1\.85\.0 check --workspace --all-targets --locked",
@@ -642,6 +649,13 @@ class CargoBoundaryContract(unittest.TestCase):
                 self.assertRegex(
                     source,
                     r"(?s)CARGO_TARGET_DIR: target/msrv-1\.85\s+run: cargo \+1\.85\.0 check --workspace --all-targets --locked",
+                )
+                self.assertLess(
+                    source.index("Build external preview client"),
+                    source.index(
+                        "cargo +1.85.0 check --workspace --all-targets --locked"
+                    ),
+                    "the generated preview client must exist before Rust include_str! checks",
                 )
                 self.assertNotIn("rustup +1.85.0 target add", source)
                 self.assertIn("cargo build --release -p fleximarkd --locked", source)

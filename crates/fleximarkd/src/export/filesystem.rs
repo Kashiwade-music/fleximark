@@ -163,7 +163,11 @@ pub(super) fn object_identity(path: &Path) -> Result<ObjectIdentity, ServiceErro
     #[cfg(unix)]
     let platform_id = {
         use std::os::unix::fs::MetadataExt;
-        format!("{}:{}", metadata.dev(), metadata.ino())
+        format!(
+            "{}:{}",
+            MetadataExt::dev(&metadata),
+            MetadataExt::ino(&metadata)
+        )
     };
     #[cfg(not(any(unix, windows)))]
     return Err(ServiceError::ExportRecoveryConflict);
