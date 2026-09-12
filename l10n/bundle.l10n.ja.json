@@ -9,6 +9,7 @@
   "Select a note template": "ノートのテンプレートを選択してください",
   "Select a FlexiMark workspace": "FlexiMark ワークスペースを選択してください",
   "Open a Markdown document first.": "先に Markdown 文書を開いてください。",
+  "Open the Markdown document inside a workspace first.": "先にワークスペース内の Markdown 文書を開いてください。",
   "FlexiMark recovered": "FlexiMark が復旧しました",
   "FlexiMark daemon stopped; reconnecting…": "FlexiMark daemon が停止しました。再接続しています…",
   "FlexiMark daemon repeatedly failed.": "FlexiMark daemon が繰り返し停止しました。",

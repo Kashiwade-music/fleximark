@@ -795,6 +795,7 @@ function previewCandidateOwnsCommittedState(
 export interface PreviewLifecycleDependencies {
   activeEditor(): vscode.TextEditor | undefined;
   showNoDocument(): void;
+  showNoWorkspace(): void;
   workspaceFor(
     document: vscode.TextDocument,
   ): vscode.WorkspaceFolder | undefined;
@@ -845,7 +846,12 @@ export async function openPreviewLifecycle(
     dependencies.showNoDocument();
     return;
   }
-  const runtime = await dependencies.start(dependencies.workspaceFor(document));
+  const workspace = dependencies.workspaceFor(document);
+  if (!workspace) {
+    dependencies.showNoWorkspace();
+    return;
+  }
+  const runtime = await dependencies.start(workspace);
   if (!runtime) return;
   await dependencies.sync(document);
   const candidate = await dependencies.request(runtime, document, target);

@@ -260,6 +260,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
           vscode.l10n.t("Open a Markdown document first."),
         );
       },
+      showNoWorkspace: () => {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t("Open the Markdown document inside a workspace first."),
+        );
+      },
       workspaceFor: (document) =>
         vscode.workspace.getWorkspaceFolder(document.uri),
       start: (workspace) => this.start(workspace),

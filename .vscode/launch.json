@@ -10,7 +10,7 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "${workspaceFolder}",
+        "${input:targetWorkspace}",
         "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
@@ -18,11 +18,11 @@
       "preLaunchTask": "${defaultBuildTask}"
     },
     {
-      "name": "Run Extension (select workspace)",
+      "name": "Run Extension (extension workspace)",
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "${input:targetWorkspace}",
+        "${workspaceFolder}",
         "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],

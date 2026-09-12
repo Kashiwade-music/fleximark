@@ -70,8 +70,9 @@ mise run build
 Windows/Linux/macOS の x64 と arm64 である。
 
 VS Code でこのリポジトリを開き、Run and Debug から `Run Extension` を選んで F5 を押す。
-既定の build task が TypeScript と adapter bundle の watch を開始し、別ウィンドウの
-Extension Development Host が開く。
+表示された入力欄に検証用 workspace の絶対パスを指定する。既定の build task が
+TypeScript と adapter bundle の watch を開始し、その workspace を開いた別ウィンドウの
+Extension Development Host が起動する。
 
 Rust を変更した場合は、先に実行中の Extension Development Host を停止し、次を再実行してから
 F5 で起動し直す。Windows では実行中の daemon を上書きできないため、停止が先である。
@@ -83,12 +84,11 @@ mise exec -- uv run --frozen python scripts/stage_daemon.py
 
 ### 2. 検証用 workspace を初期化する
 
-1. 任意の空ディレクトリ（例: `fleximark-manual-check`）を作る。
-2. Extension Development Host で `File: Open Folder...` を実行し、そのディレクトリを開く。
-3. Workspace Trust の確認が出た場合は、この検証用ディレクトリを信頼する。
-4. Command Palette から
+1. 任意の空ディレクトリ（例: `fleximark-manual-check`）を作り、F5 起動時にその絶対パスを指定する。
+2. Workspace Trust の確認が出た場合は、この検証用ディレクトリを信頼する。
+3. Command Palette から
    `FlexiMark: Initialize Workspace as Note Taking Directory` を実行する。
-5. `.fleximark/config.toml` と `.fleximark/theme.css` が作られ、`config.toml` が開くことを確認する。
+4. `.fleximark/config.toml` と `.fleximark/theme.css` が作られ、`config.toml` が開くことを確認する。
 
 書き込み系 command（初期化、note、theme、admonition collection、export）は trusted workspace
 でのみ動く。複数の workspace folder があり、active editor から対象を決められない場合は、

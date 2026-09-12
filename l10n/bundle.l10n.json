@@ -14,5 +14,6 @@
   "Retry": "Retry",
   "Open Output": "Open Output",
   "Open a Markdown document first.": "Open a Markdown document first.",
+  "Open the Markdown document inside a workspace first.": "Open the Markdown document inside a workspace first.",
   "FlexiMark failed: {0}": "FlexiMark failed: {0}"
 }

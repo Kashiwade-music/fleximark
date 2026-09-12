@@ -142,6 +142,27 @@ export function suite(): void {
     assert.equal(runtime.previews.size, 0);
   });
 
+  test("reports a Markdown document outside every workspace", async () => {
+    const { candidate, runtime } = previewCandidate();
+    let reported = 0;
+    let starts = 0;
+    await openPreviewLifecycle(
+      "embeddedHtml",
+      previewDependencies(candidate, runtime, {
+        workspaceFor: () => undefined,
+        showNoWorkspace: () => {
+          reported += 1;
+        },
+        start: async () => {
+          starts += 1;
+          return runtime;
+        },
+      }),
+    );
+    assert.equal(reported, 1);
+    assert.equal(starts, 0);
+  });
+
   test("cleans the origin candidate when embedded UI construction throws", async () => {
     const { candidate, runtime } = previewCandidate();
     const rejected: string[] = [];
@@ -2368,6 +2389,7 @@ function previewDependencies(
   return {
     activeEditor: () => ({ document, viewColumn: 1 }) as never,
     showNoDocument: () => assert.fail("document is present"),
+    showNoWorkspace: () => assert.fail("workspace is present"),
     workspaceFor: () => ({}) as never,
     start: async () => runtime,
     sync: async () => undefined,
