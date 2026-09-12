@@ -82,17 +82,35 @@ fn runtime(
     })
 }
 
+fn successful_response(response: HookResponse) -> Result<RuntimeOutput, RuntimeError> {
+    Ok(RuntimeOutput {
+        response,
+        peak_memory_bytes: 0,
+    })
+}
+
+fn document_response(document: &Document) -> Result<RuntimeOutput, RuntimeError> {
+    successful_response(HookResponse::Document {
+        candidate: CandidateDocument::from_document(document),
+    })
+}
+
+fn observing_runtime(observed: Arc<Mutex<Option<SandboxPolicy>>>) -> Arc<dyn PluginRuntime> {
+    runtime(move |request, sandbox, _| {
+        *observed.lock().unwrap() = Some(sandbox);
+        let HookRequest::TransformDocument { document } = request else {
+            unreachable!()
+        };
+        document_response(&document)
+    })
+}
+
 fn pass_runtime() -> Arc<dyn PluginRuntime> {
     runtime(|request, _, _| {
         let HookRequest::TransformDocument { document } = request else {
             unreachable!()
         };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
+        document_response(&document)
     })
 }
 
@@ -183,6 +201,20 @@ fn register_hook_runtime(
     host.register(plugin, grants, runtime).unwrap();
 }
 
+fn register_runtime(
+    host: &mut PluginHost,
+    id: &str,
+    required: bool,
+    runtime: Arc<dyn PluginRuntime>,
+) {
+    host.register(
+        manifest(id, required),
+        PluginCapabilities::default(),
+        runtime,
+    )
+    .unwrap();
+}
+
 fn malformed_hook_runtime() -> Arc<dyn PluginRuntime> {
     runtime(|request, _, _| {
         let response = match request {
@@ -193,10 +225,7 @@ fn malformed_hook_runtime() -> Arc<dyn PluginRuntime> {
                 annotations: BTreeMap::new(),
             },
         };
-        Ok(RuntimeOutput {
-            response,
-            peak_memory_bytes: 0,
-        })
+        successful_response(response)
     })
 }
 
@@ -235,10 +264,7 @@ fn passing_hook_runtime(ran: Arc<AtomicBool>) -> Arc<dyn PluginRuntime> {
             },
             HookRequest::UnsafeExportHtml { html, .. } => HookResponse::UnsafeExportHtml { html },
         };
-        Ok(RuntimeOutput {
-            response,
-            peak_memory_bytes: 0,
-        })
+        successful_response(response)
     })
 }
 
@@ -392,28 +418,25 @@ fn optional_failure_preserves_the_previous_plugin_commit_for_every_hook() {
                 unreachable!()
             };
             let end = text.len() as u64;
-            Ok(RuntimeOutput {
-                response: HookResponse::PreprocessedSource {
-                    candidate: PreprocessedSource {
-                        text: format!("{text}!"),
-                        segments: vec![
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 0,
-                                output_end: end,
-                                origin: EditOrigin::Original {
-                                    ranges: vec![utf8_source_range(&text, 0, end).unwrap()],
-                                    primary_range_index: 0,
-                                },
+            successful_response(HookResponse::PreprocessedSource {
+                candidate: PreprocessedSource {
+                    text: format!("{text}!"),
+                    segments: vec![
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 0,
+                            output_end: end,
+                            origin: EditOrigin::Original {
+                                ranges: vec![utf8_source_range(&text, 0, end).unwrap()],
+                                primary_range_index: 0,
                             },
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: end,
-                                output_end: end + 1,
-                                origin: EditOrigin::Generated { anchor: None },
-                            },
-                        ],
-                    },
+                        },
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: end,
+                            output_end: end + 1,
+                            origin: EditOrigin::Generated { anchor: None },
+                        },
+                    ],
                 },
-                peak_memory_bytes: 0,
             })
         }),
     );
@@ -444,10 +467,7 @@ fn optional_failure_preserves_the_previous_plugin_commit_for_every_hook() {
             candidate.blocks[0]
                 .attributes
                 .insert("data-prefix".to_owned(), "document".to_owned());
-            Ok(RuntimeOutput {
-                response: HookResponse::Document { candidate },
-                peak_memory_bytes: 0,
-            })
+            successful_response(HookResponse::Document { candidate })
         }),
     );
     register_hook_runtime(
@@ -491,10 +511,7 @@ fn optional_failure_preserves_the_previous_plugin_commit_for_every_hook() {
             candidate
                 .attributes
                 .insert("data-prefix".to_owned(), "block".to_owned());
-            Ok(RuntimeOutput {
-                response: HookResponse::Block { candidate },
-                peak_memory_bytes: 0,
-            })
+            successful_response(HookResponse::Block { candidate })
         }),
     );
     register_hook_runtime(
@@ -523,11 +540,8 @@ fn optional_failure_preserves_the_previous_plugin_commit_for_every_hook() {
             let HookRequest::ExtendRenderModel { .. } = request else {
                 unreachable!()
             };
-            Ok(RuntimeOutput {
-                response: HookResponse::RenderAnnotations {
-                    annotations: BTreeMap::from([("prefix".to_owned(), "annotation".to_owned())]),
-                },
-                peak_memory_bytes: 0,
+            successful_response(HookResponse::RenderAnnotations {
+                annotations: BTreeMap::from([("prefix".to_owned(), "annotation".to_owned())]),
             })
         }),
     );
@@ -554,11 +568,8 @@ fn optional_failure_preserves_the_previous_plugin_commit_for_every_hook() {
             let HookRequest::UnsafeExportHtml { html, .. } = request else {
                 unreachable!()
             };
-            Ok(RuntimeOutput {
-                response: HookResponse::UnsafeExportHtml {
-                    html: format!("{html}<prefix>"),
-                },
-                peak_memory_bytes: 0,
+            successful_response(HookResponse::UnsafeExportHtml {
+                html: format!("{html}<prefix>"),
             })
         }),
     );
@@ -588,10 +599,7 @@ fn optional_invalid_candidate_is_discarded_before_next_plugin() {
         candidate.blocks[0].identity = CandidateIdentity::Existing {
             id: NodeId("unknown".into()),
         };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document { candidate },
-            peak_memory_bytes: 0,
-        })
+        successful_response(HookResponse::Document { candidate })
     });
     let observed = Arc::new(Mutex::new(None));
     let observed_by_runtime = Arc::clone(&observed);
@@ -600,25 +608,10 @@ fn optional_invalid_candidate_is_discarded_before_next_plugin() {
             unreachable!()
         };
         *observed_by_runtime.lock().unwrap() = Some(document.blocks[0].id.clone());
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
+        document_response(&document)
     });
-    host.register(
-        manifest("a-invalid", false),
-        PluginCapabilities::default(),
-        invalid,
-    )
-    .unwrap();
-    host.register(
-        manifest("b-next", false),
-        PluginCapabilities::default(),
-        next,
-    )
-    .unwrap();
+    register_runtime(&mut host, "a-invalid", false, invalid);
+    register_runtime(&mut host, "b-next", false, next);
     let original = document();
     let result = host
         .transform_document("hello\n", &original, &CancellationToken::default())
@@ -637,31 +630,26 @@ fn optional_invalid_candidate_is_discarded_before_next_plugin() {
 #[test]
 fn required_failure_stops_downstream_and_keeps_input_uncommitted() {
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("a-required", true),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "a-required",
+        true,
         runtime(|_, _, _| Err(RuntimeError::Trap("boom".into()))),
-    )
-    .unwrap();
+    );
     let ran = Arc::new(AtomicBool::new(false));
     let ran_by_runtime = Arc::clone(&ran);
-    host.register(
-        manifest("b-later", false),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "b-later",
+        false,
         runtime(move |request, _, _| {
             ran_by_runtime.store(true, Ordering::Release);
             let HookRequest::TransformDocument { document } = request else {
                 unreachable!()
             };
-            Ok(RuntimeOutput {
-                response: HookResponse::Document {
-                    candidate: CandidateDocument::from_document(&document),
-                },
-                peak_memory_bytes: 0,
-            })
+            document_response(&document)
         }),
-    )
-    .unwrap();
+    );
     assert!(matches!(
         host.transform_document("hello\n", &document(), &CancellationToken::default()),
         Err(HostError::RequiredPluginFailed {
@@ -691,17 +679,9 @@ fn duplicate_creation_keys_reject_the_whole_candidate() {
             key: fleximark_plugin_sdk::CreationKey("same".into()),
         };
         candidate.blocks.push(duplicate);
-        Ok(RuntimeOutput {
-            response: HookResponse::Document { candidate },
-            peak_memory_bytes: 0,
-        })
+        successful_response(HookResponse::Document { candidate })
     });
-    host.register(
-        manifest("creator", false),
-        PluginCapabilities::default(),
-        creator,
-    )
-    .unwrap();
+    register_runtime(&mut host, "creator", false, creator);
     let result = host
         .transform_document("hello\n", &document(), &CancellationToken::default())
         .unwrap();
@@ -732,12 +712,7 @@ fn candidate_node_and_depth_limits_reject_without_committing() {
     ];
     for (plugin_id, limits) in cases {
         let mut host = trusted_host(limits);
-        host.register(
-            manifest(plugin_id, false),
-            PluginCapabilities::default(),
-            pass_runtime(),
-        )
-        .unwrap();
+        register_runtime(&mut host, plugin_id, false, pass_runtime());
         let run = host
             .transform_document("hello\n", &original, &CancellationToken::default())
             .unwrap();
@@ -761,9 +736,10 @@ fn transform_block_creation_keys_are_scoped_to_each_invocation() {
     input.blocks[0].id = NodeId("first".into());
     input.blocks[1].id = NodeId("second".into());
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("block-creator", true),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "block-creator",
+        true,
         runtime(|request, _, _| {
             let HookRequest::TransformBlock { block, .. } = request else {
                 unreachable!()
@@ -779,13 +755,9 @@ fn transform_block_creation_keys_are_scoped_to_each_invocation() {
             candidate.identity = CandidateIdentity::Created {
                 key: fleximark_plugin_sdk::CreationKey("same-local-key".into()),
             };
-            Ok(RuntimeOutput {
-                response: HookResponse::Block { candidate },
-                peak_memory_bytes: 0,
-            })
+            successful_response(HookResponse::Block { candidate })
         }),
-    )
-    .unwrap();
+    );
 
     let result = host
         .transform_blocks(source, &input, &CancellationToken::default())
@@ -827,16 +799,10 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
             candidate
                 .attributes
                 .insert("data-partial".to_owned(), "must-rollback".to_owned());
-            Ok(RuntimeOutput {
-                response: HookResponse::Block { candidate },
-                peak_memory_bytes: 0,
-            })
+            successful_response(HookResponse::Block { candidate })
         } else {
-            Ok(RuntimeOutput {
-                response: HookResponse::RenderAnnotations {
-                    annotations: BTreeMap::new(),
-                },
-                peak_memory_bytes: 0,
+            successful_response(HookResponse::RenderAnnotations {
+                annotations: BTreeMap::new(),
             })
         }
     });
@@ -861,26 +827,13 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
             metadata: Default::default(),
             blocks: vec![block],
         };
-        Ok(RuntimeOutput {
-            response: HookResponse::Block {
-                candidate: CandidateDocument::from_document(&wrapper).blocks.remove(0),
-            },
-            peak_memory_bytes: 0,
+        successful_response(HookResponse::Block {
+            candidate: CandidateDocument::from_document(&wrapper).blocks.remove(0),
         })
     });
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("partial-block", false),
-        PluginCapabilities::default(),
-        partial_then_malformed,
-    )
-    .unwrap();
-    host.register(
-        manifest("downstream-block", false),
-        PluginCapabilities::default(),
-        downstream,
-    )
-    .unwrap();
+    register_runtime(&mut host, "partial-block", false, partial_then_malformed);
+    register_runtime(&mut host, "downstream-block", false, downstream);
 
     let run = host
         .transform_blocks(source, &original, &CancellationToken::default())
@@ -904,19 +857,7 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
 #[test]
 fn capabilities_are_deny_by_default_even_when_requested() {
     let observed = Arc::new(Mutex::new(None));
-    let observed_by_runtime = Arc::clone(&observed);
-    let denied_runtime = runtime(move |request, sandbox, _| {
-        *observed_by_runtime.lock().unwrap() = Some(sandbox);
-        let HookRequest::TransformDocument { document } = request else {
-            unreachable!()
-        };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
-    });
+    let denied_runtime = observing_runtime(Arc::clone(&observed));
     let mut requested = manifest("requests-all", false);
     requested.capabilities = PluginCapabilities {
         read_workspace: true,
@@ -935,19 +876,7 @@ fn capabilities_are_deny_by_default_even_when_requested() {
     assert!(!sandbox.unsafe_html_output);
 
     let observed = Arc::new(Mutex::new(None));
-    let observed_by_runtime = Arc::clone(&observed);
-    let granted_runtime = runtime(move |request, sandbox, _| {
-        *observed_by_runtime.lock().unwrap() = Some(sandbox);
-        let HookRequest::TransformDocument { document } = request else {
-            unreachable!()
-        };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
-    });
+    let granted_runtime = observing_runtime(Arc::clone(&observed));
     let mut requested = manifest("read-only", false);
     requested.capabilities.read_workspace = true;
     requested.capabilities.write_workspace = true;
@@ -964,19 +893,7 @@ fn capabilities_are_deny_by_default_even_when_requested() {
     assert!(sandbox.write_roots.is_empty());
 
     let observed = Arc::new(Mutex::new(None));
-    let observed_by_runtime = Arc::clone(&observed);
-    let enabled_runtime = runtime(move |request, sandbox, _| {
-        *observed_by_runtime.lock().unwrap() = Some(sandbox);
-        let HookRequest::TransformDocument { document } = request else {
-            unreachable!()
-        };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
-    });
+    let enabled_runtime = observing_runtime(Arc::clone(&observed));
     let mut requested = manifest("write-and-env", false);
     requested.capabilities.write_workspace = true;
     requested.capabilities.environment = true;
@@ -1000,19 +917,7 @@ fn capabilities_are_deny_by_default_even_when_requested() {
     assert_eq!(sandbox.environment, environment);
 
     let observed = Arc::new(Mutex::new(None));
-    let observed_by_runtime = Arc::clone(&observed);
-    let granted_without_request = runtime(move |request, sandbox, _| {
-        *observed_by_runtime.lock().unwrap() = Some(sandbox);
-        let HookRequest::TransformDocument { document } = request else {
-            unreachable!()
-        };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
-    });
+    let granted_without_request = observing_runtime(Arc::clone(&observed));
     let all_grants = PluginCapabilities {
         read_workspace: true,
         write_workspace: true,
@@ -1043,12 +948,7 @@ fn capabilities_are_deny_by_default_even_when_requested() {
         let HookRequest::TransformDocument { document } = request else {
             unreachable!()
         };
-        Ok(RuntimeOutput {
-            response: HookResponse::Document {
-                candidate: CandidateDocument::from_document(&document),
-            },
-            peak_memory_bytes: 0,
-        })
+        document_response(&document)
     });
     let mut requested = manifest("untrusted-fully-granted", false);
     requested.capabilities = all_grants.clone();
@@ -1335,8 +1235,7 @@ fn timeout_memory_output_and_cancel_limits_do_not_commit() {
     ];
     for (id, runtime, expected) in cases {
         let mut host = trusted_host(limits.clone());
-        host.register(manifest(id, false), PluginCapabilities::default(), runtime)
-            .unwrap();
+        register_runtime(&mut host, id, false, runtime);
         let result = host
             .transform_document("hello\n", &original, &CancellationToken::default())
             .unwrap();
@@ -1344,12 +1243,7 @@ fn timeout_memory_output_and_cancel_limits_do_not_commit() {
         assert_eq!(result.diagnostics[0].kind, expected);
     }
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("cancel", false),
-        PluginCapabilities::default(),
-        pass_runtime(),
-    )
-    .unwrap();
+    register_runtime(&mut host, "cancel", false, pass_runtime());
     let cancelled = CancellationToken::default();
     cancelled.cancel();
     let result = host
@@ -1361,13 +1255,7 @@ fn timeout_memory_output_and_cancel_limits_do_not_commit() {
 #[test]
 fn untrusted_workspace_and_unsafe_export_follow_required_boundary() {
     let mut untrusted = PluginHost::new(ExecutionLimits::default(), HostPolicy::default());
-    untrusted
-        .register(
-            manifest("safe", false),
-            PluginCapabilities::default(),
-            pass_runtime(),
-        )
-        .unwrap();
+    register_runtime(&mut untrusted, "safe", false, pass_runtime());
     let original = document();
     let result = untrusted
         .transform_document("hello\n", &original, &CancellationToken::default())
@@ -1414,11 +1302,8 @@ fn unsafe_export_is_marked_only_when_a_granted_hook_changes_output() {
             let HookRequest::UnsafeExportHtml { html, .. } = request else {
                 unreachable!()
             };
-            Ok(RuntimeOutput {
-                response: HookResponse::UnsafeExportHtml {
-                    html: format!("{html}<script>unsafe()</script>"),
-                },
-                peak_memory_bytes: 0,
+            successful_response(HookResponse::UnsafeExportHtml {
+                html: format!("{html}<script>unsafe()</script>"),
             })
         }),
     )
@@ -1436,17 +1321,17 @@ fn active_document_version_cancellation_interrupts_publication() {
         timeout: Duration::from_secs(1),
         ..ExecutionLimits::default()
     });
-    host.register(
-        manifest("slow", false),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "slow",
+        false,
         runtime(|_, _, cancellation| {
             while !cancellation.is_cancelled() {
                 thread::sleep(Duration::from_millis(1));
             }
             Err(RuntimeError::Trap("interrupted".into()))
         }),
-    )
-    .unwrap();
+    );
     let cancellation = CancellationToken::default();
     let trigger = cancellation.clone();
     thread::spawn(move || {
@@ -1598,10 +1483,7 @@ fn all_typed_hooks_run_through_the_same_transaction_boundary() {
                     HookResponse::UnsafeExportHtml { html }
                 }
             };
-            Ok(RuntimeOutput {
-                response,
-                peak_memory_bytes: 0,
-            })
+            successful_response(response)
         }),
     )
     .unwrap();
@@ -1645,22 +1527,19 @@ fn all_typed_hooks_run_through_the_same_transaction_boundary() {
 #[test]
 fn invalid_preprocess_map_discards_the_complete_optional_candidate() {
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("bad-map", false),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "bad-map",
+        false,
         runtime(|_, _, _| {
-            Ok(RuntimeOutput {
-                response: HookResponse::PreprocessedSource {
-                    candidate: PreprocessedSource {
-                        text: "changed".to_owned(),
-                        segments: Vec::new(),
-                    },
+            successful_response(HookResponse::PreprocessedSource {
+                candidate: PreprocessedSource {
+                    text: "changed".to_owned(),
+                    segments: Vec::new(),
                 },
-                peak_memory_bytes: 0,
             })
         }),
-    )
-    .unwrap();
+    );
     let run = host
         .preprocess_source(1, "original", &CancellationToken::default())
         .unwrap();
@@ -1671,87 +1550,81 @@ fn invalid_preprocess_map_discards_the_complete_optional_candidate() {
 #[test]
 fn preprocessors_compose_unicode_and_generated_ranges_to_the_original_snapshot() {
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("reorder-one", true),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "reorder-one",
+        true,
         runtime(|request, _, _| {
             let HookRequest::PreprocessSource { text, .. } = request else {
                 unreachable!()
             };
             assert_eq!(text, "AéB");
-            Ok(RuntimeOutput {
-                response: HookResponse::PreprocessedSource {
-                    candidate: PreprocessedSource {
-                        text: "éA!".to_owned(),
-                        segments: vec![
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 0,
-                                output_end: 2,
-                                origin: EditOrigin::Original {
-                                    ranges: vec![utf8_source_range(&text, 1, 3).unwrap()],
-                                    primary_range_index: 0,
-                                },
+            successful_response(HookResponse::PreprocessedSource {
+                candidate: PreprocessedSource {
+                    text: "éA!".to_owned(),
+                    segments: vec![
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 0,
+                            output_end: 2,
+                            origin: EditOrigin::Original {
+                                ranges: vec![utf8_source_range(&text, 1, 3).unwrap()],
+                                primary_range_index: 0,
                             },
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 2,
-                                output_end: 3,
-                                origin: EditOrigin::Original {
-                                    ranges: vec![utf8_source_range(&text, 0, 1).unwrap()],
-                                    primary_range_index: 0,
-                                },
+                        },
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 2,
+                            output_end: 3,
+                            origin: EditOrigin::Original {
+                                ranges: vec![utf8_source_range(&text, 0, 1).unwrap()],
+                                primary_range_index: 0,
                             },
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 3,
-                                output_end: 4,
-                                origin: EditOrigin::Generated { anchor: None },
-                            },
-                        ],
-                    },
+                        },
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 3,
+                            output_end: 4,
+                            origin: EditOrigin::Generated { anchor: None },
+                        },
+                    ],
                 },
-                peak_memory_bytes: 0,
             })
         }),
-    )
-    .unwrap();
-    host.register(
-        manifest("reorder-two", true),
-        PluginCapabilities::default(),
+    );
+    register_runtime(
+        &mut host,
+        "reorder-two",
+        true,
         runtime(|request, _, _| {
             let HookRequest::PreprocessSource { text, .. } = request else {
                 unreachable!()
             };
             assert_eq!(text, "éA!");
-            Ok(RuntimeOutput {
-                response: HookResponse::PreprocessedSource {
-                    candidate: PreprocessedSource {
-                        text: "Aé?".to_owned(),
-                        segments: vec![
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 0,
-                                output_end: 3,
-                                origin: EditOrigin::Derived {
-                                    ranges: vec![
-                                        utf8_source_range(&text, 0, 2).unwrap(),
-                                        utf8_source_range(&text, 2, 3).unwrap(),
-                                    ],
-                                    primary_range_index: 1,
-                                },
+            successful_response(HookResponse::PreprocessedSource {
+                candidate: PreprocessedSource {
+                    text: "Aé?".to_owned(),
+                    segments: vec![
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 0,
+                            output_end: 3,
+                            origin: EditOrigin::Derived {
+                                ranges: vec![
+                                    utf8_source_range(&text, 0, 2).unwrap(),
+                                    utf8_source_range(&text, 2, 3).unwrap(),
+                                ],
+                                primary_range_index: 1,
                             },
-                            fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 3,
-                                output_end: 4,
-                                origin: EditOrigin::Generated {
-                                    anchor: Some(utf8_source_range(&text, 2, 3).unwrap()),
-                                },
+                        },
+                        fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 3,
+                            output_end: 4,
+                            origin: EditOrigin::Generated {
+                                anchor: Some(utf8_source_range(&text, 2, 3).unwrap()),
                             },
-                        ],
-                    },
+                        },
+                    ],
                 },
-                peak_memory_bytes: 0,
             })
         }),
-    )
-    .unwrap();
+    );
 
     let run = host
         .preprocess_source(1, "AéB", &CancellationToken::default())
@@ -1775,31 +1648,28 @@ fn preprocessors_compose_unicode_and_generated_ranges_to_the_original_snapshot()
 #[test]
 fn unchanged_bytes_do_not_discard_explicit_generated_provenance() {
     let mut host = trusted_host(ExecutionLimits::default());
-    host.register(
-        manifest("regenerate", true),
-        PluginCapabilities::default(),
+    register_runtime(
+        &mut host,
+        "regenerate",
+        true,
         runtime(|request, _, _| {
             let HookRequest::PreprocessSource { text, .. } = request else {
                 unreachable!()
             };
-            Ok(RuntimeOutput {
-                response: HookResponse::PreprocessedSource {
-                    candidate: PreprocessedSource {
-                        text: text.clone(),
-                        segments: vec![fleximark_plugin_sdk::EditMapSegment {
-                            output_start: 0,
-                            output_end: text.len() as u64,
-                            origin: EditOrigin::Generated {
-                                anchor: Some(utf8_source_range(&text, 0, 1).unwrap()),
-                            },
-                        }],
-                    },
+            successful_response(HookResponse::PreprocessedSource {
+                candidate: PreprocessedSource {
+                    text: text.clone(),
+                    segments: vec![fleximark_plugin_sdk::EditMapSegment {
+                        output_start: 0,
+                        output_end: text.len() as u64,
+                        origin: EditOrigin::Generated {
+                            anchor: Some(utf8_source_range(&text, 0, 1).unwrap()),
+                        },
+                    }],
                 },
-                peak_memory_bytes: 0,
             })
         }),
-    )
-    .unwrap();
+    );
 
     let value = host
         .preprocess_source(1, "same", &CancellationToken::default())
@@ -1836,29 +1706,26 @@ fn original_edit_map_requires_ordered_exact_utf8_source_bytes() {
     for (id, output, ranges) in cases {
         let output = output.to_owned();
         let mut host = trusted_host(ExecutionLimits::default());
-        host.register(
-            manifest(id, false),
-            PluginCapabilities::default(),
+        register_runtime(
+            &mut host,
+            id,
+            false,
             runtime(move |_, _, _| {
-                Ok(RuntimeOutput {
-                    response: HookResponse::PreprocessedSource {
-                        candidate: PreprocessedSource {
-                            text: output.clone(),
-                            segments: vec![fleximark_plugin_sdk::EditMapSegment {
-                                output_start: 0,
-                                output_end: 2,
-                                origin: EditOrigin::Original {
-                                    ranges: ranges.clone(),
-                                    primary_range_index: 0,
-                                },
-                            }],
-                        },
+                successful_response(HookResponse::PreprocessedSource {
+                    candidate: PreprocessedSource {
+                        text: output.clone(),
+                        segments: vec![fleximark_plugin_sdk::EditMapSegment {
+                            output_start: 0,
+                            output_end: 2,
+                            origin: EditOrigin::Original {
+                                ranges: ranges.clone(),
+                                primary_range_index: 0,
+                            },
+                        }],
                     },
-                    peak_memory_bytes: 0,
                 })
             }),
-        )
-        .unwrap();
+        );
         let result = host
             .preprocess_source(1, source, &CancellationToken::default())
             .unwrap();

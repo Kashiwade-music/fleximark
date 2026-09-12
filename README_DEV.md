@@ -5,7 +5,6 @@
 ### 設計資料
 
 - [Current architecture](ARCHITECTURE.md)
-- [Refactoring plan](REFACTORING_PLAN.md)
 
 ### 必要なもの
 

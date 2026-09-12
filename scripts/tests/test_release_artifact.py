@@ -8,8 +8,9 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 from unittest.mock import patch
 
 
@@ -173,6 +174,18 @@ class ReleaseArtifactTests(unittest.TestCase):
             if extra_name is not None:
                 write(extra_name, b"forbidden")
 
+    @contextmanager
+    def temporary_vsix(self, **options: Any) -> Iterator[Path]:
+        with tempfile.TemporaryDirectory() as temporary:
+            vsix = Path(temporary) / "fleximark.vsix"
+            self.write_vsix(vsix, **options)
+            yield vsix
+
+    def assert_vsix_rejected(self, expected: str, **options: Any) -> None:
+        with self.temporary_vsix(**options) as vsix:
+            with self.assertRaisesRegex(RuntimeError, expected):
+                release_artifact.validate_vsix(vsix)
+
     def test_create_and_verify_identity_for_complete_release_vsix(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -276,11 +289,8 @@ class ReleaseArtifactTests(unittest.TestCase):
         ):
             with (
                 self.subTest(options=options),
-                tempfile.TemporaryDirectory() as temporary,
+                self.temporary_vsix(**options) as vsix,
             ):
-                vsix = Path(temporary) / "fleximark.vsix"
-                self.write_vsix(vsix, **options)
-
                 with self.assertRaisesRegex(
                     RuntimeError, "manifest version or identity"
                 ):
@@ -347,23 +357,13 @@ class ReleaseArtifactTests(unittest.TestCase):
             ({"daemon_hash_override": "0" * 64}, "daemon checksum"),
         )
         for options, expected in cases:
-            with (
-                self.subTest(expected=expected),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
-                vsix = Path(temporary) / "fleximark.vsix"
-                self.write_vsix(vsix, **options)
-
-                with self.assertRaisesRegex(RuntimeError, expected):
-                    release_artifact.validate_vsix(vsix)
+            with self.subTest(expected=expected):
+                self.assert_vsix_rejected(expected, **options)
 
     def test_rejects_nonexecutable_unix_daemon_entries(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            vsix = Path(temporary) / "fleximark.vsix"
-            self.write_vsix(vsix, unix_daemon_mode=0o644)
-
-            with self.assertRaisesRegex(RuntimeError, "Unix daemon is not executable"):
-                release_artifact.validate_vsix(vsix)
+        self.assert_vsix_rejected(
+            "Unix daemon is not executable", unix_daemon_mode=0o644
+        )
 
     def test_rejects_forbidden_development_content(self) -> None:
         for forbidden in (
@@ -375,15 +375,8 @@ class ReleaseArtifactTests(unittest.TestCase):
             "extension/assets/private.pem",
             "extension/unexpected-runtime.js",
         ):
-            with (
-                self.subTest(forbidden=forbidden),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
-                vsix = Path(temporary) / "fleximark.vsix"
-                self.write_vsix(vsix, extra_name=forbidden)
-
-                with self.assertRaisesRegex(RuntimeError, "forbidden path"):
-                    release_artifact.validate_vsix(vsix)
+            with self.subTest(forbidden=forbidden):
+                self.assert_vsix_rejected("forbidden path", extra_name=forbidden)
 
     def test_requires_runtime_and_declared_contribution_paths(self) -> None:
         for missing, expected in (
@@ -396,14 +389,8 @@ class ReleaseArtifactTests(unittest.TestCase):
                 "missing declared package path",
             ),
         ):
-            with (
-                self.subTest(missing=missing),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
-                vsix = Path(temporary) / "fleximark.vsix"
-                self.write_vsix(vsix, omit_name=missing)
-                with self.assertRaisesRegex(RuntimeError, expected):
-                    release_artifact.validate_vsix(vsix)
+            with self.subTest(missing=missing):
+                self.assert_vsix_rejected(expected, omit_name=missing)
 
     def test_allows_packaged_runtime_and_contribution_classes(self) -> None:
         for allowed in (
@@ -415,10 +402,8 @@ class ReleaseArtifactTests(unittest.TestCase):
         ):
             with (
                 self.subTest(allowed=allowed),
-                tempfile.TemporaryDirectory() as temporary,
+                self.temporary_vsix(extra_name=allowed) as vsix,
             ):
-                vsix = Path(temporary) / "fleximark.vsix"
-                self.write_vsix(vsix, extra_name=allowed)
                 self.assertEqual(release_artifact.validate_vsix(vsix), "1.2.3")
 
     def test_rejects_redirected_main_and_contribution_paths(self) -> None:
@@ -438,16 +423,11 @@ class ReleaseArtifactTests(unittest.TestCase):
             ("command metadata", change_command_metadata),
             ("boolean as integer", change_boolean_to_integer),
         ):
-            with (
-                self.subTest(label=label),
-                tempfile.TemporaryDirectory() as temporary,
-            ):
-                vsix = Path(temporary) / "fleximark.vsix"
-                self.write_vsix(vsix, package_mutator=mutate)
-                with self.assertRaisesRegex(
-                    RuntimeError, "declarations do not match trusted package.json"
-                ):
-                    release_artifact.validate_vsix(vsix)
+            with self.subTest(label=label):
+                self.assert_vsix_rejected(
+                    "declarations do not match trusted package.json",
+                    package_mutator=mutate,
+                )
 
     def test_rejects_integer_to_float_in_contribution_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -730,11 +710,7 @@ class ReleaseArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "too small"):
                 release_artifact.validate_prebuilt_inputs(root)
 
-        with tempfile.TemporaryDirectory() as temporary:
-            vsix = Path(temporary) / "fleximark.vsix"
-            self.write_vsix(vsix, extension_runtime=b"x")
-            with self.assertRaisesRegex(RuntimeError, "too small"):
-                release_artifact.validate_vsix(vsix)
+        self.assert_vsix_rejected("too small", extension_runtime=b"x")
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -743,11 +719,7 @@ class ReleaseArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "empty"):
                 release_artifact.validate_prebuilt_inputs(root)
 
-        with tempfile.TemporaryDirectory() as temporary:
-            vsix = Path(temporary) / "fleximark.vsix"
-            self.write_vsix(vsix, empty_daemon=True)
-            with self.assertRaisesRegex(RuntimeError, "empty"):
-                release_artifact.validate_vsix(vsix)
+        self.assert_vsix_rejected("empty", empty_daemon=True)
 
     def test_rejects_special_encrypted_or_oversized_archive_entries(self) -> None:
         cases = (
@@ -802,9 +774,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                         infos, vsix_size=vsix_size
                     )
 
-        with tempfile.TemporaryDirectory() as temporary:
-            vsix = Path(temporary) / "fleximark.vsix"
-            self.write_vsix(vsix)
+        with self.temporary_vsix() as vsix:
             with patch.object(release_artifact, "MAX_METADATA_SIZE", 0):
                 with self.assertRaisesRegex(RuntimeError, "metadata entry"):
                     release_artifact.validate_vsix(vsix)

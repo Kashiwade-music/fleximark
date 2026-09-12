@@ -617,16 +617,13 @@ export function suite(): void {
     const pre = document.createElement("pre");
     pre.append(code);
     root.append(pre);
-    let resolveRender!: (value: { svg: string }) => void;
-    const deferred = new Promise<{ svg: string }>((resolve) => {
-      resolveRender = resolve;
-    });
+    const render = deferred<{ svg: string }>();
     const runtimes = inertRuntimes();
-    runtimes.mermaid.render = () => deferred;
+    runtimes.mermaid.render = () => render.promise;
     const enhancer = new PreviewEnhancer(runtimes);
     const rendering = enhancer.render(root);
     enhancer.dispose();
-    resolveRender({ svg: "<svg data-stale='true'></svg>" });
+    render.resolve({ svg: "<svg data-stale='true'></svg>" });
     await rendering;
 
     assert.equal(root.querySelector("svg[data-stale=true]"), null);
@@ -655,20 +652,14 @@ export function suite(): void {
 
   test("keeps the newest Mermaid fingerprint across reverse completion order", async () => {
     preview.applySnapshot(specialSnapshot("mermaid", "A"));
-    let resolveFirst!: (value: { svg: string }) => void;
-    let resolveSecond!: (value: { svg: string }) => void;
-    const first = new Promise<{ svg: string }>((resolve) => {
-      resolveFirst = resolve;
-    });
-    const second = new Promise<{ svg: string }>((resolve) => {
-      resolveSecond = resolve;
-    });
+    const first = deferred<{ svg: string }>();
+    const second = deferred<{ svg: string }>();
     const sources: string[] = [];
     const runtimes = inertRuntimes();
     runtimes.mermaid.render = (_id, source) => {
       sources.push(source);
-      if (sources.length === 1) return first;
-      if (sources.length === 2) return second;
+      if (sources.length === 1) return first.promise;
+      if (sources.length === 2) return second.promise;
       return Promise.resolve({ svg: `<svg data-source="${source}"></svg>` });
     };
     const enhancer = new PreviewEnhancer(runtimes);
@@ -682,9 +673,9 @@ export function suite(): void {
     const renderingA = enhancer.render(root);
     payload.textContent = JSON.stringify("B");
     const renderingB = enhancer.render(root);
-    resolveSecond({ svg: '<svg data-source="B"></svg>' });
+    second.resolve({ svg: '<svg data-source="B"></svg>' });
     await renderingB;
-    resolveFirst({ svg: '<svg data-source="stale-A"></svg>' });
+    first.resolve({ svg: '<svg data-source="stale-A"></svg>' });
     await renderingA;
     assert.equal(block.dataset.fleximarkRenderError, undefined);
     assert.equal(block.querySelector("svg")?.getAttribute("data-source"), "B");
@@ -734,14 +725,8 @@ export function suite(): void {
     const originalRender = previewRuntimes.abc.render;
     const originalSupportsAudio = previewRuntimes.abc.supportsAudio;
     const originalCreateSynth = previewRuntimes.abc.createSynth;
-    let rejectFirstStop!: (error: Error) => void;
-    let resolveSecondStop!: () => void;
-    const firstStop = new Promise<void>((_resolve, reject) => {
-      rejectFirstStop = reject;
-    });
-    const secondStop = new Promise<void>((resolve) => {
-      resolveSecondStop = resolve;
-    });
+    const firstStop = signal();
+    const secondStop = signal();
     let stopAttempts = 0;
     const host = new PreviewHost(
       root,
@@ -757,7 +742,7 @@ export function suite(): void {
         start: () => undefined,
         stop: () => {
           stopAttempts += 1;
-          return stopAttempts === 1 ? firstStop : secondStop;
+          return stopAttempts === 1 ? firstStop.promise : secondStop.promise;
         },
       });
       host.apply([specialSnapshot("abc", "X:1\nK:C\nC")]);
@@ -767,13 +752,13 @@ export function suite(): void {
       host.dispose();
       host.dispose();
       assert.equal(stopAttempts, 1);
-      rejectFirstStop(new Error("asynchronous stop failure"));
+      firstStop.reject(new Error("asynchronous stop failure"));
       await flushMicrotasks();
 
       host.dispose();
       host.dispose();
       assert.equal(stopAttempts, 2);
-      resolveSecondStop();
+      secondStop.resolve();
       await flushMicrotasks();
       host.dispose();
       assert.equal(stopAttempts, 2);
@@ -880,19 +865,13 @@ export function suite(): void {
       globalThis,
       "AudioContext",
     );
-    let rejectFirstClose!: (error: Error) => void;
-    let resolveSecondClose!: () => void;
-    const firstClose = new Promise<void>((_resolve, reject) => {
-      rejectFirstClose = reject;
-    });
-    const secondClose = new Promise<void>((resolve) => {
-      resolveSecondClose = resolve;
-    });
+    const firstClose = signal();
+    const secondClose = signal();
     let closeAttempts = 0;
     class FakeAudioContext {
       close(): Promise<void> {
         closeAttempts += 1;
-        return closeAttempts === 1 ? firstClose : secondClose;
+        return closeAttempts === 1 ? firstClose.promise : secondClose.promise;
       }
     }
     try {
@@ -912,13 +891,13 @@ export function suite(): void {
       const coalescedClose = Promise.resolve(synth.stop());
       assert.equal(closeAttempts, 1);
 
-      rejectFirstClose(new Error("close rejected"));
+      firstClose.reject(new Error("close rejected"));
       await assert.rejects(coalescedClose, new Error("close rejected"));
       const retry = Promise.resolve(synth.stop());
       const coalescedRetry = Promise.resolve(synth.stop());
       assert.equal(closeAttempts, 2);
 
-      resolveSecondClose();
+      secondClose.resolve();
       await Promise.all([retry, coalescedRetry]);
       await assert.doesNotReject(Promise.resolve(synth.stop()));
       assert.equal(closeAttempts, 2);
@@ -931,17 +910,14 @@ export function suite(): void {
 
   test("stops pending ABC audio on disposal and never starts it", async () => {
     preview.applySnapshot(specialSnapshot("abc", "X:1\nK:C\nC"));
-    let resolveInit!: () => void;
-    const pendingInit = new Promise<void>((resolve) => {
-      resolveInit = resolve;
-    });
+    const pendingInit = signal();
     let started = 0;
     let stopped = 0;
     const runtimes = inertRuntimes();
     runtimes.abc.render = () => [{}];
     runtimes.abc.supportsAudio = () => true;
     runtimes.abc.createSynth = () => ({
-      init: () => pendingInit,
+      init: () => pendingInit.promise,
       prime: async () => undefined,
       start: () => started++,
       stop: () => stopped++,
@@ -955,8 +931,8 @@ export function suite(): void {
     button.click();
     assert.equal(button.disabled, true);
     enhancer.dispose();
-    resolveInit();
-    await pendingInit;
+    pendingInit.resolve();
+    await pendingInit.promise;
     await Promise.resolve();
 
     assert.equal(started, 0);
@@ -1047,10 +1023,7 @@ export function suite(): void {
     preview.applySnapshot(specialSnapshot("abc", "X:1\nK:C\nC"));
     let started = 0;
     let stopped = 0;
-    let observeStart!: () => void;
-    const startSignal = new Promise<void>((resolve) => {
-      observeStart = resolve;
-    });
+    const startSignal = signal();
     const runtimes = inertRuntimes();
     runtimes.abc.render = (target, source) => {
       target.innerHTML = `<svg data-source="${source.replaceAll("\n", " ")}"></svg>`;
@@ -1062,7 +1035,7 @@ export function suite(): void {
       prime: async () => undefined,
       start: () => {
         started += 1;
-        observeStart();
+        startSignal.resolve();
       },
       stop: () => stopped++,
     });
@@ -1071,7 +1044,7 @@ export function suite(): void {
     assert.ok(root.querySelector("[data-fleximark-output] svg"));
     assert.equal(started, 0);
     (root.querySelector("[data-fleximark-audio]") as HTMLButtonElement).click();
-    await waitForSignal(startSignal, "ABC audio start");
+    await waitForSignal(startSignal.promise, "ABC audio start");
     assert.equal(started, 1);
     await enhancer.render(root);
     assert.equal(stopped, 1);
@@ -1543,6 +1516,33 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason?: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
+}
+
+function signal(): {
+  promise: Promise<void>;
+  resolve(): void;
+  reject(reason?: unknown): void;
+} {
+  const value = deferred<undefined>();
+  return {
+    promise: value.promise,
+    resolve: () => value.resolve(undefined),
+    reject: value.reject,
+  };
 }
 
 async function waitForSignal(

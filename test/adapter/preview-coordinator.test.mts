@@ -234,14 +234,8 @@ export function suite(): void {
 
   test("opens the external URL after commit but does not replay after removal while pending", async () => {
     const { candidate, runtime } = previewCandidate();
-    let releaseOpen!: () => void;
-    let observedOpen!: () => void;
-    const pendingOpen = new Promise<void>((resolve) => {
-      releaseOpen = resolve;
-    });
-    const opened = new Promise<void>((resolve) => {
-      observedOpen = resolve;
-    });
+    const pendingOpen = signal();
+    const opened = signal();
     let activations = 0;
     let navigations = 0;
     const queue = new UnmatchedPreviewEventQueue();
@@ -250,8 +244,8 @@ export function suite(): void {
       previewDependencies(candidate, runtime, {
         openExternal: async () => {
           assert.equal(runtime.previews.get("preview")?.ready, false);
-          observedOpen();
-          await pendingOpen;
+          opened.resolve();
+          await pendingOpen.promise;
         },
         previewCurrent: (owner, preview) =>
           !owner.removed && owner.previews.get("preview") === preview,
@@ -263,7 +257,7 @@ export function suite(): void {
         },
       }),
     );
-    await opened;
+    await opened.promise;
     await handlePreviewEventLifecycle(
       candidate.origin,
       sourceNavigationEvent("preview"),
@@ -279,7 +273,7 @@ export function suite(): void {
     assert.equal(navigations, 0);
     runtime.removed = true;
     runtime.previews.clear();
-    releaseOpen();
+    pendingOpen.resolve();
     await opening;
     assert.equal(activations, 0);
     assert.equal(navigations, 0);
@@ -287,14 +281,8 @@ export function suite(): void {
 
   test("queues external navigation until open succeeds and then drains only while current", async () => {
     const { candidate, runtime } = previewCandidate();
-    let releaseOpen!: () => void;
-    let observedOpen!: () => void;
-    const pendingOpen = new Promise<void>((resolve) => {
-      releaseOpen = resolve;
-    });
-    const opened = new Promise<void>((resolve) => {
-      observedOpen = resolve;
-    });
+    const pendingOpen = signal();
+    const opened = signal();
     const queue = new UnmatchedPreviewEventQueue();
     let navigations = 0;
     const readiness = () =>
@@ -307,8 +295,8 @@ export function suite(): void {
       "externalBrowser",
       previewDependencies(candidate, runtime, {
         openExternal: async () => {
-          observedOpen();
-          await pendingOpen;
+          opened.resolve();
+          await pendingOpen.promise;
         },
         previewCurrent: (owner, preview) =>
           !owner.removed && owner.previews.get("preview") === preview,
@@ -319,7 +307,7 @@ export function suite(): void {
         },
       }),
     );
-    await opened;
+    await opened.promise;
     await handlePreviewEventLifecycle(
       candidate.origin,
       sourceNavigationEvent("preview"),
@@ -328,153 +316,122 @@ export function suite(): void {
       { reload: assert.fail, navigate: async () => assert.fail() },
     );
     assert.equal(navigations, 0);
-    releaseOpen();
+    pendingOpen.resolve();
     await opening;
     assert.equal(navigations, 1);
     assert.equal(runtime.previews.get("preview")?.ready, true);
   });
 
   test("holds a drifted initial external preview for a full event after reload rejection", async () => {
-    for (const outcome of ["reject"] as ("success" | "reject")[]) {
-      const { candidate: fixture, runtime } = previewCandidate();
-      const reloadFailure = new Error("initial external reload rejected");
-      const reloadCalls: unknown[] = [];
-      const rpc = {
-        closed: false,
-        request(method: string, params: unknown) {
-          reloadCalls.push({ method, params });
-          return Promise.resolve(null);
+    const { candidate: fixture, runtime } = previewCandidate();
+    const reloadFailure = new Error("initial external reload rejected");
+    const reloadCalls: unknown[] = [];
+    const rpc = {
+      closed: false,
+      request(method: string, params: unknown) {
+        reloadCalls.push({ method, params });
+        return Promise.resolve(null);
+      },
+    } as unknown as JsonRpcConnection;
+    const candidate = {
+      ...fixture,
+      origin: daemonOrigin(rpc, "daemon", 1),
+    } as PreviewCandidate;
+    const queue = new UnmatchedPreviewEventQueue();
+    let versionCurrent = true;
+    let reloadAttempts = 0;
+    let activations = 0;
+    let disposals = 0;
+    const reports: string[] = [];
+    const activate = async (owner: WorkspaceRuntime, item: PreviewState) => {
+      activations += 1;
+      await completePreviewReadiness(
+        owner,
+        item,
+        actualReadinessDependencies(owner, queue),
+      );
+    };
+
+    await openPreviewLifecycle(
+      "externalBrowser",
+      previewDependencies(candidate, runtime, {
+        candidateCurrent: () => versionCurrent,
+        openExternal: async () => {
+          versionCurrent = false;
         },
-      } as unknown as JsonRpcConnection;
-      const candidate = {
-        ...fixture,
-        origin: daemonOrigin(rpc, "daemon", 1),
-      } as PreviewCandidate;
-      const queue = new UnmatchedPreviewEventQueue();
-      let versionCurrent = true;
-      let reloadAttempts = 0;
-      let activations = 0;
-      let disposals = 0;
-      const reports: string[] = [];
-      const activate = async (owner: WorkspaceRuntime, item: PreviewState) => {
-        activations += 1;
-        await completePreviewReadiness(
-          owner,
-          item,
-          actualReadinessDependencies(owner, queue),
-        );
-      };
-
-      await openPreviewLifecycle(
-        "externalBrowser",
-        previewDependencies(candidate, runtime, {
-          candidateCurrent: () => versionCurrent,
-          openExternal: async () => {
-            versionCurrent = false;
-          },
-          previewCurrent: (owner, item) =>
-            !owner.removed &&
-            owner.previews.get(item.previewSessionId) === item &&
-            item.originRpc === candidate.origin.rpc &&
-            item.originGeneration === candidate.origin.generation &&
-            item.originDaemonInstanceId === candidate.origin.daemonInstanceId,
-          markReload: (origin, previewSessionId) =>
-            queue.markReloadRequired(origin, previewSessionId),
-          reload: async (owner, item) => {
-            reloadAttempts += 1;
-            if (outcome === "reject") throw reloadFailure;
-            return reloadPreviewLifecycle(owner, item, {
-              disposed: () => false,
-              currentOrigin: () => candidate.origin,
-              reportFailure: (message) => reports.push(message),
-            });
-          },
-          report: (error) => reports.push(String(error)),
-          activate,
-          dispose: async (owner, item) => {
-            disposals += 1;
-            owner.previews.delete(item.previewSessionId);
-          },
-        }),
-      );
-
-      const preview = runtime.previews.get("preview");
-      assert.ok(preview);
-      assert.equal(reloadAttempts, 1, outcome);
-      assert.deepEqual(
-        reloadCalls,
-        outcome === "success"
-          ? [
-              {
-                method: "fleximark/reloadPreview",
-                params: {
-                  daemonInstanceId: "daemon",
-                  previewSessionId: "preview",
-                },
-              },
-            ]
-          : [],
-        outcome,
-      );
-      assert.equal(activations, 0, outcome);
-      assert.equal(disposals, 0, outcome);
-      assert.equal(preview.ready, false, outcome);
-      assert.equal(preview.reloadPending, true, outcome);
-      assert.equal(queue.usage.reloadMarkers, 1, outcome);
-      assert.deepEqual(
-        reports,
-        outcome === "reject" ? ["Error: initial external reload rejected"] : [],
-        outcome,
-      );
-
-      let reactivation: Promise<void> | undefined;
-      await handlePreviewEventLifecycle(
-        candidate.origin,
-        previewEvent("preview", "full", 2),
-        [runtime],
-        queue,
-        {
-          reload: () => assert.fail("full recovery must not reload again"),
-          navigate: async () => assert.fail("full event is not navigation"),
-          reactivate: (owner, item) => {
-            reactivation = activate(owner, item);
-            return reactivation;
-          },
+        previewCurrent: (owner, item) =>
+          !owner.removed &&
+          owner.previews.get(item.previewSessionId) === item &&
+          item.originRpc === candidate.origin.rpc &&
+          item.originGeneration === candidate.origin.generation &&
+          item.originDaemonInstanceId === candidate.origin.daemonInstanceId,
+        markReload: (origin, previewSessionId) =>
+          queue.markReloadRequired(origin, previewSessionId),
+        reload: async () => {
+          reloadAttempts += 1;
+          throw reloadFailure;
         },
-      );
-      assert.ok(reactivation);
-      await reactivation;
-      assert.equal(activations, 1, outcome);
-      assert.equal(preview.ready, true, outcome);
-      assert.equal(preview.reloadPending, false, outcome);
-      assert.equal(queue.usage.streams, 0, outcome);
-    }
+        report: (error) => reports.push(String(error)),
+        activate,
+        dispose: async (owner, item) => {
+          disposals += 1;
+          owner.previews.delete(item.previewSessionId);
+        },
+      }),
+    );
+
+    const preview = runtime.previews.get("preview");
+    assert.ok(preview);
+    assert.equal(reloadAttempts, 1);
+    assert.deepEqual(reloadCalls, []);
+    assert.equal(activations, 0);
+    assert.equal(disposals, 0);
+    assert.equal(preview.ready, false);
+    assert.equal(preview.reloadPending, true);
+    assert.equal(queue.usage.reloadMarkers, 1);
+    assert.deepEqual(reports, ["Error: initial external reload rejected"]);
+
+    let reactivation: Promise<void> | undefined;
+    await handlePreviewEventLifecycle(
+      candidate.origin,
+      previewEvent("preview", "full", 2),
+      [runtime],
+      queue,
+      {
+        reload: () => assert.fail("full recovery must not reload again"),
+        navigate: async () => assert.fail("full event is not navigation"),
+        reactivate: (owner, item) => {
+          reactivation = activate(owner, item);
+          return reactivation;
+        },
+      },
+    );
+    assert.ok(reactivation);
+    await reactivation;
+    assert.equal(activations, 1);
+    assert.equal(preview.ready, true);
+    assert.equal(preview.reloadPending, false);
+    assert.equal(queue.usage.streams, 0);
   });
 
   test("ignores an initial external rejection after same-id origin replacement", async () => {
     const { candidate, runtime } = previewCandidate();
-    let observeOpen!: () => void;
-    let rejectOpen!: (error: Error) => void;
-    const opened = new Promise<void>((resolve) => {
-      observeOpen = resolve;
-    });
-    const pendingOpen = new Promise<void>((_resolve, reject) => {
-      rejectOpen = reject;
-    });
+    const opened = signal();
+    const pendingOpen = signal();
     const discarded: string[] = [];
     const opening = openPreviewLifecycle(
       "externalBrowser",
       previewDependencies(candidate, runtime, {
         openExternal: async () => {
-          observeOpen();
-          await pendingOpen;
+          opened.resolve();
+          await pendingOpen.promise;
         },
         discardQueued: (_origin, previewSessionId) => {
           discarded.push(previewSessionId);
         },
       }),
     );
-    await opened;
+    await opened.promise;
     const preview = runtime.previews.get("preview");
     assert.ok(preview);
     const replacementRpc = { closed: false } as JsonRpcConnection;
@@ -483,7 +440,7 @@ export function suite(): void {
     preview.originGeneration = 2;
     preview.ready = false;
 
-    rejectOpen(new Error("browser failed"));
+    pendingOpen.reject(new Error("browser failed"));
     await opening;
 
     assert.deepEqual(discarded, ["preview"]);
@@ -511,20 +468,14 @@ export function suite(): void {
         },
       },
     };
-    let rejectHandshake!: (error: Error) => void;
-    const pendingHandshake = () =>
-      new Promise<void>((resolve, reject) => {
-        void resolve;
-        rejectHandshake = reject;
-      });
-    let handshake = pendingHandshake();
+    let handshake = signal();
     let disposals = 0;
     const reports: unknown[] = [];
     await openPreviewLifecycle(
       "embeddedHtml",
       previewDependencies(candidate, runtime, {
         createPanel: () => panel as never,
-        handshake: () => handshake,
+        handshake: () => handshake.promise,
         previewCurrent: () => true,
         report: (error) => reports.push(error),
         dispose: () => {
@@ -535,12 +486,12 @@ export function suite(): void {
 
     const currentFailure = new Error("current ready failed");
     messageListener({ type: "ready" });
-    rejectHandshake(currentFailure);
+    handshake.reject(currentFailure);
     await Promise.resolve();
     await Promise.resolve();
     assert.deepEqual(reports, [currentFailure]);
 
-    handshake = pendingHandshake();
+    handshake = signal();
     const retiredFailure = new Error("retired ready failed");
     messageListener({ type: "ready" });
     const recreated = runtime.previews.get("preview");
@@ -548,7 +499,7 @@ export function suite(): void {
     recreated.originRpc = {} as JsonRpcConnection;
     recreated.originGeneration += 1;
     recreated.originDaemonInstanceId = "replacement-daemon";
-    rejectHandshake(retiredFailure);
+    handshake.reject(retiredFailure);
     await Promise.resolve();
     await Promise.resolve();
     assert.deepEqual(reports, [currentFailure]);
@@ -707,10 +658,7 @@ export function suite(): void {
   });
 
   test("runs exactly one subsequent initialize for ready received during a successful post", async () => {
-    let resolvePost!: (delivered: boolean) => void;
-    const post = new Promise<boolean>((resolve) => {
-      resolvePost = resolve;
-    });
+    const post = deferred<boolean>();
     let posts = 0;
     const rpc = { closed: false } as JsonRpcConnection;
     const origin = daemonOrigin(rpc, "daemon", 2);
@@ -718,13 +666,10 @@ export function suite(): void {
     const preview = previewState(origin, {
       postMessage: () => {
         posts += 1;
-        return post;
+        return post.promise;
       },
     });
-    const runtime = {
-      removed: false,
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     const delivered: string[] = [];
     const dependencies = readinessDependencies(runtime, queue, delivered);
     const first = beginEmbeddedPreviewHandshake(runtime, preview, dependencies);
@@ -738,7 +683,7 @@ export function suite(): void {
     queue.enqueue(origin, previewEvent("preview", "patch", 2));
     queue.enqueue(origin, previewEvent("preview", "viewport", 2));
     assert.equal(preview.ready, false);
-    resolvePost(true);
+    post.resolve(true);
     await first;
     assert.equal(posts, 2);
     assert.deepEqual(delivered, ["full", "patch", "viewport"]);
@@ -751,12 +696,7 @@ export function suite(): void {
 
   test("retries one pending ready after a coalesced initial post failure", async () => {
     for (const failure of ["false", "reject"] as const) {
-      let resolveFirst!: (delivered: boolean) => void;
-      let rejectFirst!: (error: Error) => void;
-      const firstPost = new Promise<boolean>((resolve, reject) => {
-        resolveFirst = resolve;
-        rejectFirst = reject;
-      });
+      const firstPost = deferred<boolean>();
       let initializePosts = 0;
       const origin = daemonOrigin(
         { closed: false } as JsonRpcConnection,
@@ -766,13 +706,12 @@ export function suite(): void {
       const preview = previewState(origin, {
         postMessage: () => {
           initializePosts += 1;
-          return initializePosts === 1 ? firstPost : Promise.resolve(true);
+          return initializePosts === 1
+            ? firstPost.promise
+            : Promise.resolve(true);
         },
       });
-      const runtime = {
-        removed: false,
-        previews: new Map([["preview", preview]]),
-      } as unknown as WorkspaceRuntime;
+      const runtime = runtimeWithPreview(preview);
       let reloads = 0;
       const reports: unknown[] = [];
       const queue = new UnmatchedPreviewEventQueue();
@@ -796,8 +735,8 @@ export function suite(): void {
       );
       assert.equal(first, repeated);
       const error = new Error("initial post failed");
-      if (failure === "reject") rejectFirst(error);
-      else resolveFirst(false);
+      if (failure === "reject") firstPost.reject(error);
+      else firstPost.resolve(false);
       await first;
 
       assert.equal(initializePosts, 2);
@@ -823,10 +762,7 @@ export function suite(): void {
         return Promise.resolve(publicationTypes.length > 1);
       },
     });
-    const runtime = {
-      removed: false,
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     const queue = new UnmatchedPreviewEventQueue();
     queue.enqueue(origin, previewEvent("preview", "full", 2));
     const reloadError = new Error("reload failed");
@@ -866,20 +802,14 @@ export function suite(): void {
 
   test("keeps readiness false when post fails or membership disappears while pending", async () => {
     for (const outcome of ["false", "reject", "disposed", "closed"] as const) {
-      let resolvePost!: (delivered: boolean) => void;
-      let rejectPost!: (error: Error) => void;
-      const post = new Promise<boolean>((resolve, reject) => {
-        resolvePost = resolve;
-        rejectPost = reject;
-      });
+      const post = deferred<boolean>();
       const rpc = { closed: false } as JsonRpcConnection;
       const origin = daemonOrigin(rpc, "daemon", 1);
       const queue = new UnmatchedPreviewEventQueue();
-      const preview = previewState(origin, { postMessage: () => post });
-      const runtime = {
-        removed: false,
-        previews: new Map([["preview", preview]]),
-      } as unknown as WorkspaceRuntime;
+      const preview = previewState(origin, {
+        postMessage: () => post.promise,
+      });
+      const runtime = runtimeWithPreview(preview);
       let reloads = 0;
       const handshake = beginEmbeddedPreviewHandshake(runtime, preview, {
         ...readinessDependencies(runtime, queue, []),
@@ -890,12 +820,12 @@ export function suite(): void {
       });
       if (outcome === "disposed") {
         runtime.previews.delete("preview");
-        resolvePost(true);
+        post.resolve(true);
       } else if (outcome === "closed") {
         Object.assign(rpc, { closed: true });
-        resolvePost(true);
-      } else if (outcome === "reject") rejectPost(new Error("closed"));
-      else resolvePost(false);
+        post.resolve(true);
+      } else if (outcome === "reject") post.reject(new Error("closed"));
+      else post.resolve(false);
       await handshake;
       assert.equal(preview.ready, false, outcome);
       assert.equal(
@@ -922,10 +852,7 @@ export function suite(): void {
         return Promise.resolve(true);
       },
     });
-    const runtime = {
-      removed: false,
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     queue.enqueue(origin, previewEvent("preview", "full", 2));
     queue.enqueue(origin, previewEvent("preview", "patch", 3));
     queue.enqueue(origin, previewEvent("preview", "viewport", 3));
@@ -984,10 +911,7 @@ export function suite(): void {
         return Promise.resolve(true);
       },
     });
-    const runtime = {
-      removed: false,
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     queue.enqueue(origin, sourceNavigationEvent("preview"));
     queue.enqueue(origin, previewEvent("preview", "full", 2));
     queue.enqueue(origin, previewEvent("preview", "patch", 3));
@@ -1145,26 +1069,14 @@ export function suite(): void {
 
   test("rejects a recreate candidate whose old preview was removed while awaiting", async () => {
     const { candidate, runtime } = previewCandidate();
-    const previous = {
-      ...runtime.previews.get("preview"),
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
-      originDaemonInstanceId: "daemon",
-      originGeneration: 1,
-    } as never;
+    const previous = previousPreview(candidate);
     runtime.previews.set("old-preview", previous);
     const rejected: string[] = [];
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
+    await recreatePreviews(runtime, candidate, {
       request: async () => {
         runtime.previews.delete("old-preview");
         return candidate;
       },
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
       reject: async (item) => {
         rejected.push(item.result.previewSessionId);
       },
@@ -1182,70 +1094,52 @@ export function suite(): void {
   });
 
   test("retains and reloads a recreate when initial delivery rejects", async () => {
-    for (const failure of ["reject"] as ("false" | "reject")[]) {
-      const { candidate, runtime } = previewCandidate();
-      const previous = {
-        documentUri: "file:///document.md",
-        previewSessionId: "old-preview",
-        target: "embeddedHtml",
-        originRpc: candidate.origin.rpc,
-        originDaemonInstanceId: "old-daemon",
-        originGeneration: 0,
-        initialPublication: candidate.result.initialPublication,
-        renderRevision: 1,
-        panel: {
-          webview: {
-            postMessage: () =>
-              failure === "false"
-                ? Promise.resolve(false)
-                : Promise.reject(new Error("post failed")),
+    const { candidate, runtime } = previewCandidate();
+    const previous = previousPreview(candidate, {
+      target: "embeddedHtml",
+      originDaemonInstanceId: "old-daemon",
+      originGeneration: 0,
+      panel: {
+        webview: {
+          postMessage: () => Promise.reject(new Error("post failed")),
+        },
+      },
+    } as unknown as Partial<PreviewState>);
+    runtime.previews.set("old-preview", previous);
+    let reloaded = 0;
+    let disposed = 0;
+    const reports: string[] = [];
+    const queue = new UnmatchedPreviewEventQueue();
+    await recreatePreviews(runtime, candidate, {
+      reject: async () => assert.fail("committed candidate uses disposal"),
+      dispose: async (owner, item) => {
+        disposed += 1;
+        owner.previews.delete(item.previewSessionId);
+      },
+      handshake: (owner, item) =>
+        beginEmbeddedPreviewHandshake(owner, item, {
+          ...readinessDependencies(owner, queue, []),
+          reload: async () => {
+            reloaded += 1;
+            return true;
           },
-        },
-      } as unknown as PreviewState;
-      runtime.previews.set("old-preview", previous);
-      let reloaded = 0;
-      let disposed = 0;
-      const reports: string[] = [];
-      const queue = new UnmatchedPreviewEventQueue();
-      await recreatePreviewsLifecycle(runtime, {
-        document: () => ({}) as never,
-        request: async () => candidate,
-        currentOrigin: () => candidate.origin,
-        candidateCurrent: () => true,
-        candidateIdentityCurrent: () => true,
-        reject: async () => assert.fail("committed candidate uses disposal"),
-        dispose: async (owner, item) => {
-          disposed += 1;
-          owner.previews.delete(item.previewSessionId);
-        },
-        handshake: (owner, item) =>
-          beginEmbeddedPreviewHandshake(owner, item, {
-            ...readinessDependencies(owner, queue, []),
-            reload: async () => {
-              reloaded += 1;
-              return true;
-            },
-            report: (error) => reports.push(String(error)),
-          }),
-        activate: async () => assert.fail("failed delivery cannot activate"),
-        discardQueued: () => undefined,
-        markReload: (origin, previewSessionId) =>
-          queue.markReloadRequired(origin, previewSessionId),
-        reload: async () => {
-          reloaded += 1;
-          return true;
-        },
-        openExternal: async () => assert.fail("embedded preview"),
-        report: (error) => reports.push(String(error)),
-      });
-      assert.equal(reloaded, 1);
-      assert.equal(disposed, 0);
-      assert.equal(runtime.previews.get("preview"), previous);
-      assert.deepEqual(
-        reports,
-        failure === "reject" ? ["Error: post failed"] : [],
-      );
-    }
+          report: (error) => reports.push(String(error)),
+        }),
+      activate: async () => assert.fail("failed delivery cannot activate"),
+      discardQueued: () => undefined,
+      markReload: (origin, previewSessionId) =>
+        queue.markReloadRequired(origin, previewSessionId),
+      reload: async () => {
+        reloaded += 1;
+        return true;
+      },
+      openExternal: async () => assert.fail("embedded preview"),
+      report: (error) => reports.push(String(error)),
+    });
+    assert.equal(reloaded, 1);
+    assert.equal(disposed, 0);
+    assert.equal(runtime.previews.get("preview"), previous);
+    assert.deepEqual(reports, ["Error: post failed"]);
   });
 
   test("retains a drifted embedded recreate after reload rejection until a full event", async () => {
@@ -1275,12 +1169,8 @@ export function suite(): void {
     const reports: string[] = [];
     const readiness = actualReadinessDependencies(runtime, queue);
 
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
+    await recreatePreviews(runtime, candidate, {
       candidateCurrent: () => versionCurrent,
-      candidateIdentityCurrent: () => true,
       reject: async () => assert.fail("committed candidate is retained"),
       dispose: async (owner, item) => {
         disposals += 1;
@@ -1375,10 +1265,7 @@ export function suite(): void {
     let disposals = 0;
     const reports: string[] = [];
 
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
+    await recreatePreviews(runtime, candidate, {
       candidateCurrent: () => versionCurrent,
       candidateIdentityCurrent: () => !candidate.origin.rpc.closed,
       reject: async () => assert.fail("committed candidate is retained"),
@@ -1437,11 +1324,7 @@ export function suite(): void {
     let activations = 0;
     let disposals = 0;
 
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
+    await recreatePreviews(runtime, candidate, {
       candidateIdentityCurrent: () => !candidate.origin.rpc.closed,
       reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
@@ -1479,31 +1362,20 @@ export function suite(): void {
     });
     previous.previewSessionId = "old-preview";
     runtime.previews.set("old-preview", previous);
-    let observeHandshake!: () => void;
-    let rejectHandshake!: (error: Error) => void;
-    const handshakeStarted = new Promise<void>((resolve) => {
-      observeHandshake = resolve;
-    });
-    const pendingHandshake = new Promise<void>((_resolve, reject) => {
-      rejectHandshake = reject;
-    });
+    const handshakeStarted = signal();
+    const pendingHandshake = signal();
     let reloads = 0;
     let disposals = 0;
     const reports: unknown[] = [];
 
-    const recreating = recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
+    const recreating = recreatePreviews(runtime, candidate, {
       reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
         disposals += 1;
       },
       handshake: async () => {
-        observeHandshake();
-        await pendingHandshake;
+        handshakeStarted.resolve();
+        await pendingHandshake.promise;
       },
       activate: async () => assert.fail("rejected handshake cannot activate"),
       discardQueued: () => undefined,
@@ -1515,7 +1387,7 @@ export function suite(): void {
       openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(error),
     });
-    await handshakeStarted;
+    await handshakeStarted.promise;
     const replacementRpc = { closed: false } as JsonRpcConnection;
     runtime.previews.delete("preview");
     previous.previewSessionId = "replacement-preview";
@@ -1524,7 +1396,7 @@ export function suite(): void {
     previous.originGeneration = 2;
     runtime.previews.set("replacement-preview", previous);
 
-    rejectHandshake(new Error("old handshake failed"));
+    pendingHandshake.reject(new Error("old handshake failed"));
     await recreating;
 
     assert.equal(reloads, 0);
@@ -1540,23 +1412,12 @@ export function suite(): void {
     });
     previous.previewSessionId = "old-preview";
     runtime.previews.set("old-preview", previous);
-    let observeActivation!: () => void;
-    let rejectActivation!: (error: Error) => void;
-    const activationStarted = new Promise<void>((resolve) => {
-      observeActivation = resolve;
-    });
-    const pendingActivation = new Promise<void>((_resolve, reject) => {
-      rejectActivation = reject;
-    });
+    const activationStarted = signal();
+    const pendingActivation = signal();
     let disposals = 0;
     const reports: unknown[] = [];
 
-    const recreating = recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
+    const recreating = recreatePreviews(runtime, candidate, {
       reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => {
         disposals += 1;
@@ -1565,8 +1426,8 @@ export function suite(): void {
         item.ready = true;
       },
       activate: async () => {
-        observeActivation();
-        await pendingActivation;
+        activationStarted.resolve();
+        await pendingActivation.promise;
       },
       discardQueued: () => undefined,
       markReload: () => undefined,
@@ -1574,14 +1435,14 @@ export function suite(): void {
       openExternal: async () => assert.fail("embedded preview"),
       report: (error) => reports.push(error),
     });
-    await activationStarted;
+    await activationStarted.promise;
     const replacementRpc = { closed: false } as JsonRpcConnection;
     previous.originRpc = replacementRpc;
     previous.originDaemonInstanceId = "replacement-daemon";
     previous.originGeneration = 2;
     previous.ready = false;
 
-    rejectActivation(new Error("old activation failed"));
+    pendingActivation.reject(new Error("old activation failed"));
     await recreating;
 
     assert.equal(disposals, 0);
@@ -1593,26 +1454,12 @@ export function suite(): void {
 
   test("reports a current external recreation rejection and restores readiness", async () => {
     const { candidate, runtime } = previewCandidate();
-    const previous = {
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
-      originDaemonInstanceId: candidate.origin.daemonInstanceId,
-      originGeneration: candidate.origin.generation,
-      initialPublication: candidate.result.initialPublication,
-      renderRevision: 1,
-    } as PreviewState;
+    const previous = previousPreview(candidate);
     runtime.previews.set("old-preview", previous);
     const failure = new Error("current browser open failed");
     const reports: unknown[] = [];
 
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
+    await recreatePreviews(runtime, candidate, {
       reject: async () => assert.fail("committed candidate is retained"),
       dispose: async () => assert.fail("external failure retains membership"),
       handshake: async () => assert.fail("external preview has no handshake"),
@@ -1638,15 +1485,12 @@ export function suite(): void {
       "old-daemon",
       0,
     );
-    let resolveOldPost!: (delivered: boolean) => void;
-    const oldPost = new Promise<boolean>((resolve) => {
-      resolveOldPost = resolve;
-    });
+    const oldPost = deferred<boolean>();
     const posts: string[] = [];
     const previous = previewState(oldOrigin, {
       postMessage: (message: { publication: { previewSessionId: string } }) => {
         posts.push(message.publication.previewSessionId);
-        return posts.length === 1 ? oldPost : Promise.resolve(true);
+        return posts.length === 1 ? oldPost.promise : Promise.resolve(true);
       },
     });
     previous.previewSessionId = "old-preview";
@@ -1676,12 +1520,7 @@ export function suite(): void {
     await Promise.resolve();
     assert.deepEqual(posts, ["old-preview"]);
 
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
+    await recreatePreviews(runtime, candidate, {
       reject: async () => assert.fail("candidate is committed"),
       dispose: async (owner, item) => {
         disposals += 1;
@@ -1707,7 +1546,7 @@ export function suite(): void {
     assert.equal(previous.ready, true);
     assert.equal(activations, 1);
 
-    resolveOldPost(false);
+    oldPost.resolve(false);
     await oldHandshake;
     assert.equal(previous.handshakeEpoch, completedEpoch);
     assert.equal(previous.ready, true);
@@ -1729,16 +1568,11 @@ export function suite(): void {
         "old-daemon",
         0,
       );
-      const previous = {
-        documentUri: "file:///document.md",
-        previewSessionId: "old-preview",
-        target: "externalBrowser",
+      const previous = previousPreview(candidate, {
         originRpc: oldOrigin.rpc,
         originDaemonInstanceId: oldOrigin.daemonInstanceId,
         originGeneration: oldOrigin.generation,
-        initialPublication: candidate.result.initialPublication,
-        renderRevision: 1,
-      } as PreviewState;
+      });
       runtime.previews.set("old-preview", previous);
       let disposals = 0;
       let rejections = 0;
@@ -1748,17 +1582,14 @@ export function suite(): void {
         ...candidate,
         result: { ...candidate.result, url: undefined },
       };
-      await recreatePreviewsLifecycle(runtime, {
-        document: () => ({}) as never,
+      await recreatePreviews(runtime, candidate, {
         request: async () => {
           if (failure === "throw") throw requestFailure;
           if (failure === "missing-url") return missingUrl;
           if (failure === "stale-candidate") return candidate;
           return undefined;
         },
-        currentOrigin: () => candidate.origin,
         candidateCurrent: () => failure !== "stale-candidate",
-        candidateIdentityCurrent: () => true,
         reject: async () => {
           rejections += 1;
         },
@@ -1766,12 +1597,7 @@ export function suite(): void {
           disposals += 1;
           owner.previews.delete(item.previewSessionId);
         },
-        handshake: async () => assert.fail("precommit failure"),
-        activate: async () => assert.fail("precommit failure"),
         discardQueued: () => undefined,
-        markReload: () => assert.fail("precommit failure"),
-        reload: async () => assert.fail("precommit failure"),
-        openExternal: async () => assert.fail("precommit failure"),
         report: (error) => reports.push(error),
       });
 
@@ -1791,79 +1617,42 @@ export function suite(): void {
   });
 
   test("keeps an old preview for replay when recovery throws without a replacement origin", async () => {
-    for (const outcome of ["throw"] as ("undefined" | "throw")[]) {
-      const { candidate, runtime } = previewCandidate();
-      const previous = {
-        documentUri: "file:///document.md",
-        previewSessionId: "old-preview",
-        target: "externalBrowser",
-        originRpc: candidate.origin.rpc,
-        originDaemonInstanceId: candidate.origin.daemonInstanceId,
-        originGeneration: candidate.origin.generation,
-        initialPublication: candidate.result.initialPublication,
-        renderRevision: 1,
-      } as PreviewState;
-      runtime.previews.set("old-preview", previous);
-      let disposals = 0;
-      const reports: unknown[] = [];
-      const failure = new Error("origin closed during recovery");
+    const { candidate, runtime } = previewCandidate();
+    const previous = previousPreview(candidate);
+    runtime.previews.set("old-preview", previous);
+    let disposals = 0;
+    const reports: unknown[] = [];
+    const failure = new Error("origin closed during recovery");
 
-      await recreatePreviewsLifecycle(runtime, {
-        document: () => ({}) as never,
-        request: async () => {
-          if (outcome === "throw") throw failure;
-          return undefined;
-        },
-        currentOrigin: () => undefined,
-        candidateCurrent: () => assert.fail("there is no candidate"),
-        candidateIdentityCurrent: () => assert.fail("there is no candidate"),
-        reject: async () => assert.fail("there is no candidate"),
-        dispose: async () => {
-          disposals += 1;
-        },
-        handshake: async () => assert.fail("there is no candidate"),
-        activate: async () => assert.fail("there is no candidate"),
-        discardQueued: () => assert.fail("there is no candidate"),
-        markReload: () => assert.fail("there is no candidate"),
-        reload: async () => assert.fail("there is no candidate"),
-        openExternal: async () => assert.fail("there is no candidate"),
-        report: (error) => reports.push(error),
-      });
+    await recreatePreviews(runtime, candidate, {
+      request: async () => {
+        throw failure;
+      },
+      currentOrigin: () => undefined,
+      candidateCurrent: () => assert.fail("there is no candidate"),
+      candidateIdentityCurrent: () => assert.fail("there is no candidate"),
+      dispose: async () => {
+        disposals += 1;
+      },
+      report: (error) => reports.push(error),
+    });
 
-      assert.equal(disposals, 0, outcome);
-      assert.equal(runtime.previews.get("old-preview"), previous, outcome);
-      assert.deepEqual(reports, outcome === "throw" ? [failure] : [], outcome);
-    }
+    assert.equal(disposals, 0);
+    assert.equal(runtime.previews.get("old-preview"), previous);
+    assert.deepEqual(reports, [failure]);
   });
 
   test("does not activate a recreated external preview removed while URL opening is pending", async () => {
     const { candidate, runtime } = previewCandidate();
-    const previous = {
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
+    const previous = previousPreview(candidate, {
       originDaemonInstanceId: "old-daemon",
       originGeneration: 0,
-      initialPublication: candidate.result.initialPublication,
-      renderRevision: 1,
-    } as PreviewState;
+    });
     runtime.previews.set("old-preview", previous);
-    let releaseOpen!: () => void;
-    let observedOpen!: () => void;
-    const pendingOpen = new Promise<void>((resolve) => {
-      releaseOpen = resolve;
-    });
-    const opened = new Promise<void>((resolve) => {
-      observedOpen = resolve;
-    });
+    const pendingOpen = signal();
+    const opened = signal();
     let activations = 0;
-    const recreating = recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
+    const recreating = recreatePreviews(runtime, candidate, {
       reject: async () => undefined,
       dispose: async () => undefined,
       handshake: async () => undefined,
@@ -1874,31 +1663,22 @@ export function suite(): void {
       markReload: () => undefined,
       reload: async () => true,
       openExternal: async () => {
-        observedOpen();
-        await pendingOpen;
+        opened.resolve();
+        await pendingOpen.promise;
       },
       report: assert.fail,
     });
-    await opened;
+    await opened.promise;
     runtime.removed = true;
     runtime.previews.clear();
-    releaseOpen();
+    pendingOpen.resolve();
     await recreating;
     assert.equal(activations, 0);
   });
 
   test("reloads a drifted recreated external preview and waits for an authoritative full event", async () => {
     const { candidate, runtime } = previewCandidate();
-    const previous = {
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
-      originDaemonInstanceId: candidate.origin.daemonInstanceId,
-      originGeneration: candidate.origin.generation,
-      initialPublication: candidate.result.initialPublication,
-      renderRevision: 1,
-    } as PreviewState;
+    const previous = previousPreview(candidate);
     runtime.previews.set("old-preview", previous);
     let versionCurrent = true;
     const effects: string[] = [];
@@ -1912,12 +1692,8 @@ export function suite(): void {
       );
     };
 
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
+    await recreatePreviews(runtime, candidate, {
       candidateCurrent: () => versionCurrent,
-      candidateIdentityCurrent: () => true,
       reject: async () => assert.fail("current candidate is retained"),
       dispose: async () => assert.fail("current candidate is retained"),
       handshake: async () => assert.fail("external preview has no handshake"),
@@ -1965,15 +1741,12 @@ export function suite(): void {
   });
 
   test("deletes membership before awaiting disposal and disposes the panel exactly once", async () => {
-    let resolve!: () => void;
-    const pending = new Promise<void>((done) => {
-      resolve = done;
-    });
+    const pending = signal();
     const order: string[] = [];
     const rpc = {
       request: () => {
         order.push("rpc");
-        return pending;
+        return pending.promise;
       },
     } as unknown as JsonRpcConnection;
     const preview = {
@@ -1983,9 +1756,7 @@ export function suite(): void {
       previewSessionId: "preview",
       panel: { dispose: () => order.push("panel") },
     } as never;
-    const runtime = {
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     const disposing = disposePreviewLifecycle(runtime, preview, {
       clearQueued: () => order.push("queue"),
       reportFailure: assert.fail,
@@ -1996,7 +1767,7 @@ export function suite(): void {
       clearQueued: assert.fail,
       reportFailure: assert.fail,
     });
-    resolve();
+    pending.resolve();
     await disposing;
     assert.deepEqual(order, ["queue", "rpc", "panel"]);
   });
@@ -2013,9 +1784,7 @@ export function suite(): void {
       previewSessionId: "preview",
       panel: { dispose: () => order.push("panel") },
     } as unknown as PreviewState;
-    const runtime = {
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     await disposePreviewLifecycle(runtime, preview, {
       clearQueued: () => order.push("queue"),
       reportFailure: (message) => order.push(message),
@@ -2042,10 +1811,7 @@ export function suite(): void {
     const preview = previewState(origin, {
       postMessage: async () => true,
     });
-    const runtime = {
-      removed: false,
-      previews: new Map([["preview", preview]]),
-    } as unknown as WorkspaceRuntime;
+    const runtime = runtimeWithPreview(preview);
     const reports: string[] = [];
 
     assert.equal(
@@ -2071,42 +1837,33 @@ export function suite(): void {
   });
 
   test("suppresses a late reload error after same-id origin replacement", async () => {
-    for (const outcome of ["reject"] as ("resolve" | "reject")[]) {
-      let settleRequest!: () => void;
-      const pendingRequest = new Promise<void>((resolve, reject) => {
-        settleRequest =
-          outcome === "resolve" ? resolve : () => reject(new Error("stale"));
-      });
-      const rpc = {
-        closed: false,
-        request: () => pendingRequest,
-      } as unknown as JsonRpcConnection;
-      const origin = daemonOrigin(rpc, "daemon", 4);
-      const preview = previewState(origin, {
-        postMessage: async () => true,
-      });
-      const runtime = {
-        removed: false,
-        previews: new Map([["preview", preview]]),
-      } as unknown as WorkspaceRuntime;
-      const reports: string[] = [];
+    const pendingRequest = signal();
+    const rpc = {
+      closed: false,
+      request: () => pendingRequest.promise,
+    } as unknown as JsonRpcConnection;
+    const origin = daemonOrigin(rpc, "daemon", 4);
+    const preview = previewState(origin, {
+      postMessage: async () => true,
+    });
+    const runtime = runtimeWithPreview(preview);
+    const reports: string[] = [];
 
-      const reloading = reloadPreviewLifecycle(runtime, preview, {
-        disposed: () => false,
-        currentOrigin: () => origin,
-        reportFailure: (message) => reports.push(message),
-      });
-      const replacementRpc = { closed: false } as JsonRpcConnection;
-      preview.originRpc = replacementRpc;
-      preview.originDaemonInstanceId = "replacement-daemon";
-      preview.originGeneration = 5;
-      settleRequest();
+    const reloading = reloadPreviewLifecycle(runtime, preview, {
+      disposed: () => false,
+      currentOrigin: () => origin,
+      reportFailure: (message) => reports.push(message),
+    });
+    const replacementRpc = { closed: false } as JsonRpcConnection;
+    preview.originRpc = replacementRpc;
+    preview.originDaemonInstanceId = "replacement-daemon";
+    preview.originGeneration = 5;
+    pendingRequest.reject(new Error("stale"));
 
-      assert.equal(await reloading, false, outcome);
-      assert.deepEqual(reports, [], outcome);
-      assert.equal(runtime.previews.get("preview"), preview, outcome);
-      assert.equal(preview.originRpc, replacementRpc, outcome);
-    }
+    assert.equal(await reloading, false);
+    assert.deepEqual(reports, []);
+    assert.equal(runtime.previews.get("preview"), preview);
+    assert.equal(preview.originRpc, replacementRpc);
   });
 
   test("suppresses navigation effects for representative stale preview identities", async () => {
@@ -2121,14 +1878,8 @@ export function suite(): void {
         previewSessionId: "preview",
         renderRevision: 1,
       } as PreviewState;
-      const runtime = {
-        removed: false,
-        previews: new Map([["preview", preview]]),
-      } as unknown as WorkspaceRuntime;
-      let resolveEditor!: (editor: unknown) => void;
-      const shown = new Promise((resolve) => {
-        resolveEditor = resolve;
-      });
+      const runtime = runtimeWithPreview(preview);
+      const shown = deferred<unknown>();
       const effects: string[] = [];
       const navigating = applySourceNavigationLifecycle(
         runtime,
@@ -2147,7 +1898,7 @@ export function suite(): void {
           sourcePositionInDocument: () => true,
           range: () => ({}) as never,
           visibleEditor: () => undefined,
-          showEditor: () => shown as never,
+          showEditor: () => shown.promise as never,
           current: (owner, item) =>
             !owner.removed && owner.previews.get("preview") === item,
           documentOpen: () => true,
@@ -2165,7 +1916,7 @@ export function suite(): void {
       if (stale === "membership") runtime.previews.delete("preview");
       if (stale === "generation") preview.originGeneration = 2;
       if (stale === "editor") editorDocument = {};
-      resolveEditor({ document: editorDocument });
+      shown.resolve({ document: editorDocument });
       await navigating;
       assert.deepEqual(effects, [], stale);
     }
@@ -2478,6 +2229,33 @@ export function suite(): void {
   });
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason?: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
+}
+
+function signal(): {
+  promise: Promise<void>;
+  resolve(): void;
+  reject(reason?: unknown): void;
+} {
+  const value = deferred<undefined>();
+  return {
+    promise: value.promise,
+    resolve: () => value.resolve(undefined),
+    reject: value.reject,
+  };
+}
+
 function globallyLimitedQueue(
   overrides: Partial<{
     maxStreams: number;
@@ -2533,6 +2311,47 @@ function previewCandidate(): {
       },
     } as PreviewCandidate,
   };
+}
+
+function previousPreview(
+  candidate: PreviewCandidate,
+  overrides: Partial<PreviewState> = {},
+): PreviewState {
+  return {
+    documentUri: "file:///document.md",
+    previewSessionId: "old-preview",
+    target: "externalBrowser",
+    originRpc: candidate.origin.rpc,
+    originDaemonInstanceId: candidate.origin.daemonInstanceId,
+    originGeneration: candidate.origin.generation,
+    initialPublication: candidate.result.initialPublication,
+    renderRevision: 1,
+    ...overrides,
+  } as PreviewState;
+}
+
+function recreatePreviews(
+  runtime: WorkspaceRuntime,
+  candidate: PreviewCandidate,
+  overrides: Partial<Parameters<typeof recreatePreviewsLifecycle>[1]>,
+): Promise<void> {
+  return recreatePreviewsLifecycle(runtime, {
+    document: () => ({}) as never,
+    request: async () => candidate,
+    currentOrigin: () => candidate.origin,
+    candidateCurrent: () => true,
+    candidateIdentityCurrent: () => true,
+    reject: async () => assert.fail("unexpected candidate rejection"),
+    dispose: async () => assert.fail("unexpected preview disposal"),
+    handshake: async () => assert.fail("unexpected embedded handshake"),
+    activate: async () => assert.fail("unexpected preview activation"),
+    discardQueued: () => assert.fail("unexpected queue discard"),
+    markReload: () => assert.fail("unexpected reload marker"),
+    reload: async () => assert.fail("unexpected preview reload"),
+    openExternal: async () => assert.fail("unexpected external open"),
+    report: assert.fail,
+    ...overrides,
+  });
 }
 
 function previewDependencies(
@@ -2594,6 +2413,13 @@ function previewState(
     messageToken: "token",
     panel: { webview } as never,
   };
+}
+
+function runtimeWithPreview(preview: PreviewState): WorkspaceRuntime {
+  return {
+    removed: false,
+    previews: new Map([[preview.previewSessionId, preview]]),
+  } as unknown as WorkspaceRuntime;
 }
 
 function readinessDependencies(
