@@ -16,6 +16,25 @@
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
       "preLaunchTask": "${defaultBuildTask}"
+    },
+    {
+      "name": "Run Extension (select workspace)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "${input:targetWorkspace}",
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "preLaunchTask": "${defaultBuildTask}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "targetWorkspace",
+      "type": "promptString",
+      "description": "Absolute path of the workspace to open in the Extension Development Host"
     }
   ]
 }
