@@ -34,6 +34,20 @@ fn message(id: Option<i64>, method: &str, params: Value) -> IncomingMessage {
     }
 }
 
+fn result_string(messages: &[Value], field: &str) -> String {
+    messages[0]["result"][field]
+        .as_str()
+        .unwrap_or_else(|| panic!("{field} result must be a string"))
+        .to_owned()
+}
+
+fn initialize_daemon(server: &mut Server, params: Value) -> String {
+    result_string(
+        &server.handle(message(Some(1), method::INITIALIZE, params)),
+        "daemonInstanceId",
+    )
+}
+
 struct TestDirectory(PathBuf);
 
 impl Deref for TestDirectory {
@@ -133,6 +147,18 @@ fn preview_http_request(
         .expect("read preview fixture response");
     worker.join().expect("preview fixture worker");
     response
+}
+
+fn preview_navigation_request(
+    token: &str,
+    port: u16,
+    content_length: usize,
+    body: &str,
+) -> Vec<u8> {
+    format!(
+        "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: {content_length}\r\n\r\n{body}"
+    )
+    .into_bytes()
 }
 
 #[test]
@@ -345,26 +371,18 @@ fn recognized_request_deserialization_preserves_error_wire_and_notification_sile
 #[test]
 fn rpc_error_precedes_full_text_recovery_notification() {
     let mut server = Server::new(false);
-    let initialized = server.handle(message(
-        Some(1),
-        method::INITIALIZE,
+    let daemon = initialize_daemon(
+        &mut server,
         json!({"protocolVersion":1,"client":{"name":"test","version":"1"},
                 "capabilities":{}}),
-    ));
-    let daemon = initialized[0]["result"]["daemonInstanceId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    );
     let opened = server.handle(message(
         Some(2),
         method::OPEN_DOCUMENT,
         json!({"daemonInstanceId":daemon,"uri":"file:///order.md",
                 "documentVersion":1,"text":"old\n"}),
     ));
-    let session = opened[0]["result"]["documentSessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let session = result_string(&opened, "documentSessionId");
 
     let outgoing = server.handle(message(
         Some(3),
@@ -497,10 +515,7 @@ fn every_workspace_command_preserves_its_success_dispatch() {
         json!({"daemonInstanceId":daemon,"uri":document_uri,
                 "documentVersion":1,"text":document_text}),
     ));
-    let session = opened[0]["result"]["documentSessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let session = result_string(&opened, "documentSessionId");
 
     let collected = server.handle(message(
         Some(6),
@@ -697,10 +712,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         }),
     ));
     assert!(attached[0].get("result").is_some(), "{attached:?}");
-    let session_id = attached[0]["result"]["documentSessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let session_id = result_string(&attached, "documentSessionId");
     let checkpoint = server.handle(message(
         Some(4),
         method::CHECKPOINT_DOCUMENT,
@@ -1126,19 +1138,14 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
     let trusted_document_uri = fleximark_service::path_to_file_uri(&trusted_document).unwrap();
     let untrusted_document_uri = fleximark_service::path_to_file_uri(&untrusted_document).unwrap();
     let mut server = Server::new(false);
-    let initialized = server.handle(message(
-        Some(1),
-        method::INITIALIZE,
+    let daemon = initialize_daemon(
+        &mut server,
         json!({"protocolVersion":1,"client":{"name":"test","version":"1"},
         "capabilities":{},"workspaces":[
             {"uri":trusted_uri,"trusted":true},
             {"uri":untrusted_uri,"trusted":false}
         ]}),
-    ));
-    let daemon = initialized[0]["result"]["daemonInstanceId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    );
     let trusted_open = server.handle(message(
         Some(2),
         method::OPEN_DOCUMENT,
@@ -1151,14 +1158,8 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
         json!({"daemonInstanceId":daemon,"uri":untrusted_document_uri,
                 "documentVersion":1,"text":"# Untrusted\n"}),
     ));
-    let trusted_session = trusted_open[0]["result"]["documentSessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let untrusted_session = untrusted_open[0]["result"]["documentSessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let trusted_session = result_string(&trusted_open, "documentSessionId");
+    let untrusted_session = result_string(&untrusted_open, "documentSessionId");
     let trusted_preview = server.handle(message(
         Some(4),
         method::CREATE_PREVIEW,
@@ -1574,10 +1575,7 @@ fn preview_http_rejects_duplicate_headers_and_enforces_body_boundaries() {
     let body = format!("{event}{}", " ".repeat(4096 - event.len()));
     let (sender, events) = mpsc::channel();
     let response = preview_http_request(&preview_pages(token), Some(sender), |port| {
-        format!(
-            "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: 4096\r\n\r\n{body}"
-        )
-        .into_bytes()
+        preview_navigation_request(token, port, 4096, &body)
     });
     assert_eq!(
         response,
@@ -1585,29 +1583,17 @@ fn preview_http_rejects_duplicate_headers_and_enforces_body_boundaries() {
     );
     assert!(events.recv().is_ok());
 
-    let oversized = preview_http_request(&preview_pages(token), None, |port| {
-        format!(
-            "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: 4097\r\n\r\n"
-        )
-        .into_bytes()
-    });
-    assert_eq!(oversized, bad_request);
-
-    let malformed = preview_http_request(&preview_pages(token), None, |port| {
-        format!(
-            "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: 1\r\n\r\n{{"
-        )
-        .into_bytes()
-    });
-    assert_eq!(malformed, bad_request);
-
-    let short = preview_http_request(&preview_pages(token), None, |port| {
-        format!(
-            "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{{"
-        )
-        .into_bytes()
-    });
-    assert!(short.is_empty());
+    let invalid_bodies: [(usize, &str, &[u8]); 3] = [
+        (4097, "", bad_request),
+        (1, "{", bad_request),
+        (2, "{", b""),
+    ];
+    for (content_length, body, expected) in invalid_bodies {
+        let response = preview_http_request(&preview_pages(token), None, |port| {
+            preview_navigation_request(token, port, content_length, body)
+        });
+        assert_eq!(response, expected, "content length {content_length}");
+    }
 }
 
 #[test]
@@ -1625,27 +1611,29 @@ fn preview_http_enforces_individual_and_total_header_byte_limits() {
         request.into_bytes()
     };
 
-    let accepted = preview_http_request(&preview_pages(token), None, |port| {
-        request_with_header_lengths(port, &[8192])
-    });
-    assert!(accepted.starts_with(b"HTTP/1.1 200 OK\r\n"));
-
-    let rejected = preview_http_request(&preview_pages(token), None, |port| {
-        request_with_header_lengths(port, &[8193])
-    });
-    assert!(rejected.is_empty());
-
-    let exact_total = preview_http_request(&preview_pages(token), None, |port| {
-        let base = format!("GET /preview/{token} HTTP/1.1\r\nHost: localhost:{port}\r\n").len();
-        request_with_header_lengths(port, &[8192, 16 * 1024 - base - 8192])
-    });
-    assert!(exact_total.starts_with(b"HTTP/1.1 200 OK\r\n"));
-
-    let over_total = preview_http_request(&preview_pages(token), None, |port| {
-        let base = format!("GET /preview/{token} HTTP/1.1\r\nHost: localhost:{port}\r\n").len();
-        request_with_header_lengths(port, &[8192, 16 * 1024 - base - 8192 + 1])
-    });
-    assert!(over_total.is_empty());
+    for (individual, total_delta, accepted) in [
+        (8192, None, true),
+        (8193, None, false),
+        (8192, Some(0), true),
+        (8192, Some(1), false),
+    ] {
+        let actual = preview_http_request(&preview_pages(token), None, |port| {
+            let base = format!("GET /preview/{token} HTTP/1.1\r\nHost: localhost:{port}\r\n").len();
+            let lengths = total_delta.map_or_else(
+                || vec![individual],
+                |delta| vec![individual, 16 * 1024 - base - individual + delta],
+            );
+            request_with_header_lengths(port, &lengths)
+        });
+        if accepted {
+            assert!(actual.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        } else {
+            assert!(
+                actual.is_empty(),
+                "individual={individual}, total_delta={total_delta:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1680,11 +1668,7 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
             "nodeId":"node-1"
         }))
         .unwrap();
-        format!(
-                "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            )
-            .into_bytes()
+        preview_navigation_request(token, port, body.len(), &body)
     };
 
     let stale = preview_http_request(&pages, Some(sender.clone()), |port| request(port, 6));
@@ -1725,24 +1709,16 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
 #[test]
 fn standalone_rpc_uses_explicit_base_version_and_hash() {
     let mut server = Server::new(false);
-    let initialized = server.handle(message(
-        Some(1),
-        method::INITIALIZE,
+    let daemon = initialize_daemon(
+        &mut server,
         json!({"protocolVersion":1,"client":{"name":"test","version":"1"},"capabilities":{}}),
-    ));
-    let daemon = initialized[0]["result"]["daemonInstanceId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    );
     let opened = server.handle(message(
             Some(2),
             method::OPEN_DOCUMENT,
             json!({"daemonInstanceId":daemon.clone(),"uri":"file:///rpc.md","documentVersion":1,"text":"old\n"}),
         ));
-    let session = opened[0]["result"]["documentSessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let session = result_string(&opened, "documentSessionId");
     let changed = server.handle(message(
         Some(3),
         method::CHANGE_DOCUMENT,

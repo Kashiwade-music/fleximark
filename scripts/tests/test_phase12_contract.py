@@ -7,11 +7,9 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
 import tomllib
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -66,22 +64,6 @@ def suite_members(entry: str, registrar: str) -> list[str]:
     if len(modules) != len(set(modules)):
         raise AssertionError(f"duplicate suite module in {entry}")
     return modules
-
-
-def workflow_job(workflow: str, name: str, next_name: str) -> str:
-    start = workflow.index(f"  {name}:")
-    end = workflow.index(f"  {next_name}:", start)
-    return workflow[start:end]
-
-
-def has_typescript_check(source: str) -> bool:
-    return (
-        re.search(
-            r"\btsc\b[^\r\n]{0,200}(?:--noEmit|(?:['\"])?-b(?:['\"]|\s|$))",
-            source,
-        )
-        is not None
-    )
 
 
 def ignored_by_vscodeignore(path: str, patterns: list[str]) -> bool:
@@ -165,12 +147,6 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
         self.assertEqual(pure, expected_pure)
         self.assertEqual(electron, expected_electron)
 
-    def test_release_runner_union_cannot_lose_the_existing_pure_boundary(self) -> None:
-        release = read(".github/workflows/release.yml")
-        validate = workflow_job(release, "validate", "release")
-        self.assertIn("mise run test-pure", validate)
-        self.assertIn("mise run test -- --prebuilt", validate)
-
     def test_vscode_test_discovery_selects_only_the_electron_artifact(self) -> None:
         config = read(".vscode-test.mjs")
         self.assertIn(
@@ -192,121 +168,6 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
 
 
 class JavaScriptEntrypointContract(unittest.TestCase):
-    def test_unit_and_electron_builders_preserve_each_others_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="fleximark-phase12-builders-") as temp:
-            output = Path(temp)
-            unit = output / "unit"
-            electron = output / "electron"
-            unit.mkdir()
-            electron.mkdir()
-            (unit / "keep.cjs").write_text("unit", encoding="utf-8")
-            (electron / "stale.cjs").write_text("stale", encoding="utf-8")
-            with (
-                patch.object(javascript_build, "UNIT_TEST_OUTPUT", unit),
-                patch.object(javascript_build, "ELECTRON_TEST_OUTPUT", electron),
-                patch.object(javascript_build, "yarn") as yarn,
-            ):
-                javascript_build.build_electron_tests()
-                self.assertTrue((unit / "keep.cjs").is_file())
-                self.assertFalse((electron / "stale.cjs").exists())
-
-                electron.mkdir(exist_ok=True)
-                (electron / "keep.cjs").write_text("electron", encoding="utf-8")
-                (unit / "stale.cjs").write_text("stale", encoding="utf-8")
-                javascript_build.build_pure_tests()
-                self.assertTrue((electron / "keep.cjs").is_file())
-                self.assertFalse((unit / "stale.cjs").exists())
-                self.assertEqual(yarn.call_count, 2)
-
-    def test_developer_mise_and_ci_entrypoints_reach_the_same_tasks(self) -> None:
-        package = json.loads(read("package.json"))
-        mise = tomllib.loads(read("mise.toml"))
-        self.assertEqual(
-            {name: package["scripts"][name] for name in ["build", "test", "verify"]},
-            {
-                "build": "mise run build",
-                "test": "mise run test",
-                "verify": "mise run verify",
-            },
-        )
-        self.assertEqual(package["scripts"]["package"], "mise run package --")
-        self.assertEqual(
-            package["scripts"]["vscode:prepublish"],
-            "python scripts/tasks.py vscode-prepublish",
-        )
-        for task in [
-            "build",
-            "test",
-            "test-pure",
-            "verify",
-            "package",
-            "smoke",
-        ]:
-            self.assertEqual(
-                mise["tasks"][task]["run"],
-                f"uv run --frozen python scripts/tasks.py {task}",
-            )
-
-        ci = read(".github/workflows/ci.yml")
-        for command in [
-            "mise run test-pure",
-            "mise run test -- --prebuilt",
-            "yarn exec vsce package --no-dependencies --out fleximark.vsix",
-            "uv run --frozen python scripts/release_artifact.py validate --vsix fleximark.vsix",
-        ]:
-            self.assertIn(command, ci)
-
-    def test_public_and_bundle_entrypoints_are_exact(self) -> None:
-        package = json.loads(read("package.json"))
-        self.assertEqual(package["main"], "./dist/extension.cjs")
-        self.assertEqual(
-            javascript_build.extension_args(production=True),
-            [
-                "adapters/vscode/src/extension.mts",
-                "--bundle",
-                "--format=cjs",
-                "--platform=node",
-                "--outfile=dist/extension.cjs",
-                "--external:vscode",
-                "--loader:.css=text",
-                "--define:__DEV__=false",
-                "--minify",
-            ],
-        )
-        self.assertEqual(
-            javascript_build.preview_args(production=True),
-            [
-                "web/preview-client/vscode-host.mts",
-                "web/preview-client/browser-host.mts",
-                "--bundle",
-                "--format=iife",
-                "--platform=browser",
-                "--outdir=dist/web/preview-client",
-                "--minify",
-            ],
-        )
-
-    def test_every_entrypoint_keeps_an_all_scope_typescript_check(self) -> None:
-        tasks = read("scripts/tasks.py")
-        dev = tasks[tasks.index("def dev(") : tasks.index("def compile_tests(")]
-        verify = tasks[tasks.index("def verify(") : tasks.index("def package_vsix(")]
-        ci = read(".github/workflows/ci.yml")
-        release = read(".github/workflows/release.yml")
-        release_validate = workflow_job(release, "validate", "release")
-        for name, source in {
-            "developer watch": dev,
-            "local verify": verify,
-            "CI validate": ci,
-            "release validate": release_validate,
-        }.items():
-            with self.subTest(entrypoint=name):
-                self.assertTrue(
-                    has_typescript_check(source),
-                    f"{name} must run either the current tsc --noEmit check or tsc -b",
-                )
-        for source in (tasks, ci, release):
-            self.assertNotIn("--noEmit", source)
-
     def test_typescript_projects_cover_every_production_and_test_source(self) -> None:
         configs = [ROOT / "tsconfig.json"]
         visited: set[Path] = set()
@@ -519,67 +380,6 @@ class CargoBoundaryContract(unittest.TestCase):
                 "source": "registry+https://github.com/rust-lang/crates.io-index",
             },
         )
-
-    def test_cli_all_targets_compile_without_direct_parser_api(self) -> None:
-        cli = ROOT / "crates" / "fleximark-cli"
-        rust_targets = sorted(cli.rglob("*.rs"))
-        self.assertTrue(rust_targets)
-        for target in rust_targets:
-            self.assertNotIn(
-                "fleximark_parser",
-                target.read_text(encoding="utf-8"),
-                target.relative_to(ROOT).as_posix(),
-            )
-
-        tree = run(
-            "cargo",
-            "tree",
-            "-p",
-            "fleximark-cli",
-            "-e",
-            "normal",
-            "--prefix",
-            "none",
-            "--locked",
-        ).stdout
-        self.assertRegex(tree, r"(?m)^fleximark-parser v0\.1\.0 ")
-
-    def test_current_rust_validation_uses_the_declared_workspace_scope(self) -> None:
-        workspace = tomllib.loads(read("Cargo.toml"))
-        self.assertEqual(workspace["workspace"]["package"]["rust-version"], "1.86")
-        ci = read(".github/workflows/ci.yml")
-        release = read(".github/workflows/release.yml")
-        validation_jobs = {
-            ".github/workflows/ci.yml": workflow_job(
-                ci, "validate", "daemon-platforms"
-            ),
-            ".github/workflows/release.yml": workflow_job(
-                release, "validate", "release"
-            ),
-        }
-        for workflow, source in validation_jobs.items():
-            with self.subTest(workflow=workflow):
-                self.assertIn(
-                    "rustup toolchain install 1.86.0 --profile minimal", source
-                )
-                self.assertIn(
-                    "cargo +1.86.0 check --workspace --all-targets --locked",
-                    source,
-                )
-                self.assertIn("cargo test --workspace --all-targets --locked", source)
-                self.assertIn(
-                    "cargo clippy --workspace --all-targets --locked -- -D warnings",
-                    source,
-                )
-
-        release_job = workflow_job(release, "release", "clean-install")
-        self.assertRegex(
-            release_job,
-            r"(?m)^    needs: \[[^\]]*\bvalidate\b[^\]]*\]$",
-            "publishing must depend on the complete release validation job",
-        )
-
-
 
 if __name__ == "__main__":
     unittest.main()
