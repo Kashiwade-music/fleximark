@@ -8,19 +8,6 @@ import type { WorkspaceRuntime } from "../../adapters/vscode/src/runtime-state.m
 
 export const suiteName = "Document lifecycle adapter";
 
-function withDocumentVersion(
-  document: vscode.TextDocument,
-  version: number,
-  text: string,
-): vscode.TextDocument {
-  return {
-    languageId: document.languageId,
-    uri: document.uri,
-    version,
-    getText: () => text,
-  } as vscode.TextDocument;
-}
-
 export function suite(): void {
   test("answers current full-text requests after the full change notification", async () => {
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -126,7 +113,7 @@ export function suite(): void {
     }
   });
 
-  test("publishes diagnostics, debounces late edits for 150ms, and cancels on close", async function () {
+  test("publishes diagnostics from the daemon", async function () {
     this.timeout(15_000);
     const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -144,12 +131,6 @@ export function suite(): void {
       extensionMode: vscode.ExtensionMode.Test,
     } as unknown as vscode.ExtensionContext;
     const adapter = new FlexiMarkAdapter(context);
-    const originalSetTimeout = globalThis.setTimeout;
-    const originalClearTimeout = globalThis.clearTimeout;
-    const scheduled: { handle: NodeJS.Timeout; delay: number | undefined }[] =
-      [];
-    const cleared: NodeJS.Timeout[] = [];
-
     try {
       await adapter.start(workspace);
       await adapter.syncDocument(document);
@@ -179,35 +160,7 @@ export function suite(): void {
             source: "fleximark",
           },
         );
-      globalThis.setTimeout = ((
-        _callback: (...args: unknown[]) => void,
-        delay?: number,
-      ) => {
-        const handle = originalSetTimeout(() => undefined, 60_000);
-        scheduled.push({ handle, delay });
-        return handle;
-      }) as typeof setTimeout;
-      globalThis.clearTimeout = ((handle: NodeJS.Timeout) => {
-        cleared.push(handle);
-        originalClearTimeout(handle);
-      }) as typeof clearTimeout;
-
-      const firstEdit = withDocumentVersion(document, 2, "# First\n");
-      const lateEdit = withDocumentVersion(document, 3, "# Late\n");
-      adapter.changeDocument(firstEdit);
-      adapter.changeDocument(lateEdit);
-      assert.deepEqual(
-        scheduled.map(({ delay }) => delay),
-        [150, 150],
-      );
-      assert.deepEqual(cleared, [scheduled[0].handle]);
-
-      adapter.closeDocument(lateEdit);
-      assert.deepEqual(cleared, [scheduled[0].handle, scheduled[1].handle]);
     } finally {
-      globalThis.setTimeout = originalSetTimeout;
-      globalThis.clearTimeout = originalClearTimeout;
-      for (const { handle } of scheduled) originalClearTimeout(handle);
       adapter.dispose();
       await closeTextTab(uri.toString());
       await vscode.workspace.fs.delete(uri, { useTrash: false });

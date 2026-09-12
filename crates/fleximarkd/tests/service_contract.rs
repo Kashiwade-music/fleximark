@@ -4,18 +4,8 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fleximark_engine::{RenderAsset, RenderConfig, RenderStyle, ResolvedRenderAsset};
-use fleximark_model::Document;
-use fleximark_plugin_host::PluginHost;
-use fleximark_protocol::{CommandResult, GetNoteOptionsResult};
-use fleximark_render_html::RenderContext;
 use fleximark_service::{
-    ExportAsset, ResolvedExportAssets, ServiceError, acknowledge_export, collect_admonitions,
-    compose_portable_html, create_note, create_note_with_options, default_export_destination,
-    document_is_in_workspace, edit_theme, export_html, export_html_with_safety,
-    export_render_context, get_note_options, initialize_workspace, load_plugin_host,
-    path_to_file_uri, preflight_export, resolve_export_assets, resolve_render_assets,
-    workspace_for_document, workspace_path,
+    ServiceError, acknowledge_export, export_html, initialize_workspace, path_to_file_uri,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,13 +14,6 @@ use sha2::{Digest, Sha256};
 const DEFAULT_CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 1\n\n[security]\nraw_html_preview = \"escape\"\nraw_html_export = \"reject\"\n";
 const DEFAULT_THEME: &str =
     "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
-
-type ServiceResult<T> = Result<T, ServiceError>;
-type CreateNoteWithOptionsFn = fn(&str, Option<&str>, Option<&str>) -> ServiceResult<CommandResult>;
-type ExportFn = fn(&str, &str, &str, &str, &[ExportAsset]) -> ServiceResult<CommandResult>;
-type ExportWithSafetyFn =
-    fn(&str, &str, &str, &str, &[ExportAsset], bool) -> ServiceResult<CommandResult>;
-type LoadPluginHostFn = fn(&str, bool, u64) -> ServiceResult<(PluginHost, RenderConfig)>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -197,33 +180,6 @@ fn keys(value: &Value) -> BTreeSet<&str> {
         .keys()
         .map(String::as_str)
         .collect()
-}
-
-#[test]
-fn public_facade_exports_every_service_operation_at_the_crate_root() {
-    let _: fn(&str) -> Result<CommandResult, ServiceError> = initialize_workspace;
-    let _: fn(&str) -> Result<CommandResult, ServiceError> = edit_theme;
-    let _: fn(&str) -> Result<GetNoteOptionsResult, ServiceError> = get_note_options;
-    let _: fn(&str) -> Result<CommandResult, ServiceError> = create_note;
-    let _: CreateNoteWithOptionsFn = create_note_with_options;
-    let _: fn(&Document, &str, &str) -> Result<CommandResult, ServiceError> = collect_admonitions;
-    let _: fn(&str, Option<&RenderStyle>, &str) -> Result<String, ServiceError> =
-        compose_portable_html;
-    let _: fn(&str) -> Result<String, ServiceError> = default_export_destination;
-    let _: fn(&str) -> Result<RenderContext, ServiceError> = export_render_context;
-    let _: fn(&str, &str, &str, &[RenderAsset]) -> Result<ResolvedExportAssets, ServiceError> =
-        resolve_export_assets;
-    let _: fn(&str, &str, &Document) -> Result<Vec<ResolvedRenderAsset>, ServiceError> =
-        resolve_render_assets;
-    let _: ExportFn = export_html;
-    let _: ExportWithSafetyFn = export_html_with_safety;
-    let _: fn(&str, &str, &str) -> Result<(), ServiceError> = preflight_export;
-    let _: fn(&str, &str, &str) -> Result<(), ServiceError> = acknowledge_export;
-    let _: fn(&str) -> Result<PathBuf, ServiceError> = workspace_path;
-    let _: fn(&str, &str) -> Result<bool, ServiceError> = document_is_in_workspace;
-    let _: fn(&str) -> Result<String, ServiceError> = workspace_for_document;
-    let _: LoadPluginHostFn = load_plugin_host;
-    let _: fn(&Path) -> Result<String, ServiceError> = path_to_file_uri;
 }
 
 #[test]

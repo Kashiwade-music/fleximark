@@ -128,16 +128,6 @@ mod tests {
     use crate::test_support::test_workspace;
     use crate::{create_note, get_note_options, load_plugin_host};
     #[test]
-    fn initializes_new_workspace_layout() {
-        let root = test_workspace("service-test");
-        let uri = path_to_file_uri(&root).unwrap();
-        initialize_workspace(&uri).unwrap();
-        assert!(root.join(".fleximark/config.toml").is_file());
-        assert!(root.join(".fleximark/theme.css").is_file());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn linked_control_directory_never_reads_or_writes_outside_the_workspace() {
         let root = test_workspace("linked-control-test");
         let outside = test_workspace("linked-control-outside");

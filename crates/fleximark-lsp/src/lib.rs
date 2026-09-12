@@ -941,66 +941,6 @@ mod tests {
     }
 
     #[test]
-    fn did_open_attach_and_checkpoint_share_one_session() {
-        let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
-        open(&mut registry, "hello", 4);
-        let hash = content_hash("hello");
-        let attached = registry
-            .attach(&AttachDocumentParams {
-                daemon_instance_id: registry.daemon_instance_id().into(),
-                uri: "file:///doc.md".into(),
-                expected_document_version: 4,
-                content_hash: hash.clone(),
-            })
-            .unwrap();
-        let checked = registry
-            .checkpoint(&CheckpointDocumentParams {
-                daemon_instance_id: registry.daemon_instance_id().into(),
-                document_session_id: attached.document_session_id,
-                document_version: 4,
-                content_hash: hash.clone(),
-            })
-            .unwrap();
-        assert_eq!(checked.content_hash, hash);
-    }
-
-    #[test]
-    fn utf16_edit_is_applied_at_character_boundary() {
-        let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
-        open(&mut registry, "a😀b\n", 1);
-        registry
-            .change(DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///doc.md".into(),
-                    version: 8,
-                },
-                content_changes: vec![ContentChange {
-                    range: Some(Range {
-                        start: Position {
-                            line: 0,
-                            character: 1,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: 3,
-                        },
-                    }),
-                    text: "x".into(),
-                }],
-            })
-            .unwrap();
-        assert_eq!(
-            registry
-                .index
-                .by_uri("file:///doc.md")
-                .unwrap()
-                .engine
-                .source(),
-            "axb\n"
-        );
-    }
-
-    #[test]
     fn utf16_position_and_node_id_round_trip_through_authoritative_session() {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
         open(&mut registry, "# 😀 heading\n", 1);

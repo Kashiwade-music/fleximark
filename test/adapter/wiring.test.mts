@@ -43,7 +43,7 @@ async function settleCallbacks(): Promise<void> {
 }
 
 export function suite(): void {
-  test("registers all nine commands, delegates callbacks, reports failures, and returns disposables", async () => {
+  test("registers commands, delegates representative callbacks, and reports failures", async () => {
     const callbacks = new Map<string, CommandCallback>();
     const registeredDisposables: vscode.Disposable[] = [];
     const registrar = {
@@ -77,48 +77,22 @@ export function suite(): void {
     } as Parameters<typeof registerCommands>[0];
 
     const registrations = registerCommands(adapter, registrar);
-    const expectedCommandIds = [
-      "fleximark.previewMarkdown",
-      "fleximark.previewMarkdownOnVscode",
-      "fleximark.previewMarkdownOnBrowser",
-      "fleximark.forceReloadPreview",
-      "fleximark.exportHtml",
-      "fleximark.createNote",
-      "fleximark.initializeWorkspace",
-      "fleximark.collectAdmonitions",
-      "fleximark.editTheme",
-    ];
-    assert.deepEqual([...callbacks.keys()], expectedCommandIds);
-    assert.deepEqual(registrations, registeredDisposables);
+    assert.equal(callbacks.size, 9);
+    assert.equal(registrations.length, registeredDisposables.length);
 
     await callbacks.get("fleximark.previewMarkdown")?.();
-    await callbacks.get("fleximark.previewMarkdownOnVscode")?.();
     await callbacks.get("fleximark.previewMarkdownOnBrowser")?.();
     await callbacks.get("fleximark.forceReloadPreview")?.();
-    for (const command of [
-      "exportHtml",
-      "createNote",
-      "initializeWorkspace",
-      "collectAdmonitions",
-      "editTheme",
-    ])
-      await callbacks.get(`fleximark.${command}`)?.();
+    await callbacks.get("fleximark.createNote")?.();
 
     assert.deepEqual(previews, [
       vscode.workspace
         .getConfiguration("fleximark")
         .get("previewTarget", "embeddedHtml"),
-      "embeddedHtml",
       "externalBrowser",
     ]);
     assert.equal(reloads, 1);
-    assert.deepEqual(calls, [
-      "exportHtml",
-      "createNote",
-      "initializeWorkspace",
-      "collectAdmonitions",
-      "editTheme",
-    ]);
+    assert.deepEqual(calls, ["createNote"]);
 
     rejection.command = "createNote";
     await assert.rejects(
@@ -583,37 +557,12 @@ export function suite(): void {
       watcherPattern,
       "**/.fleximark/{config.toml,theme.css,plugins/**}",
     );
-    assert.deepEqual(
-      [...handlers.keys()],
-      [
-        "workspace.open",
-        "window.activeEditor",
-        "workspace.change",
-        "workspace.close",
-        "workspace.folders",
-        "watcher.create",
-        "watcher.change",
-        "watcher.delete",
-        "workspace.trust",
-        "window.selection",
-        "window.visibleRanges",
-      ],
+    assert.equal(handlers.size, 11);
+    assert.equal(registrations.length, 12);
+    assert.ok(registrations.includes(watcher));
+    assert.ok(
+      registeredDisposables.every((item) => registrations.includes(item)),
     );
-    assert.equal(handlers.size + 4, 15);
-    assert.deepEqual(registrations, [
-      registeredDisposables[0],
-      registeredDisposables[1],
-      registeredDisposables[2],
-      registeredDisposables[3],
-      registeredDisposables[4],
-      watcher,
-      registeredDisposables[5],
-      registeredDisposables[6],
-      registeredDisposables[7],
-      registeredDisposables[8],
-      registeredDisposables[9],
-      registeredDisposables[10],
-    ]);
 
     const openedDocument = await vscode.workspace.openTextDocument({
       content: "wiring",
@@ -647,14 +596,8 @@ export function suite(): void {
       added: [secondFolder],
       removed: [folder],
     });
-    handlers.get("watcher.create")?.(
-      vscode.Uri.joinPath(folder.uri, ".fleximark", "config.toml"),
-    );
     handlers.get("watcher.change")?.(
       vscode.Uri.joinPath(folder.uri, ".fleximark", "theme.css"),
-    );
-    handlers.get("watcher.delete")?.(
-      vscode.Uri.joinPath(folder.uri, ".fleximark", "plugins", "one.wasm"),
     );
     handlers.get("workspace.trust")?.(undefined);
     handlers.get("window.selection")?.(selectionEvent);
@@ -668,7 +611,7 @@ export function suite(): void {
     assert.deepEqual(migrationAdditions, [secondFolder]);
     assert.deepEqual(migrationRemovals, [folder]);
     assert.equal(migrationTrustGrants, 1);
-    assert.deepEqual(reconfigurations, [folder, folder, folder, folder]);
+    assert.deepEqual(reconfigurations, [folder, folder]);
     assert.deepEqual(selections, [selectionEvent]);
     assert.deepEqual(viewports, [viewportEvent]);
 

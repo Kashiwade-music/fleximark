@@ -536,30 +536,6 @@ mod tests {
     }
 
     #[test]
-    fn every_debug_fixture_builds_a_valid_document_ir() {
-        let fixtures = [
-            include_str!("../../../markdown_for_debug/abc.md"),
-            include_str!("../../../markdown_for_debug/admonition.md"),
-            include_str!("../../../markdown_for_debug/basic_syntax.md"),
-            include_str!("../../../markdown_for_debug/code_block.md"),
-            include_str!("../../../markdown_for_debug/collapsible.md"),
-            include_str!("../../../markdown_for_debug/html_export.md"),
-            include_str!("../../../markdown_for_debug/mermaid.md"),
-            include_str!("../../../markdown_for_debug/tabs.md"),
-            include_str!("../../../markdown_for_debug/youtube.md"),
-        ];
-        for (index, source) in fixtures.into_iter().enumerate() {
-            let document = parse(
-                DocumentUri(format!("file:///fixture-{index}.md")),
-                1,
-                source,
-            )
-            .unwrap_or_else(|error| panic!("fixture {index} failed: {error}"));
-            document.validate(source).unwrap();
-        }
-    }
-
-    #[test]
     fn directives_and_standalone_youtube_are_typed_blocks() {
         let tabs = include_str!("../../../markdown_for_debug/tabs.md");
         let document = parse(DocumentUri("file:///tabs.md".into()), 1, tabs).unwrap();

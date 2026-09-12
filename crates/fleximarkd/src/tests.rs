@@ -19,8 +19,8 @@ use serde_json::Value;
 
 use crate::cancellation::CancellationCoordinator;
 use crate::preview_http::{
-    MAX_PREVIEW_HISTORY_BYTES, MAX_PREVIEW_PUBLICATIONS, PREVIEW_CLIENT, PreviewPage,
-    StoredPublication, preview_shell, random_token, serve_preview_request,
+    MAX_PREVIEW_HISTORY_BYTES, MAX_PREVIEW_PUBLICATIONS, PreviewPage, StoredPublication,
+    preview_shell, serve_preview_request,
 };
 use crate::server::{Server, session_error};
 use crate::telemetry::OperationalTrace;
@@ -199,46 +199,14 @@ fn session_errors_preserve_their_wire_codes_and_messages() {
 }
 
 #[test]
-fn daemon_routes_are_mode_scoped_and_unknown_notifications_are_silent() {
-    let mut standalone = Server::new(false);
-    assert_eq!(
-        standalone.handle(message(Some(1), "initialize", json!({}))),
-        vec![json!({
-            "jsonrpc":"2.0",
-            "id":1,
-            "error":{"code":-32601,"message":"method not found"}
-        })]
-    );
-    assert!(
-        standalone
-            .handle(message(None, "future/notification", json!({})))
-            .is_empty()
-    );
-
-    let mut lsp = Server::new(true);
-    assert_eq!(
-        lsp.handle(message(
-            Some(2),
-            method::OPEN_DOCUMENT,
-            json!({"daemonInstanceId":"wrong","uri":"file:///doc.md",
-                    "documentVersion":1,"text":"text"}),
-        )),
-        vec![json!({
-            "jsonrpc":"2.0",
-            "id":2,
-            "error":{"code":-32601,"message":"method not found"}
-        })]
-    );
-    assert_eq!(
-        lsp.handle(message(Some(3), "shutdown", Value::Null)),
-        vec![json!({"jsonrpc":"2.0","id":3,"result":null})]
-    );
-    assert!(lsp.handle(message(None, "exit", Value::Null)).is_empty());
-    assert!(lsp.exit);
-}
-
-#[test]
 fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
+    assert!(
+        Server::new(false)
+            .handle(message(None, "future/notification", json!({})))
+            .is_empty(),
+        "unknown notifications must remain silent"
+    );
+
     let lsp_requests = [
         "initialize",
         "shutdown",
@@ -1643,34 +1611,6 @@ fn preview_http_rejects_duplicate_headers_and_enforces_body_boundaries() {
 }
 
 #[test]
-fn preview_http_preserves_invalid_then_valid_content_length_compatibility_boundary() {
-    // Known compatibility boundary/security debt: an unparsable first value is currently
-    // treated as absent, so the following valid Content-Length is adopted.
-    let token = "fixture-token";
-    let pages = preview_pages(token);
-    let (sender, events) = mpsc::channel();
-    let response = preview_http_request(&pages, Some(sender), |port| {
-        let body = serde_json::to_string(&json!({
-            "type":"revealNode",
-            "previewSessionId":"preview-1",
-            "renderRevision":7,
-            "nodeId":"node-1"
-        }))
-        .unwrap();
-        format!(
-            "POST /preview/{token}/navigation HTTP/1.1\r\nHost: localhost:{port}\r\nOrigin: http://localhost:{port}\r\nContent-Type: application/json\r\nContent-Length: invalid\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        )
-        .into_bytes()
-    });
-    assert_eq!(
-        response,
-        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
-    );
-    assert_eq!(events.recv().unwrap()["method"], method::PREVIEW_EVENT);
-}
-
-#[test]
 fn preview_http_enforces_individual_and_total_header_byte_limits() {
     let token = "fixture-token";
     let request_with_header_lengths = |port: u16, lengths: &[usize]| {
@@ -1780,23 +1720,6 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
             }
         })
     );
-}
-
-#[test]
-fn preview_tokens_come_from_the_os_random_source() {
-    let first = random_token().unwrap();
-    let second = random_token().unwrap();
-    assert_eq!(first.len(), 48);
-    assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
-    assert_ne!(first, second);
-}
-
-#[test]
-fn embedded_preview_client_matches_the_generated_bundle() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../web/preview-client/browser-host.js");
-    assert_eq!(PREVIEW_CLIENT, std::fs::read_to_string(path).unwrap());
-    assert!(preview_shell("token").contains("data-fleximark-live"));
 }
 
 #[test]

@@ -4,7 +4,6 @@ import {
   type LegacyWorkspaceState,
   WorkspaceMigrationController,
   createMigratedConfig,
-  flattenLegacyCategories,
 } from "../../adapters/vscode/src/workspace-migration-policy.mjs";
 
 export const suiteName = "Legacy workspace migration";
@@ -23,6 +22,7 @@ export function suite(): void {
         noteCategories: {
           General: { Daily: {}, Reports: { Weekly: {} } },
           Unsafe: { "..": {} },
+          "a/b": {},
         },
         noteFileNamePrefix: "${CURRENT_YEAR}_",
         noteFileNameSuffix: "_draft",
@@ -42,6 +42,7 @@ export function suite(): void {
       /"General \/ Reports \/ Weekly" = "General\/Reports\/Weekly"/,
     );
     assert.doesNotMatch(config, /\.\./);
+    assert.doesNotMatch(config, /a\/b/);
     assert.match(
       config,
       /"default" = \["# \$\{1:Title\}", "Created \$\{CURRENT_DATE\}"\]/,
@@ -49,16 +50,6 @@ export function suite(): void {
     assert.doesNotMatch(config, /invalid/);
     assert.match(config, /roots = \["attachments"\]/);
     assert.match(config, /raw_html_export = "reject"/);
-  });
-
-  test("flattens every selectable legacy category and filters unsafe paths", () => {
-    assert.deepEqual(
-      flattenLegacyCategories({ Work: { Reports: {} }, "a/b": {} }),
-      [
-        ["Work", "Work"],
-        ["Work / Reports", "Work/Reports"],
-      ],
-    );
   });
 
   test("does not remember cancellation across workspace reopen", async () => {

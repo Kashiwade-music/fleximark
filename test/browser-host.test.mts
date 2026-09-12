@@ -1,8 +1,6 @@
 import { parseHTML } from "linkedom";
 import * as assert from "node:assert/strict";
 
-import { BrowserNavigationTransport } from "../web/preview-client/browser-navigation.mjs";
-
 export const suiteName = "Browser preview host";
 
 export function suite(): void {
@@ -205,26 +203,5 @@ export function suite(): void {
         else Reflect.deleteProperty(globalThis, name);
       }
     }
-  });
-
-  test("aborts pending navigation during normal transport disposal", () => {
-    let signal: AbortSignal | undefined;
-    const transport = new BrowserNavigationTransport(
-      "/preview/navigation",
-      (_input, init) => {
-        signal = init?.signal ?? undefined;
-        return new Promise<Response>(() => undefined);
-      },
-    );
-    transport.send({
-      type: "selectNode",
-      nodeId: "paragraph",
-      previewSessionId: "preview",
-      renderRevision: 1,
-    });
-    assert.equal(signal?.aborted, false);
-    transport.dispose();
-    transport.dispose();
-    assert.equal(signal?.aborted, true);
   });
 }

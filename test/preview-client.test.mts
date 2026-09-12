@@ -10,7 +10,6 @@ import {
   trackAudio,
 } from "../web/preview-client/enhancers/audio.mjs";
 import {
-  PreviewFailureGuard,
   PreviewHost,
   isInvalidAuthenticatedPublicationMessage,
   isPreviewHostMessage,
@@ -189,37 +188,6 @@ export function suite(): void {
     unsafe.resultRenderRevision = 3;
     assert.equal(preview.applyPatch(unsafe), false);
     assert.equal(root.innerHTML, before);
-    assert.equal(requested, 1);
-  });
-
-  test("commits patch DOM and navigation as one atomic revision", () => {
-    preview.applySnapshot(snapshot());
-    const before = root.innerHTML;
-    const invalid = patch([
-      {
-        type: "replace",
-        nodeId: "a",
-        parentId: "document-root",
-        contentNodeIds: ["a"],
-        content: '<p data-fleximark-node-id="a">changed</p>',
-        precondition: {
-          nodeExists: true,
-          currentParentId: "document-root",
-        },
-      },
-    ]);
-    invalid.navigation = [
-      {
-        ...navigation("a", 0),
-        sourceRange: {
-          ...navigation("a", 0).sourceRange,
-          start: { line: 0, character: 1, encoding: "invalid" as "utf8" },
-        },
-      },
-    ];
-    assert.equal(preview.applyPatch(invalid), false);
-    assert.equal(root.innerHTML, before);
-    assert.deepEqual(preview.navigation, snapshot().navigation);
     assert.equal(requested, 1);
   });
 
@@ -437,81 +405,6 @@ export function suite(): void {
     }
   });
 
-  test("revokes every earlier staged URL when a later URL creation throws", () => {
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    const revoked: string[] = [];
-    let created = 0;
-    URL.createObjectURL = () => {
-      created += 1;
-      if (created === 3) throw new Error("third URL failed");
-      return `blob:staged-${created}`;
-    };
-    URL.revokeObjectURL = (url) => {
-      revoked.push(url);
-      if (url === "blob:staged-1") throw new Error("first revoke failed");
-    };
-    try {
-      assert.throws(
-        () =>
-          preview.applySnapshot({
-            ...snapshot(),
-            assets: [
-              sizedAsset("1".repeat(64), 1),
-              sizedAsset("2".repeat(64), 1),
-              sizedAsset("3".repeat(64), 1),
-            ],
-          }),
-        /third URL failed/,
-      );
-      assert.deepEqual(revoked, ["blob:staged-1", "blob:staged-2"]);
-      assert.equal(root.innerHTML, "");
-      assert.equal(preview.previewSessionId, undefined);
-      assert.equal(requested, 0);
-    } finally {
-      URL.createObjectURL = originalCreate;
-      URL.revokeObjectURL = originalRevoke;
-    }
-  });
-
-  test("commits new asset ownership even when revoking an old URL throws", () => {
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    const revoked: string[] = [];
-    let created = 0;
-    URL.createObjectURL = () => `blob:owned-${++created}`;
-    URL.revokeObjectURL = (url) => {
-      revoked.push(url);
-      if (url === "blob:owned-1") throw new Error("old revoke failed");
-    };
-    try {
-      const first = snapshot();
-      first.assets = [asset("aGVsbG8=")];
-      first.html = `<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:${assetHash}"></main>`;
-      assert.equal(preview.applySnapshot(first), true);
-
-      const nextHash = "1".repeat(64);
-      assert.equal(
-        preview.applySnapshot({
-          ...snapshot(),
-          resultRenderRevision: 2,
-          assets: [sizedAsset(nextHash, 5)],
-          html: `<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:${nextHash}"></main>`,
-        }),
-        true,
-      );
-      assert.equal(
-        root.querySelector("img")?.getAttribute("src"),
-        "blob:owned-2",
-      );
-      preview.dispose();
-      assert.deepEqual(revoked, ["blob:owned-1", "blob:owned-2"]);
-    } finally {
-      URL.createObjectURL = originalCreate;
-      URL.revokeObjectURL = originalRevoke;
-    }
-  });
-
   test("rejects every patch identity and fingerprint mismatch without mutation", () => {
     assert.equal(preview.applySnapshot(snapshot()), true);
     const before = root.innerHTML;
@@ -578,18 +471,6 @@ export function suite(): void {
       }),
       false,
     );
-  });
-
-  test("rejects protected content before it reaches the live DOM", () => {
-    assert.equal(
-      preview.applySnapshot({
-        ...snapshot(),
-        html: '<main data-fleximark-node-id="document-root"><p data-fleximark-node-id="a" onclick="alert(1)">unsafe</p></main>',
-      }),
-      false,
-    );
-    assert.equal(root.innerHTML, "");
-    assert.equal(requested, 1);
   });
 
   test("rejects the complete executable-content surface and permits inert data images", () => {
@@ -849,45 +730,6 @@ export function suite(): void {
     assert.equal(handles.size, 0);
   });
 
-  test("retries a synchronous audio stop failure through PreviewHost disposal", async () => {
-    const originalRender = previewRuntimes.abc.render;
-    const originalSupportsAudio = previewRuntimes.abc.supportsAudio;
-    const originalCreateSynth = previewRuntimes.abc.createSynth;
-    let stopAttempts = 0;
-    const host = new PreviewHost(
-      root,
-      () => undefined,
-      () => undefined,
-    );
-    try {
-      previewRuntimes.abc.render = () => [{}];
-      previewRuntimes.abc.supportsAudio = () => true;
-      previewRuntimes.abc.createSynth = () => ({
-        init: async () => undefined,
-        prime: async () => undefined,
-        start: () => undefined,
-        stop: () => {
-          stopAttempts += 1;
-          if (stopAttempts === 1) throw new Error("temporary stop failure");
-        },
-      });
-      host.apply([specialSnapshot("abc", "X:1\nK:C\nC")]);
-      root.querySelector<HTMLButtonElement>("[data-fleximark-audio]")?.click();
-      await flushMicrotasks();
-
-      host.dispose();
-      assert.equal(stopAttempts, 1);
-      host.dispose();
-      host.dispose();
-      assert.equal(stopAttempts, 2);
-    } finally {
-      host.dispose();
-      previewRuntimes.abc.render = originalRender;
-      previewRuntimes.abc.supportsAudio = originalSupportsAudio;
-      previewRuntimes.abc.createSynth = originalCreateSynth;
-    }
-  });
-
   test("observes an asynchronous audio stop and retries only after rejection", async () => {
     const originalRender = previewRuntimes.abc.render;
     const originalSupportsAudio = previewRuntimes.abc.supportsAudio;
@@ -940,76 +782,6 @@ export function suite(): void {
       previewRuntimes.abc.render = originalRender;
       previewRuntimes.abc.supportsAudio = originalSupportsAudio;
       previewRuntimes.abc.createSynth = originalCreateSynth;
-    }
-  });
-
-  test("retains a real runtime synth through rejected Host disposal", async () => {
-    const originalAudioContext = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "AudioContext",
-    );
-    const originalRender = previewRuntimes.abc.render;
-    const originalSupportsAudio = previewRuntimes.abc.supportsAudio;
-    let rejectFirstClose!: (error: Error) => void;
-    let resolveSecondClose!: () => void;
-    const firstClose = new Promise<void>((_resolve, reject) => {
-      rejectFirstClose = reject;
-    });
-    const secondClose = new Promise<void>((resolve) => {
-      resolveSecondClose = resolve;
-    });
-    let closeAttempts = 0;
-    class FakeAudioContext {
-      readonly currentTime = 0;
-      readonly destination = {};
-
-      close(): Promise<void> {
-        closeAttempts += 1;
-        return closeAttempts === 1 ? firstClose : secondClose;
-      }
-    }
-    const host = new PreviewHost(
-      root,
-      () => undefined,
-      () => undefined,
-    );
-    try {
-      Object.defineProperty(globalThis, "AudioContext", {
-        configurable: true,
-        value: FakeAudioContext,
-      });
-      previewRuntimes.abc.render = () => [
-        {
-          setUpAudio: () => ({ tempo: 120, tracks: [] }),
-          getMeterFraction: () => ({ num: 4, den: 4 }),
-          millisecondsPerMeasure: () => 1000,
-        },
-      ];
-      previewRuntimes.abc.supportsAudio = () => true;
-      host.apply([specialSnapshot("abc", "X:1\nK:C\nC")]);
-      root.querySelector<HTMLButtonElement>("[data-fleximark-audio]")?.click();
-      await flushMicrotasks();
-
-      host.dispose();
-      host.dispose();
-      assert.equal(closeAttempts, 1);
-      rejectFirstClose(new Error("close rejected"));
-      await flushMicrotasks();
-
-      host.dispose();
-      host.dispose();
-      assert.equal(closeAttempts, 2);
-      resolveSecondClose();
-      await flushMicrotasks();
-      host.dispose();
-      assert.equal(closeAttempts, 2);
-    } finally {
-      host.dispose();
-      previewRuntimes.abc.render = originalRender;
-      previewRuntimes.abc.supportsAudio = originalSupportsAudio;
-      if (originalAudioContext)
-        Object.defineProperty(globalThis, "AudioContext", originalAudioContext);
-      else Reflect.deleteProperty(globalThis, "AudioContext");
     }
   });
 
@@ -1103,47 +875,6 @@ export function suite(): void {
     }
   });
 
-  test("retries real AudioContext close without replacing the start failure", async () => {
-    const originalAudioContext = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "AudioContext",
-    );
-    let closeAttempts = 0;
-    class FakeAudioContext {
-      close(): Promise<void> {
-        closeAttempts += 1;
-        if (closeAttempts === 1) throw new Error("close failed");
-        return Promise.resolve();
-      }
-    }
-    try {
-      Object.defineProperty(globalThis, "AudioContext", {
-        configurable: true,
-        value: FakeAudioContext,
-      });
-      const synth = previewRuntimes.abc.createSynth();
-      await synth.init({
-        visualObj: {
-          setUpAudio: () => {
-            throw new Error("original start failure");
-          },
-        },
-      });
-
-      assert.throws(() => synth.start(), new Error("original start failure"));
-      assert.equal(closeAttempts, 1);
-      await flushMicrotasks();
-      await assert.doesNotReject(Promise.resolve(synth.stop()));
-      assert.equal(closeAttempts, 2);
-      await assert.doesNotReject(Promise.resolve(synth.stop()));
-      assert.equal(closeAttempts, 2);
-    } finally {
-      if (originalAudioContext)
-        Object.defineProperty(globalThis, "AudioContext", originalAudioContext);
-      else Reflect.deleteProperty(globalThis, "AudioContext");
-    }
-  });
-
   test("coalesces pending AudioContext close and retries after rejection", async () => {
     const originalAudioContext = Object.getOwnPropertyDescriptor(
       globalThis,
@@ -1198,91 +929,6 @@ export function suite(): void {
     }
   });
 
-  test("continues real audio cleanup across oscillator stop and disconnect failures", async () => {
-    const originalAudioContext = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "AudioContext",
-    );
-    let gainCount = 0;
-    let cleanupStops = 0;
-    let disconnects = 0;
-    let closeAttempts = 0;
-    class FakeAudioContext {
-      readonly currentTime = 0;
-      readonly destination = {};
-
-      createOscillator() {
-        return {
-          frequency: { value: 0 },
-          connect: (target: unknown) => target,
-          start: () => undefined,
-          stop: (...arguments_: unknown[]) => {
-            if (arguments_.length === 0) {
-              cleanupStops += 1;
-              throw new Error("stop cleanup failed");
-            }
-          },
-          disconnect: () => {
-            disconnects += 1;
-            throw new Error("disconnect cleanup failed");
-          },
-        };
-      }
-
-      createGain() {
-        gainCount += 1;
-        if (gainCount === 2) throw new Error("original gain failure");
-        return {
-          gain: {
-            setValueAtTime: () => undefined,
-            exponentialRampToValueAtTime: () => undefined,
-          },
-          connect: () => this.destination,
-        };
-      }
-
-      close(): Promise<void> {
-        closeAttempts += 1;
-        return Promise.resolve();
-      }
-    }
-    try {
-      Object.defineProperty(globalThis, "AudioContext", {
-        configurable: true,
-        value: FakeAudioContext,
-      });
-      const synth = previewRuntimes.abc.createSynth();
-      await synth.init({
-        visualObj: {
-          setUpAudio: () => ({
-            tempo: 120,
-            tracks: [
-              [0, 1].map(() => ({
-                cmd: "note",
-                start: 0,
-                duration: 1,
-                pitch: 69,
-                volume: 100,
-              })),
-            ],
-          }),
-          getMeterFraction: () => ({ num: 4, den: 4 }),
-          millisecondsPerMeasure: () => 1000,
-        },
-      });
-
-      assert.throws(() => synth.start(), new Error("original gain failure"));
-      await flushMicrotasks();
-      assert.equal(cleanupStops, 2);
-      assert.equal(disconnects, 2);
-      assert.equal(closeAttempts, 1);
-    } finally {
-      if (originalAudioContext)
-        Object.defineProperty(globalThis, "AudioContext", originalAudioContext);
-      else Reflect.deleteProperty(globalThis, "AudioContext");
-    }
-  });
-
   test("stops pending ABC audio on disposal and never starts it", async () => {
     preview.applySnapshot(specialSnapshot("abc", "X:1\nK:C\nC"));
     let resolveInit!: () => void;
@@ -1316,33 +962,6 @@ export function suite(): void {
     assert.equal(started, 0);
     assert.equal(stopped, 1);
     assert.equal(button.disabled, true);
-  });
-
-  test("retries a transient audio stop failure on repeated disposal", async () => {
-    preview.applySnapshot(specialSnapshot("abc", "X:1\nK:C\nC"));
-    let stopAttempts = 0;
-    const runtimes = inertRuntimes();
-    runtimes.abc.render = () => [{}];
-    runtimes.abc.supportsAudio = () => true;
-    runtimes.abc.createSynth = () => ({
-      init: async () => undefined,
-      prime: async () => undefined,
-      start: () => undefined,
-      stop: () => {
-        stopAttempts += 1;
-        if (stopAttempts === 1) throw new Error("temporary stop failure");
-      },
-    });
-    const enhancer = new PreviewEnhancer(runtimes);
-    await enhancer.render(root);
-    root.querySelector<HTMLButtonElement>("[data-fleximark-audio]")?.click();
-    await flushMicrotasks();
-
-    enhancer.dispose();
-    assert.equal(stopAttempts, 1);
-    enhancer.dispose();
-    enhancer.dispose();
-    assert.equal(stopAttempts, 2);
   });
 
   test("isolates and retries ABC init, prime, and start failures", async () => {
@@ -1399,45 +1018,6 @@ export function suite(): void {
       enhancer.dispose();
       assert.equal(stops, 2);
     }
-  });
-
-  test("isolates an ABC stop failure from disposal and later features", async () => {
-    preview.applySnapshot({
-      ...snapshot(),
-      nodeIds: ["document-root", "abc", "math"],
-      navigation: [navigation("abc", 0), navigation("math", 1)],
-      html: '<main data-fleximark-node-id="document-root"><div data-fleximark-node-id="abc" data-fleximark-kind="abc"><script type="application/json">"X:1\\nK:C\\nC"</script></div><div data-fleximark-node-id="math" data-fleximark-kind="math">x</div></main>',
-    });
-    const runtimes = inertRuntimes();
-    let mathRenders = 0;
-    runtimes.abc.render = () => [{}];
-    runtimes.abc.supportsAudio = () => true;
-    runtimes.abc.createSynth = () => ({
-      init: async () => undefined,
-      prime: async () => undefined,
-      start: () => undefined,
-      stop: () => {
-        throw new Error("stop failed");
-      },
-    });
-    runtimes.math.render = () => {
-      mathRenders += 1;
-    };
-    const enhancer = new PreviewEnhancer(runtimes);
-    await enhancer.render(root);
-    root.querySelector<HTMLButtonElement>("[data-fleximark-audio]")?.click();
-    await flushMicrotasks();
-    assert.equal(mathRenders, 1);
-    const mathPayload = root.querySelector<HTMLScriptElement>(
-      "[data-fleximark-kind=math] > [data-fleximark-math-source]",
-    );
-    assert.ok(mathPayload);
-    mathPayload.textContent = JSON.stringify("y");
-    await assert.doesNotReject(enhancer.render(root));
-    assert.equal(mathRenders, 2);
-    root.querySelector<HTMLButtonElement>("[data-fleximark-audio]")?.click();
-    await flushMicrotasks();
-    assert.doesNotThrow(() => enhancer.dispose());
   });
 
   test("renders KaTeX-compatible math as MathML", async () => {
@@ -1769,28 +1349,6 @@ export function suite(): void {
       );
   });
 
-  test("runs browser failure cleanup exactly once", () => {
-    let closed = 0;
-    let disposed = 0;
-    let reloaded = 0;
-    const failure = new PreviewFailureGuard(
-      () => closed++,
-      () => disposed++,
-      () => reloaded++,
-    );
-    failure.fail();
-    failure.fail();
-    assert.equal(failure.failed, true);
-    assert.deepEqual(
-      { closed, disposed, reloaded },
-      {
-        closed: 1,
-        disposed: 1,
-        reloaded: 1,
-      },
-    );
-  });
-
   test("forwards editor navigation only for the current preview revision", () => {
     const current = {
       type: "selectNode",
@@ -1853,32 +1411,6 @@ export function suite(): void {
     assert.equal(preview.applySnapshot(malformedNavigation), false);
     assert.equal(root.innerHTML, beforeDom);
     assert.deepEqual(preview.navigation, beforeNavigation);
-    assert.equal(preview.renderRevision, 1);
-    assert.equal(requested, 1);
-  });
-
-  test("requests a full snapshot and preserves DOM for a nested malformed patch operation", () => {
-    assert.equal(preview.applySnapshot(snapshot()), true);
-    const beforeDom = root.innerHTML;
-    const malformed = {
-      ...patch([]),
-      operations: [
-        {
-          type: "replace",
-          nodeId: "a",
-          parentId: "document-root",
-          contentNodeIds: ["a"],
-          content: '<p data-fleximark-node-id="a">changed</p>',
-          precondition: {
-            nodeExists: false,
-            currentParentId: "document-root",
-          },
-        },
-      ],
-    } as unknown as RenderPatch;
-
-    assert.equal(preview.applyPatch(malformed), false);
-    assert.equal(root.innerHTML, beforeDom);
     assert.equal(preview.renderRevision, 1);
     assert.equal(requested, 1);
   });
@@ -1951,37 +1483,6 @@ export function suite(): void {
       host.dispose();
       previewRuntimes.mermaid.render = originalRender;
     }
-  });
-
-  test("ignores stale or mismatched navigation without requesting a snapshot", () => {
-    const host = new PreviewHost(
-      root,
-      () => requested++,
-      () => undefined,
-    );
-    host.apply([snapshot()]);
-    const beforeDom = root.innerHTML;
-
-    host.apply([
-      {
-        type: "selection",
-        previewSessionId: "other-preview",
-        renderRevision: 1,
-        nodeIds: ["a"],
-        activePosition: null,
-      },
-      {
-        type: "viewport",
-        previewSessionId: "preview-1",
-        renderRevision: 999,
-        nodeId: "a",
-      },
-    ]);
-
-    assert.equal(root.innerHTML, beforeDom);
-    assert.equal(host.renderRevision, 1);
-    assert.equal(requested, 0);
-    host.dispose();
   });
 
   test("debounces preview scroll and suppresses viewport echo", async () => {

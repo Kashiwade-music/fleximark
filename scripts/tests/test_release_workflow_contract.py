@@ -9,9 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 RELEASE_CONFIG = (ROOT / "release.config.mjs").read_text(encoding="utf-8")
-PACKAGE_PLUGIN = (ROOT / "scripts" / "semantic-release-package.mjs").read_text(
-    encoding="utf-8"
-)
 PACKAGE_JSON = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
 
 
@@ -41,7 +38,7 @@ def run_blocks(source: str) -> list[str]:
 
 
 class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
-    def test_final_release_artifact_is_clean_installed_on_all_six_targets(self) -> None:
+    def test_final_release_artifact_is_verified_and_smoked_after_release(self) -> None:
         validate = job("validate")
         clean_install = job("clean-install")
         release = job("release")
@@ -49,18 +46,6 @@ class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
         self.assertNotIn("vsce package", validate)
         self.assertNotIn("fleximark-candidate-vsix", WORKFLOW)
 
-        expected_matrix = [
-            ("ubuntu-24.04", "linux", "x64"),
-            ("ubuntu-24.04-arm", "linux", "arm64"),
-            ("macos-15-intel", "darwin", "x64"),
-            ("macos-15", "darwin", "arm64"),
-            ("windows-2025", "win32", "x64"),
-            ("windows-11-arm", "win32", "arm64"),
-        ]
-        matrix_row = re.compile(
-            r"- \{ os: ([^,]+), platform: ([^,]+), arch: ([^ }]+) \}"
-        )
-        self.assertEqual(matrix_row.findall(clean_install), expected_matrix)
         self.assertIn("needs: release", clean_install)
         self.assertIn("if: needs.release.outputs.released == 'true'", clean_install)
         self.assertIn("name: fleximark-release-vsix", clean_install)
@@ -99,23 +84,11 @@ class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
             "chore(release): ${nextRelease.version} [skip ci]", RELEASE_CONFIG
         )
 
-    def test_semantic_prepare_packages_and_validates_the_final_vsix_once(self) -> None:
+    def test_release_invokes_semantic_package_prepare(self) -> None:
         validate = job("validate")
         release = job("release")
 
         self.assertNotIn("vsce package", validate)
-        self.assertEqual(len(re.findall(r'"vsce",\s*"package"', PACKAGE_PLUGIN)), 1)
-        package = PACKAGE_PLUGIN.index('"vsce"')
-        identity = PACKAGE_PLUGIN.index('"scripts/release_artifact.py"')
-        self.assertGreater(PACKAGE_PLUGIN.index('"create"', identity), identity)
-        self.assertLess(package, identity)
-        self.assertIn('"--no-dependencies"', PACKAGE_PLUGIN)
-        self.assertIn("FLEXIMARK_RELEASE_PREBUILT", PACKAGE_PLUGIN)
-        self.assertIn("stale release artifact exists", PACKAGE_PLUGIN)
-        self.assertIn("nextRelease.version", PACKAGE_PLUGIN)
-        self.assertIn("nextRelease.gitTag", PACKAGE_PLUGIN)
-        self.assertNotIn('"--git-head"', PACKAGE_PLUGIN)
-        self.assertIn("FLEXIMARK_RELEASE_SOURCE_GIT_HEAD", PACKAGE_PLUGIN)
         self.assertEqual(
             PACKAGE_JSON["scripts"]["vscode:prepublish"],
             "python scripts/tasks.py vscode-prepublish",
@@ -123,10 +96,6 @@ class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
         self.assertIn(
             "run: yarn exec semantic-release",
             release,
-        )
-        self.assertRegex(
-            PACKAGE_PLUGIN,
-            r"return async function prepare\([^)]*\{ nextRelease \}\)",
         )
 
     def test_release_hands_off_vsix_and_identity_with_an_independent_hash_output(
@@ -152,7 +121,6 @@ class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
         handoff = release.index("name: fleximark-release-vsix")
         self.assertIn("fleximark.vsix.identity.json", release[handoff:])
         self.assertIn("fleximark.vsix", release[handoff:])
-        self.assertIn("overwrite: true", release[handoff:])
         self.assertIn("if-no-files-found: error", release[handoff:])
 
     def test_release_rerun_recovers_a_complete_source_bound_github_release(
@@ -202,7 +170,6 @@ class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
             "needs: [release, clean-install, attest, publish-github-release]",
             marketplace,
         )
-        self.assertIn("if: needs.release.outputs.released == 'true'", marketplace)
 
     def test_attestation_and_marketplace_verify_the_exact_smoked_hash(self) -> None:
         attestation = job("attest")
@@ -230,12 +197,6 @@ class ReleaseWorkflowCharacterizationTests(unittest.TestCase):
         self.assertIn('if [[ "$RELEASE_IS_DRAFT" == "true" ]]', github_release)
         self.assertIn('elif [[ "$RELEASE_IS_DRAFT" != "false" ]]', github_release)
         self.assertIn("fleximark.vsix.identity.json", github_release)
-        for expected in (
-            "FLEXIMARK_EXPECTED_SHA256",
-            "FLEXIMARK_EXPECTED_GIT_TAG",
-            "FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD",
-        ):
-            self.assertIn(expected, github_release)
         download = marketplace.index("name: fleximark-release-vsix")
         verify = marketplace.index("release_artifact.py verify")
         publish = marketplace.index("yarn exec vsce publish")

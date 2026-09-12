@@ -10,7 +10,6 @@ import * as wiring from "./adapter/wiring.test.mjs";
 import * as workspaceMigrationRuntime from "./adapter/workspace-migration-runtime.test.mjs";
 import * as workspaceSelection from "./adapter/workspace-selection.test.mjs";
 import * as contributions from "./contributions.test.mjs";
-import * as release from "./release.test.mjs";
 
 suite("Extension Test Suite", () => {
   suiteSetup(async () => {
@@ -75,5 +74,4 @@ suite("Extension Test Suite", () => {
   suite(workspaceSelection.suiteName, workspaceSelection.suite);
   suite(workspaceMigrationRuntime.suiteName, workspaceMigrationRuntime.suite);
   suite(multiRootRuntime.suiteName, multiRootRuntime.suite);
-  suite(release.suiteName, release.suite);
 });

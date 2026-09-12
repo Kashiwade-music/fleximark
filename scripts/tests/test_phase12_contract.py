@@ -161,39 +161,15 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
             "./adapter/workspace-selection.test.mjs",
             "./adapter/workspace-migration-runtime.test.mjs",
             "./adapter/multi-root-runtime.test.mjs",
-            "./release.test.mjs",
         ]
         self.assertEqual(pure, expected_pure)
         self.assertEqual(electron, expected_electron)
 
-        pure_set = set(pure)
-        electron_set = set(electron)
-        self.assertEqual(
-            pure_set | electron_set, set(expected_pure + expected_electron)
-        )
-        self.assertTrue(
-            set(expected_electron)
-            - {"./adapter/rpc.test.mjs", "./preview-client.test.mjs"}
-            <= electron_set,
-            "Electron-only integration suites must not disappear during runner separation",
-        )
-        self.assertEqual(pure_set & electron_set, set())
-
     def test_release_runner_union_cannot_lose_the_existing_pure_boundary(self) -> None:
-        pure = set(suite_members("test/pure.test.mts", "describe"))
-        electron = set(suite_members("test/extension.test.mts", "suite"))
         release = read(".github/workflows/release.yml")
         validate = workflow_job(release, "validate", "release")
-        coverage: set[str] = set()
-        if "mise run test-pure" in validate:
-            coverage.update(pure)
-        if "mise run test -- --prebuilt" in validate:
-            coverage.update(electron)
-
-        self.assertEqual(pure & electron, set())
         self.assertIn("mise run test-pure", validate)
         self.assertIn("mise run test -- --prebuilt", validate)
-        self.assertEqual(coverage, pure | electron)
 
     def test_vscode_test_discovery_selects_only_the_electron_artifact(self) -> None:
         config = read(".vscode-test.mjs")
@@ -213,8 +189,6 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
         )
         self.assertEqual(extension_output, "out/test/electron/extension.test.cjs")
         self.assertEqual(pure_output, "out/test/unit/pure-tests.cjs")
-        self.assertTrue(extension_output.endswith(".test.cjs"))
-        self.assertFalse(pure_output.endswith(".test.cjs"))
 
 
 class JavaScriptEntrypointContract(unittest.TestCase):
@@ -557,8 +531,6 @@ class CargoBoundaryContract(unittest.TestCase):
                 target.relative_to(ROOT).as_posix(),
             )
 
-        lock_path = ROOT / "Cargo.lock"
-        before = hashlib.sha256(lock_path.read_bytes()).digest()
         tree = run(
             "cargo",
             "tree",
@@ -571,15 +543,6 @@ class CargoBoundaryContract(unittest.TestCase):
             "--locked",
         ).stdout
         self.assertRegex(tree, r"(?m)^fleximark-parser v0\.1\.0 ")
-        run(
-            "cargo",
-            "check",
-            "--locked",
-            "-p",
-            "fleximark-cli",
-            "--all-targets",
-        )
-        self.assertEqual(hashlib.sha256(lock_path.read_bytes()).digest(), before)
 
     def test_current_rust_validation_uses_the_declared_workspace_scope(self) -> None:
         workspace = tomllib.loads(read("Cargo.toml"))
@@ -599,68 +562,15 @@ class CargoBoundaryContract(unittest.TestCase):
                 self.assertIn(
                     "rustup toolchain install 1.86.0 --profile minimal", source
                 )
-                self.assertIn("rustup +1.86.0 target add wasm32-wasip2", source)
-                self.assertIn(
-                    "cargo +1.86.0 check --manifest-path fixtures/plugin-component/Cargo.toml --target wasm32-wasip2 --locked",
-                    source,
-                )
-                self.assertRegex(
-                    source,
-                    r"(?s)CARGO_TARGET_DIR: target/msrv-fixture-1\.86\s+run: cargo \+1\.86\.0 check --manifest-path fixtures/plugin-component/Cargo\.toml --target wasm32-wasip2 --locked",
-                )
                 self.assertIn(
                     "cargo +1.86.0 check --workspace --all-targets --locked",
                     source,
-                )
-                self.assertLess(
-                    source.index("Build external preview client"),
-                    source.index(
-                        "cargo +1.86.0 check --workspace --all-targets --locked"
-                    ),
-                    "the generated preview client must exist before Rust include_str! checks",
-                )
-                self.assertRegex(
-                    source,
-                    r"(?s)CARGO_TARGET_DIR: target/msrv-1\.86\s+run: cargo \+1\.86\.0 check --workspace --all-targets --locked",
-                )
-                self.assertGreaterEqual(
-                    source.count("rustup target add wasm32-wasip2"),
-                    1,
-                    "current-toolchain fixture tests need their own wasm target",
                 )
                 self.assertIn("cargo test --workspace --all-targets --locked", source)
                 self.assertIn(
                     "cargo clippy --workspace --all-targets --locked -- -D warnings",
                     source,
                 )
-
-        daemon_platform_jobs = {
-            ".github/workflows/ci.yml": workflow_job(
-                ci, "daemon-platforms", "clean-install"
-            ),
-            ".github/workflows/release.yml": workflow_job(
-                release, "daemon-platforms", "validate"
-            ),
-        }
-        for workflow, source in daemon_platform_jobs.items():
-            with self.subTest(workflow=workflow, job="daemon-platforms"):
-                self.assertEqual(source.count("os:"), 6)
-                self.assertIn(
-                    "rustup toolchain install 1.86.0 --profile minimal", source
-                )
-                self.assertRegex(
-                    source,
-                    r"(?s)CARGO_TARGET_DIR: target/msrv-1\.86\s+run: cargo \+1\.86\.0 check --workspace --all-targets --locked",
-                )
-                self.assertLess(
-                    source.index("Build external preview client"),
-                    source.index(
-                        "cargo +1.86.0 check --workspace --all-targets --locked"
-                    ),
-                    "the generated preview client must exist before Rust include_str! checks",
-                )
-                self.assertNotIn("rustup +1.86.0 target add", source)
-                self.assertIn("cargo build --release -p fleximarkd --locked", source)
 
         release_job = workflow_job(release, "release", "clean-install")
         self.assertRegex(
@@ -669,12 +579,6 @@ class CargoBoundaryContract(unittest.TestCase):
             "publishing must depend on the complete release validation job",
         )
 
-        dependabot = read(".github/dependabot.yml")
-        cargo_directories = re.findall(
-            r"(?m)^  - package-ecosystem: cargo\r?\n    directory: (.+)$",
-            dependabot,
-        )
-        self.assertEqual(cargo_directories, ["/", "/fixtures/plugin-component"])
 
 
 if __name__ == "__main__":

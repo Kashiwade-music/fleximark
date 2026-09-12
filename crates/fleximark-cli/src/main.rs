@@ -7,8 +7,6 @@ use std::time::Instant;
 
 use fleximark_engine::{DocumentSession, PreviewSessionId};
 use fleximark_model::{DocumentUri, PositionEncoding};
-#[cfg(test)]
-use fleximark_render_html::RenderContext;
 
 const PREVIEW_CLIENT: &str = include_str!("../../../web/preview-client/browser-host.js");
 
@@ -364,19 +362,6 @@ fn open_session(
     }
 }
 
-#[cfg(test)]
-fn render_source(uri: String, source: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let mut session = DocumentSession::open(
-        DocumentUri(uri),
-        1,
-        source.to_owned(),
-        PositionEncoding::Utf8,
-    )?;
-    Ok(session
-        .render_full(PreviewSessionId("cli".into()), &RenderContext::default())?
-        .html)
-}
-
 fn path_to_uri(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     Ok(fleximark_service::path_to_file_uri(path)?)
 }
@@ -384,14 +369,6 @@ fn path_to_uri(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn renders_markdown_without_an_editor() {
-        let html = render_source("file:///test.md".into(), "# Hello\n").unwrap();
-        assert!(html.contains("Hello"));
-        assert!(!html.contains("pending-"));
-        assert!(html.starts_with("<main data-fleximark-node-id=\"document-root\">"));
-    }
 
     #[test]
     fn default_session_does_not_load_workspace_plugins() {

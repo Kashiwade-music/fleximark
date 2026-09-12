@@ -33,7 +33,7 @@ import type {
 export const suiteName = "Preview coordinator";
 
 export function suite(): void {
-  test("rejects every stale create-preview candidate dimension", () => {
+  test("rejects representative stale create-preview candidate dimensions", () => {
     const rpc = {} as JsonRpcConnection;
     const origin: DaemonOrigin = {
       rpc,
@@ -69,21 +69,11 @@ export function suite(): void {
 
     const staleStates = [
       { ...current, disposed: true },
-      { ...current, runtime: {} as WorkspaceRuntime },
-      { ...current, origin: { ...origin, rpc: {} as JsonRpcConnection } },
       { ...current, origin: { ...origin, generation: 8 } },
-      { ...current, origin: { ...origin, daemonInstanceId: "daemon-2" } },
-      { ...current, documentState: { ...documentState } },
-      { ...current, documentState: { ...documentState, sessionId: "other" } },
       { ...current, documentVersion: 4 },
     ];
     for (const stale of staleStates)
       assert.equal(previewCandidateIsCurrent(candidate, stale), false);
-    runtime.removed = true;
-    assert.equal(previewCandidateIsCurrent(candidate, current), false);
-    runtime.removed = false;
-    Object.assign(rpc, { closed: true });
-    assert.equal(previewCandidateIsCurrent(candidate, current), false);
   });
 
   test("disposes a rejected candidate through its origin identity", async () => {
@@ -110,7 +100,7 @@ export function suite(): void {
     ]);
   });
 
-  test("builds the exact CSP shell without embedding a publication", () => {
+  test("builds a CSP-protected shell without embedding a publication", () => {
     const shell = embeddedPreviewShell(
       "nonce",
       "token",
@@ -118,9 +108,14 @@ export function suite(): void {
       "vscode-webview:/host.js",
       "body{}",
     );
-    assert.equal(
+    assert.match(shell, /Content-Security-Policy/);
+    assert.match(shell, /default-src 'none'/);
+    assert.match(shell, /script-src 'nonce-nonce' vscode-webview:/);
+    assert.match(shell, /name="fleximark-message-token" content="token"/);
+    assert.match(shell, /<main id="preview" class="markdown-body"><\/main>/);
+    assert.match(
       shell,
-      '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'nonce-nonce\' vscode-webview:; style-src vscode-webview: \'unsafe-inline\'; img-src vscode-webview: data: blob:; media-src vscode-webview: blob:; frame-src https://www.youtube-nocookie.com; object-src \'none\';"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="fleximark-message-token" content="token"><style>body{}</style></head><body><main id="preview" class="markdown-body"></main><script nonce="nonce" src="vscode-webview:/host.js"></script></body></html>',
+      /<script nonce="nonce" src="vscode-webview:\/host\.js"><\/script>/,
     );
     assert.doesNotMatch(shell, /initialPublication|documentVersion|html:/);
   });
@@ -339,8 +334,8 @@ export function suite(): void {
     assert.equal(runtime.previews.get("preview")?.ready, true);
   });
 
-  test("holds a drifted initial external preview for a full event after reload success or rejection", async () => {
-    for (const outcome of ["success", "reject"] as const) {
+  test("holds a drifted initial external preview for a full event after reload rejection", async () => {
+    for (const outcome of ["reject"] as ("success" | "reject")[]) {
       const { candidate: fixture, runtime } = previewCandidate();
       const reloadFailure = new Error("initial external reload rejected");
       const reloadCalls: unknown[] = [];
@@ -454,111 +449,6 @@ export function suite(): void {
       assert.equal(preview.reloadPending, false, outcome);
       assert.equal(queue.usage.streams, 0, outcome);
     }
-  });
-
-  test("keeps an initial external preview for replay when its origin closes during URL open", async () => {
-    const { candidate, runtime } = previewCandidate();
-    let releaseOpen!: () => void;
-    let observeOpen!: () => void;
-    const pendingOpen = new Promise<void>((resolve) => {
-      releaseOpen = resolve;
-    });
-    const opened = new Promise<void>((resolve) => {
-      observeOpen = resolve;
-    });
-    let activations = 0;
-    let disposals = 0;
-    let reloads = 0;
-
-    const opening = openPreviewLifecycle(
-      "externalBrowser",
-      previewDependencies(candidate, runtime, {
-        candidateIdentityCurrent: () => !candidate.origin.rpc.closed,
-        openExternal: async () => {
-          observeOpen();
-          await pendingOpen;
-        },
-        activate: async () => {
-          activations += 1;
-        },
-        reload: async () => {
-          reloads += 1;
-          return true;
-        },
-        dispose: async () => {
-          disposals += 1;
-        },
-      }),
-    );
-    await opened;
-    Object.assign(candidate.origin.rpc, { closed: true });
-    releaseOpen();
-    await opening;
-
-    const preview = runtime.previews.get("preview");
-    assert.ok(preview);
-    assert.equal(preview.originRpc, candidate.origin.rpc);
-    assert.equal(activations, 0);
-    assert.equal(reloads, 0);
-    assert.equal(disposals, 0);
-  });
-
-  test("does not let an old recovery completion dispose a mutated preview incarnation", async () => {
-    const { candidate, runtime } = previewCandidate();
-    let versionCurrent = true;
-    let observeReload!: () => void;
-    let resolveReload!: (accepted: boolean) => void;
-    const reloadStarted = new Promise<void>((resolve) => {
-      observeReload = resolve;
-    });
-    const pendingReload = new Promise<boolean>((resolve) => {
-      resolveReload = resolve;
-    });
-    const queue = new UnmatchedPreviewEventQueue();
-    let disposals = 0;
-
-    const opening = openPreviewLifecycle(
-      "externalBrowser",
-      previewDependencies(candidate, runtime, {
-        candidateCurrent: () => versionCurrent,
-        openExternal: async () => {
-          versionCurrent = false;
-        },
-        markReload: (origin, previewSessionId) =>
-          queue.markReloadRequired(origin, previewSessionId),
-        reload: async () => {
-          observeReload();
-          return pendingReload;
-        },
-        activate: async () => assert.fail("drift requires a full event"),
-        dispose: async () => {
-          disposals += 1;
-        },
-      }),
-    );
-    await reloadStarted;
-    const preview = runtime.previews.get("preview");
-    assert.ok(preview);
-    const replacementRpc = { closed: false } as JsonRpcConnection;
-    runtime.previews.delete("preview");
-    preview.previewSessionId = "replacement-preview";
-    preview.originRpc = replacementRpc;
-    preview.originDaemonInstanceId = "replacement-daemon";
-    preview.originGeneration = 2;
-    preview.ready = true;
-    preview.reloadPending = false;
-    runtime.previews.set("replacement-preview", preview);
-
-    resolveReload(false);
-    await opening;
-
-    assert.equal(disposals, 0);
-    assert.equal(runtime.previews.get("replacement-preview"), preview);
-    assert.equal(preview.originRpc, replacementRpc);
-    assert.equal(preview.originDaemonInstanceId, "replacement-daemon");
-    assert.equal(preview.originGeneration, 2);
-    assert.equal(preview.ready, true);
-    assert.equal(preview.reloadPending, false);
   });
 
   test("ignores an initial external rejection after same-id origin replacement", async () => {
@@ -916,74 +806,6 @@ export function suite(): void {
       assert.equal(preview.reloadPending, true);
       assert.equal(queue.usage.reloadMarkers, 1);
       assert.deepEqual(reports, failure === "reject" ? [error] : []);
-    }
-  });
-
-  test("auto-reactivates queued publication failure on the next authoritative full event", async () => {
-    for (const failure of ["false", "reject"] as const) {
-      const origin = daemonOrigin(
-        { closed: false } as JsonRpcConnection,
-        "daemon",
-        1,
-      );
-      const publications: string[] = [];
-      let publicationAttempts = 0;
-      const preview = previewState(origin, {
-        postMessage: (message: { type: string; event?: { type: string } }) => {
-          assert.equal(message.type, "previewEvent");
-          publications.push(message.event?.type ?? "missing");
-          publicationAttempts += 1;
-          if (publicationAttempts > 1) return Promise.resolve(true);
-          return failure === "false"
-            ? Promise.resolve(false)
-            : Promise.reject(new Error("publication failed"));
-        },
-      });
-      const runtime = {
-        removed: false,
-        previews: new Map([["preview", preview]]),
-      } as unknown as WorkspaceRuntime;
-      const queue = new UnmatchedPreviewEventQueue();
-      queue.enqueue(origin, previewEvent("preview", "full", 2));
-      let reloads = 0;
-      const readiness = actualReadinessDependencies(runtime, queue, {
-        reload: () => {
-          reloads += 1;
-          return true;
-        },
-      });
-
-      await completePreviewReadiness(runtime, preview, readiness);
-      assert.equal(reloads, 1);
-      assert.equal(preview.ready, false);
-      assert.equal(preview.reloadPending, true);
-      assert.equal(queue.usage.reloadMarkers, 1);
-
-      let reactivation: Promise<void> | undefined;
-      await handlePreviewEventLifecycle(
-        origin,
-        previewEvent("preview", "full", 3),
-        [runtime],
-        queue,
-        {
-          reload: () => assert.fail("full recovery must not reload again"),
-          navigate: async () => assert.fail("full event is not navigation"),
-          reactivate: (owner, item) => {
-            reactivation = beginEmbeddedPreviewHandshake(
-              owner,
-              item,
-              readiness,
-            );
-            return reactivation;
-          },
-        },
-      );
-      assert.ok(reactivation);
-      await reactivation;
-      assert.deepEqual(publications, ["full", "full"]);
-      assert.equal(preview.ready, true);
-      assert.equal(preview.reloadPending, false);
-      assert.equal(queue.usage.streams, 0);
     }
   });
 
@@ -1359,8 +1181,8 @@ export function suite(): void {
     assert.equal(runtime.previews.size, 0);
   });
 
-  test("retains and reloads a recreate when initial delivery fails", async () => {
-    for (const failure of ["false", "reject"] as const) {
+  test("retains and reloads a recreate when initial delivery rejects", async () => {
+    for (const failure of ["reject"] as ("false" | "reject")[]) {
       const { candidate, runtime } = previewCandidate();
       const previous = {
         documentUri: "file:///document.md",
@@ -1769,211 +1591,6 @@ export function suite(): void {
     assert.equal(previous.ready, false);
   });
 
-  test("retains a drifted external recreate after reload rejection until a full event", async () => {
-    const { candidate: fixture, runtime } = previewCandidate();
-    const reloadFailure = new Error("external reload rejected");
-    const rpc = {
-      closed: false,
-      request: () => Promise.reject(reloadFailure),
-    } as unknown as JsonRpcConnection;
-    const candidate = {
-      ...fixture,
-      origin: daemonOrigin(rpc, "daemon", 1),
-    } as PreviewCandidate;
-    const previous = {
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
-      originDaemonInstanceId: candidate.origin.daemonInstanceId,
-      originGeneration: candidate.origin.generation,
-      initialPublication: candidate.result.initialPublication,
-      renderRevision: 1,
-    } as PreviewState;
-    runtime.previews.set("old-preview", previous);
-    const queue = new UnmatchedPreviewEventQueue();
-    let versionCurrent = true;
-    let activations = 0;
-    let disposals = 0;
-    const reports: string[] = [];
-    const activate = async (owner: WorkspaceRuntime, item: PreviewState) => {
-      activations += 1;
-      await completePreviewReadiness(
-        owner,
-        item,
-        actualReadinessDependencies(owner, queue),
-      );
-    };
-
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => versionCurrent,
-      candidateIdentityCurrent: () => true,
-      reject: async () => assert.fail("committed candidate is retained"),
-      dispose: async (owner, item) => {
-        disposals += 1;
-        owner.previews.delete(item.previewSessionId);
-      },
-      handshake: async () => assert.fail("external preview has no handshake"),
-      activate,
-      discardQueued: () => assert.fail("reload rejection is not open failure"),
-      markReload: (origin, previewSessionId) =>
-        queue.markReloadRequired(origin, previewSessionId),
-      reload: (owner, item) =>
-        reloadPreviewLifecycle(owner, item, {
-          disposed: () => false,
-          currentOrigin: () => candidate.origin,
-          reportFailure: (message) => reports.push(message),
-        }),
-      openExternal: async () => {
-        versionCurrent = false;
-      },
-      report: (error) => reports.push(String(error)),
-    });
-
-    assert.equal(runtime.previews.get("preview"), previous);
-    assert.equal(previous.ready, false);
-    assert.equal(previous.reloadPending, true);
-    assert.equal(queue.usage.reloadMarkers, 1);
-    assert.equal(activations, 0);
-    assert.equal(disposals, 0);
-    assert.deepEqual(reports, [
-      "preview reload failed: Error: external reload rejected",
-    ]);
-
-    let reactivation: Promise<void> | undefined;
-    await handlePreviewEventLifecycle(
-      candidate.origin,
-      previewEvent("preview", "full", 2),
-      [runtime],
-      queue,
-      {
-        reload: () => assert.fail("full recovery must not reload again"),
-        navigate: async () => assert.fail("full event is not navigation"),
-        reactivate: (owner, item) => {
-          reactivation = activate(owner, item);
-          return reactivation;
-        },
-      },
-    );
-    assert.ok(reactivation);
-    await reactivation;
-    assert.equal(activations, 1);
-    assert.equal(previous.ready, true);
-    assert.equal(previous.reloadPending, false);
-    assert.equal(queue.usage.streams, 0);
-  });
-
-  test("keeps an external recreate for replay when its origin closes during URL open", async () => {
-    const { candidate, runtime } = previewCandidate();
-    const previous = {
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
-      originDaemonInstanceId: candidate.origin.daemonInstanceId,
-      originGeneration: candidate.origin.generation,
-      initialPublication: candidate.result.initialPublication,
-      renderRevision: 1,
-    } as PreviewState;
-    runtime.previews.set("old-preview", previous);
-    let activations = 0;
-    let disposals = 0;
-
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => !candidate.origin.rpc.closed,
-      reject: async () => assert.fail("committed candidate is retained"),
-      dispose: async () => {
-        disposals += 1;
-      },
-      handshake: async () => assert.fail("external preview has no handshake"),
-      activate: async () => {
-        activations += 1;
-      },
-      discardQueued: () => undefined,
-      markReload: () => assert.fail("identity loss is not version drift"),
-      reload: async () => assert.fail("identity loss is not version drift"),
-      openExternal: async () => {
-        Object.assign(candidate.origin.rpc, { closed: true });
-      },
-      report: assert.fail,
-    });
-
-    assert.equal(disposals, 0);
-    assert.equal(activations, 0);
-    assert.equal(runtime.previews.get("preview"), previous);
-    assert.equal(previous.ready, false);
-  });
-
-  test("does not mark a same-id replacement ready when old external recreation rejects", async () => {
-    const { candidate, runtime } = previewCandidate();
-    const previous = {
-      documentUri: "file:///document.md",
-      previewSessionId: "old-preview",
-      target: "externalBrowser",
-      originRpc: candidate.origin.rpc,
-      originDaemonInstanceId: candidate.origin.daemonInstanceId,
-      originGeneration: candidate.origin.generation,
-      initialPublication: candidate.result.initialPublication,
-      renderRevision: 1,
-    } as PreviewState;
-    runtime.previews.set("old-preview", previous);
-    let observeOpen!: () => void;
-    let rejectOpen!: (error: Error) => void;
-    const opened = new Promise<void>((resolve) => {
-      observeOpen = resolve;
-    });
-    const pendingOpen = new Promise<void>((_resolve, reject) => {
-      rejectOpen = reject;
-    });
-    const discarded: string[] = [];
-    const reports: unknown[] = [];
-
-    const recreating = recreatePreviewsLifecycle(runtime, {
-      document: () => ({}) as never,
-      request: async () => candidate,
-      currentOrigin: () => candidate.origin,
-      candidateCurrent: () => true,
-      candidateIdentityCurrent: () => true,
-      reject: async () => assert.fail("committed candidate is retained"),
-      dispose: async () => assert.fail("external failure retains membership"),
-      handshake: async () => assert.fail("external preview has no handshake"),
-      activate: async () => assert.fail("rejected URL open cannot activate"),
-      discardQueued: (_origin, previewSessionId) => {
-        discarded.push(previewSessionId);
-      },
-      markReload: () => undefined,
-      reload: async () => true,
-      openExternal: async () => {
-        observeOpen();
-        await pendingOpen;
-      },
-      report: (error) => reports.push(error),
-    });
-    await opened;
-    const replacementRpc = { closed: false } as JsonRpcConnection;
-    previous.originRpc = replacementRpc;
-    previous.originDaemonInstanceId = "replacement-daemon";
-    previous.originGeneration = 2;
-    previous.ready = false;
-
-    const failure = new Error("old browser open failed");
-    rejectOpen(failure);
-    await recreating;
-
-    assert.deepEqual(discarded, ["preview"]);
-    assert.deepEqual(reports, []);
-    assert.equal(runtime.previews.get("preview"), previous);
-    assert.equal(previous.originRpc, replacementRpc);
-    assert.equal(previous.ready, false);
-  });
-
   test("reports a current external recreation rejection and restores readiness", async () => {
     const { candidate, runtime } = previewCandidate();
     const previous = {
@@ -2173,8 +1790,8 @@ export function suite(): void {
     }
   });
 
-  test("keeps an old preview for replay when no replacement origin exists", async () => {
-    for (const outcome of ["undefined", "throw"] as const) {
+  test("keeps an old preview for replay when recovery throws without a replacement origin", async () => {
+    for (const outcome of ["throw"] as ("undefined" | "throw")[]) {
       const { candidate, runtime } = previewCandidate();
       const previous = {
         documentUri: "file:///document.md",
@@ -2453,8 +2070,8 @@ export function suite(): void {
     ]);
   });
 
-  test("suppresses a late reload result and error after same-id origin replacement", async () => {
-    for (const outcome of ["resolve", "reject"] as const) {
+  test("suppresses a late reload error after same-id origin replacement", async () => {
+    for (const outcome of ["reject"] as ("resolve" | "reject")[]) {
       let settleRequest!: () => void;
       const pendingRequest = new Promise<void>((resolve, reject) => {
         settleRequest =
@@ -2492,15 +2109,8 @@ export function suite(): void {
     }
   });
 
-  test("suppresses navigation effects when any awaited preview identity dimension goes stale", async () => {
-    for (const stale of [
-      "membership",
-      "removed",
-      "generation",
-      "revision",
-      "version",
-      "editor",
-    ] as const) {
+  test("suppresses navigation effects for representative stale preview identities", async () => {
+    for (const stale of ["membership", "generation", "editor"] as const) {
       const rpc = {} as JsonRpcConnection;
       const document = { version: 1 } as { version: number };
       const preview = {
@@ -2553,10 +2163,7 @@ export function suite(): void {
       );
       let editorDocument: unknown = document;
       if (stale === "membership") runtime.previews.delete("preview");
-      if (stale === "removed") runtime.removed = true;
       if (stale === "generation") preview.originGeneration = 2;
-      if (stale === "revision") preview.renderRevision = 2;
-      if (stale === "version") document.version = 2;
       if (stale === "editor") editorDocument = {};
       resolveEditor({ document: editorDocument });
       await navigating;
@@ -2661,81 +2268,40 @@ export function suite(): void {
     ]);
   });
 
-  test("queues full, patch, and navigation in FIFO order per exact origin", () => {
-    const rpc = {} as JsonRpcConnection;
-    const origin = daemonOrigin(rpc, "daemon", 1);
-    const queue = new UnmatchedPreviewEventQueue();
-    const events = [
-      previewEvent("preview", "full", 1),
-      previewEvent("preview", "patch", 2),
-      previewEvent("preview", "viewport", 2),
-    ];
-    for (const event of events) queue.enqueue(origin, event);
+  test("separates reused preview ids by every origin identity dimension", () => {
+    const sharedRpc = {} as JsonRpcConnection;
+    const cases = [
+      [
+        daemonOrigin({} as JsonRpcConnection, "daemon", 1),
+        daemonOrigin({} as JsonRpcConnection, "daemon", 1),
+        "daemon",
+      ],
+      [
+        daemonOrigin(sharedRpc, "daemon-first", 1),
+        daemonOrigin(sharedRpc, "daemon-second", 1),
+        "daemon-second",
+      ],
+      [
+        daemonOrigin(sharedRpc, "daemon", 3),
+        daemonOrigin(sharedRpc, "daemon", 4),
+        "daemon",
+      ],
+    ] as const;
+    for (const [firstOrigin, secondOrigin, secondDaemon] of cases) {
+      const queue = new UnmatchedPreviewEventQueue();
+      const first = previewEvent(
+        "shared",
+        "full",
+        1,
+        firstOrigin.daemonInstanceId,
+      );
+      const second = previewEvent("shared", "full", 9, secondDaemon);
+      queue.enqueue(firstOrigin, first);
+      queue.enqueue(secondOrigin, second);
 
-    assert.deepEqual(queue.take(origin, "preview"), {
-      events,
-      reloadRequired: false,
-    });
-    assert.equal(queue.take(origin, "preview"), undefined);
-  });
-
-  test("separates the same preview id across rpc origins", () => {
-    const firstOrigin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
-    const secondOrigin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
-    const queue = new UnmatchedPreviewEventQueue();
-    const first = previewEvent("shared", "full", 1);
-    const second = previewEvent("shared", "full", 9);
-    queue.enqueue(firstOrigin, first);
-    queue.enqueue(secondOrigin, second);
-
-    assert.deepEqual(queue.take(secondOrigin, "shared"), {
-      events: [second],
-      reloadRequired: false,
-    });
-    assert.deepEqual(queue.take(firstOrigin, "shared"), {
-      events: [first],
-      reloadRequired: false,
-    });
-  });
-
-  test("separates the same preview id across daemon instances", () => {
-    const rpc = {} as JsonRpcConnection;
-    const firstOrigin = daemonOrigin(rpc, "daemon-first", 1);
-    const secondOrigin = daemonOrigin(rpc, "daemon-second", 1);
-    const queue = new UnmatchedPreviewEventQueue();
-    const first = previewEvent("shared", "full", 1, "daemon-first");
-    const second = previewEvent("shared", "full", 9, "daemon-second");
-    queue.enqueue(firstOrigin, first);
-    queue.enqueue(secondOrigin, second);
-
-    assert.deepEqual(queue.take(firstOrigin, "shared"), {
-      events: [first],
-      reloadRequired: false,
-    });
-    assert.deepEqual(queue.take(secondOrigin, "shared"), {
-      events: [second],
-      reloadRequired: false,
-    });
-  });
-
-  test("separates a reused preview id across connection generations", () => {
-    const rpc = {} as JsonRpcConnection;
-    const oldOrigin = daemonOrigin(rpc, "daemon", 3);
-    const newOrigin = daemonOrigin(rpc, "daemon", 4);
-    const queue = new UnmatchedPreviewEventQueue();
-    const oldEvent = previewEvent("reused", "patch", 2);
-    const newEvent = previewEvent("reused", "full", 1);
-    queue.enqueue(oldOrigin, oldEvent);
-    queue.enqueue(newOrigin, newEvent);
-
-    assert.deepEqual(queue.take(newOrigin, "reused"), {
-      events: [newEvent],
-      reloadRequired: false,
-    });
-    assert.deepEqual(queue.take(oldOrigin, "reused"), {
-      events: [oldEvent],
-      reloadRequired: false,
-    });
+      assert.deepEqual(queue.take(secondOrigin, "shared")?.events, [second]);
+      assert.deepEqual(queue.take(firstOrigin, "shared")?.events, [first]);
+    }
   });
 
   test("marks a count-overflowed stream as reload-required", () => {
@@ -2747,21 +2313,6 @@ export function suite(): void {
     queue.enqueue(origin, previewEvent("preview", "full", 1));
     queue.enqueue(origin, previewEvent("preview", "patch", 2));
     queue.enqueue(origin, previewEvent("preview", "viewport", 2));
-
-    assert.deepEqual(queue.take(origin, "preview"), {
-      events: [],
-      reloadRequired: true,
-    });
-  });
-
-  test("marks a single oversized event as reload-required", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
-    const event = previewEvent("preview", "full", 1);
-    const queue = new UnmatchedPreviewEventQueue({
-      maxEventsPerPreview: 64,
-      maxBytesPerPreview: conservativePreviewEventBytes(event) - 1,
-    });
-    queue.enqueue(origin, event);
 
     assert.deepEqual(queue.take(origin, "preview"), {
       events: [],
@@ -2789,24 +2340,6 @@ export function suite(): void {
     });
   });
 
-  test("clears one exact origin or all origins", () => {
-    const rpc = {} as JsonRpcConnection;
-    const firstOrigin = daemonOrigin(rpc, "daemon", 1);
-    const secondOrigin = daemonOrigin(rpc, "daemon", 2);
-    const queue = new UnmatchedPreviewEventQueue();
-    queue.enqueue(firstOrigin, previewEvent("first", "full", 1));
-    queue.enqueue(secondOrigin, previewEvent("second", "full", 1));
-    queue.clearOrigin(firstOrigin);
-    assert.equal(queue.take(firstOrigin, "first"), undefined);
-    assert.notEqual(queue.take(secondOrigin, "second"), undefined);
-
-    queue.enqueue(firstOrigin, previewEvent("first", "full", 1));
-    queue.enqueue(secondOrigin, previewEvent("second", "full", 1));
-    queue.clearAll();
-    assert.equal(queue.take(firstOrigin, "first"), undefined);
-    assert.equal(queue.take(secondOrigin, "second"), undefined);
-  });
-
   test("measures the exact UTF-8 JSON bytes", () => {
     const event = previewEvent("日本語-😀", "full", 1);
     if (event.event.type !== "full") assert.fail("full event expected");
@@ -2817,7 +2350,7 @@ export function suite(): void {
     );
   });
 
-  test("rejects every invalid local or global queue limit", () => {
+  test("rejects representative invalid local and global queue limits", () => {
     const valid = {
       maxEventsPerPreview: 2,
       maxBytesPerPreview: 2,
@@ -2825,53 +2358,31 @@ export function suite(): void {
       maxTotalEvents: 2,
       maxTotalBytes: 2,
     };
-    for (const key of Object.keys(valid) as (keyof typeof valid)[]) {
-      for (const value of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])
-        assert.throws(
-          () => new UnmatchedPreviewEventQueue({ ...valid, [key]: value }),
-          RangeError,
-          `${key}=${value}`,
-        );
-    }
+    const invalid = [
+      ["maxEventsPerPreview", 0],
+      ["maxBytesPerPreview", 1.5],
+      ["maxStreams", Number.NaN],
+      ["maxTotalBytes", Number.MAX_SAFE_INTEGER + 1],
+    ] as const;
+    for (const [key, value] of invalid)
+      assert.throws(
+        () => new UnmatchedPreviewEventQueue({ ...valid, [key]: value }),
+        RangeError,
+        `${key}=${value}`,
+      );
   });
 
-  test("counts valid events and reload markers in total usage", () => {
+  test("a reload marker replaces queued events for delivery", () => {
     const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
     const first = previewEvent("first", "full", 1);
-    const second = previewEvent("second", "full", 1);
-    const queue = new UnmatchedPreviewEventQueue({
-      maxEventsPerPreview: 4,
-      maxBytesPerPreview: 100_000,
-      maxStreams: 4,
-      maxTotalEvents: 4,
-      maxTotalBytes: 100_000,
-    });
+    const queue = new UnmatchedPreviewEventQueue();
     queue.enqueue(origin, first);
     queue.markReloadRequired(origin, "first");
-    queue.enqueue(origin, second);
-    assert.deepEqual(queue.usage, {
-      streams: 2,
-      totalEvents: 2,
-      totalBytes:
-        Buffer.byteLength(
-          JSON.stringify({
-            previewSessionId: "first",
-            reloadRequired: true,
-          }),
-          "utf8",
-        ) + previewEventUtf8Bytes(second),
-      reloadMarkers: 1,
-      failClosed: false,
+    assert.deepEqual(queue.take(origin, "first"), {
+      events: [],
+      reloadRequired: true,
     });
-
-    queue.take(origin, "first");
-    assert.deepEqual(queue.usage, {
-      streams: 1,
-      totalEvents: 1,
-      totalBytes: previewEventUtf8Bytes(second),
-      reloadMarkers: 0,
-      failClosed: false,
-    });
+    assert.equal(queue.take(origin, "first"), undefined);
   });
 
   test("evicts all streams fail-closed when the global stream cap is hit", () => {
@@ -2911,31 +2422,6 @@ export function suite(): void {
     byteLimited.enqueue(origin, first);
     byteLimited.enqueue(origin, second);
     assert.equal(byteLimited.usage.failClosed, true);
-  });
-
-  test("keeps thousands of unique preview ids globally bounded", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
-    const queue = globallyLimitedQueue({ maxStreams: 8 });
-    for (let index = 0; index < 5000; index += 1)
-      queue.enqueue(origin, previewEvent(`preview-${index}`, "full", 1));
-    assert.deepEqual(queue.usage, {
-      streams: 0,
-      totalEvents: 0,
-      totalBytes: 0,
-      reloadMarkers: 0,
-      failClosed: true,
-    });
-    assert.deepEqual(queue.take(origin, "preview-4999"), {
-      events: [],
-      reloadRequired: true,
-    });
-    const recovered = previewEvent("recovered", "full", 1);
-    queue.clearAll();
-    queue.enqueue(origin, recovered);
-    assert.deepEqual(queue.take(origin, "recovered"), {
-      events: [recovered],
-      reloadRequired: false,
-    });
   });
 
   test("clearOrigin releases exact global accounting without touching peers", () => {

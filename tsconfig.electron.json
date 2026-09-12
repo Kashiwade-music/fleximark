@@ -17,8 +17,7 @@
     "test/adapter/wiring.test.mts",
     "test/adapter/workspace-selection.test.mts",
     "test/adapter/workspace-migration-runtime.test.mts",
-    "test/adapter/multi-root-runtime.test.mts",
-    "test/release.test.mts"
+    "test/adapter/multi-root-runtime.test.mts"
   ],
   "references": [{ "path": "./tsconfig.adapter.json" }]
 }

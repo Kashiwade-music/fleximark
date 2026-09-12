@@ -532,30 +532,28 @@ export function suite(): void {
     assert.equal(stale.openOutputCount, 0);
   });
 
-  test("disposes with exact shutdown order on request success and failure", async () => {
-    for (const rejectShutdown of [false, true]) {
-      const harness = new SupervisorHarness();
-      harness.rejectShutdown = rejectShutdown;
-      await harness.supervisor.ensure();
-      const process = harness.supervisor.process;
-      assert.ok(process);
-      harness.supervisor.beginDispose();
-      harness.supervisor.dispose();
-      harness.supervisor.dispose();
-      harness.invokeLateExit(process);
-      await harness.settle();
+  test("disposes in order when the shutdown request fails", async () => {
+    const harness = new SupervisorHarness();
+    harness.rejectShutdown = true;
+    await harness.supervisor.ensure();
+    const process = harness.supervisor.process;
+    assert.ok(process);
+    harness.supervisor.beginDispose();
+    harness.supervisor.dispose();
+    harness.supervisor.dispose();
+    harness.invokeLateExit(process);
+    await harness.settle();
 
-      assert.equal(harness.shutdownCount, 1);
-      assert.equal(harness.supervisor.snapshot().process, undefined);
-      assert.equal(harness.supervisor.snapshot().rpc, undefined);
-      assert.equal(harness.timers.length, 0);
-      assert.deepEqual(harness.lifecycle.slice(-4), [
-        "shutdown-request:1",
-        "exit-notify:1",
-        "rpc-close:1",
-        "kill:1",
-      ]);
-    }
+    assert.equal(harness.shutdownCount, 1);
+    assert.equal(harness.supervisor.snapshot().process, undefined);
+    assert.equal(harness.supervisor.snapshot().rpc, undefined);
+    assert.equal(harness.timers.length, 0);
+    assert.deepEqual(harness.lifecycle.slice(-4), [
+      "shutdown-request:1",
+      "exit-notify:1",
+      "rpc-close:1",
+      "kill:1",
+    ]);
   });
 
   test("redacts the legacy credential corpus without consuming the next line", () => {

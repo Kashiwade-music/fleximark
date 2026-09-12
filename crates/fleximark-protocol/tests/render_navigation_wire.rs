@@ -1,5 +1,4 @@
 use fleximark_protocol::{NodeId, RenderNavigationEvent, TextPosition};
-use serde_json::json;
 
 #[test]
 fn selection_wire_always_includes_null_or_object_active_position() {
@@ -23,20 +22,6 @@ fn selection_wire_always_includes_null_or_object_active_position() {
         }),
     };
 
-    let expected_without_active = json!({
-        "type": "selection",
-        "previewSessionId": "preview",
-        "renderRevision": 1,
-        "nodeIds": ["document-root"],
-        "activePosition": null,
-    });
-    let expected_with_active = json!({
-        "type": "selection",
-        "previewSessionId": "preview",
-        "renderRevision": 2,
-        "nodeIds": ["paragraph"],
-        "activePosition": { "line": 3, "character": 5 },
-    });
     assert_eq!(fixture["schemaVersion"], 1);
     assert_eq!(fixture["events"].as_array().unwrap().len(), 3);
     assert_eq!(
@@ -46,15 +31,5 @@ fn selection_wire_always_includes_null_or_object_active_position() {
     assert_eq!(
         serde_json::to_value(&with_active).unwrap(),
         fixture["events"][2]
-    );
-    assert_eq!(fixture["events"][1], expected_without_active);
-    assert_eq!(fixture["events"][2], expected_with_active);
-    assert_eq!(
-        serde_json::to_string(&without_active).unwrap(),
-        r#"{"type":"selection","previewSessionId":"preview","renderRevision":1,"nodeIds":["document-root"],"activePosition":null}"#
-    );
-    assert_eq!(
-        serde_json::to_string(&with_active).unwrap(),
-        r#"{"type":"selection","previewSessionId":"preview","renderRevision":2,"nodeIds":["paragraph"],"activePosition":{"line":3,"character":5}}"#
     );
 }

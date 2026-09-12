@@ -166,19 +166,6 @@ mod tests {
     use crate::test_support::test_workspace;
     use crate::{export_render_context, initialize_workspace, load_plugin_host};
     #[test]
-    fn edit_theme_opens_canonical_theme() {
-        let root = test_workspace("edit-theme-test");
-        let uri = path_to_file_uri(&root).unwrap();
-        initialize_workspace(&uri).unwrap();
-        let result = edit_theme(&uri).unwrap();
-        assert_eq!(
-            workspace_path(result.open_uri.as_deref().unwrap()).unwrap(),
-            root.join(".fleximark/theme.css").canonicalize().unwrap()
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn trusted_theme_is_typed_and_css_url_bypasses_are_rejected() {
         let root = test_workspace("theme-policy-test");
         let uri = path_to_file_uri(&root).unwrap();

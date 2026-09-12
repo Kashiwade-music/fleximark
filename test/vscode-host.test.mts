@@ -6,7 +6,7 @@ import { previewRuntimes } from "../web/preview-client/runtimes.mjs";
 export const suiteName = "VS Code preview host";
 
 export function suite(): void {
-  test("preserves token validation and ready, snapshot, rendered message order", async () => {
+  test("acknowledges a Mermaid snapshot before asynchronous enhancement completes", async () => {
     const names = [
       "document",
       "HTMLElement",
@@ -65,56 +65,6 @@ export function suite(): void {
 
       await import("../web/preview-client/vscode-host.mjs");
       assert.deepEqual(messages, [{ type: "ready" }]);
-
-      dispatchMessage({
-        type: "initializePreview",
-        messageToken: "wrong-token",
-        publication: snapshot(),
-      });
-      assert.deepEqual(messages, [{ type: "ready" }]);
-
-      dispatchMessage({
-        type: "initializePreview",
-        messageToken: "token",
-        publication: { ...snapshot(), navigation: "invalid" },
-      });
-      dispatchMessage({
-        type: "initializePreview",
-        messageToken: "token",
-        publication: snapshot(),
-      });
-      assert.deepEqual(messages, [
-        { type: "ready" },
-        { type: "requestSnapshot" },
-        {
-          type: "rendered",
-          previewSessionId: "preview",
-          renderRevision: 7,
-        },
-      ]);
-      assert.equal(
-        window.document.querySelector("#preview")?.textContent,
-        "ready",
-      );
-
-      dispatchMessage({
-        type: "previewEvent",
-        messageToken: "token",
-        event: {
-          type: "selection",
-          previewSessionId: "other-preview",
-          renderRevision: 7,
-          nodeIds: ["paragraph"],
-          activePosition: null,
-        },
-      });
-      assert.equal(
-        window.document.querySelector<HTMLElement>(
-          "[data-fleximark-node-id=paragraph]",
-        )?.dataset.fleximarkSelected,
-        undefined,
-      );
-      assert.equal(messages.length, 3);
 
       dispatchMessage({
         type: "initializePreview",

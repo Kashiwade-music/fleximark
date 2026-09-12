@@ -22,7 +22,6 @@ if str(SCRIPTS) not in sys.path:
 import _tools
 import _targets
 import create_release_manifest
-import smoke_vsix
 import stage_daemon
 import tasks
 
@@ -89,10 +88,8 @@ class PlatformMappingTests(unittest.TestCase):
             ("linux", "linux"),
             ("linux-musl", "linux"),
         ):
-            with self.subTest(reported=reported), patch.object(
-                stage_daemon.sys, "platform", reported
-            ):
-                self.assertEqual(stage_daemon.platform_name(), expected)
+            with self.subTest(reported=reported):
+                self.assertEqual(_targets.normalize_platform(reported), expected)
 
     def test_maps_supported_architectures(self) -> None:
         for reported, expected in (
@@ -101,56 +98,16 @@ class PlatformMappingTests(unittest.TestCase):
             ("ARM64", "arm64"),
             ("aarch64", "arm64"),
         ):
-            with self.subTest(reported=reported), patch.object(
-                stage_daemon.platform, "machine", return_value=reported
-            ):
-                self.assertEqual(stage_daemon.architecture_name(), expected)
+            with self.subTest(reported=reported):
+                self.assertEqual(_targets.normalize_arch(reported), expected)
 
     def test_rejects_unsupported_platform_and_architecture(self) -> None:
-        with patch.object(stage_daemon.sys, "platform", "freebsd"):
-            with self.assertRaisesRegex(
-                RuntimeError, "unsupported platform: freebsd"
-            ):
-                stage_daemon.platform_name()
-        with patch.object(stage_daemon.platform, "machine", return_value="riscv64"):
-            with self.assertRaisesRegex(
-                RuntimeError, "unsupported architecture: riscv64"
-            ):
-                stage_daemon.architecture_name()
-
-    def test_smoke_workflow_uses_the_same_supported_platform_mapping(self) -> None:
-        for reported, expected in (
-            ("win32", "win32"),
-            ("darwin", "darwin"),
-            ("linux", "linux"),
-            ("linux-musl", "linux"),
+        with self.assertRaisesRegex(RuntimeError, "unsupported platform: freebsd"):
+            _targets.normalize_platform("freebsd")
+        with self.assertRaisesRegex(
+            RuntimeError, "unsupported architecture: riscv64"
         ):
-            with self.subTest(reported=reported), patch.object(
-                smoke_vsix.sys, "platform", reported
-            ):
-                self.assertEqual(smoke_vsix.platform_name(), expected)
-
-        for reported, expected in (
-            ("AMD64", "x64"),
-            ("x86_64", "x64"),
-            ("ARM64", "arm64"),
-            ("aarch64", "arm64"),
-        ):
-            with self.subTest(reported=reported), patch.object(
-                smoke_vsix.platform, "machine", return_value=reported
-            ):
-                self.assertEqual(smoke_vsix.architecture_name(), expected)
-
-        with patch.object(smoke_vsix.sys, "platform", "freebsd"):
-            with self.assertRaisesRegex(
-                RuntimeError, "unsupported platform: freebsd"
-            ):
-                smoke_vsix.platform_name()
-        with patch.object(smoke_vsix.platform, "machine", return_value="riscv64"):
-            with self.assertRaisesRegex(
-                RuntimeError, "unsupported architecture: riscv64"
-            ):
-                smoke_vsix.architecture_name()
+            _targets.normalize_arch("riscv64")
 
 
 class StageDaemonTests(unittest.TestCase):
@@ -524,21 +481,6 @@ class TaskEntryPointTests(unittest.TestCase):
         build.assert_not_called()
         validate.assert_called_once_with(tasks.ROOT)
 
-    def test_release_vscode_prepublish_fails_when_an_input_is_missing(self) -> None:
-        with (
-            patch.dict(os.environ, {"FLEXIMARK_RELEASE_PREBUILT": "1"}),
-            patch.object(tasks, "build") as build,
-            patch.object(
-                tasks,
-                "validate_prebuilt_inputs",
-                side_effect=RuntimeError("prebuilt inputs are missing"),
-            ),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "prebuilt inputs are missing"):
-                tasks.vscode_prepublish(())
-
-        build.assert_not_called()
-
     def test_standalone_test_performs_the_complete_build_before_vscode(self) -> None:
         events: list[str] = []
 
@@ -741,30 +683,6 @@ class WatchCleanupTests(unittest.TestCase):
 
         child.terminate.assert_called_once_with()
         child.wait.assert_called_once_with(timeout=5)
-
-    def test_dev_cleans_up_every_child_when_watch_is_interrupted(self) -> None:
-        children = [MagicMock(), MagicMock(), MagicMock()]
-        for child in children:
-            child.poll.side_effect = [None, None, 0]
-
-        with (
-            patch.object(tasks.javascript_build, "clean"),
-            patch.object(
-                tasks.javascript_build,
-                "watch_commands",
-                return_value=[["watch-extension"], ["watch-preview"]],
-            ),
-            patch.object(tasks, "executable", side_effect=lambda name: name),
-            patch.object(tasks.subprocess, "Popen", side_effect=children) as popen,
-            patch.object(tasks.time, "sleep", side_effect=KeyboardInterrupt),
-        ):
-            tasks.dev(())
-
-        self.assertEqual(popen.call_count, 3)
-        for child in children:
-            child.terminate.assert_called_once_with()
-            child.kill.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()

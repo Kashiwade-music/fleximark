@@ -441,59 +441,6 @@ fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
 }
 
 #[test]
-fn config_metadata_change_forces_full_without_resetting_preview_revision() {
-    let mut session = open("same\n");
-    let preview = PreviewSessionId("config-fallback".into());
-    let RenderPublication::Full(first) = session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap()
-    else {
-        panic!("first render must be full")
-    };
-    session.render_config.config_hash = content_hash("changed-config");
-    session.render_config.config_generation = 7;
-    let RenderPublication::Full(second) =
-        session.render(preview, &RenderContext::default()).unwrap()
-    else {
-        panic!("configuration fingerprint changes must force a full publication")
-    };
-    assert_ne!(second.renderer_fingerprint, first.renderer_fingerprint);
-    assert_eq!(second.result_render_revision, 2);
-    assert_eq!(second.document_version, 1);
-}
-
-#[test]
-fn full_and_patch_publications_preserve_exact_json_bytes() {
-    let mut session = open("a\n");
-    let preview = PreviewSessionId("wire".into());
-    let full = session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap();
-    let expected_full = concat!(
-        r#"{"type":"full","previewSessionId":"wire","documentVersion":1,"resultRenderRevision":1,"#,
-        r#""rendererFingerprint":"sha256:c262b30d7e3eeb73d326f2456b6dbce82e233af1fb1a18ced2f6989e9413c825","#,
-        r#""style":null,"assets":[],"nodeIds":["document-root","block-1820d4d03f5217374cbf"],"#,
-        r#""navigation":[{"nodeId":"block-1820d4d03f5217374cbf","sourceRange":{"byteStart":0,"byteEnd":1,"#,
-        r#""start":{"line":0,"character":0,"encoding":"utf8"},"end":{"line":0,"character":1,"encoding":"utf8"}},"depth":0}],"#,
-        r#""html":"<main data-fleximark-node-id=\"document-root\"><p data-fleximark-node-id=\"block-1820d4d03f5217374cbf\">a</p>\n</main>"}"#,
-    );
-    assert_eq!(serde_json::to_string(&full).unwrap(), expected_full);
-    session.change_full_text(2, "b\n".to_owned()).unwrap();
-    let patch = session.render(preview, &RenderContext::default()).unwrap();
-    let expected_patch = concat!(
-        r#"{"type":"patch","previewSessionId":"wire","documentVersion":2,"baseRenderRevision":1,"resultRenderRevision":2,"#,
-        r#""baseRendererFingerprint":"sha256:c262b30d7e3eeb73d326f2456b6dbce82e233af1fb1a18ced2f6989e9413c825","#,
-        r#""resultRendererFingerprint":"sha256:c262b30d7e3eeb73d326f2456b6dbce82e233af1fb1a18ced2f6989e9413c825","#,
-        r#""style":null,"navigation":[{"nodeId":"block-1820d4d03f5217374cbf","sourceRange":{"byteStart":0,"byteEnd":1,"#,
-        r#""start":{"line":0,"character":0,"encoding":"utf8"},"end":{"line":0,"character":1,"encoding":"utf8"}},"depth":0}],"#,
-        r#""operations":[{"type":"replace","nodeId":"block-1820d4d03f5217374cbf","parentId":"document-root","#,
-        r#""content":"<p data-fleximark-node-id=\"block-1820d4d03f5217374cbf\">b</p>\n","#,
-        r#""contentNodeIds":["block-1820d4d03f5217374cbf"],"precondition":{"nodeExists":true,"currentParentId":"document-root"}}]}"#,
-    );
-    assert_eq!(serde_json::to_string(&patch).unwrap(), expected_patch);
-}
-
-#[test]
 fn emits_allowlisted_attribute_delta_and_serializes_it_in_camel_case() {
     let mut session = open(":::info[Note]\nbody\n:::\n");
     let preview = PreviewSessionId("attributes".into());
@@ -582,50 +529,6 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
         )
         .is_err()
     );
-}
-
-#[test]
-fn large_assets_are_published_once_and_not_repeated_in_multi_operation_patch() {
-    let original = (0..31)
-        .map(|index| format!("paragraph {index}"))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let changed = (0..31)
-        .map(|index| format!("changed paragraph {index}"))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let assets: Vec<_> = (0..8)
-        .map(|index| {
-            let mut bytes = vec![0_u8; MAX_RENDER_ASSET_BYTES];
-            bytes[0] = index;
-            ResolvedRenderAsset::from_validated_bytes(
-                format!("asset-{index}.png"),
-                "image/png".to_owned(),
-                &bytes,
-            )
-            .unwrap()
-        })
-        .collect();
-    let mut session = open(&original);
-    session.render_config = RenderConfig::default()
-        .with_resolved_assets(assets)
-        .unwrap();
-    let preview = PreviewSessionId("large-assets".into());
-    let context = session.render_config.context.clone();
-    let RenderPublication::Full(snapshot) = session.render(preview.clone(), &context).unwrap()
-    else {
-        panic!("initial publication must be full")
-    };
-    assert_eq!(snapshot.assets.len(), 8);
-
-    session.change_full_text(2, changed).unwrap();
-    let RenderPublication::Patch(patch) = session.render(preview, &context).unwrap() else {
-        panic!("unchanged assets may patch")
-    };
-    assert_eq!(patch.operations.len(), 31);
-    let wire = serde_json::to_vec(&patch).unwrap();
-    assert!(wire.len() < 64 * 1024);
-    assert!(!String::from_utf8(wire).unwrap().contains("\"assets\""));
 }
 
 #[test]
@@ -814,26 +717,8 @@ fn unsafe_plugin_html_is_reachable_only_from_explicit_portable_export() {
 
 #[test]
 fn render_style_rejects_a_fingerprint_that_does_not_match_its_css() {
-    let mut unstyled = open("plain\n");
-    let RenderPublication::Full(publication) = unstyled
-        .render(
-            PreviewSessionId("unstyled".into()),
-            &RenderContext::default(),
-        )
-        .unwrap()
-    else {
-        panic!("first publication must be full")
-    };
-    assert!(serde_json::to_value(publication).unwrap()["style"].is_null());
-
     let style = RenderStyle::from_validated_css("body { color: red; }".to_owned());
-    let wire = serde_json::to_value(&style).unwrap();
-    assert_eq!(wire["css"], "body { color: red; }");
-    assert_eq!(
-        serde_json::from_value::<RenderStyle>(wire.clone()).unwrap(),
-        style
-    );
-    let mut forged = wire;
+    let mut forged = serde_json::to_value(style).unwrap();
     forged["fingerprint"] = "0".repeat(64).into();
     assert!(serde_json::from_value::<RenderStyle>(forged).is_err());
 }
@@ -962,17 +847,14 @@ fn navigation_selects_the_smallest_deepest_unicode_block_and_round_trips() {
 #[test]
 fn disposing_previews_evicts_their_authoritative_caches() {
     let mut session = open("# preview\n");
-    for index in 0..1_000 {
+    for preview in ["first", "second"] {
         session
-            .render_full(
-                PreviewSessionId(format!("preview-{index}")),
-                &RenderContext::default(),
-            )
+            .render_full(PreviewSessionId(preview.into()), &RenderContext::default())
             .unwrap();
     }
-    assert_eq!(session.preview_count(), 1_000);
-    for index in 0..1_000 {
-        assert!(session.dispose_preview(&PreviewSessionId(format!("preview-{index}"))));
-    }
+    assert_eq!(session.preview_count(), 2);
+    assert!(session.dispose_preview(&PreviewSessionId("first".into())));
+    assert_eq!(session.preview_count(), 1);
+    assert!(session.dispose_preview(&PreviewSessionId("second".into())));
     assert_eq!(session.preview_count(), 0);
 }

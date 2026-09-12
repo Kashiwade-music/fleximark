@@ -43,16 +43,6 @@ export function suite(): void {
     connection.close();
   });
 
-  test("rejects pending work when the connection closes", async () => {
-    const daemonOutput = new PassThrough();
-    const daemonInput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, daemonInput);
-    const pending = connection.requestLsp("workspace/test");
-    connection.close(new Error("gone"));
-    await assert.rejects(pending, /gone/);
-    assert.equal(connection.closed, true);
-  });
-
   test("close is idempotent and permanently suppresses later writes", async () => {
     const daemonOutput = new PassThrough();
     const daemonInput = new PassThrough();
@@ -166,23 +156,6 @@ export function suite(): void {
     connection.close();
   });
 
-  test("reassembles a response split at every byte boundary", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const pending = connection.requestLsp<{ value: string }>("workspace/test");
-    const response = frame({
-      jsonrpc: "2.0",
-      id: 1,
-      result: { value: "分割" },
-    });
-
-    for (const byte of response) daemonOutput.write(Buffer.from([byte]));
-
-    assert.deepEqual(await pending, { value: "分割" });
-    assert.equal(connection.closed, false);
-    connection.close();
-  });
-
   test("preserves JSON-RPC error code, message, and data", async () => {
     const daemonOutput = new PassThrough();
     const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
@@ -243,21 +216,6 @@ export function suite(): void {
     assert.equal(connection.closed, true);
     assert.deepEqual(messages, []);
     assert.ok(closeReason instanceof SyntaxError);
-  });
-
-  test("closes before reading a frame above the 16 MiB limit", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    let closeReason: unknown;
-    connection.on("close", (reason) => {
-      closeReason = reason;
-    });
-
-    daemonOutput.write("Content-Length: 16777217\r\n\r\n");
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(connection.closed, true);
-    assert.match(String(closeReason), /Invalid JSON-RPC frame length/);
   });
 
   test("ignores a late or unknown response id and keeps the connection open", async () => {

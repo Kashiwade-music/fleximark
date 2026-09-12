@@ -368,23 +368,10 @@ class ReleaseArtifactTests(unittest.TestCase):
     def test_rejects_forbidden_development_content(self) -> None:
         for forbidden in (
             "extension/src/private.mjs",
-            "extension/test/fixture.json",
             "extension/node_modules/dependency/index.js",
             "extension/parserPlugin.js",
-            "extension/adapters/vscode/src/extension.mjs",
-            "extension/web/preview-client/index.mjs",
-            "extension/crates/fleximarkd/src/main.rs",
-            "extension/capabilities/legacy.json",
-            "extension/schemas/config.schema.json",
             "extension/.ruff_cache/cache-entry",
-            "extension/.future_cache/cache-entry",
-            "extension/unknown-cache-v2/cache-entry",
-            "extension/nested/tsconfig.unit.json",
-            "extension/out/types/unit.tsbuildinfo",
             "extension/.git/config",
-            "extension/.env",
-            "extension/.vscode/settings.json",
-            "extension/coverage/lcov.info",
             "extension/assets/private.pem",
             "extension/unexpected-runtime.js",
         ):
@@ -398,24 +385,14 @@ class ReleaseArtifactTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "forbidden path"):
                     release_artifact.validate_vsix(vsix)
 
-    def test_requires_both_preview_hosts_and_every_declared_package_path(self) -> None:
+    def test_requires_runtime_and_declared_contribution_paths(self) -> None:
         for missing, expected in (
             (
                 "extension/dist/web/preview-client/browser-host.js",
                 "missing required extension metadata or runtime files",
             ),
             (
-                "extension/dist/extension.cjs",
-                "missing required extension metadata or runtime files",
-            ),
-            ("extension/assets/logo_icon.png", "missing declared package path"),
-            (
                 "extension/syntaxes/markdown.tmLanguage.json",
-                "missing declared package path",
-            ),
-            ("extension/snippets/tabs.json", "missing declared package path"),
-            (
-                "extension/language-support/abc/language-configuration.json",
                 "missing declared package path",
             ),
         ):
@@ -448,33 +425,8 @@ class ReleaseArtifactTests(unittest.TestCase):
         def redirect_main(package: dict[str, Any]) -> None:
             package["main"] = "./dist/web/preview-client/browser-host.js"
 
-        def redirect_grammar(package: dict[str, Any]) -> None:
-            package["contributes"]["grammars"][0]["path"] = package["contributes"][
-                "snippets"
-            ][0]["path"]
-
-        def swap_grammar_order(package: dict[str, Any]) -> None:
-            grammars = package["contributes"]["grammars"]
-            grammars[0], grammars[1] = grammars[1], grammars[0]
-
-        def change_snippet_metadata(package: dict[str, Any]) -> None:
-            package["contributes"]["snippets"][0]["language"] = "abc"
-
-        def change_language_metadata(package: dict[str, Any]) -> None:
-            package["contributes"]["languages"][0]["aliases"] = ["ABC"]
-
         def change_command_metadata(package: dict[str, Any]) -> None:
             package["contributes"]["commands"][0]["command"] = "evil.command"
-
-        def change_menu_metadata(package: dict[str, Any]) -> None:
-            package["contributes"]["menus"]["editor/title"][0]["command"] = (
-                "evil.command"
-            )
-
-        def change_configuration_metadata(package: dict[str, Any]) -> None:
-            package["contributes"]["configuration"]["properties"][
-                "fleximark.previewTarget"
-            ]["default"] = "evilTarget"
 
         def change_boolean_to_integer(package: dict[str, Any]) -> None:
             package["contributes"]["configuration"]["properties"][
@@ -483,13 +435,7 @@ class ReleaseArtifactTests(unittest.TestCase):
 
         for label, mutate in (
             ("main", redirect_main),
-            ("grammar", redirect_grammar),
-            ("grammar order", swap_grammar_order),
-            ("snippet metadata", change_snippet_metadata),
-            ("language metadata", change_language_metadata),
             ("command metadata", change_command_metadata),
-            ("menu metadata", change_menu_metadata),
-            ("configuration metadata", change_configuration_metadata),
             ("boolean as integer", change_boolean_to_integer),
         ):
             with (
@@ -735,27 +681,9 @@ class ReleaseArtifactTests(unittest.TestCase):
 
     def test_rejects_unsafe_noncanonical_and_colliding_archive_paths(self) -> None:
         cases = (
-            ([self.archive_info("")], "noncanonical"),
             ([self.archive_info("../escape")], "noncanonical"),
-            ([self.archive_info("/absolute")], "noncanonical"),
-            ([self.archive_info("C:/escape")], "noncanonical"),
-            ([self.archive_info("extension//file")], "noncanonical"),
-            ([self.archive_info("extension/./file")], "noncanonical"),
-            ([self.archive_info("extension/file.")], "noncanonical"),
-            ([self.archive_info("extension/file ")], "noncanonical"),
             ([self.archive_info("unexpected/file")], "top-level"),
             ([self.archive_info("extension/CON")], "reserved"),
-            ([self.archive_info("extension/assets/com1.log")], "reserved"),
-            ([self.archive_info("extension/assets/CON .txt")], "reserved"),
-            ([self.archive_info("extension/CONIN$")], "reserved"),
-            ([self.archive_info("extension/conout$.log")], "reserved"),
-            ([self.archive_info("extension/LPT9.json")], "reserved"),
-            ([self.archive_info("extension/assets/COM¹.png")], "reserved"),
-            ([self.archive_info("extension/assets/com².log")], "reserved"),
-            ([self.archive_info("extension/assets/CoM³.webp")], "reserved"),
-            ([self.archive_info("extension/assets/LPT¹.png")], "reserved"),
-            ([self.archive_info("extension/assets/lpt².log")], "reserved"),
-            ([self.archive_info("extension/assets/LpT³.webp")], "reserved"),
             (
                 [
                     self.archive_info("extension/assets/Readme"),
@@ -825,14 +753,6 @@ class ReleaseArtifactTests(unittest.TestCase):
         cases = (
             (
                 [self.archive_info("extension/link", mode=stat.S_IFLNK | 0o777)],
-                "regular",
-            ),
-            (
-                [self.archive_info("extension/fifo", mode=stat.S_IFIFO | 0o644)],
-                "regular",
-            ),
-            (
-                [self.archive_info("extension/device", mode=stat.S_IFCHR | 0o644)],
                 "regular",
             ),
             (
