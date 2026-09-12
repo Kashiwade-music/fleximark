@@ -299,9 +299,9 @@ run in Node, while the non-overlapping VS Code integration suite compiles to `ou
 and remains responsible for extension activation and editor/workspace behavior.
 Python `unittest`, TypeScript checks, Rust tests/lints, architecture inventory checks, packaging
 inspection and platform clean-install smoke tests cover the remaining boundaries.
-Rust builds and tests use the committed lockfiles. CI checks the root workspace with Rust 1.85 on
+Rust builds and tests use the committed lockfiles. CI checks the root workspace with Rust 1.86 on
 all six supported host combinations and checks the independent WebAssembly plugin fixture with
-Rust 1.85 on `wasm32-wasip2`; current-toolchain tests, lints, and release builds remain separate.
+Rust 1.86 on `wasm32-wasip2`; current-toolchain tests, lints, and release builds remain separate.
 Standalone `mise run test` performs the full product build before integration tests. CI and
 release jobs that have already assembled all six daemons and built the extension use the explicit
 `mise run test -- --prebuilt` path to avoid repeating that build; it is not the default developer

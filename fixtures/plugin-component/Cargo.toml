@@ -2,7 +2,7 @@
 name = "fleximark-fixture-plugin"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 publish = false
 
 [lib]

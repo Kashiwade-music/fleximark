@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, ResourceLimiter, Store};
-use wasmtime_wasi::{DirPerms, FilePerms, IoView, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use super::{CancellationToken, PluginRuntime, RuntimeError, RuntimeOutput, SandboxPolicy};
 use fleximark_plugin_sdk::HookRequest;
@@ -35,15 +35,12 @@ struct WasmState {
     memory_limit_hit: bool,
 }
 
-impl IoView for WasmState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-}
-
 impl WasiView for WasmState {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -143,7 +140,7 @@ impl PluginRuntime for WasmtimeRuntime {
         store.set_epoch_deadline(1);
 
         let mut linker = Linker::new(&self.engine);
-        wasmtime_wasi::add_to_linker_sync(&mut linker)
+        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
             .map_err(|error| RuntimeError::Malformed(error.to_string()))?;
         let hook = serde_json::to_value(request.hook())
             .ok()
