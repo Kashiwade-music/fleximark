@@ -57,6 +57,14 @@ The TypeScript adapter imports protocol and RPC modules plus preview DTO types. 
 hosts import the shared preview document, host, navigation, enhancement, and runtime modules.
 Neither the shared preview client nor the Rust core imports VS Code APIs.
 
+TypeScript checking uses a project-reference graph rooted at `tsconfig.json`. Shared strict and
+emit settings live in `tsconfig.base.json`; the browser project owns DOM ambient types, the
+adapter project owns Node and VS Code ambient types, the pure unit project owns Node, Mocha, and
+DOM test types, and the Electron project owns Node, Mocha, and VS Code test types. `tsc -b` is the
+canonical type-check entry point. Declaration-only output and each project's build metadata live
+under separate `out/types` directories, while esbuild remains the only producer of shipped
+JavaScript.
+
 ## Component owners
 
 | Owner | Source | Responsibility |
@@ -79,6 +87,11 @@ The capability inventory is the detailed owner map. In particular, adapter setti
 `package.json`; note, asset, plugin, theme and export policy remain service-owned workspace
 configuration; Markdown semantics remain engine-owned; Mermaid/ABC enhancement remains
 preview-client-owned.
+
+`capabilities/v0.16.14-inventory.json` is retained as an immutable audit baseline captured from
+the matching `v0.16.14` tag. It is not an input to current architecture verification; it exists
+to compare historical public commands, settings, and package contributions when evaluating an
+explicit clean break. `capabilities/feature-inventory.json` remains the current owner map.
 
 Within `fleximark_service`, `lib.rs` is a compatibility facade that explicitly re-exports the
 existing public operations and types. `workspace.rs`, `notes.rs`, `theme.rs`, `assets.rs`,
@@ -281,10 +294,14 @@ or partially copying them makes a destination unmanaged or conflicted.
 ## Build and verification boundaries
 
 The product build order is browser client, release daemon, platform staging, release manifest,
-then production extension/preview bundles. Pure RPC/preview tests run in Node, while the VS Code
-integration suite remains responsible for extension activation and editor/workspace behavior.
+then production extension/preview bundles. Pure RPC/preview tests compile to `out/test/unit` and
+run in Node, while the non-overlapping VS Code integration suite compiles to `out/test/electron`
+and remains responsible for extension activation and editor/workspace behavior.
 Python `unittest`, TypeScript checks, Rust tests/lints, architecture inventory checks, packaging
 inspection and platform clean-install smoke tests cover the remaining boundaries.
+Rust builds and tests use the committed lockfiles. CI checks the root workspace with Rust 1.85 on
+all six supported host combinations and checks the independent WebAssembly plugin fixture with
+Rust 1.85 on `wasm32-wasip2`; current-toolchain tests, lints, and release builds remain separate.
 Standalone `mise run test` performs the full product build before integration tests. CI and
 release jobs that have already assembled all six daemons and built the extension use the explicit
 `mise run test -- --prebuilt` path to avoid repeating that build; it is not the default developer

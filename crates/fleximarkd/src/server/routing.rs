@@ -55,10 +55,10 @@ impl Server {
             .pointer("/textDocument/uri")
             .or_else(|| message.params.get("uri"))
             .and_then(Value::as_str);
-        if let Some(uri) = uri
-            && let Some(session_id) = self.registry.session_id_for_uri(uri)
-        {
-            coordinator.bind(session_id, uri);
+        if let Some(uri) = uri {
+            if let Some(session_id) = self.registry.session_id_for_uri(uri) {
+                coordinator.bind(session_id, uri);
+            }
         }
     }
 

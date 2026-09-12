@@ -12,7 +12,6 @@ path = "src/main.rs"
 [dependencies]
 fleximark-engine = { path = "../fleximark-engine" }
 fleximark-model = { path = "../fleximark-model" }
-fleximark-parser = { path = "../fleximark-parser" }
 fleximark-plugin-host = { path = "../fleximark-plugin-host" }
 fleximark-render-html = { path = "../fleximark-render-html" }
 fleximarkd = { path = "../fleximarkd" }

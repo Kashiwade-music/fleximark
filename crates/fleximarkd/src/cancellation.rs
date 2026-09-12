@@ -39,27 +39,29 @@ impl CancellationCoordinator {
     pub(crate) fn prepare(&self, message: &IncomingMessage) -> Option<WorkPermit> {
         let mut state = self.state.lock().expect("cancellation state poisoned");
         if message.method == "$/cancelRequest" {
-            if let Some(id) = message.params.get("id").and_then(rpc_id_key)
-                && let Some((_, token, publication_token)) = state.requests.get(&id)
-            {
-                token.cancel();
-                publication_token.cancel();
+            if let Some(id) = message.params.get("id").and_then(rpc_id_key) {
+                if let Some((_, token, publication_token)) = state.requests.get(&id) {
+                    token.cancel();
+                    publication_token.cancel();
+                }
             }
             return None;
         }
 
         let document = document_key(message);
         let is_mutation = is_document_mutation(&message.method);
-        if is_mutation && let Some(document) = document.as_ref() {
-            let canonical = canonical_document(&state, document);
-            let generation = state.generations.entry(canonical.clone()).or_default();
-            *generation += 1;
-            for (active_document, _, publication_token) in state.work.values() {
-                if active_document
-                    .as_ref()
-                    .is_some_and(|active| canonical_document(&state, active) == canonical)
-                {
-                    publication_token.cancel();
+        if is_mutation {
+            if let Some(document) = document.as_ref() {
+                let canonical = canonical_document(&state, document);
+                let generation = state.generations.entry(canonical.clone()).or_default();
+                *generation += 1;
+                for (active_document, _, publication_token) in state.work.values() {
+                    if active_document
+                        .as_ref()
+                        .is_some_and(|active| canonical_document(&state, active) == canonical)
+                    {
+                        publication_token.cancel();
+                    }
                 }
             }
         }
@@ -119,13 +121,14 @@ impl CancellationCoordinator {
     pub(crate) fn finish(&self, permit: &WorkPermit) {
         let mut state = self.state.lock().expect("cancellation state poisoned");
         state.work.remove(&permit.work_id);
-        if let Some(request_id) = &permit.request_id
-            && state
+        if let Some(request_id) = &permit.request_id {
+            if state
                 .requests
                 .get(request_id)
                 .is_some_and(|(work_id, _, _)| *work_id == permit.work_id)
-        {
-            state.requests.remove(request_id);
+            {
+                state.requests.remove(request_id);
+            }
         }
     }
 

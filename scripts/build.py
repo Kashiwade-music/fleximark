@@ -9,6 +9,9 @@ from _tools import ROOT, script_entrypoint, yarn
 
 DIST = ROOT / "dist"
 TEST_OUTPUT = ROOT / "out" / "test"
+UNIT_TEST_OUTPUT = TEST_OUTPUT / "unit"
+ELECTRON_TEST_OUTPUT = TEST_OUTPUT / "electron"
+TYPE_OUTPUT = ROOT / "out" / "types"
 
 
 def _mode_args(production: bool) -> list[str]:
@@ -56,7 +59,7 @@ def test_args(*, watch: bool = False) -> list[str]:
         "--platform=node",
         "--format=cjs",
         "--sourcemap",
-        "--outfile=out/test/extension.test.cjs",
+        "--outfile=out/test/electron/extension.test.cjs",
         "--external:vscode",
         "--loader:.css=text",
     ]
@@ -72,7 +75,7 @@ def pure_test_args() -> list[str]:
         "--platform=node",
         "--format=cjs",
         "--sourcemap",
-        "--outfile=out/test/pure-tests.cjs",
+        "--outfile=out/test/unit/pure-tests.cjs",
         "--loader:.css=text",
     ]
 
@@ -80,6 +83,7 @@ def pure_test_args() -> list[str]:
 def clean() -> None:
     shutil.rmtree(DIST, ignore_errors=True)
     shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
+    shutil.rmtree(TYPE_OUTPUT, ignore_errors=True)
 
 
 def build_extension(*, production: bool) -> None:
@@ -106,12 +110,17 @@ def build_browser_client() -> None:
 
 def build_tests() -> None:
     shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
+    build_electron_tests()
+    build_pure_tests()
+
+
+def build_electron_tests() -> None:
+    shutil.rmtree(ELECTRON_TEST_OUTPUT, ignore_errors=True)
     yarn("esbuild", *test_args())
-    yarn("esbuild", *pure_test_args())
 
 
 def build_pure_tests() -> None:
-    shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
+    shutil.rmtree(UNIT_TEST_OUTPUT, ignore_errors=True)
     yarn("esbuild", *pure_test_args())
 
 

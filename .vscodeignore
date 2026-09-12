@@ -4,6 +4,7 @@
 out/**
 node_modules/**
 .venv/**
+.ruff_cache/**
 .yarn/**
 .yarnrc.yml
 .pnp.*
@@ -40,7 +41,8 @@ parserPlugin.js
 *.vsix
 *.vsix.identity.json
 vsc-extension-quickstart.md
-**/tsconfig.json
+**/tsconfig*.json
+**/*.tsbuildinfo
 **/eslint.config.mjs
 **/prettier.config.mjs
 **/release.config.mjs

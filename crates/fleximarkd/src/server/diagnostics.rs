@@ -73,10 +73,10 @@ pub(super) fn find_block<'a>(document: &'a Document, node_id: &NodeId) -> Option
                 return Some(block);
             }
             for child in &block.children {
-                if let Node::Block(child) = child
-                    && let Some(found) = visit(std::slice::from_ref(child), node_id)
-                {
-                    return Some(found);
+                if let Node::Block(child) = child {
+                    if let Some(found) = visit(std::slice::from_ref(child), node_id) {
+                        return Some(found);
+                    }
                 }
             }
         }
@@ -108,21 +108,21 @@ fn inline_text(inline: &Inline, output: &mut String) {
 
 pub(super) fn collect_heading_symbols(blocks: &[Block], output: &mut Vec<Value>) {
     for block in blocks {
-        if let BlockKind::Heading { .. } = block.kind
-            && let Some(range) = block.provenance.navigation_range()
-        {
-            let mut name = String::new();
-            for child in &block.children {
-                if let Node::Inline(inline) = child {
-                    inline_text(inline, &mut name);
+        if let BlockKind::Heading { .. } = block.kind {
+            if let Some(range) = block.provenance.navigation_range() {
+                let mut name = String::new();
+                for child in &block.children {
+                    if let Node::Inline(inline) = child {
+                        inline_text(inline, &mut name);
+                    }
                 }
+                output.push(json!({
+                    "name": if name.is_empty() { "Heading" } else { &name },
+                    "kind": 13,
+                    "range": {"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
+                    "selectionRange": {"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}}
+                }));
             }
-            output.push(json!({
-                "name": if name.is_empty() { "Heading" } else { &name },
-                "kind": 13,
-                "range": {"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
-                "selectionRange": {"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}}
-            }));
         }
         let children = block
             .children
@@ -138,17 +138,17 @@ pub(super) fn collect_heading_symbols(blocks: &[Block], output: &mut Vec<Value>)
 
 fn collect_raw_html_diagnostics(blocks: &[Block], output: &mut Vec<Value>) {
     for block in blocks {
-        if let BlockKind::RawHtml { html } = &block.kind
-            && let Some(range) = block.provenance.navigation_range()
-        {
-            output.push(json!({
-                "range":{"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
-                "severity":2,
-                "code":"raw-html",
-                "source":"fleximark",
-                "message":"Raw HTML is governed by the preview security policy",
-                "data":{"escapedText":html.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")}
-            }));
+        if let BlockKind::RawHtml { html } = &block.kind {
+            if let Some(range) = block.provenance.navigation_range() {
+                output.push(json!({
+                    "range":{"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
+                    "severity":2,
+                    "code":"raw-html",
+                    "source":"fleximark",
+                    "message":"Raw HTML is governed by the preview security policy",
+                    "data":{"escapedText":html.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")}
+                }));
+            }
         }
         let children = block
             .children

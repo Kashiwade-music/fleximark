@@ -9,6 +9,51 @@ export const suiteName = "Single-daemon multi-root runtime";
 const sameUri = (left: vscode.Uri, right: vscode.Uri): boolean =>
   left.toString() === right.toString();
 
+async function pollUntil<T>(
+  read: () => T,
+  complete: (value: T) => boolean,
+  label: string,
+  timeoutMilliseconds = 10_000,
+): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timers: {
+      interval?: ReturnType<typeof setInterval>;
+      timeout?: ReturnType<typeof setTimeout>;
+    } = {};
+    const cleanup = (): void => {
+      if (timers.interval !== undefined) clearInterval(timers.interval);
+      if (timers.timeout !== undefined) clearTimeout(timers.timeout);
+    };
+    const resolveOnce = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const check = (): void => {
+      if (settled) return;
+      try {
+        const value = read();
+        if (complete(value)) resolveOnce(value);
+      } catch (error) {
+        rejectOnce(error);
+      }
+    };
+    timers.interval = setInterval(check, 25);
+    timers.timeout = setTimeout(() => {
+      rejectOnce(new Error(`Timed out waiting for ${label}`));
+    }, timeoutMilliseconds);
+    check();
+  });
+}
+
 async function removeWorkspaceFolder(uri: vscode.Uri): Promise<void> {
   const currentIndex = vscode.workspace.workspaceFolders?.findIndex((folder) =>
     sameUri(folder.uri, uri),
@@ -113,15 +158,12 @@ async function waitForPreviewRendered(
   api: FlexiMarkTestApi,
   document: vscode.Uri,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (
-      api.recoveryState().previewRenderRevisions[document.toString()] !==
-      undefined
-    )
-      return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`Preview did not render for ${document.toString()}`);
+  await pollUntil(
+    () => api.recoveryState().previewRenderRevisions[document.toString()],
+    (revision) => revision !== undefined,
+    `preview render for ${document.toString()}`,
+    5_000,
+  );
 }
 
 async function saveAndCloseTestEditors(
@@ -245,32 +287,29 @@ export function suite(): void {
       await vscode.window.showTextDocument(alphaText);
       await vscode.commands.executeCommand("fleximark.forceReloadPreview");
 
-      let previewLabels: string[] = [];
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        previewLabels = vscode.window.tabGroups.all
-          .flatMap((group) => group.tabs)
-          .map((tab) => tab.label)
-          .filter((label) => label.startsWith("FlexiMark:"));
-        if (
-          previewLabels.some((label) => label.includes("alpha.md")) &&
-          previewLabels.some((label) => label.includes("beta.md"))
-        )
-          break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      const previewLabels = await pollUntil(
+        () =>
+          vscode.window.tabGroups.all
+            .flatMap((group) => group.tabs)
+            .map((tab) => tab.label)
+            .filter((label) => label.startsWith("FlexiMark:")),
+        (labels) =>
+          labels.some((label) => label.includes("alpha.md")) &&
+          labels.some((label) => label.includes("beta.md")),
+        "both preview tabs",
+      );
       assert.ok(previewLabels.some((label) => label.includes("alpha.md")));
       assert.ok(previewLabels.some((label) => label.includes("beta.md")));
 
-      let beforeCrash = api.recoveryState();
-      for (let attempt = 0; attempt < 50; attempt += 1) {
-        beforeCrash = api.recoveryState();
-        if (
-          beforeCrash.previewRenderRevisions[alphaDocument.toString()] &&
-          beforeCrash.previewRenderRevisions[betaDocument.toString()]
-        )
-          break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      const beforeCrash = await pollUntil(
+        () => api.recoveryState(),
+        (state) =>
+          state.previewRenderRevisions[alphaDocument.toString()] !==
+            undefined &&
+          state.previewRenderRevisions[betaDocument.toString()] !== undefined,
+        "both preview render revisions before crash",
+        5_000,
+      );
       assert.ok(beforeCrash.daemonInstanceId);
       assert.ok(beforeCrash.documentSessions[alphaDocument.toString()]);
       assert.ok(beforeCrash.documentSessions[betaDocument.toString()]);
@@ -280,22 +319,19 @@ export function suite(): void {
       assert.ok(beforeCrash.previewRenderRevisions[betaDocument.toString()]);
 
       api.crashDaemon();
-      let afterCrash = api.recoveryState();
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        afterCrash = api.recoveryState();
-        if (
-          afterCrash.connectionGeneration > beforeCrash.connectionGeneration &&
-          afterCrash.daemonInstanceId &&
-          afterCrash.documentSessions[alphaDocument.toString()] &&
-          afterCrash.documentSessions[betaDocument.toString()] &&
-          afterCrash.previewSessions[alphaDocument.toString()] !==
+      let afterCrash = await pollUntil(
+        () => api.recoveryState(),
+        (state) =>
+          state.connectionGeneration > beforeCrash.connectionGeneration &&
+          Boolean(state.daemonInstanceId) &&
+          Boolean(state.documentSessions[alphaDocument.toString()]) &&
+          Boolean(state.documentSessions[betaDocument.toString()]) &&
+          state.previewSessions[alphaDocument.toString()] !==
             beforeCrash.previewSessions[alphaDocument.toString()] &&
-          afterCrash.previewSessions[betaDocument.toString()] !==
-            beforeCrash.previewSessions[betaDocument.toString()]
-        )
-          break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+          state.previewSessions[betaDocument.toString()] !==
+            beforeCrash.previewSessions[betaDocument.toString()],
+        "daemon and preview replacement after crash",
+      );
       assert.ok(
         afterCrash.connectionGeneration > beforeCrash.connectionGeneration,
         "daemon connection was not replaced after the crash",
@@ -335,11 +371,26 @@ export function suite(): void {
       assert.ok(symbols?.some((symbol) => symbol.name === "Unsaved"));
 
       await removeWorkspaceFolder(alpha);
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-      const remaining = vscode.window.tabGroups.all
-        .flatMap((group) => group.tabs)
-        .map((tab) => tab.label)
-        .filter((label) => label.startsWith("FlexiMark:"));
+      const afterRemoval = await pollUntil(
+        () => ({
+          labels: vscode.window.tabGroups.all
+            .flatMap((group) => group.tabs)
+            .map((tab) => tab.label)
+            .filter((label) => label.startsWith("FlexiMark:")),
+          recovery: api.recoveryState(),
+        }),
+        ({ labels, recovery }) =>
+          !labels.some((label) => label.includes("alpha.md")) &&
+          labels.some((label) => label.includes("beta.md")) &&
+          recovery.documentSessions[alphaDocument.toString()] === undefined &&
+          recovery.previewSessions[alphaDocument.toString()] === undefined &&
+          recovery.previewRenderRevisions[alphaDocument.toString()] ===
+            undefined &&
+          recovery.documentSessions[betaDocument.toString()] !== undefined &&
+          recovery.previewSessions[betaDocument.toString()] !== undefined,
+        "scoped alpha removal while beta remains active",
+      );
+      const remaining = afterRemoval.labels;
       assert.ok(!remaining.some((label) => label.includes("alpha.md")));
       assert.ok(remaining.some((label) => label.includes("beta.md")));
     } catch (error) {

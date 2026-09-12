@@ -577,7 +577,7 @@ class TaskEntryPointTests(unittest.TestCase):
             ],
         )
         run.assert_called_once_with(
-            "cargo", "build", "--release", "-p", "fleximarkd"
+            "cargo", "build", "--release", "-p", "fleximarkd", "--locked"
         )
         yarn.assert_called_once_with("vscode-test")
 

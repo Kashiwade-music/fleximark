@@ -198,7 +198,7 @@ export function suite(): void {
       ),
       /browser failed/,
     );
-    assert.equal(runtime.previews.get("preview")?.url, "http://preview");
+    assert.equal(runtime.previews.get("preview")?.target, "externalBrowser");
     assert.equal(runtime.previews.get("preview")?.ready, true);
     assert.equal(queue.take(candidate.origin, "preview"), undefined);
     assert.equal(navigations, 0);

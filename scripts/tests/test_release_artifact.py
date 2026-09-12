@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from typing import Any, Callable
 from unittest.mock import patch
 
 
@@ -73,6 +74,8 @@ class ReleaseArtifactTests(unittest.TestCase):
         unix_daemon_mode: int = 0o755,
         extension_runtime: bytes = b"e" * 1025,
         empty_daemon: bool = False,
+        omit_name: str | None = None,
+        package_mutator: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         artifacts: list[dict[str, str]] = []
         daemon_payloads: dict[str, bytes] = {}
@@ -100,6 +103,8 @@ class ReleaseArtifactTests(unittest.TestCase):
         with zipfile.ZipFile(path, "w") as archive:
 
             def write(name: str, payload: str | bytes, *, mode: int = 0o644) -> None:
+                if name == omit_name:
+                    return
                 info = zipfile.ZipInfo(name)
                 info.create_system = 3
                 info.external_attr = (stat.S_IFREG | mode) << 16
@@ -116,16 +121,13 @@ class ReleaseArtifactTests(unittest.TestCase):
                     "</PackageManifest>"
                 ),
             )
-            write(
-                "extension/package.json",
-                json.dumps(
-                    {
-                        "name": "fleximark",
-                        "publisher": "Kashiwade",
-                        "version": version,
-                    }
-                ),
+            package = json.loads(
+                (SCRIPTS.parent / "package.json").read_text(encoding="utf-8")
             )
+            package["version"] = version
+            if package_mutator is not None:
+                package_mutator(package)
+            write("extension/package.json", json.dumps(package))
             write(
                 "extension/bin/manifest.json",
                 json.dumps(
@@ -138,6 +140,29 @@ class ReleaseArtifactTests(unittest.TestCase):
             )
             write("extension/dist/extension.cjs", extension_runtime)
             write("extension/dist/web/preview-client/vscode-host.js", b"p" * 1025)
+            write("extension/dist/web/preview-client/browser-host.js", b"b" * 1025)
+            declared_paths = {
+                package["icon"],
+                *(
+                    contribution["path"]
+                    for key in ("grammars", "snippets")
+                    for contribution in package["contributes"][key]
+                ),
+                *(
+                    language["configuration"]
+                    for language in package["contributes"]["languages"]
+                    if "configuration" in language
+                ),
+            }
+            for declared in sorted(declared_paths):
+                relative = declared.removeprefix("./")
+                if relative in {
+                    "dist/extension.cjs",
+                    "dist/web/preview-client/browser-host.js",
+                    "dist/web/preview-client/vscode-host.js",
+                }:
+                    continue
+                write(f"extension/{relative}", b"{}")
             for relative, payload in daemon_payloads.items():
                 platform_name = relative.split("/", 2)[1].split("-", 1)[0]
                 write(
@@ -346,6 +371,22 @@ class ReleaseArtifactTests(unittest.TestCase):
             "extension/test/fixture.json",
             "extension/node_modules/dependency/index.js",
             "extension/parserPlugin.js",
+            "extension/adapters/vscode/src/extension.mjs",
+            "extension/web/preview-client/index.mjs",
+            "extension/crates/fleximarkd/src/main.rs",
+            "extension/capabilities/legacy.json",
+            "extension/schemas/config.schema.json",
+            "extension/.ruff_cache/cache-entry",
+            "extension/.future_cache/cache-entry",
+            "extension/unknown-cache-v2/cache-entry",
+            "extension/nested/tsconfig.unit.json",
+            "extension/out/types/unit.tsbuildinfo",
+            "extension/.git/config",
+            "extension/.env",
+            "extension/.vscode/settings.json",
+            "extension/coverage/lcov.info",
+            "extension/assets/private.pem",
+            "extension/unexpected-runtime.js",
         ):
             with (
                 self.subTest(forbidden=forbidden),
@@ -356,6 +397,228 @@ class ReleaseArtifactTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(RuntimeError, "forbidden path"):
                     release_artifact.validate_vsix(vsix)
+
+    def test_requires_both_preview_hosts_and_every_declared_package_path(self) -> None:
+        for missing, expected in (
+            (
+                "extension/dist/web/preview-client/browser-host.js",
+                "missing required extension metadata or runtime files",
+            ),
+            (
+                "extension/dist/extension.cjs",
+                "missing required extension metadata or runtime files",
+            ),
+            ("extension/assets/logo_icon.png", "missing declared package path"),
+            (
+                "extension/syntaxes/markdown.tmLanguage.json",
+                "missing declared package path",
+            ),
+            ("extension/snippets/tabs.json", "missing declared package path"),
+            (
+                "extension/language-support/abc/language-configuration.json",
+                "missing declared package path",
+            ),
+        ):
+            with (
+                self.subTest(missing=missing),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                vsix = Path(temporary) / "fleximark.vsix"
+                self.write_vsix(vsix, omit_name=missing)
+                with self.assertRaisesRegex(RuntimeError, expected):
+                    release_artifact.validate_vsix(vsix)
+
+    def test_allows_packaged_runtime_and_contribution_classes(self) -> None:
+        for allowed in (
+            "extension/README.md",
+            "extension/LICENSE.txt",
+            "extension/package.nls.ja.json",
+            "extension/l10n/bundle.l10n.ja.json",
+            "extension/assets/additional.webp",
+        ):
+            with (
+                self.subTest(allowed=allowed),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                vsix = Path(temporary) / "fleximark.vsix"
+                self.write_vsix(vsix, extra_name=allowed)
+                self.assertEqual(release_artifact.validate_vsix(vsix), "1.2.3")
+
+    def test_rejects_redirected_main_and_contribution_paths(self) -> None:
+        def redirect_main(package: dict[str, Any]) -> None:
+            package["main"] = "./dist/web/preview-client/browser-host.js"
+
+        def redirect_grammar(package: dict[str, Any]) -> None:
+            package["contributes"]["grammars"][0]["path"] = package["contributes"][
+                "snippets"
+            ][0]["path"]
+
+        def swap_grammar_order(package: dict[str, Any]) -> None:
+            grammars = package["contributes"]["grammars"]
+            grammars[0], grammars[1] = grammars[1], grammars[0]
+
+        def change_snippet_metadata(package: dict[str, Any]) -> None:
+            package["contributes"]["snippets"][0]["language"] = "abc"
+
+        def change_language_metadata(package: dict[str, Any]) -> None:
+            package["contributes"]["languages"][0]["aliases"] = ["ABC"]
+
+        def change_command_metadata(package: dict[str, Any]) -> None:
+            package["contributes"]["commands"][0]["command"] = "evil.command"
+
+        def change_menu_metadata(package: dict[str, Any]) -> None:
+            package["contributes"]["menus"]["editor/title"][0]["command"] = (
+                "evil.command"
+            )
+
+        def change_configuration_metadata(package: dict[str, Any]) -> None:
+            package["contributes"]["configuration"]["properties"][
+                "fleximark.previewTarget"
+            ]["default"] = "evilTarget"
+
+        def change_boolean_to_integer(package: dict[str, Any]) -> None:
+            package["contributes"]["configuration"]["properties"][
+                "fleximark.autoOpenPreview"
+            ]["default"] = 0
+
+        for label, mutate in (
+            ("main", redirect_main),
+            ("grammar", redirect_grammar),
+            ("grammar order", swap_grammar_order),
+            ("snippet metadata", change_snippet_metadata),
+            ("language metadata", change_language_metadata),
+            ("command metadata", change_command_metadata),
+            ("menu metadata", change_menu_metadata),
+            ("configuration metadata", change_configuration_metadata),
+            ("boolean as integer", change_boolean_to_integer),
+        ):
+            with (
+                self.subTest(label=label),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                vsix = Path(temporary) / "fleximark.vsix"
+                self.write_vsix(vsix, package_mutator=mutate)
+                with self.assertRaisesRegex(
+                    RuntimeError, "declarations do not match trusted package.json"
+                ):
+                    release_artifact.validate_vsix(vsix)
+
+    def test_rejects_integer_to_float_in_contribution_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            trusted_package = json.loads(
+                (SCRIPTS.parent / "package.json").read_text(encoding="utf-8")
+            )
+            trusted_package["contributes"]["configuration"][
+                "x-fleximark-contract-version"
+            ] = 1
+            (root / "package.json").write_text(
+                json.dumps(trusted_package), encoding="utf-8"
+            )
+
+            def change_integer_to_float(package: dict[str, Any]) -> None:
+                package["contributes"]["configuration"][
+                    "x-fleximark-contract-version"
+                ] = 1.0
+
+            vsix = root / "fleximark.vsix"
+            self.write_vsix(vsix, package_mutator=change_integer_to_float)
+            with (
+                patch.object(release_artifact, "ROOT", root),
+                self.assertRaisesRegex(
+                    RuntimeError, "declarations do not match trusted package.json"
+                ),
+            ):
+                release_artifact.validate_vsix(vsix)
+
+    def test_validate_cli_uses_the_full_archive_contract(self) -> None:
+        vsix = Path("contract.vsix")
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "release_artifact.py",
+                    "validate",
+                    "--vsix",
+                    str(vsix),
+                    "--expected-version",
+                    "1.2.3",
+                ],
+            ),
+            patch.object(release_artifact, "validate_vsix") as validate_vsix,
+        ):
+            release_artifact.main()
+
+        validate_vsix.assert_called_once_with(vsix, expected_version="1.2.3")
+
+    def test_validate_cli_rejects_identity_and_provenance_options(self) -> None:
+        invalid_options = (
+            ("--identity", "identity.json"),
+            ("--expected-sha256", "a" * 64),
+            ("--git-tag", "v1.2.3"),
+            ("--source-git-head", "b" * 40),
+            ("--expected-git-tag", "v1.2.3"),
+            ("--expected-source-git-head", "b" * 40),
+            ("--print-sha256",),
+        )
+        for invalid in invalid_options:
+            with (
+                self.subTest(option=invalid[0]),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["release_artifact.py", "validate", *invalid],
+                ),
+                patch.object(sys, "stderr"),
+                patch.object(release_artifact, "validate_vsix") as validate_vsix,
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    release_artifact.main()
+                self.assertEqual(raised.exception.code, 2)
+                validate_vsix.assert_not_called()
+
+    def test_create_cli_preserves_release_identity_arguments(self) -> None:
+        vsix = Path("release.vsix")
+        identity = Path("release.identity.json")
+        digest = "a" * 64
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "release_artifact.py",
+                    "create",
+                    "--vsix",
+                    str(vsix),
+                    "--identity",
+                    str(identity),
+                    "--expected-version",
+                    "1.2.3",
+                    "--git-tag",
+                    "v1.2.3",
+                    "--source-git-head",
+                    "b" * 40,
+                    "--print-sha256",
+                ],
+            ),
+            patch.object(
+                release_artifact,
+                "create_identity",
+                return_value={"sha256": digest},
+            ) as create_identity,
+            patch("builtins.print") as print_digest,
+        ):
+            release_artifact.main()
+
+        create_identity.assert_called_once_with(
+            vsix,
+            identity,
+            expected_version="1.2.3",
+            git_tag="v1.2.3",
+            source_git_head="b" * 40,
+        )
+        print_digest.assert_called_once_with(digest)
 
     def test_rejects_missing_malformed_and_mismatched_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -487,6 +750,12 @@ class ReleaseArtifactTests(unittest.TestCase):
             ([self.archive_info("extension/CONIN$")], "reserved"),
             ([self.archive_info("extension/conout$.log")], "reserved"),
             ([self.archive_info("extension/LPT9.json")], "reserved"),
+            ([self.archive_info("extension/assets/COM¹.png")], "reserved"),
+            ([self.archive_info("extension/assets/com².log")], "reserved"),
+            ([self.archive_info("extension/assets/CoM³.webp")], "reserved"),
+            ([self.archive_info("extension/assets/LPT¹.png")], "reserved"),
+            ([self.archive_info("extension/assets/lpt².log")], "reserved"),
+            ([self.archive_info("extension/assets/LpT³.webp")], "reserved"),
             (
                 [
                     self.archive_info("extension/assets/Readme"),

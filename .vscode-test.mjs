@@ -30,7 +30,7 @@ writeFileSync(
 );
 
 export default defineConfig({
-  files: "out/test/**/*.test.cjs",
+  files: "out/test/electron/extension.test.cjs",
   launchArgs: [`--user-data-dir=${testUserDataDirectory}`],
   workspaceFolder: integrationWorkspaceFile,
 });

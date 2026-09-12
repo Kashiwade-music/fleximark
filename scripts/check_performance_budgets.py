@@ -57,7 +57,7 @@ def check_performance_budgets() -> None:
         "fleximark.exe" if sys.platform == "win32" else "fleximark"
     )
     if not binary.is_file():
-        run("cargo", "build", "--release", "-p", "fleximark-cli")
+        run("cargo", "build", "--release", "-p", "fleximark-cli", "--locked")
 
     with tempfile.TemporaryDirectory(prefix="fleximark-perf-") as temp:
         cold_start_ms = render(binary, Path(temp), "cold", "# Cold\n")

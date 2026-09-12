@@ -24,7 +24,7 @@ def clean(_: Sequence[str]) -> None:
 
 def build(_: Sequence[str]) -> None:
     javascript_build.build_browser_client()
-    run("cargo", "build", "--release", "-p", "fleximarkd")
+    run("cargo", "build", "--release", "-p", "fleximarkd", "--locked")
     stage_daemon()
     create_manifest()
     javascript_build.build_extension(production=True)
@@ -57,9 +57,7 @@ def stop_processes(processes: Sequence[subprocess.Popen[bytes]]) -> None:
 def dev(_: Sequence[str]) -> None:
     javascript_build.clean()
     commands = javascript_build.watch_commands()
-    commands.append(
-        ["yarn", "exec", "tsc", "--noEmit", "--watch", "--project", "tsconfig.json"]
-    )
+    commands.append(["yarn", "exec", "tsc", "-b", "--watch"])
     processes: list[subprocess.Popen[bytes]] = []
     try:
         for command in commands:
@@ -82,7 +80,7 @@ def dev(_: Sequence[str]) -> None:
 
 
 def compile_tests() -> None:
-    javascript_build.build_tests()
+    javascript_build.build_electron_tests()
 
 
 def integration_test(args: Sequence[str]) -> None:
@@ -97,7 +95,7 @@ def integration_test(args: Sequence[str]) -> None:
 
 def pure_test(_: Sequence[str]) -> None:
     javascript_build.build_pure_tests()
-    run("node", "--test", "out/test/pure-tests.cjs")
+    run("node", "--test", "out/test/unit/pure-tests.cjs")
 
 
 def python_test() -> None:
@@ -126,16 +124,26 @@ def verify(_: Sequence[str]) -> None:
     verify_architecture()
     run("python", "-m", "compileall", "-q", "scripts")
     python_test()
-    yarn("tsc", "--noEmit")
+    yarn("tsc", "-b")
     yarn("eslint", "adapters", "web", "test", "scripts")
     check_localization()
     build(())
     compile_tests()
-    run("node", "--test", "out/test/pure-tests.cjs")
+    javascript_build.build_pure_tests()
+    run("node", "--test", "out/test/unit/pure-tests.cjs")
     yarn("vsce", "ls", "--no-dependencies")
     run("cargo", "fmt", "--all", "--", "--check")
-    run("cargo", "test", "--workspace", "--all-targets")
-    run("cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
+    run("cargo", "test", "--workspace", "--all-targets", "--locked")
+    run(
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings",
+    )
     check_performance_budgets()
     yarn("vscode-test")
 

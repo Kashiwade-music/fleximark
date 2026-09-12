@@ -1467,6 +1467,10 @@ export function suite(): void {
     preview.applySnapshot(specialSnapshot("abc", "X:1\nK:C\nC"));
     let started = 0;
     let stopped = 0;
+    let observeStart!: () => void;
+    const startSignal = new Promise<void>((resolve) => {
+      observeStart = resolve;
+    });
     const runtimes = inertRuntimes();
     runtimes.abc.render = (target, source) => {
       target.innerHTML = `<svg data-source="${source.replaceAll("\n", " ")}"></svg>`;
@@ -1476,7 +1480,10 @@ export function suite(): void {
     runtimes.abc.createSynth = () => ({
       init: async () => undefined,
       prime: async () => undefined,
-      start: () => started++,
+      start: () => {
+        started += 1;
+        observeStart();
+      },
       stop: () => stopped++,
     });
     const enhancer = new PreviewEnhancer(runtimes);
@@ -1484,7 +1491,7 @@ export function suite(): void {
     assert.ok(root.querySelector("[data-fleximark-output] svg"));
     assert.equal(started, 0);
     (root.querySelector("[data-fleximark-audio]") as HTMLButtonElement).click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForSignal(startSignal, "ABC audio start");
     assert.equal(started, 1);
     await enhancer.render(root);
     assert.equal(stopped, 1);
@@ -1988,15 +1995,46 @@ export function suite(): void {
     assert.ok(node);
     node.scrollIntoView = () => undefined;
     node.getBoundingClientRect = () => ({ bottom: 10 }) as DOMRect;
-    navigationClient.receive({ type: "viewport", nodeId: "a" });
-    window.dispatchEvent(new Event("scroll"));
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.deepEqual(events, []);
-    window.dispatchEvent(new Event("scroll"));
-    window.dispatchEvent(new Event("scroll"));
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.deepEqual(events, [{ type: "revealNode", nodeId: "a" }]);
-    navigationClient.dispose();
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const timers = new Map<number, { callback: () => void; delay: number }>();
+    const scheduledDelays: number[] = [];
+    let timerSequence = 0;
+    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) => {
+      assert.equal(typeof callback, "function");
+      timerSequence += 1;
+      const recordedDelay = delay ?? 0;
+      scheduledDelays.push(recordedDelay);
+      timers.set(timerSequence, {
+        callback: callback as () => void,
+        delay: recordedDelay,
+      });
+      return timerSequence as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: ReturnType<typeof setTimeout>) => {
+      timers.delete(timer as unknown as number);
+    }) as unknown as typeof clearTimeout;
+    try {
+      navigationClient.receive({ type: "viewport", nodeId: "a" });
+      window.dispatchEvent(new Event("scroll"));
+      assert.deepEqual(events, []);
+      assert.equal(timers.size, 0);
+
+      window.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("scroll"));
+      assert.equal(timers.size, 1);
+      assert.deepEqual(scheduledDelays, [100, 100]);
+      const pending = [...timers.entries()][0];
+      assert.ok(pending);
+      assert.equal(pending[1].delay, 100);
+      timers.delete(pending[0]);
+      pending[1].callback();
+      assert.deepEqual(events, [{ type: "revealNode", nodeId: "a" }]);
+    } finally {
+      navigationClient.dispose();
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
   });
 }
 
@@ -2004,6 +2042,26 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function waitForSignal(
+  signal: Promise<void>,
+  label: string,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      signal,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Timed out waiting for ${label}`)),
+          5_000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 function specialSnapshot(

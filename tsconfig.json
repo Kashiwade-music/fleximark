@@ -1,28 +1,9 @@
 {
-  "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "target": "ES2024",
-    "lib": ["ES2024", "DOM"],
-    "types": ["node", "mocha", "vscode"],
-    "skipLibCheck": true,
-    "sourceMap": true,
-    "rootDir": ".",
-    "strict": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": [
-    "adapters/**/*.mts",
-    "web/**/*.mts",
-    "test/extension.test.mts",
-    "test/pure.test.mts",
-    "test/contributions.test.mts",
-    "test/adapter/**/*.mts",
-    "test/browser-host.test.mts",
-    "test/preview-client.test.mts",
-    "test/protocol-method-map.type-test.mts",
-    "test/protocol-contract.test.mts",
-    "test/release.test.mts"
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.browser.json" },
+    { "path": "./tsconfig.adapter.json" },
+    { "path": "./tsconfig.unit.json" },
+    { "path": "./tsconfig.electron.json" }
   ]
 }

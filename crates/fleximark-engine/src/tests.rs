@@ -72,6 +72,7 @@ fn fixture_component() -> &'static [u8] {
                 fixture_target.to_str().unwrap(),
                 "--target",
                 "wasm32-wasip2",
+                "--locked",
             ])
             .status()
             .unwrap();

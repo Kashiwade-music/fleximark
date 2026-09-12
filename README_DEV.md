@@ -50,7 +50,7 @@ JavaScript の custom task は、semantic-release が module として直接 imp
 | `mise run package -- --out <file>`       | `verify`を通した後、依存packageを同梱しないVSIXを作る。                                                                                                  |
 | `mise run smoke -- <vsix>`               | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                                            |
 | `mise run l10n`                          | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                                        |
-| `mise run clean`                         | 生成した`dist/`と`out/test/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                                    |
+| `mise run clean`                         | 生成した`dist/`、`out/test/`、`out/types/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                       |
 | `yarn run vscode:prepublish`             | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                                               |
 
 ## Extension Development Host での手動動作確認
@@ -78,7 +78,7 @@ Rust を変更した場合は、先に実行中の Extension Development Host �
 F5 で起動し直す。Windows では実行中の daemon を上書きできないため、停止が先である。
 
 ```sh
-mise exec -- cargo build --release -p fleximarkd
+mise exec -- cargo build --release -p fleximarkd --locked
 mise exec -- uv run --frozen python scripts/stage_daemon.py
 ```
 
@@ -298,7 +298,9 @@ mise exec -- yarn exec vsce ls --no-dependencies
 
 ## Localization
 
-Source files use `.mts` directly. No temporary renaming is required.
+Repository source files remain `.mts` / `.cts`. The localization exporter copies them to a
+temporary source tree and renames only those copies to `.ts`, because the localization tool does
+not discover the original extensions. The checked-in source files are never renamed.
 
 ```sh
 mise run l10n

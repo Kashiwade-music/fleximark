@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node", "mocha"],
+    "rootDir": ".",
+    "outDir": "out/types/unit",
+    "tsBuildInfoFile": "out/types/.tsbuildinfo/unit.tsbuildinfo"
+  },
+  "include": [
+    "test/pure.test.mts",
+    "test/adapter/rpc.test.mts",
+    "test/adapter/daemon-supervisor.test.mts",
+    "test/adapter/document-coordinator.test.mts",
+    "test/adapter/preview-coordinator.test.mts",
+    "test/adapter/release-manifest.test.mts",
+    "test/browser-host.test.mts",
+    "test/preview-client.test.mts",
+    "test/vscode-host.test.mts",
+    "test/protocol-contract.test.mts",
+    "test/protocol-method-map.type-test.mts"
+  ],
+  "references": [
+    { "path": "./tsconfig.browser.json" },
+    { "path": "./tsconfig.adapter.json" }
+  ]
+}

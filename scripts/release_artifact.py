@@ -30,8 +30,24 @@ SEMVER_PATTERN = re.compile(
     r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
 )
-FORBIDDEN_COMPONENTS = {"src", "test", "markdown_for_debug", "node_modules"}
 ALLOWED_TOP_LEVEL = {"[Content_Types].xml", "extension.vsixmanifest", "extension"}
+ALLOWED_EXTENSION_ROOT_FILES = {
+    "changelog.md",
+    "license",
+    "license.txt",
+    "package.json",
+    "readme.md",
+}
+ALLOWED_RUNTIME_FILES = {
+    "dist/extension.cjs",
+    "dist/web/preview-client/browser-host.js",
+    "dist/web/preview-client/vscode-host.js",
+}
+ALLOWED_LANGUAGE_SUPPORT_FILES = {
+    "language-support/abc/abc.tmLanguage.json",
+    "language-support/abc/language-configuration.json",
+}
+ALLOWED_ASSET_SUFFIXES = {".avif", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
 WINDOWS_RESERVED_BASENAMES = {
     "CON",
     "PRN",
@@ -41,6 +57,8 @@ WINDOWS_RESERVED_BASENAMES = {
     "CONOUT$",
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
+    *(f"COM{index}" for index in ("¹", "²", "³")),
+    *(f"LPT{index}" for index in ("¹", "²", "³")),
 }
 REQUIRED_METADATA = {
     "[Content_Types].xml",
@@ -50,6 +68,7 @@ REQUIRED_METADATA = {
 }
 REQUIRED_RUNTIME = {
     "extension/dist/extension.cjs",
+    "extension/dist/web/preview-client/browser-host.js",
     "extension/dist/web/preview-client/vscode-host.js",
 }
 MAX_VSIX_SIZE = 256 * 1024 * 1024
@@ -114,6 +133,48 @@ def _unix_file_type(info: zipfile.ZipInfo) -> int:
     if info.create_system != 3:
         return 0
     return stat.S_IFMT((info.external_attr >> 16) & 0xFFFF)
+
+
+def _is_allowed_package_path(parts: tuple[str, ...], *, is_directory: bool) -> bool:
+    if parts[0] != "extension":
+        return not is_directory and len(parts) == 1 and parts[0] in ALLOWED_TOP_LEVEL
+
+    relative = "/".join(parts[1:])
+    if is_directory:
+        allowed_directories = {
+            "",
+            "assets",
+            "bin",
+            "dist",
+            "dist/web",
+            "dist/web/preview-client",
+            "language-support",
+            "language-support/abc",
+            "l10n",
+            "snippets",
+            "syntaxes",
+            *(target.bin_relative_path.parent.as_posix() for target in TARGETS),
+        }
+        return relative in allowed_directories
+    if relative.casefold() in ALLOWED_EXTENSION_ROOT_FILES:
+        return True
+    if re.fullmatch(r"package\.nls(?:\.[A-Za-z0-9-]+)?\.json", relative):
+        return True
+    if relative in ALLOWED_RUNTIME_FILES or relative in ALLOWED_LANGUAGE_SUPPORT_FILES:
+        return True
+    if relative == "bin/manifest.json" or relative in {
+        target.bin_relative_path.as_posix() for target in TARGETS
+    }:
+        return True
+    if re.fullmatch(r"l10n/bundle\.l10n(?:\.[A-Za-z0-9-]+)?\.json", relative):
+        return True
+    if re.fullmatch(r"(?:snippets|syntaxes)/[^/]+\.json", relative):
+        return True
+    return (
+        relative.startswith("assets/")
+        and "/" not in relative.removeprefix("assets/")
+        and Path(relative).suffix.casefold() in ALLOWED_ASSET_SUFFIXES
+    )
 
 
 def _validate_archive_entries(
@@ -193,7 +254,112 @@ def _validate_archive_entries(
     return by_name
 
 
-def _archive_version(archive: zipfile.ZipFile) -> str:
+def _declared_package_path(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"packaged extension {label} path is missing")
+    relative = value[2:] if value.startswith("./") else value
+    try:
+        parts, is_directory = _canonical_archive_path(f"extension/{relative}")
+    except RuntimeError as error:
+        raise RuntimeError(f"packaged extension {label} path is invalid") from error
+    if is_directory or "/".join(parts[1:]) != relative:
+        raise RuntimeError(f"packaged extension {label} path is invalid")
+    return "/".join(parts)
+
+
+def _package_declaration_contract(
+    package: dict[str, Any],
+) -> tuple[dict[str, object], list[tuple[str, object]]]:
+    declared = [
+        ("main", package.get("main")),
+        ("icon", package.get("icon")),
+    ]
+    contributes = package.get("contributes")
+    if not isinstance(contributes, dict):
+        raise RuntimeError("packaged extension contributions are missing")
+    for collection_name in ("grammars", "snippets"):
+        collection = contributes.get(collection_name)
+        if not isinstance(collection, list) or not collection:
+            raise RuntimeError(
+                f"packaged extension {collection_name} contributions are missing"
+            )
+        for index, contribution in enumerate(collection):
+            if not isinstance(contribution, dict):
+                raise RuntimeError(
+                    f"packaged extension {collection_name} contribution is invalid"
+                )
+            declared.append((f"{collection_name}[{index}]", contribution.get("path")))
+
+    languages = contributes.get("languages")
+    if not isinstance(languages, list) or not languages:
+        raise RuntimeError("packaged extension language contributions are missing")
+    configurations = []
+    for index, language in enumerate(languages):
+        if not isinstance(language, dict):
+            raise RuntimeError("packaged extension language contribution is invalid")
+        if "configuration" in language:
+            configurations.append(
+                (f"languages[{index}].configuration", language["configuration"])
+            )
+    if not configurations:
+        raise RuntimeError("packaged extension language configuration is missing")
+    declared.extend(configurations)
+    for label, value in declared:
+        _declared_package_path(value, label)
+
+    return (
+        {
+            "main": package.get("main"),
+            "icon": package.get("icon"),
+            "contributes": contributes,
+        },
+        declared,
+    )
+
+
+def _validate_declared_package_paths(
+    package: dict[str, Any], by_name: dict[str, zipfile.ZipInfo]
+) -> None:
+    contract, declared = _package_declaration_contract(package)
+    try:
+        trusted_package = _json_object(
+            (ROOT / "package.json").read_bytes(), "trusted package.json"
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("trusted package.json does not exist") from error
+    trusted_contract, _ = _package_declaration_contract(trusted_package)
+    try:
+        contract_json = json.dumps(
+            contract,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        trusted_contract_json = json.dumps(
+            trusted_contract,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as error:
+        raise RuntimeError("packaged extension declarations are invalid") from error
+    if contract_json != trusted_contract_json:
+        raise RuntimeError(
+            "packaged extension declarations do not match trusted package.json"
+        )
+
+    for label, value in declared:
+        path = _declared_package_path(value, label)
+        info = by_name.get(path)
+        if info is None or info.is_dir():
+            raise RuntimeError(f"VSIX is missing declared package path: {path}")
+
+
+def _archive_version(
+    archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo]
+) -> str:
     package = _json_object(
         archive.read("extension/package.json"), "packaged extension/package.json"
     )
@@ -211,6 +377,7 @@ def _archive_version(archive: zipfile.ZipFile) -> str:
         or not publisher
     ):
         raise RuntimeError("packaged extension identity is missing")
+    _validate_declared_package_paths(package, by_name)
 
     try:
         manifest = ElementTree.fromstring(archive.read("extension.vsixmanifest"))
@@ -387,18 +554,15 @@ def validate_vsix(vsix: Path, *, expected_version: str | None = None) -> str:
             infos = archive.infolist()
             by_name = _validate_archive_entries(infos, vsix_size=vsix.stat().st_size)
             for name in by_name:
-                parts, _ = _canonical_archive_path(name)
-                if (
-                    FORBIDDEN_COMPONENTS.intersection(parts)
-                    or parts[-1] == "parserPlugin.js"
-                ):
+                parts, is_directory = _canonical_archive_path(name)
+                if not _is_allowed_package_path(parts, is_directory=is_directory):
                     raise RuntimeError(
                         f"VSIX contains an unsafe or forbidden path: {name}"
                     )
             corrupt = archive.testzip()
             if corrupt is not None:
                 raise RuntimeError(f"VSIX archive CRC failed for: {corrupt}")
-            version = _archive_version(archive)
+            version = _archive_version(archive, by_name)
             if expected_version is not None and version != expected_version:
                 raise RuntimeError(
                     f"VSIX version {version} does not match expected {expected_version}"
@@ -557,34 +721,43 @@ def verify_identity(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Create or verify an exact FlexiMark release artifact identity"
+        description="Create or verify release identity, or validate a FlexiMark VSIX"
     )
-    parser.add_argument("operation", choices=("create", "verify"))
-    parser.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
-    parser.add_argument("--identity", type=Path, default=DEFAULT_IDENTITY)
-    parser.add_argument("--expected-version")
-    parser.add_argument(
+    operations = parser.add_subparsers(dest="operation", required=True)
+
+    create = operations.add_parser("create")
+    create.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
+    create.add_argument("--identity", type=Path, default=DEFAULT_IDENTITY)
+    create.add_argument("--expected-version")
+    create.add_argument("--git-tag")
+    create.add_argument("--source-git-head")
+    create.add_argument("--print-sha256", action="store_true")
+
+    verify = operations.add_parser("verify")
+    verify.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
+    verify.add_argument("--identity", type=Path, default=DEFAULT_IDENTITY)
+    verify.add_argument(
         "--expected-sha256", default=os.environ.get("FLEXIMARK_EXPECTED_SHA256")
     )
-    parser.add_argument("--git-tag")
-    parser.add_argument("--source-git-head")
-    parser.add_argument(
+    verify.add_argument(
         "--expected-git-tag", default=os.environ.get("FLEXIMARK_EXPECTED_GIT_TAG")
     )
-    parser.add_argument(
+    verify.add_argument(
         "--expected-source-git-head",
         default=os.environ.get("FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD"),
     )
-    parser.add_argument("--print-sha256", action="store_true")
+    verify.add_argument("--print-sha256", action="store_true")
+
+    validate = operations.add_parser("validate")
+    validate.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
+    validate.add_argument("--expected-version")
+
     args = parser.parse_args()
 
+    if args.operation == "validate":
+        validate_vsix(args.vsix, expected_version=args.expected_version)
+        return
     if args.operation == "create":
-        if (
-            args.expected_sha256 is not None
-            or args.expected_git_tag is not None
-            or args.expected_source_git_head is not None
-        ):
-            raise RuntimeError("create does not accept verification expectations")
         if not args.expected_version or not args.git_tag or not args.source_git_head:
             raise RuntimeError("create requires version, git tag, and source git head")
         identity = create_identity(
@@ -595,12 +768,6 @@ def main() -> None:
             source_git_head=args.source_git_head,
         )
     else:
-        if (
-            args.expected_version is not None
-            or args.git_tag is not None
-            or args.source_git_head is not None
-        ):
-            raise RuntimeError("verify reads release metadata from the identity")
         identity = verify_identity(
             args.vsix,
             args.identity,

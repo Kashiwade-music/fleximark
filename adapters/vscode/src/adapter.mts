@@ -3,7 +3,6 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 
 import defaultPreviewCss from "../../../web/preview-client/fleximark.css";
-import type { SourcePosition } from "../../../web/preview-client/index.mjs";
 import { executeCreateNote, openCommandResult } from "./commands.mjs";
 import {
   DaemonSupervisor,
@@ -47,6 +46,7 @@ import {
   reloadPreviewLifecycle,
   requestPreviewCandidate,
 } from "./preview-coordinator.mjs";
+import type { SourcePosition } from "./protocol.mjs";
 import {
   type ExecuteCommandParams,
   type LspMethod,

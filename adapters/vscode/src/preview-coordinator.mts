@@ -868,7 +868,6 @@ export async function openPreviewLifecycle(
       sourceViewColumn,
       previewSessionId: result.previewSessionId,
       target,
-      url: result.url,
       initialPublication: result.initialPublication,
       renderRevision: result.initialPublication.resultRenderRevision,
       ready: false,
@@ -933,7 +932,6 @@ export async function openPreviewLifecycle(
       sourceViewColumn,
       previewSessionId: result.previewSessionId,
       target,
-      url: result.url,
       initialPublication: result.initialPublication,
       renderRevision: result.initialPublication.resultRenderRevision,
       messageToken,
@@ -1167,7 +1165,6 @@ export async function recreatePreviewsLifecycle(
       preview.originRpc = candidate.origin.rpc;
       preview.originDaemonInstanceId = candidate.origin.daemonInstanceId;
       preview.originGeneration = candidate.origin.generation;
-      preview.url = result.url;
       preview.initialPublication = result.initialPublication;
       preview.renderRevision = result.initialPublication.resultRenderRevision;
       preview.renderedRevision = undefined;

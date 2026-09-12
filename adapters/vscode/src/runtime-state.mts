@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 
-import type { RenderPublication } from "../../../web/preview-client/index.mjs";
-import type { PreviewTarget } from "./protocol.mjs";
+import type { PreviewTarget, RenderPublication } from "./protocol.mjs";
 import type { JsonRpcConnection } from "./rpc.mjs";
 
 export interface DocumentState {
@@ -19,7 +18,6 @@ export interface PreviewState {
   sourceViewColumn?: vscode.ViewColumn;
   previewSessionId: string;
   target: PreviewTarget;
-  url?: string;
   initialPublication: RenderPublication;
   renderRevision: number;
   renderedRevision?: number;

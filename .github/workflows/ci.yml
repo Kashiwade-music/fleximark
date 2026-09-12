@@ -29,6 +29,22 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Install minimum supported Rust version
+        run: rustup toolchain install 1.85.0 --profile minimal
+
+      - name: Install plugin component target for minimum Rust version
+        run: rustup +1.85.0 target add wasm32-wasip2
+
+      - name: Check plugin fixture with minimum Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-fixture-1.85
+        run: cargo +1.85.0 check --manifest-path fixtures/plugin-component/Cargo.toml --target wasm32-wasip2 --locked
+
+      - name: Check minimum supported Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-1.85
+        run: cargo +1.85.0 check --workspace --all-targets --locked
+
       - name: Verify architecture contract
         run: uv run --frozen python scripts/verify_architecture.py
 
@@ -62,17 +78,17 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
-      - name: Install plugin component target
+      - name: Install plugin component target for current Rust version
         run: rustup target add wasm32-wasip2
 
       - name: Test Rust workspace
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
 
       - name: Lint Rust workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Check types
-        run: yarn exec tsc --noEmit
+        run: yarn exec tsc -b
 
       - name: Lint
         run: yarn exec eslint adapters web test scripts
@@ -98,13 +114,7 @@ jobs:
         run: yarn exec vsce package --no-dependencies --out fleximark.vsix
 
       - name: Validate VSIX archive and contents
-        shell: bash
-        run: |
-          unzip -t fleximark.vsix
-          if unzip -Z1 fleximark.vsix | grep -E '(^|/)(src|test|markdown_for_debug|node_modules)/|(^|/)parserPlugin\.js$'; then
-            echo 'Unexpected development files found in VSIX' >&2
-            exit 1
-          fi
+        run: uv run --frozen python scripts/release_artifact.py validate --vsix fleximark.vsix
 
       - name: Upload VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -156,11 +166,19 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Install minimum supported Rust version
+        run: rustup toolchain install 1.85.0 --profile minimal
+
+      - name: Check host workspace with minimum Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-1.85
+        run: cargo +1.85.0 check --workspace --all-targets --locked
+
       - name: Build external preview client
         run: uv run --frozen python scripts/build.py browser
 
       - name: Build daemon
-        run: cargo build --release -p fleximarkd
+        run: cargo build --release -p fleximarkd --locked
 
       - name: Stage daemon
         run: uv run --frozen python scripts/stage_daemon.py

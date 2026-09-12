@@ -40,6 +40,14 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Install minimum supported Rust version
+        run: rustup toolchain install 1.85.0 --profile minimal
+
+      - name: Check host workspace with minimum Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-1.85
+        run: cargo +1.85.0 check --workspace --all-targets --locked
+
       - name: Verify architecture contract
         run: uv run --frozen python scripts/verify_architecture.py
 
@@ -52,14 +60,17 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
+      - name: Install plugin component target for current Rust version
+        run: rustup target add wasm32-wasip2
+
       - name: Test Rust workspace
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
 
       - name: Lint Rust workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Build daemon
-        run: cargo build --release -p fleximarkd
+        run: cargo build --release -p fleximarkd --locked
 
       - name: Stage daemon
         run: uv run --frozen python scripts/stage_daemon.py
@@ -89,6 +100,22 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Install minimum supported Rust version
+        run: rustup toolchain install 1.85.0 --profile minimal
+
+      - name: Install plugin component target for minimum Rust version
+        run: rustup +1.85.0 target add wasm32-wasip2
+
+      - name: Check plugin fixture with minimum Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-fixture-1.85
+        run: cargo +1.85.0 check --manifest-path fixtures/plugin-component/Cargo.toml --target wasm32-wasip2 --locked
+
+      - name: Check minimum supported Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-1.85
+        run: cargo +1.85.0 check --workspace --all-targets --locked
+
       - name: Verify dependency lock metadata
         env:
           YARN_ENABLE_HARDENED_MODE: "1"
@@ -116,14 +143,17 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
+      - name: Install plugin component target for current Rust version
+        run: rustup target add wasm32-wasip2
+
       - name: Test Rust workspace
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
 
       - name: Lint Rust workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Check types
-        run: yarn exec tsc --noEmit
+        run: yarn exec tsc -b
 
       - name: Lint
         run: yarn exec eslint adapters web test scripts
@@ -135,6 +165,9 @@ jobs:
 
       - name: Build production extension
         run: uv run --frozen python scripts/build.py extension --production
+
+      - name: Run pure RPC and preview tests
+        run: mise run test-pure
 
       - name: Run VS Code integration tests on stable
         run: xvfb-run -a mise run test -- --prebuilt

@@ -1,4 +1,4 @@
-import type { SourcePosition } from "../../../web/preview-client/index.mjs";
+import type { SourcePosition } from "./protocol.mjs";
 
 export function sourcePositionToCharacter(
   line: string,

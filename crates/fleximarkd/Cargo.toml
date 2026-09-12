@@ -10,7 +10,7 @@ name = "fleximark_service"
 path = "src/lib.rs"
 
 [dependencies]
-base64 = "0.22.1"
+base64.workspace = true
 cap-std = "3.4.6"
 cap-fs-ext = "3.4.6"
 fleximark-engine = { path = "../fleximark-engine" }
