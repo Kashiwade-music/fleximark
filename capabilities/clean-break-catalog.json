@@ -44,9 +44,9 @@
       "releaseNoteId": "architecture-v1.native-distribution"
     },
     "clean-break.legacy-settings-update": {
-      "rationale": "No released state exists to migrate.",
-      "replacement": "Initialize the v1 workspace layout",
-      "unsupportedBehavior": "Legacy settings update commands and version marker are removed.",
+      "rationale": "Released legacy workspaces are migrated explicitly into the service-owned v1 configuration.",
+      "replacement": "Automatic, user-approved v1 workspace migration",
+      "unsupportedBehavior": "Legacy settings update commands are removed; the version marker is only used to detect migration candidates.",
       "releaseNoteId": "architecture-v1.config"
     },
     "clean-break.log-level": {
@@ -136,7 +136,7 @@
     "clean-break.workspace-css": {
       "rationale": "Theme CSS is validated service-owned input.",
       "replacement": ".fleximark/theme.css",
-      "unsupportedBehavior": "fleximark.css is never loaded.",
+      "unsupportedBehavior": "fleximark.css is copied during approved migration but is never loaded directly.",
       "releaseNoteId": "architecture-v1.theme"
     },
     "clean-break.workspace-js-plugin": {
@@ -148,7 +148,7 @@
     "clean-break.workspace-marker": {
       "rationale": "The v1 schema is the only configuration authority.",
       "replacement": ".fleximark/config.toml",
-      "unsupportedBehavior": "fleximark.json is never loaded.",
+      "unsupportedBehavior": "fleximark.json is only used to detect migration candidates and is never configuration authority.",
       "releaseNoteId": "architecture-v1.config"
     }
   },

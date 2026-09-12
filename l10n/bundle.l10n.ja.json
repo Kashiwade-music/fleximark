@@ -1,4 +1,10 @@
 {
+  "Migrate": "移行する",
+  "Your note settings and workspace theme will be migrated. The legacy JavaScript plugin will be kept, but it cannot run in this version.": "ノート設定とワークスペーステーマを移行します。旧JavaScriptプラグインは保持されますが、このバージョンでは実行できません。",
+  "Your note settings and workspace theme will be migrated. Legacy files will be kept as a backup.": "ノート設定とワークスペーステーマを移行します。旧ファイルはバックアップとして保持されます。",
+  "The FlexiMark workspace “{0}” uses the legacy format. Migrate it to the current format?": "FlexiMarkワークスペース「{0}」は旧形式です。現在の形式へ移行しますか？",
+  "Migrated FlexiMark workspace “{0}”. Its legacy JavaScript plugin was retained but is disabled.": "FlexiMarkワークスペース「{0}」を移行しました。旧JavaScriptプラグインは保持されていますが、無効です。",
+  "Migrated FlexiMark workspace “{0}” to the current format.": "FlexiMarkワークスペース「{0}」を現在の形式へ移行しました。",
   "Select a note category": "ノートのカテゴリーを選択してください",
   "Select a note template": "ノートのテンプレートを選択してください",
   "Select a FlexiMark workspace": "FlexiMark ワークスペースを選択してください",

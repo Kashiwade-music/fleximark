@@ -51,7 +51,8 @@
   },
   "activationEvents": [
     "onLanguage:markdown",
-    "workspaceContains:.fleximark/config.toml"
+    "workspaceContains:.fleximark/config.toml",
+    "workspaceContains:.fleximark/fleximark.json"
   ],
   "main": "./dist/extension.cjs",
   "contributes": {

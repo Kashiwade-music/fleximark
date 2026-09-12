@@ -14,6 +14,7 @@
     "test/adapter/document-coordinator.test.mts",
     "test/adapter/preview-coordinator.test.mts",
     "test/adapter/release-manifest.test.mts",
+    "test/adapter/workspace-migration.test.mts",
     "test/browser-host.test.mts",
     "test/preview-client.test.mts",
     "test/vscode-host.test.mts",

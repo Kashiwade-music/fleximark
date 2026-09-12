@@ -5,6 +5,7 @@ import * as documentCoordinator from "./adapter/document-coordinator.test.mjs";
 import * as previewCoordinator from "./adapter/preview-coordinator.test.mjs";
 import * as releaseManifest from "./adapter/release-manifest.test.mjs";
 import * as rpc from "./adapter/rpc.test.mjs";
+import * as workspaceMigration from "./adapter/workspace-migration.test.mjs";
 import * as browserHost from "./browser-host.test.mjs";
 import * as previewClient from "./preview-client.test.mjs";
 import * as protocolContract from "./protocol-contract.test.mjs";
@@ -19,6 +20,7 @@ Object.assign(globalThis, {
 });
 
 describe(rpc.suiteName, rpc.suite);
+describe(workspaceMigration.suiteName, workspaceMigration.suite);
 describe(daemonSupervisor.suiteName, daemonSupervisor.suite);
 describe(documentCoordinator.suiteName, documentCoordinator.suite);
 describe(previewCoordinator.suiteName, previewCoordinator.suite);

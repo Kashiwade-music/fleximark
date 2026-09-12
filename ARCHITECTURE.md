@@ -250,6 +250,8 @@ FlexiMark has no database or database schema. Compatibility-sensitive filesystem
 
 - `.fleximark/config.toml`, whose `schema_version = 1` shape is described by
   `schemas/config.schema.json`;
+- the legacy `.fleximark/fleximark.json` marker is read only by the VS Code adapter to offer a
+  user-approved migration when `config.toml` is absent; it is never configuration authority;
 - `.fleximark/theme.css` and user Markdown/note files;
 - plugin `.toml`, `.wasm`, and `.sig` files below `.fleximark/plugins`, including their hashes,
   signer key and capability grants;
@@ -287,6 +289,9 @@ or partially copying them makes a destination unmanaged or conflicted.
   unmanaged or externally changed destination.
 - Workspace roots are independent trust/configuration domains even though one daemon serves a
   multi-root window. Removing one root must not dispose state belonging to another root.
+- Legacy workspace migration is offered once per open root without persisting cancellation.
+  Migration keeps legacy files, writes `config.toml` last as its completion marker, and therefore
+  asks again after a cancelled workspace is reopened without repeatedly prompting in one session.
 - Public command IDs, extension activation/settings, protocol version and fields, CLI output and
   packaged runtime contents are compatibility surfaces. Move-only refactors must preserve them
   unless a separately approved clean break is recorded.

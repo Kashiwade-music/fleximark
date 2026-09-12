@@ -523,6 +523,9 @@ export function suite(): void {
     const closes: vscode.TextDocument[] = [];
     const reconfigurations: vscode.WorkspaceFolder[] = [];
     const removals: vscode.WorkspaceFolder[] = [];
+    const migrationAdditions: vscode.WorkspaceFolder[] = [];
+    const migrationRemovals: vscode.WorkspaceFolder[] = [];
+    let migrationTrustGrants = 0;
     const selections: vscode.TextEditorSelectionChangeEvent[] = [];
     const viewports: vscode.TextEditorVisibleRangesChangeEvent[] = [];
     const reported: unknown[] = [];
@@ -568,6 +571,13 @@ export function suite(): void {
       adapter,
       registrar,
       () => active,
+      {
+        added: (workspace) => migrationAdditions.push(workspace),
+        removed: (workspace) => migrationRemovals.push(workspace),
+        trustGranted: () => {
+          migrationTrustGrants += 1;
+        },
+      },
     );
     assert.equal(
       watcherPattern,
@@ -633,7 +643,10 @@ export function suite(): void {
     handlers.get("window.activeEditor")?.(openedEditor);
     handlers.get("workspace.change")?.({ document: otherDocument });
     handlers.get("workspace.close")?.(otherDocument);
-    handlers.get("workspace.folders")?.({ removed: [folder, secondFolder] });
+    handlers.get("workspace.folders")?.({
+      added: [secondFolder],
+      removed: [folder],
+    });
     handlers.get("watcher.create")?.(
       vscode.Uri.joinPath(folder.uri, ".fleximark", "config.toml"),
     );
@@ -651,7 +664,10 @@ export function suite(): void {
     assert.deepEqual(activations, [openedDocument, undefined, openedDocument]);
     assert.deepEqual(changes, [otherDocument]);
     assert.deepEqual(closes, [otherDocument]);
-    assert.deepEqual(removals, [folder, secondFolder]);
+    assert.deepEqual(removals, [folder]);
+    assert.deepEqual(migrationAdditions, [secondFolder]);
+    assert.deepEqual(migrationRemovals, [folder]);
+    assert.equal(migrationTrustGrants, 1);
     assert.deepEqual(reconfigurations, [folder, folder, folder, folder]);
     assert.deepEqual(selections, [selectionEvent]);
     assert.deepEqual(viewports, [viewportEvent]);

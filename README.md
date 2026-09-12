@@ -100,7 +100,9 @@ code --install-extension kashiwade.fleximark
 2. Open the **VSCode Command Palette** and run:
    `FlexiMark: Initialize Workspace as Note Taking Directory`
 
-3. Customize note categories and security policy in the generated `.fleximark/config.toml` file. The old JavaScript plugin and configuration layouts are unsupported and are never loaded.
+3. Customize note categories and security policy in the generated `.fleximark/config.toml` file. Old JavaScript plugins are unsupported and are never loaded.
+
+   Workspaces created by FlexiMark 0.16.14 or earlier are detected automatically. If you approve the migration prompt, FlexiMark creates the current configuration, carries over note settings and the workspace theme, and keeps the legacy files as a backup. A cancelled migration is offered again the next time the workspace is opened. Legacy JavaScript plugins are retained but remain disabled.
 
 4. Start writing! Use the Command Palette and select:
    `FlexiMark: Create New Note`

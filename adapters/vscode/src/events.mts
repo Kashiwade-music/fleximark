@@ -18,6 +18,11 @@ export function registerEditorEvents(
     window: vscode.window,
   },
   isActive: () => boolean = () => true,
+  workspaceLifecycle?: {
+    added(workspace: vscode.WorkspaceFolder): void;
+    removed(workspace: vscode.WorkspaceFolder): void;
+    trustGranted(): void;
+  },
 ): vscode.Disposable[] {
   const workspacePolicyWatcher = registrar.workspace.createFileSystemWatcher(
     "**/.fleximark/{config.toml,theme.css,plugins/**}",
@@ -51,9 +56,13 @@ export function registerEditorEvents(
     registrar.workspace.onDidCloseTextDocument((document) => {
       if (isActive()) adapter.closeDocument(document);
     }),
-    registrar.workspace.onDidChangeWorkspaceFolders(({ removed }) => {
-      if (isActive())
-        for (const workspace of removed) adapter.removeWorkspace(workspace);
+    registrar.workspace.onDidChangeWorkspaceFolders(({ added, removed }) => {
+      if (!isActive()) return;
+      for (const workspace of removed) {
+        adapter.removeWorkspace(workspace);
+        workspaceLifecycle?.removed(workspace);
+      }
+      for (const workspace of added) workspaceLifecycle?.added(workspace);
     }),
     workspacePolicyWatcher,
     workspacePolicyWatcher.onDidCreate(reconfigureFor),
@@ -61,6 +70,7 @@ export function registerEditorEvents(
     workspacePolicyWatcher.onDidDelete(reconfigureFor),
     registrar.workspace.onDidGrantWorkspaceTrust(() => {
       if (!isActive()) return;
+      workspaceLifecycle?.trustGranted();
       for (const workspace of vscode.workspace.workspaceFolders ?? [])
         void adapter.reconfigureWorkspace(workspace).catch((error: unknown) => {
           if (isActive()) adapter.report(error);

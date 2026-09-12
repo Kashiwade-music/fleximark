@@ -107,8 +107,13 @@ export function suite(): void {
           "context.subscriptions.push(" +
           "...registerProviders(activatedAdapter,undefined,isActive)," +
           "...registerCommands(activatedAdapter,undefined,isActive)," +
-          "...registerEditorEvents(activatedAdapter,undefined,isActive)," +
           ");",
+      ),
+    );
+    assert.ok(
+      compactSource.includes(
+        "context.subscriptions.push(" +
+          "...registerEditorEvents(activatedAdapter,undefined,isActive,{",
       ),
     );
   });

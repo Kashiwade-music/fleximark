@@ -61,7 +61,11 @@ def verify_architecture() -> None:
     require(package_json.get("main") == "./dist/extension.cjs", "unexpected extension entry point")
     require(
         package_json.get("activationEvents")
-        == ["onLanguage:markdown", "workspaceContains:.fleximark/config.toml"],
+        == [
+            "onLanguage:markdown",
+            "workspaceContains:.fleximark/config.toml",
+            "workspaceContains:.fleximark/fleximark.json",
+        ],
         "unexpected activation events",
     )
     properties = package_json["contributes"]["configuration"]["properties"]

@@ -1,4 +1,10 @@
 {
+  "Migrate": "Migrate",
+  "Your note settings and workspace theme will be migrated. The legacy JavaScript plugin will be kept, but it cannot run in this version.": "Your note settings and workspace theme will be migrated. The legacy JavaScript plugin will be kept, but it cannot run in this version.",
+  "Your note settings and workspace theme will be migrated. Legacy files will be kept as a backup.": "Your note settings and workspace theme will be migrated. Legacy files will be kept as a backup.",
+  "The FlexiMark workspace “{0}” uses the legacy format. Migrate it to the current format?": "The FlexiMark workspace “{0}” uses the legacy format. Migrate it to the current format?",
+  "Migrated FlexiMark workspace “{0}”. Its legacy JavaScript plugin was retained but is disabled.": "Migrated FlexiMark workspace “{0}”. Its legacy JavaScript plugin was retained but is disabled.",
+  "Migrated FlexiMark workspace “{0}” to the current format.": "Migrated FlexiMark workspace “{0}” to the current format.",
   "Select a note category": "Select a note category",
   "Select a note template": "Select a note template",
   "Select a FlexiMark workspace": "Select a FlexiMark workspace",
