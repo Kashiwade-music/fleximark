@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -40,7 +41,10 @@ def vscode_prepublish(args: Sequence[str]) -> None:
     validate_prebuilt_inputs(ROOT)
 
 
-def stop_processes(processes: Sequence[subprocess.Popen[bytes]]) -> None:
+WatchProcess = subprocess.Popen[str]
+
+
+def stop_processes(processes: Sequence[WatchProcess]) -> None:
     for process in processes:
         if process.poll() is None:
             process.terminate()
@@ -54,16 +58,57 @@ def stop_processes(processes: Sequence[subprocess.Popen[bytes]]) -> None:
             process.wait(timeout=5)
 
 
+def start_watch_process(
+    command: Sequence[str], ready_pattern: str
+) -> tuple[WatchProcess, threading.Event]:
+    ready = threading.Event()
+    process = subprocess.Popen(
+        [executable(command[0]), *command[1:]],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+
+    def forward_output() -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            if ready_pattern in line:
+                ready.set()
+
+    threading.Thread(target=forward_output, daemon=True).start()
+    return process, ready
+
+
 def dev(_: Sequence[str]) -> None:
     javascript_build.clean()
-    commands = javascript_build.watch_commands()
-    commands.append(["yarn", "exec", "tsc", "-b", "--watch"])
-    processes: list[subprocess.Popen[bytes]] = []
+    commands = [
+        (command, "[watch] build finished")
+        for command in javascript_build.watch_commands()
+    ]
+    commands.append(
+        (["yarn", "exec", "tsc", "-b", "--watch"], "Watching for file changes.")
+    )
+    processes: list[WatchProcess] = []
+    readiness: list[threading.Event] = []
     try:
-        for command in commands:
-            processes.append(
-                subprocess.Popen([executable(command[0]), *command[1:]], cwd=ROOT)
-            )
+        print("FlexiMark development build starting", flush=True)
+        for command, ready_pattern in commands:
+            process, ready = start_watch_process(command, ready_pattern)
+            processes.append(process)
+            readiness.append(ready)
+        while not all(ready.is_set() for ready in readiness):
+            for process in processes:
+                code = process.poll()
+                if code is not None:
+                    raise subprocess.CalledProcessError(code, process.args)
+            time.sleep(0.05)
+        print("FlexiMark development build ready", flush=True)
         while True:
             for process in processes:
                 code = process.poll()

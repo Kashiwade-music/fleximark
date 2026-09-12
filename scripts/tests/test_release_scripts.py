@@ -628,6 +628,64 @@ class TaskEntryPointTests(unittest.TestCase):
 
 
 class WatchCleanupTests(unittest.TestCase):
+    def test_dev_announces_ready_only_after_every_watcher_is_ready(self) -> None:
+        children = [MagicMock(), MagicMock(), MagicMock()]
+        for child in children:
+            child.poll.return_value = None
+        ready_events = [MagicMock(), MagicMock(), MagicMock()]
+        ready_events[0].is_set.return_value = True
+        ready_events[1].is_set.return_value = True
+        ready_events[2].is_set.side_effect = [False, True]
+        events: list[str] = []
+
+        def sleep(_: float) -> None:
+            events.append("sleep")
+            if events.count("sleep") == 2:
+                raise KeyboardInterrupt
+
+        def record_output(message: str, **_: object) -> None:
+            events.append(message)
+
+        with (
+            patch.object(tasks.javascript_build, "clean"),
+            patch.object(
+                tasks.javascript_build,
+                "watch_commands",
+                return_value=[["watch-extension"], ["watch-preview"]],
+            ),
+            patch.object(
+                tasks,
+                "start_watch_process",
+                side_effect=zip(children, ready_events, strict=True),
+            ) as start,
+            patch.object(tasks, "stop_processes") as stop,
+            patch.object(tasks.time, "sleep", side_effect=sleep),
+            patch("builtins.print", side_effect=record_output),
+        ):
+            tasks.dev(())
+
+        self.assertEqual(
+            start.call_args_list,
+            [
+                call(["watch-extension"], "[watch] build finished"),
+                call(["watch-preview"], "[watch] build finished"),
+                call(
+                    ["yarn", "exec", "tsc", "-b", "--watch"],
+                    "Watching for file changes.",
+                ),
+            ],
+        )
+        self.assertEqual(
+            events,
+            [
+                "FlexiMark development build starting",
+                "sleep",
+                "FlexiMark development build ready",
+                "sleep",
+            ],
+        )
+        stop.assert_called_once_with(children)
+
     def test_stop_processes_terminates_then_waits_for_live_children(self) -> None:
         first = MagicMock()
         second = MagicMock()

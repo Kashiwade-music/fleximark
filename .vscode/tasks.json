@@ -11,7 +11,21 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": ["$esbuild-watch", "$tsc-watch"],
+      "problemMatcher": [
+        "$esbuild-watch",
+        "$tsc-watch",
+        {
+          "owner": "fleximark-dev",
+          "pattern": {
+            "regexp": "^(?!)$"
+          },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^FlexiMark development build starting$",
+            "endsPattern": "^FlexiMark development build ready$"
+          }
+        }
+      ],
       "isBackground": true,
       "label": "mise: dev",
       "presentation": {

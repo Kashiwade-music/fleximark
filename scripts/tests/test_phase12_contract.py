@@ -141,6 +141,7 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
 
         expected_pure = [
             "./adapter/rpc.test.mjs",
+            "./adapter/workspace-migration.test.mjs",
             "./adapter/daemon-supervisor.test.mjs",
             "./adapter/document-coordinator.test.mjs",
             "./adapter/preview-coordinator.test.mjs",
@@ -158,6 +159,7 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
             "./adapter/note-options.test.mjs",
             "./adapter/wiring.test.mjs",
             "./adapter/workspace-selection.test.mjs",
+            "./adapter/workspace-migration-runtime.test.mjs",
             "./adapter/multi-root-runtime.test.mjs",
             "./release.test.mjs",
         ]
