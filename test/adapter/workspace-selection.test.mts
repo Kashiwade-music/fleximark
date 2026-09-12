@@ -95,7 +95,7 @@ export function suite(): void {
     );
   });
 
-  test("classifies stale preview events without changing adapter state", () => {
+  test("classifies current, stale, and discontinuous preview revisions", () => {
     const base = {
       daemonInstanceId: "daemon",
       previewSessionId: "preview",
@@ -118,6 +118,43 @@ export function suite(): void {
         },
       }),
       "ignore",
+    );
+    assert.equal(
+      previewEventAction(4, {
+        ...base,
+        event: {
+          type: "full",
+          previewSessionId: "preview",
+          documentVersion: 2,
+          resultRenderRevision: 5,
+          rendererFingerprint: "sha256:renderer",
+          nodeIds: ["document-root"],
+          navigation: [],
+          style: null,
+          assets: [],
+          html: '<main data-fleximark-node-id="document-root"></main>',
+        },
+      }),
+      "apply",
+    );
+    assert.equal(
+      previewEventAction(4, {
+        ...base,
+        renderRevision: 5,
+        event: {
+          type: "patch",
+          previewSessionId: "preview",
+          documentVersion: 2,
+          baseRenderRevision: 4,
+          resultRenderRevision: 5,
+          baseRendererFingerprint: "sha256:renderer",
+          resultRendererFingerprint: "sha256:renderer",
+          navigation: [],
+          style: null,
+          operations: [],
+        },
+      }),
+      "apply",
     );
     assert.equal(
       previewEventAction(4, {
@@ -150,6 +187,18 @@ export function suite(): void {
         },
       }),
       "ignore",
+    );
+    assert.equal(
+      previewEventAction(4, {
+        ...base,
+        event: {
+          type: "viewport",
+          previewSessionId: "preview",
+          renderRevision: 4,
+          nodeId: "a",
+        },
+      }),
+      "apply",
     );
   });
 

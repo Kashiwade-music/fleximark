@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import * as daemonSupervisor from "./adapter/daemon-supervisor.test.mjs";
+import * as documentCoordinator from "./adapter/document-coordinator.test.mjs";
+import * as previewCoordinator from "./adapter/preview-coordinator.test.mjs";
 import * as releaseManifest from "./adapter/release-manifest.test.mjs";
 import * as rpc from "./adapter/rpc.test.mjs";
 import * as browserHost from "./browser-host.test.mjs";
@@ -17,6 +19,8 @@ Object.assign(globalThis, {
 
 describe(rpc.suiteName, rpc.suite);
 describe(daemonSupervisor.suiteName, daemonSupervisor.suite);
+describe(documentCoordinator.suiteName, documentCoordinator.suite);
+describe(previewCoordinator.suiteName, previewCoordinator.suite);
 describe(releaseManifest.suiteName, releaseManifest.suite);
 describe(browserHost.suiteName, browserHost.suite);
 describe(previewClient.suiteName, previewClient.suite);

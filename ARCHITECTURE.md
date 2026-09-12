@@ -61,7 +61,7 @@ Neither the shared preview client nor the Rust core imports VS Code APIs.
 
 | Owner | Source | Responsibility |
 | --- | --- | --- |
-| Adapter | `adapters/vscode`; `adapter.mts` facade plus `daemon-supervisor`, `release-manifest`, `workspace-selection`, `position`, and `error-policy` modules | VS Code activation, settings, commands, editor/workspace events, daemon recovery, panels and browser launch |
+| Adapter | `adapters/vscode`; `adapter.mts` facade plus daemon, document, preview, registration, runtime-state, and pure policy modules | VS Code composition, settings, daemon recovery, document synchronization, preview lifecycle, diagnostics, commands, providers and editor/workspace events |
 | Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
 | Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
@@ -127,7 +127,12 @@ process/RPC identity, concurrent startup, workspace revisions, restart/backoff, 
 and shutdown. Process, clock, timer, RPC, logging, status, and replay effects are injected by the
 `FlexiMarkAdapter` facade. `release-manifest.mts` verifies the selected bundled executable before
 spawn; `workspace-selection.mts`, `position.mts`, and `error-policy.mts` own their pure policies.
-Document and preview state remain adapter-owned until their Phase 10 coordinators are introduced.
+`document-coordinator.mts` owns didOpen/didChange/didClose, attach/checkpoint and full-text recovery;
+`preview-coordinator.mts` owns candidate identity, bounded pre-registration events, readiness,
+publication recovery, panels, external URLs, disposal/recreation, navigation and echo suppression.
+`diagnostics.mts` converts validated protocol diagnostics. `commands.mts`, `providers.mts`, and
+`events.mts` register their VS Code surfaces, while `runtime-state.mts` is the shared in-memory
+shape. The facade supplies VS Code and supervisor effects and remains the public adapter API.
 
 ## Entry points
 
