@@ -33,6 +33,7 @@ export function suite(): void {
   let root: HTMLElement;
   let requested: number;
   let preview: PreviewDocument;
+  let restoreAfterTest: (() => void)[];
 
   setup(() => {
     const { window } = parseHTML(
@@ -73,10 +74,12 @@ export function suite(): void {
     });
     requested = 0;
     preview = new PreviewDocument(root, () => requested++);
+    restoreAfterTest = [];
   });
 
   teardown(() => {
     preview.dispose();
+    for (const restore of restoreAfterTest.reverse()) restore();
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "HTMLElement");
     Reflect.deleteProperty(globalThis, "Node");
@@ -269,143 +272,107 @@ export function suite(): void {
   });
 
   test("resolves typed local assets to blob URLs and revokes replaced blobs", () => {
-    const created: string[] = [];
-    const revoked: string[] = [];
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = () => {
-      const value = `blob:fleximark-${created.length + 1}`;
-      created.push(value);
-      return value;
-    };
-    URL.revokeObjectURL = (value) => revoked.push(value);
-    try {
-      const first = snapshot();
-      first.assets = [asset("aGVsbG8=")];
-      first.html =
-        '<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:' +
-        assetHash +
-        '"></main>';
-      assert.equal(preview.applySnapshot(first), true);
-      assert.equal(root.querySelector("img")?.getAttribute("src"), created[0]);
+    const { created, revoked } = stubObjectUrls(restoreAfterTest);
+    const first = snapshot();
+    first.assets = [asset("aGVsbG8=")];
+    first.html =
+      '<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:' +
+      assetHash +
+      '"></main>';
+    assert.equal(preview.applySnapshot(first), true);
+    assert.equal(root.querySelector("img")?.getAttribute("src"), created[0]);
 
-      const replacement = { ...first, resultRenderRevision: 2 };
-      assert.equal(preview.applySnapshot(replacement), true);
-      assert.deepEqual(revoked, [created[0]]);
-      preview.dispose();
-      assert.deepEqual(revoked, created);
-    } finally {
-      URL.createObjectURL = originalCreate;
-      URL.revokeObjectURL = originalRevoke;
-    }
+    const replacement = { ...first, resultRenderRevision: 2 };
+    assert.equal(preview.applySnapshot(replacement), true);
+    assert.deepEqual(revoked, [created[0]]);
+    preview.dispose();
+    assert.deepEqual(revoked, created);
   });
 
   test("resolves an opaque asset reference on top-level patch content", () => {
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = () => "blob:fleximark-top-level";
-    URL.revokeObjectURL = () => undefined;
-    try {
-      const first = snapshot();
-      first.assets = [asset("aGVsbG8=")];
-      assert.equal(preview.applySnapshot(first), true);
-      const replacement = patch([
-        {
-          type: "replace",
-          nodeId: "a",
-          parentId: "document-root",
-          contentNodeIds: ["a"],
-          content: `<img data-fleximark-node-id="a" src="fleximark-asset:${assetHash}">`,
-          precondition: {
-            nodeExists: true,
-            currentParentId: "document-root",
-          },
+    stubObjectUrls(restoreAfterTest, () => "blob:fleximark-top-level");
+    const first = snapshot();
+    first.assets = [asset("aGVsbG8=")];
+    assert.equal(preview.applySnapshot(first), true);
+    const replacement = patch([
+      {
+        type: "replace",
+        nodeId: "a",
+        parentId: "document-root",
+        contentNodeIds: ["a"],
+        content: `<img data-fleximark-node-id="a" src="fleximark-asset:${assetHash}">`,
+        precondition: {
+          nodeExists: true,
+          currentParentId: "document-root",
         },
-      ]);
-      assert.equal(preview.applyPatch(replacement), true);
-      assert.equal(
-        root.querySelector("img")?.getAttribute("src"),
-        "blob:fleximark-top-level",
-      );
-    } finally {
-      URL.createObjectURL = originalCreate;
-      URL.revokeObjectURL = originalRevoke;
-    }
+      },
+    ]);
+    assert.equal(preview.applyPatch(replacement), true);
+    assert.equal(
+      root.querySelector("img")?.getAttribute("src"),
+      "blob:fleximark-top-level",
+    );
   });
 
   test("rolls back staged asset URLs and enforces the exact byte limits", () => {
-    const created: string[] = [];
-    const revoked: string[] = [];
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = () => {
-      const value = `blob:fleximark-${created.length + 1}`;
-      created.push(value);
-      return value;
+    const { revoked } = stubObjectUrls(restoreAfterTest);
+    const initial = snapshot();
+    initial.assets = [asset("aGVsbG8=")];
+    initial.html = `<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:${assetHash}"></main>`;
+    assert.equal(preview.applySnapshot(initial), true);
+    const before = root.innerHTML;
+
+    const stagedHash = "1".repeat(64);
+    const invalidReplacement = {
+      ...snapshot(),
+      resultRenderRevision: 2,
+      assets: [sizedAsset(stagedHash, 5)],
+      html: `<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:${"2".repeat(64)}"></main>`,
     };
-    URL.revokeObjectURL = (value) => revoked.push(value);
-    try {
-      const initial = snapshot();
-      initial.assets = [asset("aGVsbG8=")];
-      initial.html = `<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:${assetHash}"></main>`;
-      assert.equal(preview.applySnapshot(initial), true);
-      const before = root.innerHTML;
+    assert.equal(preview.applySnapshot(invalidReplacement), false);
+    assert.equal(root.innerHTML, before);
+    assert.equal(preview.renderRevision, 1);
+    assert.deepEqual(revoked, ["blob:fleximark-2"]);
 
-      const stagedHash = "1".repeat(64);
-      const invalidReplacement = {
-        ...snapshot(),
-        resultRenderRevision: 2,
-        assets: [sizedAsset(stagedHash, 5)],
-        html: `<main data-fleximark-node-id="document-root"><img data-fleximark-node-id="a" src="fleximark-asset:${"2".repeat(64)}"></main>`,
-      };
-      assert.equal(preview.applySnapshot(invalidReplacement), false);
-      assert.equal(root.innerHTML, before);
-      assert.equal(preview.renderRevision, 1);
-      assert.deepEqual(revoked, ["blob:fleximark-2"]);
+    const oneMebibyte = 1024 * 1024;
+    const exactLimit = {
+      ...snapshot(),
+      previewSessionId: "limit-preview",
+      assets: [sizedAsset("3".repeat(64), oneMebibyte)],
+    };
+    assert.equal(preview.applySnapshot(exactLimit), true);
+    assert.equal(preview.previewSessionId, "limit-preview");
+    const exactTotalLimit = {
+      ...exactLimit,
+      previewSessionId: "total-limit-preview",
+      assets: Array.from({ length: 8 }, (_, index) =>
+        sizedAsset(String(index + 1).padStart(64, "a"), oneMebibyte),
+      ),
+    };
+    assert.equal(preview.applySnapshot(exactTotalLimit), true);
+    assert.equal(preview.previewSessionId, "total-limit-preview");
+    assert.equal(
+      preview.applySnapshot({
+        ...exactTotalLimit,
+        previewSessionId: "oversized-preview",
+        assets: [sizedAsset("4".repeat(64), oneMebibyte + 1)],
+      }),
+      false,
+    );
+    assert.equal(preview.previewSessionId, "total-limit-preview");
 
-      const oneMebibyte = 1024 * 1024;
-      const exactLimit = {
-        ...snapshot(),
-        previewSessionId: "limit-preview",
-        assets: [sizedAsset("3".repeat(64), oneMebibyte)],
-      };
-      assert.equal(preview.applySnapshot(exactLimit), true);
-      assert.equal(preview.previewSessionId, "limit-preview");
-      const exactTotalLimit = {
-        ...exactLimit,
-        previewSessionId: "total-limit-preview",
-        assets: Array.from({ length: 8 }, (_, index) =>
+    assert.equal(
+      preview.applySnapshot({
+        ...exactTotalLimit,
+        previewSessionId: "total-overflow-preview",
+        assets: Array.from({ length: 9 }, (_, index) =>
           sizedAsset(String(index + 1).padStart(64, "a"), oneMebibyte),
         ),
-      };
-      assert.equal(preview.applySnapshot(exactTotalLimit), true);
-      assert.equal(preview.previewSessionId, "total-limit-preview");
-      assert.equal(
-        preview.applySnapshot({
-          ...exactTotalLimit,
-          previewSessionId: "oversized-preview",
-          assets: [sizedAsset("4".repeat(64), oneMebibyte + 1)],
-        }),
-        false,
-      );
-      assert.equal(preview.previewSessionId, "total-limit-preview");
-
-      assert.equal(
-        preview.applySnapshot({
-          ...exactTotalLimit,
-          previewSessionId: "total-overflow-preview",
-          assets: Array.from({ length: 9 }, (_, index) =>
-            sizedAsset(String(index + 1).padStart(64, "a"), oneMebibyte),
-          ),
-        }),
-        false,
-      );
-      assert.equal(preview.previewSessionId, "total-limit-preview");
-      assert.equal(requested, 3);
-    } finally {
-      URL.createObjectURL = originalCreate;
-      URL.revokeObjectURL = originalRevoke;
-    }
+      }),
+      false,
+    );
+    assert.equal(preview.previewSessionId, "total-limit-preview");
+    assert.equal(requested, 3);
   });
 
   test("rejects every patch identity and fingerprint mismatch without mutation", () => {
@@ -770,100 +737,83 @@ export function suite(): void {
   });
 
   test("closes the real ABC audio runtime after every partial start failure", async () => {
-    const originalAudioContext = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "AudioContext",
-    );
-    try {
-      for (const failedStage of ["setup", "meter", "oscillator"] as const) {
-        let closeCount = 0;
-        let oscillatorStopCount = 0;
-        let oscillatorDisconnectCount = 0;
-        class FakeAudioContext {
-          readonly currentTime = 0;
-          readonly destination = {};
+    for (const failedStage of ["setup", "meter", "oscillator"] as const) {
+      let closeCount = 0;
+      let oscillatorStopCount = 0;
+      let oscillatorDisconnectCount = 0;
+      class FakeAudioContext {
+        readonly currentTime = 0;
+        readonly destination = {};
 
-          createOscillator() {
-            return {
-              frequency: { value: 0 },
-              connect: () => ({ connect: () => undefined }),
-              start: () => undefined,
-              stop: () => {
-                oscillatorStopCount += 1;
-              },
-              disconnect: () => {
-                oscillatorDisconnectCount += 1;
-              },
-            };
-          }
-
-          createGain(): never {
-            throw new Error("oscillator failed");
-          }
-
-          close(): Promise<void> {
-            closeCount += 1;
-            return Promise.resolve();
-          }
+        createOscillator() {
+          return {
+            frequency: { value: 0 },
+            connect: () => ({ connect: () => undefined }),
+            start: () => undefined,
+            stop: () => {
+              oscillatorStopCount += 1;
+            },
+            disconnect: () => {
+              oscillatorDisconnectCount += 1;
+            },
+          };
         }
-        Object.defineProperty(globalThis, "AudioContext", {
-          configurable: true,
-          value: FakeAudioContext,
-        });
-        const visual = {
-          setUpAudio: () => {
-            if (failedStage === "setup") throw new Error("setup failed");
-            return {
-              tempo: 120,
-              tracks: [
-                [
-                  {
-                    cmd: "note",
-                    start: 0,
-                    duration: 1,
-                    pitch: 69,
-                    volume: 100,
-                  },
-                ],
-              ],
-            };
-          },
-          getMeterFraction: () => {
-            if (failedStage === "meter") throw new Error("meter failed");
-            return { num: 4, den: 4 };
-          },
-          millisecondsPerMeasure: () => 1000,
-        };
-        const synth = previewRuntimes.abc.createSynth();
-        await synth.init({ visualObj: visual });
-        assert.throws(() => synth.start(), new Error(`${failedStage} failed`));
-        await flushMicrotasks();
-        assert.equal(closeCount, 1, failedStage);
-        assert.equal(
-          oscillatorStopCount,
-          failedStage === "oscillator" ? 1 : 0,
-          failedStage,
-        );
-        assert.equal(
-          oscillatorDisconnectCount,
-          failedStage === "oscillator" ? 1 : 0,
-          failedStage,
-        );
-        await assert.doesNotReject(Promise.resolve(synth.stop()));
-        assert.equal(closeCount, 1, failedStage);
+
+        createGain(): never {
+          throw new Error("oscillator failed");
+        }
+
+        close(): Promise<void> {
+          closeCount += 1;
+          return Promise.resolve();
+        }
       }
-    } finally {
-      if (originalAudioContext)
-        Object.defineProperty(globalThis, "AudioContext", originalAudioContext);
-      else Reflect.deleteProperty(globalThis, "AudioContext");
+      stubGlobalProperty("AudioContext", FakeAudioContext, restoreAfterTest);
+      const visual = {
+        setUpAudio: () => {
+          if (failedStage === "setup") throw new Error("setup failed");
+          return {
+            tempo: 120,
+            tracks: [
+              [
+                {
+                  cmd: "note",
+                  start: 0,
+                  duration: 1,
+                  pitch: 69,
+                  volume: 100,
+                },
+              ],
+            ],
+          };
+        },
+        getMeterFraction: () => {
+          if (failedStage === "meter") throw new Error("meter failed");
+          return { num: 4, den: 4 };
+        },
+        millisecondsPerMeasure: () => 1000,
+      };
+      const synth = previewRuntimes.abc.createSynth();
+      await synth.init({ visualObj: visual });
+      assert.throws(() => synth.start(), new Error(`${failedStage} failed`));
+      await flushMicrotasks();
+      assert.equal(closeCount, 1, failedStage);
+      assert.equal(
+        oscillatorStopCount,
+        failedStage === "oscillator" ? 1 : 0,
+        failedStage,
+      );
+      assert.equal(
+        oscillatorDisconnectCount,
+        failedStage === "oscillator" ? 1 : 0,
+        failedStage,
+      );
+      await assert.doesNotReject(Promise.resolve(synth.stop()));
+      assert.equal(closeCount, 1, failedStage);
     }
   });
 
   test("coalesces pending AudioContext close and retries after rejection", async () => {
-    const originalAudioContext = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "AudioContext",
-    );
     const firstClose = signal();
     const secondClose = signal();
     let closeAttempts = 0;
@@ -873,38 +823,29 @@ export function suite(): void {
         return closeAttempts === 1 ? firstClose.promise : secondClose.promise;
       }
     }
-    try {
-      Object.defineProperty(globalThis, "AudioContext", {
-        configurable: true,
-        value: FakeAudioContext,
-      });
-      const synth = previewRuntimes.abc.createSynth();
-      await synth.init({
-        visualObj: {
-          setUpAudio: () => {
-            throw new Error("start failed");
-          },
+    stubGlobalProperty("AudioContext", FakeAudioContext, restoreAfterTest);
+    const synth = previewRuntimes.abc.createSynth();
+    await synth.init({
+      visualObj: {
+        setUpAudio: () => {
+          throw new Error("start failed");
         },
-      });
-      assert.throws(() => synth.start(), new Error("start failed"));
-      const coalescedClose = Promise.resolve(synth.stop());
-      assert.equal(closeAttempts, 1);
+      },
+    });
+    assert.throws(() => synth.start(), new Error("start failed"));
+    const coalescedClose = Promise.resolve(synth.stop());
+    assert.equal(closeAttempts, 1);
 
-      firstClose.reject(new Error("close rejected"));
-      await assert.rejects(coalescedClose, new Error("close rejected"));
-      const retry = Promise.resolve(synth.stop());
-      const coalescedRetry = Promise.resolve(synth.stop());
-      assert.equal(closeAttempts, 2);
+    firstClose.reject(new Error("close rejected"));
+    await assert.rejects(coalescedClose, new Error("close rejected"));
+    const retry = Promise.resolve(synth.stop());
+    const coalescedRetry = Promise.resolve(synth.stop());
+    assert.equal(closeAttempts, 2);
 
-      secondClose.resolve();
-      await Promise.all([retry, coalescedRetry]);
-      await assert.doesNotReject(Promise.resolve(synth.stop()));
-      assert.equal(closeAttempts, 2);
-    } finally {
-      if (originalAudioContext)
-        Object.defineProperty(globalThis, "AudioContext", originalAudioContext);
-      else Reflect.deleteProperty(globalThis, "AudioContext");
-    }
+    secondClose.resolve();
+    await Promise.all([retry, coalescedRetry]);
+    await assert.doesNotReject(Promise.resolve(synth.stop()));
+    assert.equal(closeAttempts, 2);
   });
 
   test("stops pending ABC audio on disposal and never starts it", async () => {
@@ -1536,6 +1477,40 @@ function audioSynth(overrides: Partial<AudioSynth> = {}): AudioSynth {
     stop: () => undefined,
     ...overrides,
   };
+}
+
+function stubGlobalProperty(
+  key: string,
+  value: unknown,
+  restoreAfterTest: (() => void)[],
+): void {
+  const original = Object.getOwnPropertyDescriptor(globalThis, key);
+  Object.defineProperty(globalThis, key, { configurable: true, value });
+  restoreAfterTest.push(() => {
+    if (original) Object.defineProperty(globalThis, key, original);
+    else Reflect.deleteProperty(globalThis, key);
+  });
+}
+
+function stubObjectUrls(
+  restoreAfterTest: (() => void)[],
+  create: (index: number) => string = (index) => `blob:fleximark-${index}`,
+) {
+  const created: string[] = [];
+  const revoked: string[] = [];
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => {
+    const value = create(created.length + 1);
+    created.push(value);
+    return value;
+  };
+  URL.revokeObjectURL = (value) => revoked.push(value);
+  restoreAfterTest.push(() => {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+  });
+  return { created, revoked };
 }
 
 function snapshot(): RenderSnapshot {

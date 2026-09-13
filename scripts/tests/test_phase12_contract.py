@@ -16,8 +16,8 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import build as javascript_build
-from _targets import TARGETS
+import build as javascript_build  # noqa: E402
+from _targets import TARGETS  # noqa: E402
 
 
 def read(relative: str) -> str:
@@ -289,8 +289,16 @@ class CargoBoundaryContract(unittest.TestCase):
                     if len(command) > 1 and command[1] != "fmt":
                         self.assertIn("--locked", command)
 
+        actions = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (ROOT / ".github/actions").glob("*/action.yml")
+        )
         for workflow in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
-            cargo_commands = re.findall(r"^\s*run: (cargo .+)$", read(workflow), re.M)
+            cargo_commands = re.findall(
+                r"^\s*(?:run: )?(?:CARGO_TARGET_DIR=\S+ )?(cargo(?: \+\S+)? .+)$",
+                read(workflow) + actions,
+                re.M,
+            )
             self.assertTrue(cargo_commands, workflow)
             for command in cargo_commands:
                 with self.subTest(owner=workflow, command=command):

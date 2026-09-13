@@ -21,108 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup toolchain
-        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+      - name: Validate and package extension
+        uses: ./.github/actions/validate-extension
         with:
-          version: 2026.7.13
-
-      - name: Install dependencies
-        run: mise run install
-
-      - name: Build external preview client
-        run: uv run --frozen python scripts/build.py browser
-
-      - name: Install minimum supported Rust version
-        run: rustup toolchain install 1.86.0 --profile minimal
-
-      - name: Install plugin component target for minimum Rust version
-        run: rustup +1.86.0 target add wasm32-wasip2
-
-      - name: Check plugin fixture with minimum Rust version
-        env:
-          CARGO_TARGET_DIR: target/msrv-fixture-1.86
-        run: cargo +1.86.0 check --manifest-path fixtures/plugin-component/Cargo.toml --target wasm32-wasip2 --locked
-
-      - name: Check minimum supported Rust version
-        env:
-          CARGO_TARGET_DIR: target/msrv-1.86
-        run: cargo +1.86.0 check --workspace --all-targets --locked
-
-      - name: Verify architecture contract
-        run: uv run --frozen python scripts/verify_architecture.py
-
-      - name: Test development scripts
-        run: uv run --frozen python -m unittest discover -s scripts/tests -p "test_*.py"
-
-      - name: Verify performance budgets
-        run: uv run --frozen python scripts/check_performance_budgets.py
-
-      - name: Verify dependency lock metadata
-        env:
-          YARN_ENABLE_HARDENED_MODE: "1"
-        run: yarn install --immutable --refresh-lockfile
-
-      - name: Audit dependencies
-        run: yarn npm audit --all --recursive --severity high
-
-      - name: Download platform daemons
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: daemon-*
-          path: bin
-          merge-multiple: true
-
-      - name: Create final release manifest
-        run: uv run --frozen python scripts/create_release_manifest.py --require-all
-
-      - name: Check Rust formatting
-        run: cargo fmt --all --check
-
-      - name: Install plugin component target for current Rust version
-        run: rustup target add wasm32-wasip2
-
-      - name: Test Rust workspace
-        run: cargo test --workspace --all-targets --locked
-
-      - name: Lint Rust workspace
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Check types
-        run: yarn exec tsc -b
-
-      - name: Lint
-        run: yarn exec eslint adapters web test scripts
-
-      - name: Run pure RPC and preview tests
-        run: mise run test-pure
-
-      - name: Check localization bundles
-        run: |
-          uv run --frozen python scripts/l10n_export.py
-          git diff --exit-code -- l10n
-
-      - name: Build production extension
-        run: uv run --frozen python scripts/build.py extension --production
-
-      - name: Run VS Code integration tests on stable
-        run: xvfb-run -a mise run test -- --prebuilt
-
-      - name: Inspect extension contents
-        run: yarn exec vsce ls --no-dependencies
-
-      - name: Package VSIX
-        run: yarn exec vsce package --no-dependencies --out fleximark.vsix
-
-      - name: Validate VSIX archive and contents
-        run: uv run --frozen python scripts/release_artifact.py validate --vsix fleximark.vsix
-
-      - name: Upload VSIX
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: fleximark-vsix
-          path: fleximark.vsix
-          retention-days: 7
-          if-no-files-found: error
+          development-contracts: "true"
+          package-vsix: "true"
 
   dependency-review:
     name: Dependency review
@@ -158,13 +61,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup toolchain
-        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
-        with:
-          version: 2026.7.13
-
-      - name: Install dependencies
-        run: mise run install
+      - name: Setup toolchain and dependencies
+        uses: ./.github/actions/setup-toolchain
 
       - name: Build external preview client
         run: uv run --frozen python scripts/build.py browser
@@ -209,13 +107,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup toolchain
-        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
-        with:
-          version: 2026.7.13
-
-      - name: Install dependencies
-        run: mise run install
+      - name: Setup toolchain and dependencies
+        uses: ./.github/actions/setup-toolchain
 
       - name: Download universal VSIX
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -223,9 +116,4 @@ jobs:
           name: fleximark-vsix
 
       - name: Install packaged extension
-        if: runner.os != 'Linux'
-        run: mise run smoke -- fleximark.vsix
-
-      - name: Install packaged extension on Linux
-        if: runner.os == 'Linux'
-        run: xvfb-run -a mise run smoke -- fleximark.vsix
+        uses: ./.github/actions/smoke-vsix

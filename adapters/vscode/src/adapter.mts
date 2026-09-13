@@ -26,9 +26,13 @@ import { sourcePositionWithinLine } from "./position.mjs";
 import { sourcePositionToCharacter } from "./position.mjs";
 import {
   type PreviewCandidate,
+  type PreviewCandidateCurrentState,
   type PreviewCandidateOrigin,
   type PreviewEchoState,
+  type PreviewEventDependencies,
+  type PreviewLifecycleDependencies,
   type PreviewReadinessDependencies,
+  type PreviewRecreationDependencies,
   UnmatchedPreviewEventQueue,
   applySourceNavigationLifecycle,
   beginEmbeddedPreviewHandshake,
@@ -45,6 +49,7 @@ import {
   recreatePreviewsLifecycle,
   reloadPreviewLifecycle,
   requestPreviewCandidate,
+  sameDaemonOrigin,
 } from "./preview-coordinator.mjs";
 import type { SourcePosition } from "./protocol.mjs";
 import {
@@ -114,6 +119,101 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   #disposed = false;
   readonly #previewEchoes: PreviewEchoState = {};
   readonly #unmatchedPreviewEvents = new UnmatchedPreviewEventQueue();
+  readonly #previewEventDependencies: PreviewEventDependencies = {
+    reload: (runtime, preview) => void this.#reloadPreview(runtime, preview),
+    overflow: (origin) => this.#clearOverflowOrigin(origin),
+    navigate: (runtime, preview, event) =>
+      this.#applySourceNavigation(runtime, preview, event),
+    reactivate: (runtime, preview) => this.#activatePreview(runtime, preview),
+    report: (error) => this.#report(error),
+  };
+  readonly #previewReadinessDependencies: PreviewReadinessDependencies = {
+    current: (runtime, preview) => this.#previewIsActive(runtime, preview),
+    take: (origin, previewSessionId) =>
+      this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId),
+    markReload: (origin, previewSessionId) =>
+      this.#markPreviewReload(origin, previewSessionId),
+    deliver: (origin, event) =>
+      handlePreviewEventLifecycle(
+        origin,
+        event,
+        this.#runtimes.values(),
+        this.#unmatchedPreviewEvents,
+        this.#previewEventDependencies,
+        true,
+      ),
+    reload: (runtime, preview) => this.#reloadPreview(runtime, preview),
+    report: (error) => this.#report(error),
+  };
+  readonly #previewLifecycleContext: PreviewLifecycleDependencies &
+    PreviewRecreationDependencies = {
+    activeEditor: () => vscode.window.activeTextEditor,
+    showNoDocument: () => this.#showNoDocument(),
+    showNoWorkspace: () => this.#showNoWorkspace(),
+    workspaceFor: (document) =>
+      vscode.workspace.getWorkspaceFolder(document.uri),
+    start: (workspace) => this.start(workspace),
+    sync: (document) => this.syncDocument(document),
+    document: (uri) =>
+      vscode.workspace.textDocuments.find(
+        (document) => document.uri.toString() === uri,
+      ),
+    request: (runtime, document, target) =>
+      this.#requestPreview(runtime, document, target),
+    currentOrigin: () => this.#daemonOrigin(),
+    candidateCurrent: (candidate) => this.#previewCandidateIsCurrent(candidate),
+    candidateIdentityCurrent: (candidate) =>
+      this.#previewCandidateIdentityIsCurrent(candidate),
+    rejectCandidate: (candidate) => this.#rejectPreviewCandidate(candidate),
+    handshake: (runtime, preview) => this.#handshakePreview(runtime, preview),
+    activate: (runtime, preview) => this.#activatePreview(runtime, preview),
+    discardQueued: (origin, previewSessionId) => {
+      this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId);
+    },
+    openExternal: async (url) => {
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    },
+    createPanel: (title) =>
+      vscode.window.createWebviewPanel(
+        "fleximark.preview",
+        title,
+        vscode.workspace
+          .getConfiguration("fleximark")
+          .get<"active" | "beside">("previewColumn", "beside") === "active"
+          ? vscode.ViewColumn.Active
+          : vscode.ViewColumn.Beside,
+        { enableScripts: true, retainContextWhenHidden: true },
+      ),
+    scriptUri: (panel) =>
+      panel.webview
+        .asWebviewUri(
+          vscode.Uri.joinPath(
+            this.#context.extensionUri,
+            "dist",
+            "web",
+            "preview-client",
+            "vscode-host.js",
+          ),
+        )
+        .toString(),
+    random: (size, encoding) => randomBytes(size).toString(encoding),
+    css: defaultPreviewCss,
+    log: (message) => this.#log(message),
+    previewCurrent: (runtime, preview) =>
+      this.#previewIsActive(runtime, preview),
+    markReload: (origin, previewSessionId) =>
+      this.#markPreviewReload(origin, previewSessionId),
+    reload: (runtime, preview) => this.#reloadPreview(runtime, preview),
+    report: (error) => this.#report(error),
+    dispose: (runtime, preview) => this.#disposePreview(runtime, preview),
+    notifyNavigation: (event) => {
+      const origin = this.#daemonOrigin();
+      origin?.rpc.notify("fleximark/previewEvent", {
+        daemonInstanceId: origin.daemonInstanceId,
+        ...event,
+      });
+    },
+  };
 
   constructor(context: vscode.ExtensionContext) {
     this.#context = context;
@@ -188,6 +288,18 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     this.#supervisor = new DaemonSupervisor(dependencies);
   }
 
+  #showNoDocument(): void {
+    void vscode.window.showInformationMessage(
+      vscode.l10n.t("Open a Markdown document first."),
+    );
+  }
+
+  #showNoWorkspace(): void {
+    void vscode.window.showInformationMessage(
+      vscode.l10n.t("Open the Markdown document inside a workspace first."),
+    );
+  }
+
   async start(
     workspace?: vscode.WorkspaceFolder,
   ): Promise<WorkspaceRuntime | undefined> {
@@ -253,78 +365,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async openPreview(target: PreviewTarget): Promise<void> {
-    await openPreviewLifecycle(target, {
-      activeEditor: () => vscode.window.activeTextEditor,
-      showNoDocument: () => {
-        void vscode.window.showInformationMessage(
-          vscode.l10n.t("Open a Markdown document first."),
-        );
-      },
-      showNoWorkspace: () => {
-        void vscode.window.showInformationMessage(
-          vscode.l10n.t("Open the Markdown document inside a workspace first."),
-        );
-      },
-      workspaceFor: (document) =>
-        vscode.workspace.getWorkspaceFolder(document.uri),
-      start: (workspace) => this.start(workspace),
-      sync: (document) => this.syncDocument(document),
-      request: (runtime, document, requestedTarget) =>
-        this.#requestPreview(runtime, document, requestedTarget),
-      candidateCurrent: (candidate) =>
-        this.#previewCandidateIsCurrent(candidate),
-      candidateIdentityCurrent: (candidate) =>
-        this.#previewCandidateIdentityIsCurrent(candidate),
-      rejectCandidate: (candidate) => this.#rejectPreviewCandidate(candidate),
-      handshake: (owner, preview) => this.#handshakePreview(owner, preview),
-      activate: (owner, preview) => this.#activatePreview(owner, preview),
-      discardQueued: (origin, previewSessionId) => {
-        this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId);
-      },
-      openExternal: async (url) => {
-        await vscode.env.openExternal(vscode.Uri.parse(url));
-      },
-      createPanel: (title) =>
-        vscode.window.createWebviewPanel(
-          "fleximark.preview",
-          title,
-          vscode.workspace
-            .getConfiguration("fleximark")
-            .get<"active" | "beside">("previewColumn", "beside") === "active"
-            ? vscode.ViewColumn.Active
-            : vscode.ViewColumn.Beside,
-          { enableScripts: true, retainContextWhenHidden: true },
-        ),
-      scriptUri: (panel) =>
-        panel.webview
-          .asWebviewUri(
-            vscode.Uri.joinPath(
-              this.#context.extensionUri,
-              "dist",
-              "web",
-              "preview-client",
-              "vscode-host.js",
-            ),
-          )
-          .toString(),
-      random: (size, encoding) => randomBytes(size).toString(encoding),
-      css: defaultPreviewCss,
-      log: (message) => this.#log(message),
-      previewCurrent: (runtime, preview) =>
-        this.#previewIsActive(runtime, preview),
-      markReload: (origin, previewSessionId) =>
-        this.#markPreviewReload(origin, previewSessionId),
-      reload: (runtime, preview) => this.#reloadPreview(runtime, preview),
-      report: (error) => this.#report(error),
-      dispose: (runtime, preview) => this.#disposePreview(runtime, preview),
-      notifyNavigation: (event) => {
-        const origin = this.#daemonOrigin();
-        origin?.rpc.notify("fleximark/previewEvent", {
-          daemonInstanceId: origin.daemonInstanceId,
-          ...event,
-        });
-      },
-    });
+    await openPreviewLifecycle(target, this.#previewLifecycleContext);
   }
 
   async syncDocument(document: vscode.TextDocument): Promise<void> {
@@ -574,25 +615,29 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   #originIsCurrent(origin: DaemonOrigin): boolean {
     const current = this.#daemonOrigin();
-    return (
-      !origin.rpc.closed &&
-      current?.rpc === origin.rpc &&
-      current.generation === origin.generation &&
-      current.daemonInstanceId === origin.daemonInstanceId
-    );
+    return !origin.rpc.closed && sameDaemonOrigin(current, origin);
   }
 
   #previewCandidateIsCurrent(candidate: PreviewCandidate): boolean {
+    return previewCandidateIsCurrent(
+      candidate,
+      this.#previewCandidateCurrentState(candidate),
+    );
+  }
+
+  #previewCandidateCurrentState(
+    candidate: PreviewCandidateOrigin,
+  ): PreviewCandidateCurrentState {
     const document = vscode.workspace.textDocuments.find(
       (item) => item.uri.toString() === candidate.documentUri,
     );
-    return previewCandidateIsCurrent(candidate, {
+    return {
       disposed: this.#disposed,
       runtime: this.#runtimes.get(candidate.runtime.workspace.uri.toString()),
       origin: this.#daemonOrigin(),
       documentState: candidate.runtime.documents.get(candidate.documentUri),
       documentVersion: document?.version,
-    });
+    };
   }
 
   #previewIsActive(runtime: WorkspaceRuntime, preview: PreviewState): boolean {
@@ -601,58 +646,17 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       !this.#disposed &&
       this.#runtimes.get(runtime.workspace.uri.toString()) === runtime &&
       previewIsCurrent(runtime, preview, preview.previewSessionId) &&
-      origin?.rpc === preview.originRpc &&
-      origin.generation === preview.originGeneration &&
-      origin.daemonInstanceId === preview.originDaemonInstanceId
+      sameDaemonOrigin(origin, preview.origin)
     );
   }
 
   #previewCandidateIdentityIsCurrent(
     candidate: PreviewCandidateOrigin,
   ): boolean {
-    const document = vscode.workspace.textDocuments.find(
-      (item) => item.uri.toString() === candidate.documentUri,
+    return previewCandidateIdentityIsCurrent(
+      candidate,
+      this.#previewCandidateCurrentState(candidate),
     );
-    return previewCandidateIdentityIsCurrent(candidate, {
-      disposed: this.#disposed,
-      runtime: this.#runtimes.get(candidate.runtime.workspace.uri.toString()),
-      origin: this.#daemonOrigin(),
-      documentState: candidate.runtime.documents.get(candidate.documentUri),
-      documentVersion: document?.version,
-    });
-  }
-
-  #previewReadinessDependencies(): PreviewReadinessDependencies {
-    return {
-      current: (runtime, preview) => this.#previewIsActive(runtime, preview),
-      take: (origin, previewSessionId) =>
-        this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId),
-      markReload: (origin, previewSessionId) =>
-        this.#markPreviewReload(origin, previewSessionId),
-      deliver: (origin, event) =>
-        handlePreviewEventLifecycle(
-          origin,
-          event,
-          this.#runtimes.values(),
-          this.#unmatchedPreviewEvents,
-          {
-            reload: (runtime, preview) =>
-              void this.#reloadPreview(runtime, preview),
-            overflow: (overflowOrigin) => {
-              overflowOrigin.rpc.close();
-              this.#unmatchedPreviewEvents.clearOrigin(overflowOrigin);
-            },
-            navigate: (runtime, preview, navigation) =>
-              this.#applySourceNavigation(runtime, preview, navigation),
-            reactivate: (runtime, preview) =>
-              this.#activatePreview(runtime, preview),
-            report: (error) => this.#report(error),
-          },
-          true,
-        ),
-      reload: (runtime, preview) => this.#reloadPreview(runtime, preview),
-      report: (error) => this.#report(error),
-    };
   }
 
   #markPreviewReload(origin: DaemonOrigin, previewSessionId: string): void {
@@ -661,10 +665,13 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       previewSessionId,
     );
     if (typeof queued !== "object") return;
-    for (const affectedOrigin of queued.origins) {
-      affectedOrigin.rpc.close();
-      this.#unmatchedPreviewEvents.clearOrigin(affectedOrigin);
-    }
+    for (const affectedOrigin of queued.origins)
+      this.#clearOverflowOrigin(affectedOrigin);
+  }
+
+  #clearOverflowOrigin(origin: DaemonOrigin): void {
+    origin.rpc.close();
+    this.#unmatchedPreviewEvents.clearOrigin(origin);
   }
 
   #handshakePreview(
@@ -674,7 +681,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     return beginEmbeddedPreviewHandshake(
       runtime,
       preview,
-      this.#previewReadinessDependencies(),
+      this.#previewReadinessDependencies,
     );
   }
 
@@ -685,7 +692,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     return completePreviewReadiness(
       runtime,
       preview,
-      this.#previewReadinessDependencies(),
+      this.#previewReadinessDependencies,
     );
   }
 
@@ -847,33 +854,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #recreatePreviews(runtime: WorkspaceRuntime): Promise<void> {
-    await recreatePreviewsLifecycle(runtime, {
-      document: (uri) =>
-        vscode.workspace.textDocuments.find(
-          (document) => document.uri.toString() === uri,
-        ),
-      request: (owner, document, target) =>
-        this.#requestPreview(owner, document, target),
-      currentOrigin: () => this.#daemonOrigin(),
-      candidateCurrent: (candidate) =>
-        this.#previewCandidateIsCurrent(candidate),
-      candidateIdentityCurrent: (candidate) =>
-        this.#previewCandidateIdentityIsCurrent(candidate),
-      reject: (candidate) => this.#rejectPreviewCandidate(candidate),
-      dispose: (owner, preview) => this.#disposePreview(owner, preview),
-      handshake: (owner, preview) => this.#handshakePreview(owner, preview),
-      activate: (owner, preview) => this.#activatePreview(owner, preview),
-      discardQueued: (origin, previewSessionId) => {
-        this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId);
-      },
-      markReload: (origin, previewSessionId) =>
-        this.#markPreviewReload(origin, previewSessionId),
-      reload: (owner, preview) => this.#reloadPreview(owner, preview),
-      openExternal: async (url) => {
-        await vscode.env.openExternal(vscode.Uri.parse(url));
-      },
-      report: (error) => this.#report(error),
-    });
+    await recreatePreviewsLifecycle(runtime, this.#previewLifecycleContext);
   }
 
   async #handleDaemonMessage(
@@ -900,19 +881,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         event,
         this.#runtimes.values(),
         this.#unmatchedPreviewEvents,
-        {
-          reload: (runtime, preview) =>
-            void this.#reloadPreview(runtime, preview),
-          overflow: (overflowOrigin) => {
-            overflowOrigin.rpc.close();
-            this.#unmatchedPreviewEvents.clearOrigin(overflowOrigin);
-          },
-          navigate: (runtime, preview, navigation) =>
-            this.#applySourceNavigation(runtime, preview, navigation),
-          reactivate: (runtime, preview) =>
-            this.#activatePreview(runtime, preview),
-          report: (error) => this.#report(error),
-        },
+        this.#previewEventDependencies,
       );
       return;
     }
@@ -965,7 +934,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         return;
       }
     }
-    const queued = this.#unmatchedPreviewEvents.markReloadRequired(
+    this.#markPreviewReload(
       {
         rpc: connection,
         generation,
@@ -973,11 +942,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       },
       params.previewSessionId,
     );
-    if (typeof queued === "object")
-      for (const affectedOrigin of queued.origins) {
-        affectedOrigin.rpc.close();
-        this.#unmatchedPreviewEvents.clearOrigin(affectedOrigin);
-      }
   }
 
   async #applySourceNavigation(

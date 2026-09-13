@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
+import type { DaemonOrigin } from "./document-coordinator.mjs";
 import type { PreviewTarget, RenderPublication } from "./protocol.mjs";
-import type { JsonRpcConnection } from "./rpc.mjs";
 
 export interface DocumentState {
   sessionId?: string;
@@ -11,9 +11,7 @@ export interface DocumentState {
 }
 
 export interface PreviewState {
-  originRpc: JsonRpcConnection;
-  originDaemonInstanceId: string;
-  originGeneration: number;
+  origin: DaemonOrigin;
   documentUri: string;
   sourceViewColumn?: vscode.ViewColumn;
   previewSessionId: string;

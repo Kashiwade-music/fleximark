@@ -317,6 +317,22 @@ fn write_preview_response(stream: &mut TcpStream, response: &[u8]) {
     let _ = stream.write_all(response);
 }
 
+const FORBIDDEN_RESPONSE: &[u8] =
+    b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+const BAD_REQUEST_RESPONSE: &[u8] =
+    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+const CONFLICT_RESPONSE: &[u8] =
+    b"HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+const TOO_MANY_REQUESTS_RESPONSE: &[u8] =
+    b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+const UNAVAILABLE_RESPONSE: &[u8] =
+    b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+const NO_CONTENT_RESPONSE: &[u8] = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+
+fn write_empty_response(stream: &mut TcpStream, response: &'static [u8]) {
+    write_preview_response(stream, response);
+}
+
 pub(crate) fn serve_preview_request(
     mut stream: TcpStream,
     port: u16,
@@ -346,29 +362,20 @@ pub(crate) fn serve_preview_request(
     let content_length = request.content_length;
     let content_type = request.content_type.as_deref();
     let Some(path) = authorized_preview_path(&request, port) else {
-        write_preview_response(
-            &mut stream,
-            b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        );
+        write_empty_response(&mut stream, FORBIDDEN_RESPONSE);
         return;
     };
     let mut parts = path.split('/');
     let token = parts.next().unwrap_or("");
     let endpoint = parts.next();
     if parts.next().is_some() {
-        write_preview_response(
-            &mut stream,
-            b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        );
+        write_empty_response(&mut stream, FORBIDDEN_RESPONSE);
         return;
     }
     if method == Some("POST") && endpoint == Some("navigation") {
         let length = content_length.unwrap_or(usize::MAX);
         if length > 4096 || content_type != Some("application/json") {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, BAD_REQUEST_RESPONSE);
             return;
         }
         let mut body = vec![0; length];
@@ -379,10 +386,7 @@ pub(crate) fn serve_preview_request(
         let navigation = match serde_json::from_slice::<PreviewNavigationEvent>(&body) {
             Ok(navigation) => navigation,
             Err(_) => {
-                write_preview_response(
-                    &mut stream,
-                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                );
+                write_empty_response(&mut stream, BAD_REQUEST_RESPONSE);
                 return;
             }
         };
@@ -400,17 +404,11 @@ pub(crate) fn serve_preview_request(
         };
         let mut locked_pages = pages.lock().expect("preview map lock");
         let Some(page) = locked_pages.get_mut(token) else {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, FORBIDDEN_RESPONSE);
             return;
         };
         if event_preview_id != &page.preview_session_id || page.current_revision != event_revision {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, CONFLICT_RESPONSE);
             return;
         }
         let now = Instant::now();
@@ -418,10 +416,7 @@ pub(crate) fn serve_preview_request(
             .last_browser_event
             .is_some_and(|last| now.duration_since(last) < Duration::from_millis(20))
         {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, TOO_MANY_REQUESTS_RESPONSE);
             return;
         }
         let entry = page
@@ -437,10 +432,7 @@ pub(crate) fn serve_preview_request(
                     .find(|entry| &entry.node_id == node_id)
             });
         let Some(entry) = entry else {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, BAD_REQUEST_RESPONSE);
             return;
         };
         let event = match navigation {
@@ -458,24 +450,15 @@ pub(crate) fn serve_preview_request(
             event: ServerPreviewEvent::SourceNavigation(event),
         });
         let Some(sender) = sender else {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, UNAVAILABLE_RESPONSE);
             return;
         };
         if sender.send(notification).is_err() {
-            write_preview_response(
-                &mut stream,
-                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
+            write_empty_response(&mut stream, UNAVAILABLE_RESPONSE);
             return;
         }
         page.last_browser_event = Some(now);
-        write_preview_response(
-            &mut stream,
-            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        );
+        write_empty_response(&mut stream, NO_CONTENT_RESPONSE);
         return;
     }
     drop(reader);

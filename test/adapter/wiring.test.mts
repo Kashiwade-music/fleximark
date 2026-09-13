@@ -225,12 +225,10 @@ export function suite(): void {
     };
 
     const registrations = registerProviders(adapter, registrar);
-    assert.deepEqual(selectors, [
-      { language: "markdown" },
-      { language: "markdown" },
-      { language: "markdown" },
-      { language: "markdown" },
-    ]);
+    assert.deepEqual(
+      selectors,
+      Array.from({ length: 4 }, () => ({ language: "markdown" })),
+    );
     assert.deepEqual(completionTriggers, [":", "`"]);
     assert.deepEqual(codeActionMetadata, {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
@@ -381,26 +379,20 @@ export function suite(): void {
       triggerCharacter: undefined,
       triggerKind: vscode.CompletionTriggerKind.Invoke,
     };
+    const provider = completionProvider;
+    const provide = (): vscode.ProviderResult<
+      vscode.CompletionItem[] | vscode.CompletionList
+    > => provider.provideCompletionItems(document, position, token, context);
 
     const retiredFailure = new Error("retired provider failed");
-    const retiredResult = completionProvider.provideCompletionItems(
-      document,
-      position,
-      token,
-      context,
-    );
+    const retiredResult = provide();
     active = false;
     pendingRequest.reject(retiredFailure);
     await assert.rejects(Promise.resolve(retiredResult), retiredFailure);
 
     active = true;
     pendingRequest = deferred<unknown>();
-    const successfulResult = completionProvider.provideCompletionItems(
-      document,
-      position,
-      token,
-      context,
-    );
+    const successfulResult = provide();
     active = false;
     pendingRequest.resolve({ items: [{ label: "preserved" }] });
     const successfulItems = (await successfulResult) as vscode.CompletionItem[];
@@ -409,12 +401,7 @@ export function suite(): void {
 
     active = true;
     pendingRequest = deferred<unknown>();
-    const currentResult = completionProvider.provideCompletionItems(
-      document,
-      position,
-      token,
-      context,
-    );
+    const currentResult = provide();
     const currentFailure = new Error("current provider failed");
     pendingRequest.reject(currentFailure);
     await assert.rejects(Promise.resolve(currentResult), currentFailure);

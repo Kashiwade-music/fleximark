@@ -7,6 +7,16 @@ export const suiteName = "Daemon runtime boundary";
 
 const deferredDisposals: FlexiMarkAdapter[] = [];
 
+function emptyRecoveryState(connectionGeneration: number) {
+  return {
+    connectionGeneration,
+    daemonInstanceId: undefined,
+    documentSessions: {},
+    previewSessions: {},
+    previewRenderRevisions: {},
+  };
+}
+
 function installedExtension(): vscode.Extension<unknown> {
   const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
   assert.ok(extension);
@@ -99,13 +109,7 @@ export function suite(): void {
         message:
           "Bundled FlexiMark daemon is corrupt or does not match this extension",
       });
-      assert.deepEqual(adapter.recoveryStateForTest(), {
-        connectionGeneration: 0,
-        daemonInstanceId: undefined,
-        documentSessions: {},
-        previewSessions: {},
-        previewRenderRevisions: {},
-      });
+      assert.deepEqual(adapter.recoveryStateForTest(), emptyRecoveryState(0));
     });
   });
 
@@ -126,21 +130,9 @@ export function suite(): void {
     } finally {
       adapter.dispose();
     }
-    assert.deepEqual(adapter.recoveryStateForTest(), {
-      connectionGeneration: 1,
-      daemonInstanceId: undefined,
-      documentSessions: {},
-      previewSessions: {},
-      previewRenderRevisions: {},
-    });
+    assert.deepEqual(adapter.recoveryStateForTest(), emptyRecoveryState(1));
     await adapter.start(activeWorkspace());
     await adapter.activateDocument(vscode.window.activeTextEditor?.document);
-    assert.deepEqual(adapter.recoveryStateForTest(), {
-      connectionGeneration: 1,
-      daemonInstanceId: undefined,
-      documentSessions: {},
-      previewSessions: {},
-      previewRenderRevisions: {},
-    });
+    assert.deepEqual(adapter.recoveryStateForTest(), emptyRecoveryState(1));
   });
 }

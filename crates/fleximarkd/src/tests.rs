@@ -43,8 +43,39 @@ fn result_string(messages: &[Value], field: &str) -> String {
 
 fn initialize_daemon(server: &mut Server, params: Value) -> String {
     result_string(
-        &server.handle(message(Some(1), method::INITIALIZE, params)),
+        &server.request(1, method::INITIALIZE, params),
         "daemonInstanceId",
+    )
+}
+
+fn initialize_params(capabilities: Value, workspaces: Option<Value>) -> Value {
+    let mut params = json!({
+        "protocolVersion": 1,
+        "client": {"name": "test", "version": "1"},
+        "capabilities": capabilities,
+    });
+    if let Some(workspaces) = workspaces {
+        params["workspaces"] = workspaces;
+    }
+    params
+}
+
+fn open_rpc_document(
+    server: &mut Server,
+    id: i64,
+    daemon_instance_id: &str,
+    uri: &str,
+    text: &str,
+) -> Vec<Value> {
+    server.request(
+        id,
+        method::OPEN_DOCUMENT,
+        json!({
+            "daemonInstanceId": daemon_instance_id,
+            "uri": uri,
+            "documentVersion": 1,
+            "text": text,
+        }),
     )
 }
 
@@ -251,7 +282,7 @@ fn session_errors_preserve_their_wire_codes_and_messages() {
 fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
     assert!(
         Server::new(false)
-            .handle(message(None, "future/notification", json!({})))
+            .notify("future/notification", json!({}))
             .is_empty(),
         "unknown notifications must remain silent"
     );
@@ -266,7 +297,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         "textDocument/codeAction",
     ];
     for method_name in lsp_requests {
-        let lsp_result = Server::new(true).handle(message(Some(91), method_name, json!({})));
+        let lsp_result = Server::new(true).request(91, method_name, json!({}));
         assert_eq!(
             lsp_result.len(),
             1,
@@ -277,7 +308,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
             Some(&json!(-32601)),
             "LSP route was not recognized: {method_name}: {lsp_result:?}"
         );
-        let rpc_result = Server::new(false).handle(message(Some(92), method_name, json!({})));
+        let rpc_result = Server::new(false).request(92, method_name, json!({}));
         assert_eq!(
             rpc_result,
             [json!({
@@ -296,7 +327,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         "textDocument/didClose",
     ] {
         let mut lsp = Server::new(true);
-        let notification = lsp.handle(message(None, method_name, json!({})));
+        let notification = lsp.notify(method_name, json!({}));
         assert!(
             notification.is_empty(),
             "recognized LSP notification unexpectedly responded: {method_name}"
@@ -305,7 +336,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
             assert!(lsp.exit, "the recognized exit notification must set exit");
         }
         let mut request_shaped_lsp = Server::new(true);
-        let request_shaped = request_shaped_lsp.handle(message(Some(93), method_name, json!({})));
+        let request_shaped = request_shaped_lsp.request(93, method_name, json!({}));
         if method_name == "initialized" || method_name == "exit" {
             assert!(
                 request_shaped.is_empty(),
@@ -324,7 +355,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
                 "LSP document notification route was not recognized: {method_name}"
             );
         }
-        let rpc_result = Server::new(false).handle(message(Some(94), method_name, json!({})));
+        let rpc_result = Server::new(false).request(94, method_name, json!({}));
         assert_eq!(
             rpc_result,
             [json!({
@@ -340,7 +371,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         method::CHANGE_DOCUMENT,
         method::CLOSE_DOCUMENT,
     ] {
-        let rpc_result = Server::new(false).handle(message(Some(95), method_name, json!({})));
+        let rpc_result = Server::new(false).request(95, method_name, json!({}));
         assert_eq!(
             rpc_result.len(),
             1,
@@ -350,7 +381,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
             rpc_result[0]["error"]["code"], -32601,
             "standalone RPC route was not recognized: {method_name}"
         );
-        let lsp_result = Server::new(true).handle(message(Some(96), method_name, json!({})));
+        let lsp_result = Server::new(true).request(96, method_name, json!({}));
         assert_eq!(
             lsp_result,
             [json!({
@@ -365,11 +396,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
 #[test]
 fn recognized_request_deserialization_preserves_error_wire_and_notification_silence() {
     let malformed = json!({"daemonInstanceId":[]});
-    let response = Server::new(false).handle(message(
-        Some(97),
-        method::EXECUTE_COMMAND,
-        malformed.clone(),
-    ));
+    let response = Server::new(false).request(97, method::EXECUTE_COMMAND, malformed.clone());
     assert_eq!(
         response,
         [json!({
@@ -385,7 +412,7 @@ fn recognized_request_deserialization_preserves_error_wire_and_notification_sile
 
     assert!(
         Server::new(false)
-            .handle(message(None, method::EXECUTE_COMMAND, malformed))
+            .notify(method::EXECUTE_COMMAND, malformed)
             .is_empty(),
         "the notification pair must stay silent even when its params are malformed"
     );
@@ -394,26 +421,17 @@ fn recognized_request_deserialization_preserves_error_wire_and_notification_sile
 #[test]
 fn rpc_error_precedes_full_text_recovery_notification() {
     let mut server = Server::new(false);
-    let daemon = initialize_daemon(
-        &mut server,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},
-                "capabilities":{}}),
-    );
-    let opened = server.handle(message(
-        Some(2),
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":daemon,"uri":"file:///order.md",
-                "documentVersion":1,"text":"old\n"}),
-    ));
+    let daemon = initialize_daemon(&mut server, initialize_params(json!({}), None));
+    let opened = open_rpc_document(&mut server, 2, &daemon, "file:///order.md", "old\n");
     let session = result_string(&opened, "documentSessionId");
 
-    let outgoing = server.handle(message(
-        Some(3),
+    let outgoing = server.request(
+        3,
         method::CHANGE_DOCUMENT,
         json!({"daemonInstanceId":daemon,"documentSessionId":session,
                 "baseDocumentVersion":1,"baseContentHash":"wrong",
                 "documentVersion":2,"text":"new\n"}),
-    ));
+    );
     assert_eq!(outgoing.len(), 2);
     assert_eq!(
         outgoing[0],
@@ -474,12 +492,10 @@ fn every_workspace_command_preserves_its_success_dispatch() {
     let initialized = server.request(
         1,
         method::INITIALIZE,
-        json!({
-            "protocolVersion":1,
-            "client":{"name":"test","version":"1"},
-            "capabilities":{},
-            "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
-        }),
+        initialize_params(
+            json!({}),
+            Some(json!([{"uri":workspace_uri.clone(),"trusted":true}])),
+        ),
     );
     let daemon = initialized[0]["result"]["daemonInstanceId"]
         .as_str()
@@ -532,12 +548,7 @@ fn every_workspace_command_preserves_its_success_dispatch() {
     );
     assert!(create_note[0]["result"]["openUri"].is_string());
 
-    let opened = server.request(
-        5,
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":daemon,"uri":document_uri,
-                "documentVersion":1,"text":document_text}),
-    );
+    let opened = open_rpc_document(&mut server, 5, &daemon, &document_uri, document_text);
     let session = result_string(&opened, "documentSessionId");
 
     let collected = server.request(
@@ -969,21 +980,19 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
 #[test]
 fn stale_notification_emits_full_text_request() {
     let mut server = Server::new(true);
-    server.handle(message(
-        None,
+    server.notify(
         "textDocument/didOpen",
         json!({
             "textDocument":{"uri":"file:///doc.md","version":2,"text":"x"}
         }),
-    ));
-    let outgoing = server.handle(message(
-        None,
+    );
+    let outgoing = server.notify(
         "textDocument/didChange",
         json!({
             "textDocument":{"uri":"file:///doc.md","version":2},
             "contentChanges":[{"text":"y"}]
         }),
-    ));
+    );
     assert_eq!(outgoing[0]["method"], method::REQUEST_FULL_TEXT);
     assert_eq!(
         outgoing[0]["params"]["daemonInstanceId"],
@@ -1003,21 +1012,20 @@ fn untrusted_workspace_cannot_run_write_commands() {
     let workspace = test_directory("untrusted");
     let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
     let mut server = Server::new(true);
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         method::INITIALIZE,
-        json!({
-            "protocolVersion":1,"client":{"name":"test","version":"1"},
-            "capabilities":{"selectionEvents":false,"viewportEvents":false},
-            "workspaces":[{"uri":workspace_uri.clone(),"trusted":false}]
-        }),
-    ));
-    let denied = server.handle(message(
-        Some(2),
+        initialize_params(
+            json!({"selectionEvents":false,"viewportEvents":false}),
+            Some(json!([{"uri":workspace_uri.clone(),"trusted":false}])),
+        ),
+    );
+    let denied = server.request(
+        2,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),
                 "command":"initializeWorkspace","workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(denied[0]["error"]["code"], -32021);
     assert!(!workspace.join(".fleximark").exists());
 }
@@ -1028,16 +1036,14 @@ fn workspace_command_authority_policy_is_checked_before_command_parameters() {
     let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
     fleximark_service::initialize_workspace(&workspace_uri).unwrap();
     let mut server = Server::new(false);
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         method::INITIALIZE,
-        json!({
-            "protocolVersion":1,
-            "client":{"name":"test","version":"1"},
-            "capabilities":{},
-            "workspaces":[{"uri":workspace_uri,"trusted":false}]
-        }),
-    ));
+        initialize_params(
+            json!({}),
+            Some(json!([{"uri":workspace_uri,"trusted":false}])),
+        ),
+    );
 
     for command in [
         "initializeWorkspace",
@@ -1052,7 +1058,7 @@ fn workspace_command_authority_policy_is_checked_before_command_parameters() {
             if let Some(workspace) = workspace {
                 params["workspaceUri"] = Value::String(workspace.to_owned());
             }
-            let response = server.handle(message(Some(2), method::EXECUTE_COMMAND, params));
+            let response = server.request(2, method::EXECUTE_COMMAND, params);
             assert_eq!(
                 response[0]["error"],
                 json!({"code":-32021,
@@ -1062,19 +1068,19 @@ fn workspace_command_authority_policy_is_checked_before_command_parameters() {
         }
     }
 
-    let edit = server.handle(message(
-        Some(3),
+    let edit = server.request(
+        3,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),
             "command":"editTheme","workspaceUri":workspace_uri}),
-    ));
+    );
     assert!(edit[0]["result"]["openUri"].is_string());
-    let missing_edit = server.handle(message(
-        Some(4),
+    let missing_edit = server.request(
+        4,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),
             "command":"editTheme"}),
-    ));
+    );
     assert_eq!(
         missing_edit[0]["error"],
         json!({"code":-32020,"message":"command requires workspaceUri"})
@@ -1111,38 +1117,42 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
     let mut server = Server::new(false);
     let daemon = initialize_daemon(
         &mut server,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},
-        "capabilities":{},"workspaces":[
-            {"uri":trusted_uri,"trusted":true},
-            {"uri":untrusted_uri,"trusted":false}
-        ]}),
+        initialize_params(
+            json!({}),
+            Some(json!([
+                {"uri":trusted_uri,"trusted":true},
+                {"uri":untrusted_uri,"trusted":false}
+            ])),
+        ),
     );
-    let trusted_open = server.handle(message(
-        Some(2),
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":daemon,"uri":trusted_document_uri,
-                "documentVersion":1,"text":"# Trusted\n"}),
-    ));
-    let untrusted_open = server.handle(message(
-        Some(3),
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":daemon,"uri":untrusted_document_uri,
-                "documentVersion":1,"text":"# Untrusted\n"}),
-    ));
+    let trusted_open = open_rpc_document(
+        &mut server,
+        2,
+        &daemon,
+        &trusted_document_uri,
+        "# Trusted\n",
+    );
+    let untrusted_open = open_rpc_document(
+        &mut server,
+        3,
+        &daemon,
+        &untrusted_document_uri,
+        "# Untrusted\n",
+    );
     let trusted_session = result_string(&trusted_open, "documentSessionId");
     let untrusted_session = result_string(&untrusted_open, "documentSessionId");
-    let trusted_preview = server.handle(message(
-        Some(4),
+    let trusted_preview = server.request(
+        4,
         method::CREATE_PREVIEW,
         json!({"daemonInstanceId":daemon,"documentSessionId":trusted_session,
                 "expectedDocumentVersion":1,"target":"embeddedHtml"}),
-    ));
-    let untrusted_preview = server.handle(message(
-        Some(5),
+    );
+    let untrusted_preview = server.request(
+        5,
         method::CREATE_PREVIEW,
         json!({"daemonInstanceId":daemon,"documentSessionId":untrusted_session,
                 "expectedDocumentVersion":1,"target":"embeddedHtml"}),
-    ));
+    );
     assert_eq!(
         trusted_preview[0]["result"]["initialPublication"]["style"]["css"],
         ":root { color: red; }"
@@ -1151,13 +1161,13 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
     assert!(trusted_preview[0]["result"].get("url").is_none());
     assert!(untrusted_preview[0]["result"].get("url").is_none());
     assert!(server.previews.pages.lock().unwrap().is_empty());
-    let escalated = server.handle(message(
-        Some(6),
+    let escalated = server.request(
+        6,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":daemon,"command":"exportHtml",
                 "documentSessionId":untrusted_session,"expectedDocumentVersion":1,
                 "workspaceUri":trusted_uri}),
-    ));
+    );
     assert!(
         escalated[0]["error"]["message"]
             .as_str()
@@ -1169,11 +1179,11 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
         ":root { color: green; }",
     )
     .unwrap();
-    let reconfigured = server.handle(message(
-        Some(7),
+    let reconfigured = server.request(
+        7,
         method::RECONFIGURE_WORKSPACE,
         json!({"daemonInstanceId":daemon,"workspaceUri":trusted_uri,"trusted":true}),
-    ));
+    );
     assert!(reconfigured[0]["result"].is_null(), "{reconfigured:?}");
     let publication = reconfigured
         .iter()
@@ -1204,14 +1214,16 @@ fn invalid_workspace_is_disabled_without_disabling_other_roots() {
     )
     .unwrap();
     let mut server = Server::new(false);
-    let initialized = server.handle(message(
-        Some(1),
+    let initialized = server.request(
+        1,
         method::INITIALIZE,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},
-        "capabilities":{},"workspaces":[
-            {"uri":valid_uri,"trusted":true},{"uri":invalid_uri,"trusted":true}
-        ]}),
-    ));
+        initialize_params(
+            json!({}),
+            Some(json!([
+                {"uri":valid_uri,"trusted":true},{"uri":invalid_uri,"trusted":true}
+            ])),
+        ),
+    );
     let statuses = initialized[0]["result"]["workspaceStatuses"]
         .as_array()
         .unwrap();
@@ -1236,21 +1248,11 @@ fn invalid_workspace_is_disabled_without_disabling_other_roots() {
     let invalid_document = invalid.join("doc.md");
     std::fs::write(&valid_document, "# Valid\n").unwrap();
     std::fs::write(&invalid_document, "# Invalid\n").unwrap();
-    let opened = server.handle(message(
-        Some(2),
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":daemon,
-                "uri":fleximark_service::path_to_file_uri(&valid_document).unwrap(),
-                "documentVersion":1,"text":"# Valid\n"}),
-    ));
+    let valid_document_uri = fleximark_service::path_to_file_uri(&valid_document).unwrap();
+    let opened = open_rpc_document(&mut server, 2, daemon, &valid_document_uri, "# Valid\n");
     assert!(opened[0]["result"]["documentSessionId"].is_string());
-    let denied = server.handle(message(
-        Some(3),
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":daemon,
-                "uri":fleximark_service::path_to_file_uri(&invalid_document).unwrap(),
-                "documentVersion":1,"text":"# Invalid\n"}),
-    ));
+    let invalid_document_uri = fleximark_service::path_to_file_uri(&invalid_document).unwrap();
+    let denied = open_rpc_document(&mut server, 3, daemon, &invalid_document_uri, "# Invalid\n");
     assert_eq!(denied[0]["error"]["code"], -32022);
 }
 
@@ -1265,21 +1267,20 @@ fn note_options_rpc_reads_only_the_granted_canonical_config() {
         )
         .unwrap();
     let mut server = Server::new(false);
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         method::INITIALIZE,
-        json!({
-            "protocolVersion":1,"client":{"name":"test","version":"1"},
-            "capabilities":{},
-            "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
-        }),
-    ));
-    let response = server.handle(message(
-        Some(2),
+        initialize_params(
+            json!({}),
+            Some(json!([{"uri":workspace_uri.clone(),"trusted":true}])),
+        ),
+    );
+    let response = server.request(
+        2,
         method::GET_NOTE_OPTIONS,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),
                 "workspaceUri":workspace_uri}),
-    ));
+    );
     assert_eq!(response[0]["result"]["categories"], json!(["work"]));
     assert_eq!(response[0]["result"]["templates"], json!(["daily"]));
 }
@@ -1297,26 +1298,24 @@ fn export_preflight_rejects_unmanaged_destination_before_render_hooks() {
     std::fs::write(destination.join("owned-by-user.txt"), "keep").unwrap();
     let destination_uri = fleximark_service::path_to_file_uri(&destination).unwrap();
     let mut server = Server::new(false);
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         method::INITIALIZE,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},
-                "capabilities":{},"workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]}),
-    ));
-    let opened = server.handle(message(
-        Some(2),
-        method::OPEN_DOCUMENT,
-        json!({"daemonInstanceId":server.registry.daemon_instance_id(),
-                "uri":document_uri,"documentVersion":1,"text":"# Safe\n"}),
-    ));
+        initialize_params(
+            json!({}),
+            Some(json!([{"uri":workspace_uri.clone(),"trusted":true}])),
+        ),
+    );
+    let daemon = server.registry.daemon_instance_id().to_owned();
+    let opened = open_rpc_document(&mut server, 2, &daemon, &document_uri, "# Safe\n");
     let session = opened[0]["result"]["documentSessionId"].as_str().unwrap();
-    let response = server.handle(message(
-        Some(3),
+    let response = server.request(
+        3,
         method::EXECUTE_COMMAND,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),"command":"exportHtml",
                 "documentSessionId":session,"expectedDocumentVersion":1,
                 "workspaceUri":workspace_uri,"destinationUri":destination_uri}),
-    ));
+    );
     assert!(
         response[0]["error"]["message"]
             .as_str()
@@ -1333,64 +1332,54 @@ fn export_preflight_rejects_unmanaged_destination_before_render_hooks() {
 #[test]
 fn completion_uses_authoritative_open_document_and_position() {
     let mut server = Server::new(true);
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         "initialize",
         json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
-    ));
-    server.handle(message(
-        Some(2),
-        method::INITIALIZE,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},"capabilities":{}}),
-    ));
-    server.handle(message(
-        None,
+    );
+    server.request(2, method::INITIALIZE, initialize_params(json!({}), None));
+    server.notify(
         "textDocument/didOpen",
         json!({"textDocument":{"uri":"file:///completion.md","version":7,"text":"::"}}),
-    ));
-    let completion = server.handle(message(
-        Some(3),
+    );
+    let completion = server.request(
+        3,
         "textDocument/completion",
         json!({"textDocument":{"uri":"file:///completion.md"},"position":{"line":0,"character":2}}),
-    ));
+    );
     assert_eq!(
         completion[0]["result"]["items"][0]["label"],
         "info admonition"
     );
-    let attach = server.handle(message(
-        Some(4),
+    let attach = server.request(
+        4,
         method::ATTACH_DOCUMENT,
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),
                 "uri":"file:///completion.md","expectedDocumentVersion":7,
                 "contentHash":content_hash("::")}),
-    ));
+    );
     assert!(attach[0]["result"]["documentSessionId"].is_string());
-    let invalid = server.handle(message(
-        Some(5),
+    let invalid = server.request(
+        5,
         "textDocument/completion",
         json!({"textDocument":{"uri":"file:///completion.md"},"position":{"line":1,"character":0}}),
-    ));
+    );
     assert_eq!(invalid[0]["error"]["code"], -32602);
 }
 
 #[test]
 fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     let mut server = Server::new(true);
-    server.handle(message(
-        Some(1),
+    server.request(
+        1,
         "initialize",
         json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
-    ));
-    server.handle(message(
-        Some(2),
-        method::INITIALIZE,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},"capabilities":{}}),
-    ));
-    let opened = server.handle(message(
-            None,
+    );
+    server.request(2, method::INITIALIZE, initialize_params(json!({}), None));
+    let opened = server.notify(
             "textDocument/didOpen",
             json!({"textDocument":{"uri":"file:///features.md","version":7,"text":"# Héllo\n\n<div>x</div>\n"}}),
-        ));
+        );
     let published = opened
         .iter()
         .find(|item| item["method"] == "textDocument/publishDiagnostics")
@@ -1398,39 +1387,39 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     assert_eq!(published["params"]["version"], 7);
     assert_eq!(published["params"]["diagnostics"][0]["code"], "raw-html");
 
-    let hover = server.handle(message(
-        Some(3),
+    let hover = server.request(
+        3,
         "textDocument/hover",
         json!({"textDocument":{"uri":"file:///features.md"},"position":{"line":0,"character":3}}),
-    ));
+    );
     assert!(
         hover[0]["result"]["contents"]["value"]
             .as_str()
             .unwrap()
             .contains("Heading")
     );
-    let symbols = server.handle(message(
-        Some(4),
+    let symbols = server.request(
+        4,
         "textDocument/documentSymbol",
         json!({"textDocument":{"uri":"file:///features.md"}}),
-    ));
+    );
     assert_eq!(symbols[0]["result"][0]["name"], "Héllo");
     assert!(
         symbols[0]["result"][0]["range"]["start"]
             .get("encoding")
             .is_none()
     );
-    let diagnostics = server.handle(message(
-        Some(5),
+    let diagnostics = server.request(
+        5,
         "textDocument/diagnostic",
         json!({"textDocument":{"uri":"file:///features.md"}}),
-    ));
+    );
     let diagnostic = diagnostics[0]["result"]["items"][0].clone();
-    let actions = server.handle(message(
-            Some(6),
+    let actions = server.request(
+            6,
             "textDocument/codeAction",
             json!({"textDocument":{"uri":"file:///features.md"},"range":diagnostic["range"],"context":{"diagnostics":[diagnostic]}}),
-        ));
+        );
     assert_eq!(actions[0]["result"][0]["kind"], "quickfix");
     assert_eq!(
         actions[0]["result"][0]["edit"]["changes"]["file:///features.md"][0]["newText"],
@@ -1443,7 +1432,7 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
         "textDocument/diagnostic",
         "textDocument/codeAction",
     ] {
-        let invalid = server.handle(message(Some(7), method, json!({})));
+        let invalid = server.request(7, method, json!({}));
         assert_eq!(invalid.len(), 1, "{method} dropped its request");
         assert_eq!(invalid[0]["error"]["code"], -32602, "{method}");
     }
@@ -1658,24 +1647,17 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
 #[test]
 fn standalone_rpc_uses_explicit_base_version_and_hash() {
     let mut server = Server::new(false);
-    let daemon = initialize_daemon(
-        &mut server,
-        json!({"protocolVersion":1,"client":{"name":"test","version":"1"},"capabilities":{}}),
-    );
-    let opened = server.handle(message(
-            Some(2),
-            method::OPEN_DOCUMENT,
-            json!({"daemonInstanceId":daemon.clone(),"uri":"file:///rpc.md","documentVersion":1,"text":"old\n"}),
-        ));
+    let daemon = initialize_daemon(&mut server, initialize_params(json!({}), None));
+    let opened = open_rpc_document(&mut server, 2, &daemon, "file:///rpc.md", "old\n");
     let session = result_string(&opened, "documentSessionId");
-    let changed = server.handle(message(
-        Some(3),
+    let changed = server.request(
+        3,
         method::CHANGE_DOCUMENT,
         json!({
             "daemonInstanceId":daemon,"documentSessionId":session,
             "baseDocumentVersion":1,"baseContentHash":content_hash("old\n"),
             "documentVersion":4,"text":"new\n"
         }),
-    ));
+    );
     assert_eq!(changed[0]["result"]["documentVersion"], 4);
 }

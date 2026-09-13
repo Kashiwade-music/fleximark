@@ -67,6 +67,15 @@ fn document() -> Document {
     document
 }
 
+fn signing_public_key(signing_key: &SigningKey) -> String {
+    signing_key
+        .verifying_key()
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn runtime(
     handler: impl Fn(
         HookRequest,
@@ -93,6 +102,22 @@ fn document_response(document: &Document) -> Result<RuntimeOutput, RuntimeError>
     successful_response(HookResponse::Document {
         candidate: CandidateDocument::from_document(document),
     })
+}
+
+fn candidate_block(
+    document_version: u64,
+    uri: &str,
+    block: fleximark_model::Block,
+) -> fleximark_plugin_sdk::CandidateBlock {
+    CandidateDocument::from_document(&Document {
+        schema_version: 1,
+        document_version,
+        uri: DocumentUri(uri.into()),
+        metadata: Default::default(),
+        blocks: vec![block],
+    })
+    .blocks
+    .remove(0)
 }
 
 fn observing_runtime(observed: Arc<Mutex<Option<SandboxPolicy>>>) -> Arc<dyn PluginRuntime> {
@@ -166,6 +191,16 @@ fn wasm_request() -> HookRequest {
         text: String::new(),
         edit_map: Vec::new(),
     }
+}
+
+fn cancel_after(delay: Duration) -> CancellationToken {
+    let cancellation = CancellationToken::default();
+    let trigger = cancellation.clone();
+    thread::spawn(move || {
+        thread::sleep(delay);
+        trigger.cancel();
+    });
+    cancellation
 }
 
 fn special_request(html: &str) -> HookRequest {
@@ -270,18 +305,9 @@ fn passing_hook_runtime(ran: Arc<AtomicBool>) -> Arc<dyn PluginRuntime> {
             HookRequest::TransformBlock {
                 document_version,
                 block,
-            } => {
-                let wrapper = Document {
-                    schema_version: 1,
-                    document_version,
-                    uri: DocumentUri("file:///hook-matrix.md".into()),
-                    metadata: Default::default(),
-                    blocks: vec![block],
-                };
-                HookResponse::Block {
-                    candidate: CandidateDocument::from_document(&wrapper).blocks.remove(0),
-                }
-            }
+            } => HookResponse::Block {
+                candidate: candidate_block(document_version, "file:///hook-matrix.md", block),
+            },
             HookRequest::ExtendRenderModel { .. } => HookResponse::RenderAnnotations {
                 annotations: BTreeMap::from([("mode".into(), "test".into())]),
             },
@@ -328,14 +354,8 @@ fn committing_hook_runtime() -> Arc<dyn PluginRuntime> {
                 document_version,
                 block,
             } => {
-                let wrapper = Document {
-                    schema_version: 1,
-                    document_version,
-                    uri: DocumentUri("file:///hook-commit.md".into()),
-                    metadata: Default::default(),
-                    blocks: vec![block],
-                };
-                let mut candidate = CandidateDocument::from_document(&wrapper).blocks.remove(0);
+                let mut candidate =
+                    candidate_block(document_version, "file:///hook-commit.md", block);
                 candidate
                     .attributes
                     .insert("data-prefix".into(), "block".into());
@@ -703,14 +723,7 @@ fn transform_block_creation_keys_are_scoped_to_each_invocation() {
             let HookRequest::TransformBlock { block, .. } = request else {
                 unreachable!()
             };
-            let document = Document {
-                schema_version: 1,
-                document_version: 1,
-                uri: DocumentUri("file:///blocks.md".into()),
-                metadata: Default::default(),
-                blocks: vec![block],
-            };
-            let mut candidate = CandidateDocument::from_document(&document).blocks.remove(0);
+            let mut candidate = candidate_block(1, "file:///blocks.md", block);
             candidate.identity = CandidateIdentity::Created {
                 key: fleximark_plugin_sdk::CreationKey("same-local-key".into()),
             };
@@ -747,14 +760,8 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
             unreachable!()
         };
         if invocations_by_runtime.fetch_add(1, Ordering::AcqRel) == 0 {
-            let wrapper = Document {
-                schema_version: 1,
-                document_version,
-                uri: DocumentUri("file:///block-rollback.md".into()),
-                metadata: Default::default(),
-                blocks: vec![block],
-            };
-            let mut candidate = CandidateDocument::from_document(&wrapper).blocks.remove(0);
+            let mut candidate =
+                candidate_block(document_version, "file:///block-rollback.md", block);
             candidate
                 .attributes
                 .insert("data-partial".to_owned(), "must-rollback".to_owned());
@@ -779,15 +786,8 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
             .lock()
             .unwrap()
             .push(block.attributes.clone());
-        let wrapper = Document {
-            schema_version: 1,
-            document_version,
-            uri: DocumentUri("file:///block-rollback.md".into()),
-            metadata: Default::default(),
-            blocks: vec![block],
-        };
         successful_response(HookResponse::Block {
-            candidate: CandidateDocument::from_document(&wrapper).blocks.remove(0),
+            candidate: candidate_block(document_version, "file:///block-rollback.md", block),
         })
     });
     let mut host = trusted_host(ExecutionLimits::default());
@@ -939,18 +939,8 @@ fn assert_verified_package_rejections_are_retryable() {
     let signature = signing_key.sign(manifest.as_bytes()).to_bytes();
     let mut modified_signature = signature;
     modified_signature[0] ^= 1;
-    let public_key = signing_key
-        .verifying_key()
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let wrong_public_key = SigningKey::from_bytes(&[8; 32])
-        .verifying_key()
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let public_key = signing_public_key(&signing_key);
+    let wrong_public_key = signing_public_key(&SigningKey::from_bytes(&[8; 32]));
     let mut host = PluginHost::configured(
         ExecutionLimits::default(),
         HostPolicy {
@@ -1071,12 +1061,7 @@ fn verified_registration_rejects_noncanonical_config_order_without_mutating_the_
     let signing_key = SigningKey::from_bytes(&[19; 32]);
     let signature = signing_key.sign(manifest.as_bytes()).to_bytes();
     let manifest_hash = sha256(manifest.as_bytes());
-    let public_key = signing_key
-        .verifying_key()
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let public_key = signing_public_key(&signing_key);
     let mut host = PluginHost::configured(
         ExecutionLimits::default(),
         HostPolicy {
@@ -1252,12 +1237,7 @@ fn active_document_version_cancellation_interrupts_publication() {
             Err(RuntimeError::Trap("interrupted".into()))
         }),
     );
-    let cancellation = CancellationToken::default();
-    let trigger = cancellation.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(10));
-        trigger.cancel();
-    });
+    let cancellation = cancel_after(Duration::from_millis(10));
     let result = host
         .transform_document("hello\n", &document(), &cancellation)
         .unwrap();
@@ -1298,12 +1278,7 @@ fn wasmtime_runtime_enforces_store_memory_limit() {
 #[test]
 fn wasmtime_runtime_interrupts_on_document_cancellation() {
     let runtime = component_runtime();
-    let cancellation = CancellationToken::default();
-    let trigger = cancellation.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(10));
-        trigger.cancel();
-    });
+    let cancellation = cancel_after(Duration::from_millis(10));
     let result = runtime.invoke(
         special_request("__spin__"),
         SandboxPolicy {

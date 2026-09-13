@@ -12,13 +12,13 @@ use fleximark_protocol::{
     ClientCapabilities, ClientInfo, CommandMessage, CommandResult, CreatePreviewParams,
     CreatePreviewResult, DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams,
     GetNoteOptionsResult, InitializeParams, InitializeResult, MAX_SAFE_INTEGER, METHOD_SPECS,
-    MethodDirection, MethodKind, NavigationEntry, NodeId, PROTOCOL_VERSION, PreviewEventParams,
-    PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams, ReloadPreviewParams,
-    RenderNavigationEvent, RenderParams, RequestFullTextParams, RpcChangeDocumentParams,
-    RpcCloseDocumentParams, RpcId, RpcOpenDocumentParams, ServerCapabilities,
-    ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
-    SourcePosition, SourceRange, TextPosition, TextRange, TextSelection, WireType, WorkspaceGrant,
-    WorkspaceStatus,
+    MethodDirection, MethodKind, MethodSpec, NavigationEntry, NodeId, PROTOCOL_VERSION,
+    PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
+    ReloadPreviewParams, RenderNavigationEvent, RenderParams, RequestFullTextParams,
+    RpcChangeDocumentParams, RpcCloseDocumentParams, RpcId, RpcOpenDocumentParams,
+    ServerCapabilities, ServerPreviewEventParams, SetSelectionParams, SetViewportParams,
+    SourceNavigationEvent, SourcePosition, SourceRange, TextPosition, TextRange, TextSelection,
+    WireType, WorkspaceGrant, WorkspaceStatus,
 };
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
@@ -296,6 +296,12 @@ fn schema_ref(wire_type: WireType) -> Value {
     }
 }
 
+fn local_ref(reference: &str) -> Result<&str, String> {
+    reference
+        .strip_prefix("#/$defs/")
+        .ok_or_else(|| format!("unsupported schema reference: {reference}"))
+}
+
 fn method_variant(base: &str, method: &str, params: Value) -> Value {
     json!({ "allOf": [
         { "$ref": format!("#/$defs/{base}") },
@@ -303,45 +309,41 @@ fn method_variant(base: &str, method: &str, params: Value) -> Value {
     ] })
 }
 
-fn request_variants() -> Vec<Value> {
+fn method_variants(
+    base: &str,
+    kind: MethodKind,
+    params: impl Fn(&MethodSpec) -> Option<Value>,
+) -> Vec<Value> {
     METHOD_SPECS
         .iter()
-        .filter(|spec| spec.kind == MethodKind::Request)
-        .map(|spec| {
-            method_variant(
-                "requestBase",
-                spec.name,
-                schema_ref(spec.client_to_server_params_type.expect("request params")),
-            )
-        })
+        .filter(|spec| spec.kind == kind)
+        .filter_map(|spec| params(spec).map(|params| method_variant(base, spec.name, params)))
         .collect()
+}
+
+fn request_variants() -> Vec<Value> {
+    method_variants("requestBase", MethodKind::Request, |spec| {
+        Some(schema_ref(
+            spec.client_to_server_params_type.expect("request params"),
+        ))
+    })
 }
 
 fn notification_variants(direction: MethodDirection) -> Vec<Value> {
-    METHOD_SPECS
-        .iter()
-        .filter(|spec| spec.kind == MethodKind::Notification)
-        .filter_map(|spec| {
-            let wire_type = match direction {
-                MethodDirection::ClientToServer => spec.client_to_server_params_type,
-                MethodDirection::ServerToClient => spec.server_to_client_params_type,
-                MethodDirection::Bidirectional => unreachable!(),
-            }?;
-            Some(method_variant(
-                "notificationBase",
-                spec.name,
-                schema_ref(wire_type),
-            ))
-        })
-        .collect()
+    method_variants("notificationBase", MethodKind::Notification, |spec| {
+        match direction {
+            MethodDirection::ClientToServer => spec.client_to_server_params_type,
+            MethodDirection::ServerToClient => spec.server_to_client_params_type,
+            MethodDirection::Bidirectional => unreachable!(),
+        }
+        .map(schema_ref)
+    })
 }
 
 fn combined_notification_variants() -> Vec<Value> {
-    METHOD_SPECS
-        .iter()
-        .filter(|spec| spec.kind == MethodKind::Notification)
-        .map(|spec| {
-            let params = match (
+    method_variants("notificationBase", MethodKind::Notification, |spec| {
+        Some(
+            match (
                 spec.client_to_server_params_type,
                 spec.server_to_client_params_type,
             ) {
@@ -350,10 +352,9 @@ fn combined_notification_variants() -> Vec<Value> {
                 }
                 (Some(params), None) | (None, Some(params)) => schema_ref(params),
                 (None, None) => json!({ "type": "null" }),
-            };
-            method_variant("notificationBase", spec.name, params)
-        })
-        .collect()
+            },
+        )
+    })
 }
 
 fn root_schema(value: &Value) -> Value {
@@ -386,8 +387,24 @@ fn shared_definitions(named: &[NamedSchema]) -> Result<Map<String, Value>, Strin
 }
 
 fn apply_semantic_overlays(definitions: &mut Map<String, Value>) {
-    if let Some(style) = definitions.get_mut("RenderStyle") {
-        style["properties"]["fingerprint"]["pattern"] = json!("^[0-9a-f]{64}$");
+    for (schema, property, keyword, value) in [
+        (
+            "RenderStyle",
+            "fingerprint",
+            "pattern",
+            json!("^[0-9a-f]{64}$"),
+        ),
+        ("NavigationEntry", "nodeId", "minLength", json!(1)),
+        (
+            "PatchPrecondition",
+            "currentParentId",
+            "minLength",
+            json!(1),
+        ),
+    ] {
+        if let Some(schema) = definitions.get_mut(schema) {
+            schema["properties"][property][keyword] = value;
+        }
     }
     if let Some(asset) = definitions.get_mut("RenderAsset") {
         asset["properties"]["reference"]["pattern"] = json!("^fleximark-asset:[0-9a-f]{64}$");
@@ -398,16 +415,10 @@ fn apply_semantic_overlays(definitions: &mut Map<String, Value>) {
         asset["properties"]["contentHash"]["pattern"] = json!("^[0-9a-f]{64}$");
         asset["properties"]["data"]["contentEncoding"] = json!("base64");
     }
-    if let Some(navigation) = definitions.get_mut("NavigationEntry") {
-        navigation["properties"]["nodeId"]["minLength"] = json!(1);
-    }
     if let Some(snapshot) = definitions.get_mut("RenderSnapshot") {
         snapshot["properties"]["nodeIds"]["minItems"] = json!(1);
         snapshot["properties"]["nodeIds"]["uniqueItems"] = json!(true);
         snapshot["properties"]["nodeIds"]["items"]["minLength"] = json!(1);
-    }
-    if let Some(precondition) = definitions.get_mut("PatchPrecondition") {
-        precondition["properties"]["currentParentId"]["minLength"] = json!(1);
     }
     for name in ["PreviewNavigationEvent", "RenderNavigationEvent"] {
         if let Some(schema) = definitions.get_mut(name) {
@@ -440,43 +451,45 @@ fn apply_semantic_overlays(definitions: &mut Map<String, Value>) {
     }
 }
 
-fn add_nonempty_node_ids(schema: &mut Value) {
+fn visit_schema_mut(schema: &mut Value, visitor: &mut impl FnMut(&mut Map<String, Value>)) {
     match schema {
-        Value::Array(items) => items.iter_mut().for_each(add_nonempty_node_ids),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| visit_schema_mut(item, visitor)),
         Value::Object(object) => {
-            if let Some(Value::Object(properties)) = object.get_mut("properties") {
-                for (name, value) in properties {
-                    if matches!(
-                        name.as_str(),
-                        "nodeId" | "parentId" | "currentParentId" | "previewSessionId"
-                    ) {
-                        value["minLength"] = json!(1);
-                    } else if matches!(name.as_str(), "nodeIds" | "contentNodeIds") {
-                        value["items"]["minLength"] = json!(1);
-                        value["uniqueItems"] = json!(true);
-                    }
-                    add_nonempty_node_ids(value);
-                }
-            }
-            for value in object.values_mut() {
-                add_nonempty_node_ids(value);
-            }
+            visitor(object);
+            object
+                .values_mut()
+                .for_each(|value| visit_schema_mut(value, visitor));
         }
         _ => {}
     }
 }
 
+fn add_nonempty_node_ids(schema: &mut Value) {
+    visit_schema_mut(schema, &mut |object| {
+        if let Some(Value::Object(properties)) = object.get_mut("properties") {
+            for (name, value) in properties {
+                if matches!(
+                    name.as_str(),
+                    "nodeId" | "parentId" | "currentParentId" | "previewSessionId"
+                ) {
+                    value["minLength"] = json!(1);
+                } else if matches!(name.as_str(), "nodeIds" | "contentNodeIds") {
+                    value["items"]["minLength"] = json!(1);
+                    value["uniqueItems"] = json!(true);
+                }
+            }
+        }
+    });
+}
+
 fn set_string_max_length(schema: &mut Value, maximum: u64) {
-    if let Some(object) = schema.as_object_mut() {
+    visit_schema_mut(schema, &mut |object| {
         if schema_declares_type(object, "string") {
             object.insert("maxLength".to_owned(), json!(maximum));
         }
-    }
-    if let Some(variants) = schema.get_mut("oneOf").and_then(Value::as_array_mut) {
-        variants
-            .iter_mut()
-            .for_each(|variant| set_string_max_length(variant, maximum));
-    }
+    });
 }
 
 fn schema_declares_type(object: &Map<String, Value>, expected: &str) -> bool {
@@ -513,9 +526,7 @@ fn flatten_tagged_schema(
                 .filter(|(_, properties)| properties.contains_key("type"))
                 .map(|(reference, _)| reference.to_owned());
             if let Some(reference) = tagged_reference {
-                let name = reference
-                    .strip_prefix("#/$defs/")
-                    .ok_or_else(|| format!("unsupported schema reference: {reference}"))?;
+                let name = local_ref(&reference)?;
                 let mut merged = definitions
                     .get(name)
                     .cloned()
@@ -574,7 +585,7 @@ fn contract_root(item: &NamedSchema, definitions: &Map<String, Value>) -> Result
         let mut result = if let Some(reference) = root
             .get("$ref")
             .and_then(Value::as_str)
-            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .and_then(|reference| local_ref(reference).ok())
         {
             definitions
                 .get(reference)
@@ -764,46 +775,28 @@ fn generate_typescript(named: &[NamedSchema]) -> Result<String, String> {
             schema_to_typescript(&schema)?
         ));
     }
-    output.push_str("export interface CustomRequestMap {\n");
-    for spec in METHOD_SPECS
-        .iter()
-        .filter(|spec| spec.kind == MethodKind::Request)
-    {
-        let params = spec
-            .client_to_server_params_type
-            .expect("request params")
-            .typescript_name();
-        let result = spec.result_type.unwrap_or(WireType::Unit).typescript_name();
-        output.push_str(&format!(
-            "  {:?}: {{ params: {params}; result: {result} }};\n",
-            spec.name
-        ));
-    }
-    output.push_str("}\n\nexport interface ClientNotificationMap {\n");
-    for spec in METHOD_SPECS {
-        if spec.kind == MethodKind::Notification {
-            if let Some(params) = spec.client_to_server_params_type {
-                output.push_str(&format!(
-                    "  {:?}: {};\n",
-                    spec.name,
-                    params.typescript_name()
-                ));
-            }
-        }
-    }
-    output.push_str("}\n\nexport interface FleximarkServerNotificationMap {\n");
-    for spec in METHOD_SPECS {
-        if spec.kind == MethodKind::Notification {
-            if let Some(params) = spec.server_to_client_params_type {
-                output.push_str(&format!(
-                    "  {:?}: {};\n",
-                    spec.name,
-                    params.typescript_name()
-                ));
-            }
-        }
-    }
-    output.push_str("}\n\n");
+    write_typescript_map(&mut output, "CustomRequestMap", |spec| {
+        (spec.kind == MethodKind::Request).then(|| {
+            let params = spec
+                .client_to_server_params_type
+                .expect("request params")
+                .typescript_name();
+            let result = spec.result_type.unwrap_or(WireType::Unit).typescript_name();
+            format!("{{ params: {params}; result: {result} }}")
+        })
+    });
+    write_typescript_map(&mut output, "ClientNotificationMap", |spec| {
+        (spec.kind == MethodKind::Notification)
+            .then_some(spec.client_to_server_params_type)
+            .flatten()
+            .map(|params| params.typescript_name().to_owned())
+    });
+    write_typescript_map(&mut output, "FleximarkServerNotificationMap", |spec| {
+        (spec.kind == MethodKind::Notification)
+            .then_some(spec.server_to_client_params_type)
+            .flatten()
+            .map(|params| params.typescript_name().to_owned())
+    });
 
     let mut contract_definitions = shared;
     contract_definitions.insert("unit".to_owned(), json!({ "type": "null" }));
@@ -823,25 +816,21 @@ fn generate_typescript(named: &[NamedSchema]) -> Result<String, String> {
                 .map(|index| (name.clone(), json!(index)))
         })
         .collect::<Result<Map<_, _>, _>>()?;
-    output.push_str("export const VALIDATOR_TYPES = ");
-    output.push_str(&serde_json::to_string(&compiler.pool).map_err(|error| error.to_string())?);
-    output.push_str(" as const;\n\nexport const TYPE_VALIDATORS = ");
-    output.push_str(
-        &serde_json::to_string(&Value::Object(type_validators.clone()))
-            .map_err(|error| error.to_string())?,
-    );
+    write_json_const(&mut output, "VALIDATOR_TYPES", &compiler.pool)?;
+    write_json_const(&mut output, "TYPE_VALIDATORS", &type_validators)?;
     let (requests, client_notifications, server_notifications) =
         method_validator_descriptors(&type_validators)?;
-    for (name, value) in [
+    for (name, value) in &[
         ("REQUEST_VALIDATORS", requests),
         ("CLIENT_NOTIFICATION_VALIDATORS", client_notifications),
         ("SERVER_NOTIFICATION_VALIDATORS", server_notifications),
     ] {
-        output.push_str(&format!(" as const;\n\nexport const {name} = "));
-        output.push_str(&serde_json::to_string(&value).map_err(|error| error.to_string())?);
+        write_json_const(&mut output, name, value)?;
     }
-    output.push_str(" as const;\n\nexport const WIRE_SCHEMAS = {\n");
-    for wire_type in all_wire_types() {
+    output.push_str("export const WIRE_SCHEMAS = {\n");
+    let mut wire_types = WireType::ALL.to_vec();
+    wire_types.sort_by_key(|wire_type| wire_type.wire_name());
+    for wire_type in wire_types {
         output.push_str(&format!(
             "  {:?}: {:?},\n",
             wire_type.wire_name(),
@@ -860,9 +849,36 @@ fn generate_typescript(named: &[NamedSchema]) -> Result<String, String> {
     Ok(output)
 }
 
+fn write_typescript_map(
+    output: &mut String,
+    name: &str,
+    entry: impl Fn(&MethodSpec) -> Option<String>,
+) {
+    output.push_str(&format!("export interface {name} {{\n"));
+    for spec in METHOD_SPECS {
+        if let Some(value) = entry(spec) {
+            output.push_str(&format!("  {:?}: {value};\n", spec.name));
+        }
+    }
+    output.push_str("}\n\n");
+}
+
+fn write_json_const<T: serde::Serialize>(
+    output: &mut String,
+    name: &str,
+    value: &T,
+) -> Result<(), String> {
+    output.push_str(&format!("export const {name} = "));
+    output.push_str(&serde_json::to_string(value).map_err(|error| error.to_string())?);
+    output.push_str(" as const;\n\n");
+    Ok(())
+}
+
+type MethodValidatorDescriptors = (Map<String, Value>, Map<String, Value>, Map<String, Value>);
+
 fn method_validator_descriptors(
     type_validators: &Map<String, Value>,
-) -> Result<(Value, Value, Value), String> {
+) -> Result<MethodValidatorDescriptors, String> {
     let index = |wire_type: WireType| -> Result<usize, String> {
         type_validators
             .get(wire_type.schema_name())
@@ -890,11 +906,7 @@ fn method_validator_descriptors(
             }
         }
     }
-    Ok((
-        Value::Object(requests),
-        Value::Object(client_notifications),
-        Value::Object(server_notifications),
-    ))
+    Ok((requests, client_notifications, server_notifications))
 }
 
 struct DescriptorCompiler<'a> {
@@ -916,9 +928,8 @@ impl<'a> DescriptorCompiler<'a> {
 
     fn compile(&mut self, schema: &Value) -> Result<usize, String> {
         if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
-            let name = reference
-                .strip_prefix("#/$defs/")
-                .ok_or_else(|| format!("unsupported validator reference: {reference}"))?;
+            let name = local_ref(reference)
+                .map_err(|_| format!("unsupported validator reference: {reference}"))?;
             if !self.resolving.insert(name.to_owned()) {
                 return Err(format!("recursive wire DTOs are not supported: {name}"));
             }
@@ -932,14 +943,7 @@ impl<'a> DescriptorCompiler<'a> {
             return Ok(index);
         }
         let descriptor = self.descriptor(schema)?;
-        let key = serde_json::to_string(&descriptor).map_err(|error| error.to_string())?;
-        if let Some(index) = self.interned.get(&key) {
-            return Ok(*index);
-        }
-        let index = self.pool.len();
-        self.pool.push(descriptor);
-        self.interned.insert(key, index);
-        Ok(index)
+        Ok(self.intern(descriptor))
     }
 
     fn descriptor(&mut self, schema: &Value) -> Result<Value, String> {
@@ -976,27 +980,12 @@ impl<'a> DescriptorCompiler<'a> {
         match object.get("type").and_then(Value::as_str) {
             Some("null") => Ok(json!("z")),
             Some("boolean") => Ok(json!("b")),
-            Some("integer") => Ok(with_optional_tail(
-                vec![json!("i")],
-                [
-                    object.get("minimum").cloned(),
-                    object.get("maximum").cloned(),
-                ],
-            )),
-            Some("number") => Ok(with_optional_tail(
-                vec![json!("n")],
-                [
-                    object.get("minimum").cloned(),
-                    object.get("maximum").cloned(),
-                ],
-            )),
-            Some("string") => Ok(with_optional_tail(
-                vec![json!("s")],
-                [
-                    object.get("pattern").cloned(),
-                    object.get("minLength").cloned(),
-                    object.get("maxLength").cloned(),
-                ],
+            Some("integer") => Ok(constrained_descriptor("i", object, ["minimum", "maximum"])),
+            Some("number") => Ok(constrained_descriptor("n", object, ["minimum", "maximum"])),
+            Some("string") => Ok(constrained_descriptor(
+                "s",
+                object,
+                ["pattern", "minLength", "maxLength"],
             )),
             Some("array") => {
                 let item = object
@@ -1024,16 +1013,7 @@ impl<'a> DescriptorCompiler<'a> {
     }
 
     fn object_descriptor(&mut self, object: &Map<String, Value>) -> Result<Value, String> {
-        let required = object
-            .get("required")
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default();
+        let required = required_properties(object);
         let mut required_fields = Map::new();
         let mut optional_fields = Map::new();
         if let Some(properties) = object.get("properties").and_then(Value::as_object) {
@@ -1092,6 +1072,17 @@ fn with_optional_tail<const N: usize>(
     Value::Array(values)
 }
 
+fn constrained_descriptor<const N: usize>(
+    opcode: &str,
+    schema: &Map<String, Value>,
+    constraints: [&str; N],
+) -> Value {
+    with_optional_tail(
+        vec![json!(opcode)],
+        constraints.map(|key| schema.get(key).cloned()),
+    )
+}
+
 fn expand_type_refs(
     schema: &Value,
     definitions: &Map<String, Value>,
@@ -1100,9 +1091,7 @@ fn expand_type_refs(
     stack: &mut BTreeSet<String>,
 ) -> Result<Value, String> {
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
-        let name = reference
-            .strip_prefix("#/$defs/")
-            .ok_or_else(|| format!("unsupported schema reference: {reference}"))?;
+        let name = local_ref(reference)?;
         if preserve_exported {
             if let Some(ts_name) = exported.get(name) {
                 return Ok(json!({ "x-typescript-ref": ts_name }));
@@ -1134,24 +1123,6 @@ fn expand_type_refs(
         _ => {}
     }
     Ok(expanded)
-}
-
-fn all_wire_types() -> Vec<WireType> {
-    let mut types = BTreeMap::new();
-    types.insert("Unit", WireType::Unit);
-    for spec in METHOD_SPECS {
-        for wire_type in [
-            spec.client_to_server_params_type,
-            spec.server_to_client_params_type,
-            spec.result_type,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            types.insert(wire_type.wire_name(), wire_type);
-        }
-    }
-    types.into_values().collect()
 }
 
 fn option_wire_name(value: Option<WireType>) -> String {
@@ -1193,21 +1164,14 @@ fn schema_to_typescript(schema: &Value) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(" | "));
     }
-    for union_key in ["oneOf", "anyOf"] {
+    for (union_key, separator) in [("oneOf", " | "), ("anyOf", " | "), ("allOf", " & ")] {
         if let Some(Value::Array(items)) = object.get(union_key) {
             return items
                 .iter()
                 .map(schema_to_typescript)
                 .collect::<Result<Vec<_>, _>>()
-                .map(|items| items.join(" | "));
+                .map(|items| items.join(separator));
         }
-    }
-    if let Some(Value::Array(items)) = object.get("allOf") {
-        return items
-            .iter()
-            .map(schema_to_typescript)
-            .collect::<Result<Vec<_>, _>>()
-            .map(|items| items.join(" & "));
     }
     match object.get("type") {
         Some(Value::Array(types)) => Ok(types
@@ -1232,16 +1196,7 @@ fn schema_to_typescript(schema: &Value) -> Result<String, String> {
 }
 
 fn object_schema_to_typescript(object: &Map<String, Value>) -> Result<String, String> {
-    let required = object
-        .get("required")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<BTreeSet<_>>()
-        })
-        .unwrap_or_default();
+    let required = required_properties(object);
     let mut fields = Vec::new();
     if let Some(properties) = object.get("properties").and_then(Value::as_object) {
         for (name, schema) in properties {
@@ -1268,6 +1223,16 @@ fn object_schema_to_typescript(object: &Map<String, Value>) -> Result<String, St
         }
     }
     Ok(format!("{{ {} }}", fields.join("; ")))
+}
+
+fn required_properties(object: &Map<String, Value>) -> BTreeSet<&str> {
+    object
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
 }
 
 fn primitive_ts(kind: &str) -> &'static str {

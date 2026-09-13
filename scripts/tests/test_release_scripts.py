@@ -25,6 +25,19 @@ import stage_daemon
 import tasks
 
 
+class TemporaryReleaseRootTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def write_bytes(self, relative_path: str, content: bytes) -> Path:
+        path = self.root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return path
+
+
 class PlatformMappingTests(unittest.TestCase):
     def test_target_owner_matches_workflow_matrices(self) -> None:
         expected = [
@@ -77,79 +90,53 @@ class PlatformMappingTests(unittest.TestCase):
             _targets.normalize_arch("riscv64")
 
 
-class StageDaemonTests(unittest.TestCase):
+class StageDaemonTests(TemporaryReleaseRootTests):
     def test_stages_unix_daemon_in_platform_architecture_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "target" / "release" / "fleximarkd"
-            source.parent.mkdir(parents=True)
-            source.write_bytes(b"daemon-binary")
+        self.write_bytes("target/release/fleximarkd", b"daemon-binary")
+        with (
+            patch.object(stage_daemon, "ROOT", self.root),
+            patch.object(stage_daemon.sys, "platform", "linux"),
+            patch.object(stage_daemon.platform, "machine", return_value="aarch64"),
+            patch.object(Path, "chmod") as chmod,
+        ):
+            stage_daemon.stage_daemon()
 
-            with (
-                patch.object(stage_daemon, "ROOT", root),
-                patch.object(stage_daemon.sys, "platform", "linux"),
-                patch.object(
-                    stage_daemon.platform, "machine", return_value="aarch64"
-                ),
-                patch.object(Path, "chmod") as chmod,
-            ):
-                stage_daemon.stage_daemon()
-
-            destination = root / "bin" / "linux-arm64" / "fleximarkd"
-            self.assertEqual(destination.read_bytes(), b"daemon-binary")
-            chmod.assert_called_once_with(0o755)
+        destination = self.root / "bin" / "linux-arm64" / "fleximarkd"
+        self.assertEqual(destination.read_bytes(), b"daemon-binary")
+        chmod.assert_called_once_with(0o755)
 
     def test_stages_windows_daemon_with_exe_suffix(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "target" / "release" / "fleximarkd.exe"
-            source.parent.mkdir(parents=True)
-            source.write_bytes(b"windows-daemon")
+        self.write_bytes("target/release/fleximarkd.exe", b"windows-daemon")
+        with (
+            patch.object(stage_daemon, "ROOT", self.root),
+            patch.object(stage_daemon.sys, "platform", "win32"),
+            patch.object(stage_daemon.platform, "machine", return_value="AMD64"),
+            patch.object(Path, "chmod") as chmod,
+        ):
+            stage_daemon.stage_daemon()
 
-            with (
-                patch.object(stage_daemon, "ROOT", root),
-                patch.object(stage_daemon.sys, "platform", "win32"),
-                patch.object(
-                    stage_daemon.platform, "machine", return_value="AMD64"
-                ),
-                patch.object(Path, "chmod") as chmod,
-            ):
-                stage_daemon.stage_daemon()
-
-            destination = root / "bin" / "win32-x64" / "fleximarkd.exe"
-            self.assertEqual(destination.read_bytes(), b"windows-daemon")
-            chmod.assert_not_called()
+        destination = self.root / "bin" / "win32-x64" / "fleximarkd.exe"
+        self.assertEqual(destination.read_bytes(), b"windows-daemon")
+        chmod.assert_not_called()
 
 
-class ReleaseManifestTests(unittest.TestCase):
+class ReleaseManifestTests(TemporaryReleaseRootTests):
     @unittest.skipUnless(os.name == "posix", "POSIX mode bits are required")
     def test_manifest_normalizes_downloaded_unix_daemon_mode(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            artifact = root / "bin" / "linux-x64" / "fleximarkd"
-            artifact.parent.mkdir(parents=True)
-            artifact.write_bytes(b"downloaded daemon")
-            artifact.chmod(0o644)
-
-            with patch.object(create_release_manifest, "ROOT", root):
-                create_release_manifest.create_manifest()
-
-            self.assertEqual(artifact.stat().st_mode & 0o777, 0o755)
+        artifact = self.write_bytes("bin/linux-x64/fleximarkd", b"downloaded daemon")
+        artifact.chmod(0o644)
+        with patch.object(create_release_manifest, "ROOT", self.root):
+            create_release_manifest.create_manifest()
+        self.assertEqual(artifact.stat().st_mode & 0o777, 0o755)
 
     def test_manifest_does_not_chmod_downloaded_windows_daemon(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            artifact = root / "bin" / "win32-x64" / "fleximarkd.exe"
-            artifact.parent.mkdir(parents=True)
-            artifact.write_bytes(b"downloaded windows daemon")
-
-            with (
-                patch.object(create_release_manifest, "ROOT", root),
-                patch.object(Path, "chmod") as chmod,
-            ):
-                create_release_manifest.create_manifest()
-
-            chmod.assert_not_called()
+        self.write_bytes("bin/win32-x64/fleximarkd.exe", b"downloaded windows daemon")
+        with (
+            patch.object(create_release_manifest, "ROOT", self.root),
+            patch.object(Path, "chmod") as chmod,
+        ):
+            create_release_manifest.create_manifest()
+        chmod.assert_not_called()
 
     def test_require_all_emits_exactly_the_six_supported_daemon_targets(self) -> None:
         expected = [
@@ -160,85 +147,69 @@ class ReleaseManifestTests(unittest.TestCase):
             ("win32", "x64", "bin/win32-x64/fleximarkd.exe"),
             ("win32", "arm64", "bin/win32-arm64/fleximarkd.exe"),
         ]
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            for _, _, relative_path in expected:
-                artifact = root / relative_path
-                artifact.parent.mkdir(parents=True, exist_ok=True)
-                artifact.write_bytes(relative_path.encode())
+        for _, _, relative_path in expected:
+            self.write_bytes(relative_path, relative_path.encode())
+        with patch.object(create_release_manifest, "ROOT", self.root):
+            create_release_manifest.create_manifest(require_all=True)
 
-            with patch.object(create_release_manifest, "ROOT", root):
-                create_release_manifest.create_manifest(require_all=True)
-
-            manifest = json.loads(
-                (root / "bin" / "manifest.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                [
-                    (item["platform"], item["arch"], item["path"])
-                    for item in manifest["artifacts"]
-                ],
-                expected,
-            )
+        manifest = json.loads(
+            (self.root / "bin" / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [
+                (item["platform"], item["arch"], item["path"])
+                for item in manifest["artifacts"]
+            ],
+            expected,
+        )
 
     def test_writes_partial_manifest_with_stable_order_and_content_hashes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            payloads = {
-                "bin/linux-x64/fleximarkd": b"linux daemon",
-                "bin/win32-arm64/fleximarkd.exe": b"windows daemon",
-            }
-            for relative_path, payload in payloads.items():
-                artifact = root / relative_path
-                artifact.parent.mkdir(parents=True, exist_ok=True)
-                artifact.write_bytes(payload)
+        payloads = {
+            "bin/linux-x64/fleximarkd": b"linux daemon",
+            "bin/win32-arm64/fleximarkd.exe": b"windows daemon",
+        }
+        for relative_path, payload in payloads.items():
+            self.write_bytes(relative_path, payload)
+        with patch.object(create_release_manifest, "ROOT", self.root):
+            create_release_manifest.create_manifest()
 
-            with patch.object(create_release_manifest, "ROOT", root):
-                create_release_manifest.create_manifest()
-
-            output = root / "bin" / "manifest.json"
-            self.assertTrue(output.read_bytes().endswith(b"\n"))
-            self.assertEqual(
-                json.loads(output.read_text(encoding="utf-8")),
-                {
-                    "schemaVersion": 1,
-                    "protocolVersion": 1,
-                    "artifacts": [
-                        {
-                            "platform": "linux",
-                            "arch": "x64",
-                            "path": "bin/linux-x64/fleximarkd",
-                            "sha256": hashlib.sha256(
-                                payloads["bin/linux-x64/fleximarkd"]
-                            ).hexdigest(),
-                        },
-                        {
-                            "platform": "win32",
-                            "arch": "arm64",
-                            "path": "bin/win32-arm64/fleximarkd.exe",
-                            "sha256": hashlib.sha256(
-                                payloads["bin/win32-arm64/fleximarkd.exe"]
-                            ).hexdigest(),
-                        },
-                    ],
-                },
-            )
+        output = self.root / "bin" / "manifest.json"
+        self.assertTrue(output.read_bytes().endswith(b"\n"))
+        self.assertEqual(
+            json.loads(output.read_text(encoding="utf-8")),
+            {
+                "schemaVersion": 1,
+                "protocolVersion": 1,
+                "artifacts": [
+                    {
+                        "platform": "linux",
+                        "arch": "x64",
+                        "path": "bin/linux-x64/fleximarkd",
+                        "sha256": hashlib.sha256(
+                            payloads["bin/linux-x64/fleximarkd"]
+                        ).hexdigest(),
+                    },
+                    {
+                        "platform": "win32",
+                        "arch": "arm64",
+                        "path": "bin/win32-arm64/fleximarkd.exe",
+                        "sha256": hashlib.sha256(
+                            payloads["bin/win32-arm64/fleximarkd.exe"]
+                        ).hexdigest(),
+                    },
+                ],
+            },
+        )
 
     def test_require_all_rejects_a_partial_release_without_writing_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            artifact = root / "bin" / "linux-x64" / "fleximarkd"
-            artifact.parent.mkdir(parents=True)
-            artifact.write_bytes(b"partial")
-
-            with patch.object(create_release_manifest, "ROOT", root):
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "release requires Windows, macOS, and Linux daemons",
-                ):
-                    create_release_manifest.create_manifest(require_all=True)
-
-            self.assertFalse((root / "bin" / "manifest.json").exists())
+        self.write_bytes("bin/linux-x64/fleximarkd", b"partial")
+        with patch.object(create_release_manifest, "ROOT", self.root):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "release requires Windows, macOS, and Linux daemons",
+            ):
+                create_release_manifest.create_manifest(require_all=True)
+        self.assertFalse((self.root / "bin" / "manifest.json").exists())
 
 
 class ToolProcessTests(unittest.TestCase):

@@ -384,9 +384,7 @@ export function suite(): void {
         previewCurrent: (owner, item) =>
           !owner.removed &&
           owner.previews.get(item.previewSessionId) === item &&
-          item.originRpc === candidate.origin.rpc &&
-          item.originGeneration === candidate.origin.generation &&
-          item.originDaemonInstanceId === candidate.origin.daemonInstanceId,
+          item.origin === candidate.origin,
         markReload: (origin, previewSessionId) =>
           queue.markReloadRequired(origin, previewSessionId),
         reload: async () => {
@@ -457,9 +455,7 @@ export function suite(): void {
     const preview = runtime.previews.get("preview");
     assert.ok(preview);
     const replacementRpc = { closed: false } as JsonRpcConnection;
-    preview.originRpc = replacementRpc;
-    preview.originDaemonInstanceId = "replacement-daemon";
-    preview.originGeneration = 2;
+    preview.origin = daemonOrigin(replacementRpc, "replacement-daemon", 2);
     preview.ready = false;
 
     pendingOpen.reject(new Error("browser failed"));
@@ -467,7 +463,7 @@ export function suite(): void {
 
     assert.deepEqual(discarded, ["preview"]);
     assert.equal(runtime.previews.get("preview"), preview);
-    assert.equal(preview.originRpc, replacementRpc);
+    assert.equal(preview.origin.rpc, replacementRpc);
     assert.equal(preview.ready, false);
   });
 
@@ -518,9 +514,10 @@ export function suite(): void {
     messageListener({ type: "ready" });
     const recreated = runtime.previews.get("preview");
     assert.ok(recreated);
-    recreated.originRpc = {} as JsonRpcConnection;
-    recreated.originGeneration += 1;
-    recreated.originDaemonInstanceId = "replacement-daemon";
+    recreated.origin = stubOrigin(
+      "replacement-daemon",
+      recreated.origin.generation + 1,
+    );
     handshake.reject(retiredFailure);
     await Promise.resolve();
     await Promise.resolve();
@@ -604,6 +601,36 @@ export function suite(): void {
     });
   });
 
+  test("does not reload a same-id replacement after an old event post fails", async () => {
+    const post = deferred<boolean>();
+    const oldOrigin = stubOrigin("daemon-old", 1);
+    const replacementOrigin = stubOrigin("daemon-new", 2);
+    const preview = previewState(oldOrigin, {
+      postMessage: () => post.promise,
+    });
+    preview.ready = true;
+    const runtime = runtimeWithPreview(preview);
+    let reloads = 0;
+    const delivery = handlePreviewEventLifecycle(
+      oldOrigin,
+      previewEvent("preview", "full", 2, "daemon-old"),
+      [runtime],
+      new UnmatchedPreviewEventQueue(),
+      {
+        reload: () => {
+          reloads += 1;
+        },
+        navigate: async () => assert.fail("must not navigate"),
+      },
+    );
+
+    preview.origin = replacementOrigin;
+    post.reject(new Error("old delivery failed"));
+
+    assert.equal(await delivery, false);
+    assert.equal(reloads, 0);
+  });
+
   test("reports queue-wide overflow once for every affected origin", async () => {
     let firstCloses = 0;
     let secondCloses = 0;
@@ -668,11 +695,7 @@ export function suite(): void {
     assert.deepEqual(failClosedAfterCleanup, [true, false]);
     assert.equal(queue.usage.failClosed, false);
     const replacement = previewEvent("replacement", "full", 1, "daemon-new");
-    const replacementOrigin = daemonOrigin(
-      {} as JsonRpcConnection,
-      "daemon-new",
-      3,
-    );
+    const replacementOrigin = stubOrigin("daemon-new", 3);
     assert.equal(queue.enqueue(replacementOrigin, replacement), "stored");
     assert.deepEqual(queue.take(replacementOrigin, "replacement")?.events, [
       replacement,
@@ -720,11 +743,7 @@ export function suite(): void {
     for (const failure of ["false", "reject"] as const) {
       const firstPost = deferred<boolean>();
       let initializePosts = 0;
-      const origin = daemonOrigin(
-        { closed: false } as JsonRpcConnection,
-        "daemon",
-        1,
-      );
+      const origin = stubOrigin();
       const preview = previewState(origin, {
         postMessage: () => {
           initializePosts += 1;
@@ -771,11 +790,7 @@ export function suite(): void {
   });
 
   test("retains a publication recovery marker when reload rejects and skips stale initialization", async () => {
-    const origin = daemonOrigin(
-      { closed: false } as JsonRpcConnection,
-      "daemon",
-      1,
-    );
+    const origin = stubOrigin();
     const publicationTypes: string[] = [];
     const preview = previewState(origin, {
       postMessage: (message: { type: string; event?: { type: string } }) => {
@@ -920,11 +935,7 @@ export function suite(): void {
   });
 
   test("reports queued navigation rejection and continues remaining publications in FIFO order", async () => {
-    const origin = daemonOrigin(
-      { closed: false } as JsonRpcConnection,
-      "daemon",
-      1,
-    );
+    const origin = stubOrigin();
     const queue = new UnmatchedPreviewEventQueue();
     const publications: string[] = [];
     const preview = previewState(origin, {
@@ -962,11 +973,7 @@ export function suite(): void {
   });
 
   test("does not let one preview consume queue-wide fail-closed recovery", () => {
-    const origin = daemonOrigin(
-      { closed: false } as JsonRpcConnection,
-      "daemon",
-      1,
-    );
+    const origin = stubOrigin();
     const queue = globallyLimitedQueue({ maxStreams: 1 });
     assert.equal(
       queue.enqueue(origin, previewEvent("old", "full", 1)),
@@ -1099,7 +1106,7 @@ export function suite(): void {
         runtime.previews.delete("old-preview");
         return candidate;
       },
-      reject: async (item) => {
+      rejectCandidate: async (item) => {
         rejected.push(item.result.previewSessionId);
       },
       dispose: async () => undefined,
@@ -1118,8 +1125,11 @@ export function suite(): void {
     const { candidate, runtime } = previewCandidate();
     const previous = previousPreview(candidate, {
       target: "embeddedHtml",
-      originDaemonInstanceId: "old-daemon",
-      originGeneration: 0,
+      origin: {
+        ...candidate.origin,
+        daemonInstanceId: "old-daemon",
+        generation: 0,
+      },
       panel: {
         webview: {
           postMessage: () => Promise.reject(new Error("post failed")),
@@ -1396,9 +1406,7 @@ export function suite(): void {
     const replacementRpc = { closed: false } as JsonRpcConnection;
     runtime.previews.delete("preview");
     previous.previewSessionId = "replacement-preview";
-    previous.originRpc = replacementRpc;
-    previous.originDaemonInstanceId = "replacement-daemon";
-    previous.originGeneration = 2;
+    previous.origin = daemonOrigin(replacementRpc, "replacement-daemon", 2);
     runtime.previews.set("replacement-preview", previous);
 
     pendingHandshake.reject(new Error("old handshake failed"));
@@ -1440,9 +1448,7 @@ export function suite(): void {
     });
     await activationStarted.promise;
     const replacementRpc = { closed: false } as JsonRpcConnection;
-    previous.originRpc = replacementRpc;
-    previous.originDaemonInstanceId = "replacement-daemon";
-    previous.originGeneration = 2;
+    previous.origin = daemonOrigin(replacementRpc, "replacement-daemon", 2);
     previous.ready = false;
 
     pendingActivation.reject(new Error("old activation failed"));
@@ -1451,7 +1457,7 @@ export function suite(): void {
     assert.equal(disposals, 0);
     assert.deepEqual(reports, []);
     assert.equal(runtime.previews.get("preview"), previous);
-    assert.equal(previous.originRpc, replacementRpc);
+    assert.equal(previous.origin.rpc, replacementRpc);
     assert.equal(previous.ready, false);
   });
 
@@ -1479,11 +1485,7 @@ export function suite(): void {
 
   test("retires the old handshake before recreate mutation and ignores its completion", async () => {
     const { candidate, runtime } = previewCandidate();
-    const oldOrigin = daemonOrigin(
-      { closed: false } as JsonRpcConnection,
-      "old-daemon",
-      0,
-    );
+    const oldOrigin = stubOrigin("old-daemon", 0);
     const oldPost = deferred<boolean>();
     const posts: string[] = [];
     const previous = previewState(oldOrigin, {
@@ -1560,15 +1562,9 @@ export function suite(): void {
       "stale-candidate",
     ] as const) {
       const { candidate, runtime } = previewCandidate();
-      const oldOrigin = daemonOrigin(
-        { closed: false } as JsonRpcConnection,
-        "old-daemon",
-        0,
-      );
+      const oldOrigin = stubOrigin("old-daemon", 0);
       const previous = previousPreview(candidate, {
-        originRpc: oldOrigin.rpc,
-        originDaemonInstanceId: oldOrigin.daemonInstanceId,
-        originGeneration: oldOrigin.generation,
+        origin: oldOrigin,
       });
       runtime.previews.set("old-preview", previous);
       let disposals = 0;
@@ -1587,7 +1583,7 @@ export function suite(): void {
           return undefined;
         },
         candidateCurrent: () => failure !== "stale-candidate",
-        reject: async () => {
+        rejectCandidate: async () => {
           rejections += 1;
         },
         dispose: async (owner, item) => {
@@ -1642,15 +1638,18 @@ export function suite(): void {
   test("does not activate a recreated external preview removed while URL opening is pending", async () => {
     const { candidate, runtime } = previewCandidate();
     const previous = previousPreview(candidate, {
-      originDaemonInstanceId: "old-daemon",
-      originGeneration: 0,
+      origin: {
+        ...candidate.origin,
+        daemonInstanceId: "old-daemon",
+        generation: 0,
+      },
     });
     runtime.previews.set("old-preview", previous);
     const pendingOpen = signal();
     const opened = signal();
     let activations = 0;
     const recreating = recreatePreviews(runtime, candidate, {
-      reject: async () => undefined,
+      rejectCandidate: async () => undefined,
       dispose: async () => undefined,
       handshake: async () => undefined,
       activate: async () => {
@@ -1742,9 +1741,7 @@ export function suite(): void {
       },
     } as unknown as JsonRpcConnection;
     const preview = {
-      originRpc: rpc,
-      originDaemonInstanceId: "daemon",
-      originGeneration: 1,
+      origin: daemonOrigin(rpc, "daemon", 1),
       previewSessionId: "preview",
       panel: { dispose: () => order.push("panel") },
     } as never;
@@ -1770,9 +1767,7 @@ export function suite(): void {
       request: () => Promise.reject(new Error("closed")),
     } as unknown as JsonRpcConnection;
     const preview = {
-      originRpc: rpc,
-      originDaemonInstanceId: "daemon",
-      originGeneration: 1,
+      origin: daemonOrigin(rpc, "daemon", 1),
       previewSessionId: "preview",
       panel: { dispose: () => order.push("panel") },
     } as unknown as PreviewState;
@@ -1847,15 +1842,13 @@ export function suite(): void {
       reportFailure: (message) => reports.push(message),
     });
     const replacementRpc = { closed: false } as JsonRpcConnection;
-    preview.originRpc = replacementRpc;
-    preview.originDaemonInstanceId = "replacement-daemon";
-    preview.originGeneration = 5;
+    preview.origin = daemonOrigin(replacementRpc, "replacement-daemon", 5);
     pendingRequest.reject(new Error("stale"));
 
     assert.equal(await reloading, false);
     assert.deepEqual(reports, []);
     assert.equal(runtime.previews.get("preview"), preview);
-    assert.equal(preview.originRpc, replacementRpc);
+    assert.equal(preview.origin.rpc, replacementRpc);
   });
 
   test("suppresses navigation effects for representative stale preview identities", async () => {
@@ -1863,9 +1856,7 @@ export function suite(): void {
       const rpc = {} as JsonRpcConnection;
       const document = { version: 1 } as { version: number };
       const preview = {
-        originRpc: rpc,
-        originDaemonInstanceId: "daemon",
-        originGeneration: 1,
+        origin: daemonOrigin(rpc, "daemon", 1),
         documentUri: "file:///document.md",
         previewSessionId: "preview",
         renderRevision: 1,
@@ -1906,7 +1897,8 @@ export function suite(): void {
       );
       let editorDocument: unknown = document;
       if (stale === "membership") runtime.previews.delete("preview");
-      if (stale === "generation") preview.originGeneration = 2;
+      if (stale === "generation")
+        preview.origin = { ...preview.origin, generation: 2 };
       if (stale === "editor") editorDocument = {};
       shown.resolve({ document: editorDocument });
       await navigating;
@@ -2014,11 +2006,7 @@ export function suite(): void {
   test("separates reused preview ids by every origin identity dimension", () => {
     const sharedRpc = {} as JsonRpcConnection;
     const cases = [
-      [
-        daemonOrigin({} as JsonRpcConnection, "daemon", 1),
-        daemonOrigin({} as JsonRpcConnection, "daemon", 1),
-        "daemon",
-      ],
+      [stubOrigin(), stubOrigin(), "daemon"],
       [
         daemonOrigin(sharedRpc, "daemon-first", 1),
         daemonOrigin(sharedRpc, "daemon-second", 1),
@@ -2048,7 +2036,7 @@ export function suite(): void {
   });
 
   test("marks locally overflowed streams as reload-required", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
+    const origin = stubOrigin();
     const first = previewEvent("preview", "full", 1);
     const second = previewEvent("preview", "patch", 2);
     const cases = [
@@ -2113,7 +2101,7 @@ export function suite(): void {
   });
 
   test("a reload marker replaces queued events for delivery", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
+    const origin = stubOrigin();
     const first = previewEvent("first", "full", 1);
     const queue = new UnmatchedPreviewEventQueue();
     queue.enqueue(origin, first);
@@ -2126,7 +2114,7 @@ export function suite(): void {
   });
 
   test("evicts all streams fail-closed when the global stream cap is hit", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
+    const origin = stubOrigin();
     const queue = globallyLimitedQueue({ maxStreams: 2 });
     queue.enqueue(origin, previewEvent("one", "full", 1));
     queue.markReloadRequired(origin, "two");
@@ -2147,7 +2135,7 @@ export function suite(): void {
   });
 
   test("fails closed when the global event or exact byte cap is hit", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
+    const origin = stubOrigin();
     const first = previewEvent("one", "full", 1);
     const second = previewEvent("two", "full", 1);
     const eventLimited = globallyLimitedQueue({ maxTotalEvents: 1 });
@@ -2165,16 +2153,8 @@ export function suite(): void {
   });
 
   test("clearOrigin releases exact global accounting without touching peers", () => {
-    const firstOrigin = daemonOrigin(
-      {} as JsonRpcConnection,
-      "daemon-first",
-      1,
-    );
-    const secondOrigin = daemonOrigin(
-      {} as JsonRpcConnection,
-      "daemon-second",
-      1,
-    );
+    const firstOrigin = stubOrigin("daemon-first");
+    const secondOrigin = stubOrigin("daemon-second");
     const first = previewEvent("first", "full", 1, "daemon-first");
     const second = previewEvent("second", "full", 1, "daemon-second");
     const queue = globallyLimitedQueue();
@@ -2195,13 +2175,13 @@ export function suite(): void {
   });
 
   test("clearOrigin retires a queue-wide fail-closed marker", () => {
-    const origin = daemonOrigin({} as JsonRpcConnection, "daemon", 1);
+    const origin = stubOrigin();
     const queue = globallyLimitedQueue({ maxStreams: 1 });
     queue.enqueue(origin, previewEvent("one", "full", 1));
     queue.enqueue(origin, previewEvent("two", "full", 1));
     assert.equal(queue.usage.failClosed, true);
 
-    queue.clearOrigin(daemonOrigin({} as JsonRpcConnection, "other-daemon", 1));
+    queue.clearOrigin(stubOrigin("other-daemon"));
     assert.equal(queue.usage.failClosed, true);
     queue.clearOrigin(origin);
 
@@ -2283,9 +2263,7 @@ function previousPreview(
     documentUri: "file:///document.md",
     previewSessionId: "old-preview",
     target: "externalBrowser",
-    originRpc: candidate.origin.rpc,
-    originDaemonInstanceId: candidate.origin.daemonInstanceId,
-    originGeneration: candidate.origin.generation,
+    origin: candidate.origin,
     initialPublication: candidate.result.initialPublication,
     renderRevision: 1,
     ...overrides,
@@ -2304,7 +2282,7 @@ function recreatePreviews(
     currentOrigin: () => candidate.origin,
     candidateCurrent: () => true,
     candidateIdentityCurrent: () => true,
-    reject: async () => assert.fail("unexpected candidate rejection"),
+    rejectCandidate: async () => assert.fail("unexpected candidate rejection"),
     dispose: async () => assert.fail("unexpected preview disposal"),
     handshake: async () => assert.fail("unexpected embedded handshake"),
     activate: async () => assert.fail("unexpected preview activation"),
@@ -2365,9 +2343,7 @@ function previewState(
   webview: { postMessage(message: unknown): Promise<boolean> },
 ): PreviewState {
   return {
-    originRpc: origin.rpc,
-    originDaemonInstanceId: origin.daemonInstanceId,
-    originGeneration: origin.generation,
+    origin,
     documentUri: "file:///document.md",
     previewSessionId: "preview",
     target: "embeddedHtml",
@@ -2386,20 +2362,26 @@ function runtimeWithPreview(preview: PreviewState): WorkspaceRuntime {
   } as unknown as WorkspaceRuntime;
 }
 
-function readinessDependencies(
-  runtime: WorkspaceRuntime,
-  queue: UnmatchedPreviewEventQueue,
-  delivered: string[],
-) {
+function queuedReadinessDependencies(queue: UnmatchedPreviewEventQueue) {
   return {
     current: (owner: WorkspaceRuntime, preview: PreviewState) =>
       !owner.removed &&
-      !preview.originRpc.closed &&
+      !preview.origin.rpc.closed &&
       owner.previews.get(preview.previewSessionId) === preview,
     take: (origin: DaemonOrigin, previewSessionId: string) =>
       queue.takeForDelivery(origin, previewSessionId),
     markReload: (origin: DaemonOrigin, previewSessionId: string) =>
       queue.markReloadRequired(origin, previewSessionId),
+  };
+}
+
+function readinessDependencies(
+  _runtime: WorkspaceRuntime,
+  queue: UnmatchedPreviewEventQueue,
+  delivered: string[],
+) {
+  return {
+    ...queuedReadinessDependencies(queue),
     deliver: async (
       _origin: DaemonOrigin,
       event: ReturnType<typeof previewEvent>,
@@ -2425,14 +2407,7 @@ function actualReadinessDependencies(
   const navigate = effects.navigate ?? (async () => undefined);
   const report = effects.report ?? (() => undefined);
   return {
-    current: (owner: WorkspaceRuntime, preview: PreviewState) =>
-      !owner.removed &&
-      !preview.originRpc.closed &&
-      owner.previews.get(preview.previewSessionId) === preview,
-    take: (origin: DaemonOrigin, previewSessionId: string) =>
-      queue.takeForDelivery(origin, previewSessionId),
-    markReload: (origin: DaemonOrigin, previewSessionId: string) =>
-      queue.markReloadRequired(origin, previewSessionId),
+    ...queuedReadinessDependencies(queue),
     deliver: (
       origin: DaemonOrigin,
       event: Parameters<typeof handlePreviewEventLifecycle>[1],
@@ -2460,6 +2435,14 @@ function daemonOrigin(
   generation: number,
 ): DaemonOrigin {
   return { rpc, daemonInstanceId, generation };
+}
+
+function stubOrigin(daemonInstanceId = "daemon", generation = 1): DaemonOrigin {
+  return daemonOrigin(
+    { closed: false } as JsonRpcConnection,
+    daemonInstanceId,
+    generation,
+  );
 }
 
 function previewEvent(

@@ -25,13 +25,8 @@ The extension does not support virtual workspaces.
 
 ## Release integrity
 
-FlexiMark publishes one VSIX containing native daemons for Windows, Linux, and
-macOS on x64 and arm64. The GitHub artifact attestation for that complete VSIX is
-the release trust root. The SHA-256 values inside `bin/manifest.json` are used
-after installation to detect daemon corruption and platform artifact mix-ups;
-they are not independent signatures. The extension verifies the selected
-bundled daemon against that manifest immediately before every launch.
-
-The `fleximark.daemonPath` setting explicitly selects a user-supplied executable,
-so binaries selected through that setting are outside the bundled release trust
-model.
+The universal VSIX attestation is the release trust root. `bin/manifest.json`
+hashes only detect bundled-daemon corruption or platform mix-ups; they are not
+signatures. The extension checks before each launch, while a user-supplied
+`fleximark.daemonPath` is outside this model. Release ordering is architecture
+[trust boundary 8](ARCHITECTURE.md#trust-boundaries).

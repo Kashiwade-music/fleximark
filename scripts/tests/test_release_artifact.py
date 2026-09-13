@@ -22,6 +22,9 @@ import release_artifact
 
 
 class ReleaseArtifactTests(unittest.TestCase):
+    def write_json(self, path: Path, value: Any) -> None:
+        path.write_text(json.dumps(value), encoding="utf-8")
+
     def write_prebuilt_inputs(self, root: Path) -> list[Path]:
         runtime = [
             root / "dist" / "extension.cjs",
@@ -48,15 +51,13 @@ class ReleaseArtifactTests(unittest.TestCase):
                     "sha256": hashlib.sha256(payload).hexdigest(),
                 }
             )
-        (root / "bin" / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "schemaVersion": 1,
-                    "protocolVersion": 1,
-                    "artifacts": artifacts,
-                }
-            ),
-            encoding="utf-8",
+        self.write_json(
+            root / "bin" / "manifest.json",
+            {
+                "schemaVersion": 1,
+                "protocolVersion": 1,
+                "artifacts": artifacts,
+            },
         )
         return daemons
 
@@ -417,9 +418,7 @@ class ReleaseArtifactTests(unittest.TestCase):
             trusted_package["contributes"]["configuration"][
                 "x-fleximark-contract-version"
             ] = 1
-            (root / "package.json").write_text(
-                json.dumps(trusted_package), encoding="utf-8"
-            )
+            self.write_json(root / "package.json", trusted_package)
 
             def change_integer_to_float(package: dict[str, Any]) -> None:
                 package["contributes"]["configuration"][
@@ -494,31 +493,27 @@ class ReleaseArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "does not exist"):
                 release_artifact.verify_identity(vsix, identity_path)
 
-            identity_path.write_text(
-                json.dumps(
-                    {
-                        "schemaVersion": 1,
-                        "file": "fleximark.vsix",
-                        "version": "1.2.3",
-                    }
-                ),
-                encoding="utf-8",
+            self.write_json(
+                identity_path,
+                {
+                    "schemaVersion": 1,
+                    "file": "fleximark.vsix",
+                    "version": "1.2.3",
+                },
             )
             with self.assertRaisesRegex(RuntimeError, "unexpected fields"):
                 release_artifact.verify_identity(vsix, identity_path)
 
-            identity_path.write_text(
-                json.dumps(
-                    {
-                        "schemaVersion": 1,
-                        "file": "fleximark.vsix",
-                        "version": "1.2.3",
-                        "sha256": "not-a-hash",
-                        "gitTag": "v1.2.3",
-                        "sourceGitHead": "b" * 40,
-                    }
-                ),
-                encoding="utf-8",
+            self.write_json(
+                identity_path,
+                {
+                    "schemaVersion": 1,
+                    "file": "fleximark.vsix",
+                    "version": "1.2.3",
+                    "sha256": "not-a-hash",
+                    "gitTag": "v1.2.3",
+                    "sourceGitHead": "b" * 40,
+                },
             )
             with self.assertRaisesRegex(RuntimeError, "SHA-256 is invalid"):
                 release_artifact.verify_identity(vsix, identity_path)
@@ -545,14 +540,12 @@ class ReleaseArtifactTests(unittest.TestCase):
             for untrusted_tag in ("v1.2.4", "v1.2.3;echo-injected"):
                 with self.subTest(untrusted_tag=untrusted_tag):
                     mismatched_tag = {**identity, "gitTag": untrusted_tag}
-                    identity_path.write_text(
-                        json.dumps(mismatched_tag), encoding="utf-8"
-                    )
+                    self.write_json(identity_path, mismatched_tag)
                     with self.assertRaisesRegex(
                         RuntimeError, "does not match its version"
                     ):
                         release_artifact.verify_identity(vsix, identity_path)
-            identity_path.write_text(json.dumps(identity), encoding="utf-8")
+            self.write_json(identity_path, identity)
             vsix.write_bytes(vsix.read_bytes() + b"changed")
             with self.assertRaisesRegex(RuntimeError, "does not match"):
                 release_artifact.verify_identity(
@@ -597,6 +590,12 @@ class ReleaseArtifactTests(unittest.TestCase):
             info.flag_bits |= 1
         return info
 
+    def assert_archive_rejected(
+        self, expected: str, infos: list[zipfile.ZipInfo], *, vsix_size: int = 1
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, expected):
+            release_artifact._validate_archive_entries(infos, vsix_size=vsix_size)
+
     def test_rejects_unsafe_noncanonical_and_colliding_archive_paths(self) -> None:
         cases = (
             ([self.archive_info("../escape")], "noncanonical"),
@@ -619,8 +618,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         )
         for infos, expected in cases:
             with self.subTest(expected=expected):
-                with self.assertRaisesRegex(RuntimeError, expected):
-                    release_artifact._validate_archive_entries(infos, vsix_size=1)
+                self.assert_archive_rejected(expected, infos)
         with self.assertRaisesRegex(RuntimeError, "noncanonical"):
             release_artifact._canonical_archive_path("extension\\file")
 
@@ -637,8 +635,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         )
         for infos in cases:
             with self.subTest(names=[info.filename for info in infos]):
-                with self.assertRaisesRegex(RuntimeError, "ancestor conflict"):
-                    release_artifact._validate_archive_entries(infos, vsix_size=1)
+                self.assert_archive_rejected("ancestor conflict", infos)
 
     def test_rejects_tiny_packaged_and_prebuilt_runtime_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -685,8 +682,7 @@ class ReleaseArtifactTests(unittest.TestCase):
         )
         for infos, expected in cases:
             with self.subTest(expected=expected):
-                with self.assertRaisesRegex(RuntimeError, expected):
-                    release_artifact._validate_archive_entries(infos, vsix_size=1)
+                self.assert_archive_rejected(expected, infos)
 
     def test_rejects_each_archive_resource_limit_before_payload_reads(self) -> None:
         info = self.archive_info("extension/file")
@@ -707,10 +703,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                 self.subTest(constant=constant),
                 patch.object(release_artifact, constant, limit),
             ):
-                with self.assertRaisesRegex(RuntimeError, expected):
-                    release_artifact._validate_archive_entries(
-                        infos, vsix_size=vsix_size
-                    )
+                self.assert_archive_rejected(expected, infos, vsix_size=vsix_size)
 
         with self.temporary_vsix() as vsix:
             with patch.object(release_artifact, "MAX_METADATA_SIZE", 0):

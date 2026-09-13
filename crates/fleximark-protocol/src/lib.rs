@@ -32,6 +32,8 @@ macro_rules! declare_wire_types {
         pub enum WireType { $($variant),+ }
 
         impl WireType {
+            pub const ALL: &[Self] = &[$(Self::$variant),+];
+
             pub const fn wire_name(self) -> &'static str {
                 match self { $(Self::$variant => $wire_name),+ }
             }

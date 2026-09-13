@@ -222,14 +222,11 @@ core DOM commit and do not wait for asynchronous enhancement.
    from `bin/manifest.json`, confines its path to the extension, and verifies SHA-256 before
    launching the bundled daemon. An explicitly configured external daemon path is user-supplied
    and outside this checksum boundary.
-8. **Release assembly to publication.** The custom semantic-release prepare step creates the
-   final-version universal `fleximark.vsix` exactly once. Its identity sidecar binds the SHA-256,
-   strict semantic version, release tag and source commit. Every downstream job revalidates that
-   identity before clean installation, attestation or publication. GitHub keeps the release in
-   draft state until all six target smoke jobs and attestation succeed; Marketplace publication
-   consumes the same Actions artifact only after GitHub publication. A complete draft or public
-   release is recoverable on rerun, while incomplete or contradictory remote state fails closed
-   for manual recovery.
+8. **Release assembly to publication.** Semantic-release creates one universal VSIX with a
+   hash/version/tag/source identity that every consumer revalidates. Six-target smoke and
+   attestation gate GitHub publication; Marketplace receives the same artifact. Reruns recover a
+   complete release and reject contradictory state. Setup and trust are documented in
+   [`README_DEV.md`](README_DEV.md#release-and-repository-setup) and [`SECURITY.md`](SECURITY.md#release-integrity).
 
 The CLI deliberately bypasses the JSON-RPC and VS Code trust boundary. Its filesystem commands
 still use `fleximark_service` validation and transaction rules; invocation by the local user is
@@ -326,8 +323,5 @@ Rust builds and tests use the committed lockfiles. CI checks the root workspace 
 all six supported host combinations and checks the independent WebAssembly plugin fixture with
 Rust 1.86 on `wasm32-wasip2`; current-toolchain tests, lints, and release builds remain separate.
 Standalone `mise run test` performs the full product build before integration tests. CI and
-release jobs that have already assembled all six daemons and built the extension use the explicit
-`mise run test -- --prebuilt` path to avoid repeating that build; it is not the default developer
-test path. A release creates the final-version VSIX once, transfers it with its checked identity,
-and gates GitHub and Marketplace publication on clean installation of those exact bits on all six
-supported target combinations.
+release jobs that already assembled all six daemons use `mise run test -- --prebuilt`; this is not
+the default developer path.

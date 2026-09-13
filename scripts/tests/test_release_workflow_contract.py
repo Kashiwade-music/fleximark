@@ -8,7 +8,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 CI_WORKFLOW = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+CODEQL_WORKFLOW = (ROOT / ".github/workflows/codeql.yml").read_text(encoding="utf-8")
 VERIFIER = (ROOT / ".github/actions/verified-release-artifact/action.yml").read_text(
+    encoding="utf-8"
+)
+VALIDATOR = (ROOT / ".github/actions/validate-extension/action.yml").read_text(
     encoding="utf-8"
 )
 RELEASE_CONFIG = (ROOT / "release.config.mjs").read_text(encoding="utf-8")
@@ -31,21 +35,31 @@ def assert_ordered(test: unittest.TestCase, source: str, *markers: str) -> None:
     test.assertEqual(positions, sorted(positions))
 
 
+def with_local_actions(source: str) -> str:
+    pending = re.findall(r"uses: \./\.github/actions/([a-z0-9-]+)", source)
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        action = (ROOT / f".github/actions/{name}/action.yml").read_text(encoding="utf-8")
+        source += "\n" + action
+        pending.extend(re.findall(r"uses: \./\.github/actions/([a-z0-9-]+)", action))
+    return source
+
+
 class ReleaseWorkflowContractTests(unittest.TestCase):
     def test_daemons_are_manifested_before_validation_or_release(self) -> None:
-        ci_validate = CI_WORKFLOW[
-            CI_WORKFLOW.index("  validate:") : CI_WORKFLOW.index(
-                "  dependency-review:"
-            )
-        ]
-        for source in (ci_validate, job("validate")):
-            assert_ordered(
-                self,
-                source,
-                "Download platform daemons",
-                "create_release_manifest.py --require-all",
-                "mise run test -- --prebuilt",
-            )
+        self.assertIn("uses: ./.github/actions/validate-extension", CI_WORKFLOW)
+        self.assertIn("uses: ./.github/actions/validate-extension", job("validate"))
+        assert_ordered(
+            self,
+            VALIDATOR,
+            "Download platform daemons",
+            "create_release_manifest.py --require-all",
+            "mise run test -- --prebuilt",
+        )
         assert_ordered(
             self,
             job("release"),
@@ -53,6 +67,18 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
             "create_release_manifest.py --require-all",
             "yarn exec semantic-release",
         )
+
+        ci_daemons = CI_WORKFLOW.split("  daemon-platforms:", 1)[1].split(
+            "  clean-install:", 1
+        )[0]
+        for source in (ci_daemons, job("daemon-platforms")):
+            assert_ordered(
+                self,
+                source,
+                "cargo build --release -p fleximarkd --locked",
+                "scripts/stage_daemon.py",
+                "name: daemon-${{ matrix.platform }}-${{ matrix.arch }}",
+            )
 
     def test_semantic_release_keeps_the_release_commit_and_draft_assets(self) -> None:
         assert_ordered(
@@ -108,7 +134,7 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
 
     def test_consumers_share_identity_verification_and_publish_in_order(self) -> None:
         for contract in (
-            "jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654",
+            "uses: ./.github/actions/setup-toolchain",
             "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
             "name: fleximark-release-vsix",
             "FLEXIMARK_EXPECTED_SHA256: ${{ inputs.sha256 }}",
@@ -143,7 +169,7 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         clean_install = job("clean-install")
         self.assertLess(
             clean_install.index("verified-release-artifact"),
-            clean_install.index("mise run smoke"),
+            clean_install.index("smoke-vsix"),
         )
         attestation = job("attest")
         self.assertLess(
@@ -171,6 +197,22 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("--oidc", marketplace)
         self.assertIn("--skip-duplicate", marketplace)
+
+    def test_shared_actions_preserve_setup_and_platform_smoke_contracts(self) -> None:
+        for workflow in (CI_WORKFLOW, WORKFLOW):
+            contract = with_local_actions(workflow)
+            for marker in (
+                "jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654",
+                "version: 2026.7.13",
+                "mise run install",
+                "runner.os == 'Linux'",
+                "xvfb-run -a",
+                "mise run smoke",
+            ):
+                self.assertIn(marker, contract)
+        self.assertIn("name: Validate extension", CI_WORKFLOW)
+        self.assertIn("name: Dependency review", CI_WORKFLOW)
+        self.assertIn("name: Analyze JavaScript and TypeScript", CODEQL_WORKFLOW)
 
     def test_dynamic_outputs_stay_out_of_shell_and_uploads_overwrite(self) -> None:
         run_blocks = re.findall(

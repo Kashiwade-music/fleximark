@@ -12,15 +12,37 @@ function frame(message: unknown): Buffer {
   ]);
 }
 
+const EMPTY_DIAGNOSTICS = {
+  jsonrpc: "2.0",
+  method: "textDocument/publishDiagnostics",
+  params: { uri: "file:///document.md", diagnostics: [] },
+};
+
+function rpcHarness() {
+  const daemonOutput = new PassThrough();
+  const daemonInput = new PassThrough();
+  const connection = new JsonRpcConnection(daemonOutput, daemonInput);
+  const messages: unknown[] = [];
+  const outgoing: Buffer[] = [];
+  connection.on("message", (message) => messages.push(message));
+  daemonInput.on("data", (chunk: Buffer) => outgoing.push(chunk));
+  return { connection, daemonInput, daemonOutput, messages, outgoing };
+}
+
+async function assertInboundState(message: unknown, closed: boolean) {
+  const { connection, daemonOutput, messages } = rpcHarness();
+  daemonOutput.write(frame(message));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(connection.closed, closed);
+  assert.deepEqual(messages, []);
+  connection.close();
+}
+
 export const suiteName = "JSON-RPC transport";
 
 export function suite(): void {
   test("reads split Content-Length frames and resolves requests", async () => {
-    const daemonOutput = new PassThrough();
-    const daemonInput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, daemonInput);
-    const outgoing: Buffer[] = [];
-    daemonInput.on("data", (chunk: Buffer) => outgoing.push(chunk));
+    const { connection, daemonOutput, outgoing } = rpcHarness();
 
     const pending = connection.requestLsp<{ ok: boolean }>("workspace/test", {
       value: 1,
@@ -44,12 +66,8 @@ export function suite(): void {
   });
 
   test("close is idempotent and permanently suppresses later writes", async () => {
-    const daemonOutput = new PassThrough();
-    const daemonInput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, daemonInput);
-    const outgoing: Buffer[] = [];
+    const { connection, outgoing } = rpcHarness();
     let closeEvents = 0;
-    daemonInput.on("data", (chunk: Buffer) => outgoing.push(chunk));
     connection.on("close", () => (closeEvents += 1));
     const pending = connection.requestLsp("shutdown");
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -71,13 +89,8 @@ export function suite(): void {
   });
 
   test("preserves valid notification and error response wire bytes", async () => {
-    const daemonOutput = new PassThrough();
-    const daemonInput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, daemonInput);
-    const outgoing: Buffer[] = [];
-    daemonInput.on("data", (chunk: Buffer) => outgoing.push(chunk));
-
-    connection.notify("fleximark/previewEvent", {
+    const { connection, outgoing } = rpcHarness();
+    const previewEvent = {
       daemonInstanceId: "daemon",
       previewSessionId: "preview",
       renderRevision: 1,
@@ -87,12 +100,14 @@ export function suite(): void {
         renderRevision: 1,
         nodeId: "日本語",
       },
-    });
-    connection.respond(7, undefined, {
+    } as const;
+    const responseError = {
       code: -32801,
       message: "content modified",
       data: { expectedDocumentVersion: 4 },
-    });
+    };
+    connection.notify("fleximark/previewEvent", previewEvent);
+    connection.respond(7, undefined, responseError);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(
@@ -101,37 +116,16 @@ export function suite(): void {
         frame({
           jsonrpc: "2.0",
           method: "fleximark/previewEvent",
-          params: {
-            daemonInstanceId: "daemon",
-            previewSessionId: "preview",
-            renderRevision: 1,
-            event: {
-              type: "selectNode",
-              previewSessionId: "preview",
-              renderRevision: 1,
-              nodeId: "日本語",
-            },
-          },
+          params: previewEvent,
         }),
-        frame({
-          jsonrpc: "2.0",
-          id: 7,
-          error: {
-            code: -32801,
-            message: "content modified",
-            data: { expectedDocumentVersion: 4 },
-          },
-        }),
+        frame({ jsonrpc: "2.0", id: 7, error: responseError }),
       ]),
     );
     connection.close();
   });
 
   test("dispatches multiple frames from one chunk in wire order", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
+    const { connection, daemonOutput, messages } = rpcHarness();
     const first = {
       jsonrpc: "2.0",
       method: "fleximark/requestFullText",
@@ -142,11 +136,7 @@ export function suite(): void {
         reason: "contentHashMismatch",
       },
     };
-    const second = {
-      jsonrpc: "2.0",
-      method: "textDocument/publishDiagnostics",
-      params: { uri: "file:///document.md", diagnostics: [] },
-    };
+    const second = EMPTY_DIAGNOSTICS;
 
     daemonOutput.write(Buffer.concat([frame(first), frame(second)]));
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -157,8 +147,7 @@ export function suite(): void {
   });
 
   test("preserves JSON-RPC error code, message, and data", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
+    const { connection, daemonOutput } = rpcHarness();
     const pending = connection.request("fleximark/changeDocument", {
       daemonInstanceId: "daemon",
       documentSessionId: "document",
@@ -195,11 +184,8 @@ export function suite(): void {
   });
 
   test("closes on malformed JSON without dispatching a message", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
+    const { connection, daemonOutput, messages } = rpcHarness();
     let closeReason: unknown;
-    connection.on("message", (message) => messages.push(message));
     connection.on("close", (reason) => {
       closeReason = reason;
     });
@@ -219,78 +205,43 @@ export function suite(): void {
   });
 
   test("ignores a late or unknown response id and keeps the connection open", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
-
-    daemonOutput.write(
-      frame({ jsonrpc: "2.0", id: 999, result: { ignored: true } }),
+    await assertInboundState(
+      { jsonrpc: "2.0", id: 999, result: { ignored: true } },
+      false,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(connection.closed, false);
-    assert.deepEqual(messages, []);
-    connection.close();
   });
 
   test("closes on a malformed JSON-RPC envelope without dispatch", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
-
-    daemonOutput.write(
-      frame({
+    await assertInboundState(
+      {
         jsonrpc: "1.0",
         method: "fleximark/requestFullText",
         params: {},
-      }),
+      },
+      true,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(connection.closed, true);
-    assert.deepEqual(messages, []);
   });
 
   test("ignores unknown notifications with array params and stays open", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
-
-    daemonOutput.write(
-      frame({ jsonrpc: "2.0", method: "unknown/notification", params: [] }),
+    await assertInboundState(
+      { jsonrpc: "2.0", method: "unknown/notification", params: [] },
+      false,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(connection.closed, false);
-    assert.deepEqual(messages, []);
-    connection.close();
   });
 
   test("closes on an envelope with primitive params", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
-
-    daemonOutput.write(
-      frame({
+    await assertInboundState(
+      {
         jsonrpc: "2.0",
         method: "unknown/notification",
         params: "not structured",
-      }),
+      },
+      true,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(connection.closed, true);
-    assert.deepEqual(messages, []);
   });
 
   test("rejects and closes on a malformed typed method result", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
+    const { connection, daemonOutput } = rpcHarness();
     const pending = connection.request("fleximark/initialize", {
       protocolVersion: 1,
       client: { name: "boundary-test", version: "1" },
@@ -314,13 +265,8 @@ export function suite(): void {
   });
 
   test("ignores malformed known notifications while keeping the connection open", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
-
-    daemonOutput.write(
-      frame({
+    await assertInboundState(
+      {
         jsonrpc: "2.0",
         method: "fleximark/requestFullText",
         params: {
@@ -329,20 +275,13 @@ export function suite(): void {
           documentSessionId: "document",
           reason: 7,
         },
-      }),
+      },
+      false,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.equal(connection.closed, false);
-    assert.deepEqual(messages, []);
-    connection.close();
   });
 
   test("rejects createPreview results whose nested session does not match", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
+    const { connection, daemonOutput, messages } = rpcHarness();
     const pending = connection.request("fleximark/createPreview", {
       daemonInstanceId: "daemon",
       documentSessionId: "document",
@@ -370,11 +309,7 @@ export function suite(): void {
             },
           },
         }),
-        frame({
-          jsonrpc: "2.0",
-          method: "textDocument/publishDiagnostics",
-          params: { uri: "file:///document.md", diagnostics: [] },
-        }),
+        frame(EMPTY_DIAGNOSTICS),
       ]),
     );
 
@@ -384,15 +319,8 @@ export function suite(): void {
   });
 
   test("a closed connection discards buffered and later input permanently", async () => {
-    const daemonOutput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, new PassThrough());
-    const messages: unknown[] = [];
-    connection.on("message", (message) => messages.push(message));
-    const valid = frame({
-      jsonrpc: "2.0",
-      method: "textDocument/publishDiagnostics",
-      params: { uri: "file:///document.md", diagnostics: [] },
-    });
+    const { connection, daemonOutput, messages } = rpcHarness();
+    const valid = frame(EMPTY_DIAGNOSTICS);
 
     daemonOutput.write(
       Buffer.concat([Buffer.from("Content-Length: 16777217\r\n\r\n"), valid]),
@@ -406,9 +334,7 @@ export function suite(): void {
   });
 
   test("late input and output errors are absorbed after close", () => {
-    const daemonOutput = new PassThrough();
-    const daemonInput = new PassThrough();
-    const connection = new JsonRpcConnection(daemonOutput, daemonInput);
+    const { connection, daemonInput, daemonOutput } = rpcHarness();
     connection.close();
 
     assert.doesNotThrow(() =>
@@ -421,10 +347,7 @@ export function suite(): void {
   });
 
   test("LSP escape hatches retain runtime guards for cast custom methods", async () => {
-    const connection = new JsonRpcConnection(
-      new PassThrough(),
-      new PassThrough(),
-    );
+    const { connection } = rpcHarness();
     await assert.rejects(
       connection.requestLsp("fleximark/render" as LspMethod),
       /must use the typed request API/,

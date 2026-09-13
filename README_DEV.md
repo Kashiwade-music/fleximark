@@ -96,43 +96,10 @@ mise exec -- uv run --frozen python scripts/stage_daemon.py
 
 ### 3. Markdown と preview を確認する
 
-workspace 直下に `sample.md` を作り、次の内容を保存する。
-
-````markdown
-# FlexiMark manual check
-
-通常の **Markdown** と [link](https://example.com)。
-
-:::info[Important]
-This admonition must appear in the preview.
-:::
-
-::::tabs
-:::tab[First]
-First tab
-:::
-:::tab[Second]
-Second tab
-:::
-::::
-
-:::details[Details]
-Expandable content
-:::
-
-```mermaid
-graph LR; A --> B
-```
-
-```abc
-X:1
-T:Scale
-M:4/4
-L:1/4
-K:C
-C D E F | G A B c |
-```
-````
+`markdown_for_debug/basic_syntax.md`、`admonition.md`、`tabs.md`、`collapsible.md`、
+`mermaid.md`、`abc.md` の内容を順に連結し、検証用 workspace の `sample.md`
+として保存する。これらが手動確認と parser の共通 fixture であり、構文例は
+この文書に重複させない。
 
 `sample.md` を active editor にして、次を確認する。
 
@@ -309,28 +276,10 @@ git diff -- l10n
 Commit the generated English bundle and update the translated bundles in the
 same change. CI rejects stale localization output.
 
-## Release
+## Release and repository setup
 
-Merges to `main` are validated before semantic-release runs. A successful
-release creates one VSIX, attests it, attaches it to the GitHub Release, and
-publishes that exact file to Visual Studio Marketplace with OIDC trusted
-publishing. Configure the `vscode-marketplace` GitHub Environment and a matching
-trusted publisher policy in Marketplace before the first release.
-
-Publishing is intentionally performed only by GitHub Actions; local PAT-based
-publishing is not part of the release process.
-
-The GitHub artifact attestation for the complete VSIX is the release trust root.
-The SHA-256 values in `bin/manifest.json` are not independent signatures; the
-installed extension checks them immediately before launching its bundled daemon
-to detect corruption or a platform artifact mix-up. A configured external
-`fleximark.daemonPath` is user-supplied and is outside this release verification
-model.
-
-## Repository setup
-
-GitHub settings that cannot be stored in this repository must match the
-workflows:
+Only merges to `main` release, through GitHub Actions without a local PAT. GitHub settings must
+match the workflows:
 
 - protect `main` with a ruleset that requires `Validate extension`,
   `Dependency review`, and `Analyze JavaScript and TypeScript`;
@@ -339,6 +288,9 @@ workflows:
 - register a Visual Studio Marketplace trusted publisher for
   `Kashiwade-music/fleximark`, workflow `release.yml`, environment
   `vscode-marketplace`.
+
+Ordering and recovery are specified in [`ARCHITECTURE.md`](ARCHITECTURE.md#trust-boundaries),
+and artifact trust in [`SECURITY.md`](SECURITY.md#release-integrity).
 
 ## Project Structure
 

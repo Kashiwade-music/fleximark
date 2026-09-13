@@ -149,6 +149,47 @@ fn test_workspace(label: &str) -> TestWorkspace {
     TestWorkspace { root }
 }
 
+struct ExportFixture {
+    root: TestWorkspace,
+    workspace_uri: String,
+    source_uri: String,
+    destination: PathBuf,
+    destination_uri: String,
+}
+
+impl ExportFixture {
+    fn initialized(label: &str) -> Self {
+        let root = test_workspace(label);
+        let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
+        initialize_workspace(&workspace_uri).expect("initialize workspace");
+        let source = root.join("document.md");
+        fs::write(&source, "# document\n").expect("write source");
+        let destination = root.join("public");
+        Self {
+            source_uri: path_to_file_uri(&source).expect("source URI"),
+            destination_uri: path_to_file_uri(&destination).expect("destination URI"),
+            destination,
+            root,
+            workspace_uri,
+        }
+    }
+
+    fn export(&self, html: &str) -> Result<fleximark_protocol::CommandResult, ServiceError> {
+        export_html(
+            &self.source_uri,
+            &self.workspace_uri,
+            &self.destination_uri,
+            html,
+            &[],
+        )
+    }
+
+    fn acknowledge(&self) {
+        acknowledge_export(&self.source_uri, &self.workspace_uri, &self.destination_uri)
+            .expect("acknowledge export");
+    }
+}
+
 #[cfg(windows)]
 struct JunctionGuard(PathBuf);
 
@@ -211,24 +252,10 @@ fn initialization_preserves_default_bytes_and_command_result() {
 
 #[test]
 fn export_metadata_preserves_marker_registry_and_journal_wire_schema() {
-    let root = test_workspace("metadata");
-    let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
-    initialize_workspace(&workspace_uri).expect("initialize workspace");
-    let source = root.join("document.md");
-    fs::write(&source, "# document\n").expect("write source");
-    let source_uri = path_to_file_uri(&source).expect("source URI");
-    let destination = root.join("public");
-    let destination_uri = path_to_file_uri(&destination).expect("destination URI");
-
-    export_html(
-        &source_uri,
-        &workspace_uri,
-        &destination_uri,
-        "<p>first</p>",
-        &[],
-    )
-    .expect("first export");
-    let marker_bytes = fs::read(destination.join(".fleximark-export.json")).expect("marker bytes");
+    let fixture = ExportFixture::initialized("metadata");
+    fixture.export("<p>first</p>").expect("first export");
+    let marker_bytes =
+        fs::read(fixture.destination.join(".fleximark-export.json")).expect("marker bytes");
     assert!(marker_bytes.starts_with(b"{\n  \"payload\": {"));
     assert!(!marker_bytes.ends_with(b"\n"));
     let typed_marker: ContractOwnershipMarker =
@@ -262,10 +289,9 @@ fn export_metadata_preserves_marker_registry_and_journal_wire_schema() {
         keys(&payload["files"][0]),
         BTreeSet::from(["contentHash", "kind", "objectIdentity", "path"])
     );
-    acknowledge_export(&source_uri, &workspace_uri, &destination_uri)
-        .expect("acknowledge first export");
+    fixture.acknowledge();
 
-    let registry_path = fs::read_dir(root.join(".fleximark/export-targets"))
+    let registry_path = fs::read_dir(fixture.root.join(".fleximark/export-targets"))
         .expect("registry directory")
         .next()
         .expect("registry entry")
@@ -294,16 +320,9 @@ fn export_metadata_preserves_marker_registry_and_journal_wire_schema() {
         ])
     );
 
-    export_html(
-        &source_uri,
-        &workspace_uri,
-        &destination_uri,
-        "<p>second</p>",
-        &[],
-    )
-    .expect("second export");
-    let journal_bytes =
-        fs::read(root.join(".public.fleximark-export-journal.json")).expect("journal bytes");
+    fixture.export("<p>second</p>").expect("second export");
+    let journal_bytes = fs::read(fixture.root.join(".public.fleximark-export-journal.json"))
+        .expect("journal bytes");
     assert!(journal_bytes.ends_with(b"\n"));
     let record_lines = journal_bytes
         .split(|byte| *byte == b'\n')
@@ -372,39 +391,18 @@ fn export_metadata_preserves_marker_registry_and_journal_wire_schema() {
 #[cfg(unix)]
 #[test]
 fn managed_export_rejects_a_symlinked_entry_without_touching_the_target() {
-    let root = test_workspace("symlinked-entry");
-    let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
-    initialize_workspace(&workspace_uri).expect("initialize workspace");
-    let source = root.join("document.md");
-    fs::write(&source, "# document\n").expect("write source");
-    let source_uri = path_to_file_uri(&source).expect("source URI");
-    let destination = root.join("public");
-    let destination_uri = path_to_file_uri(&destination).expect("destination URI");
-    export_html(
-        &source_uri,
-        &workspace_uri,
-        &destination_uri,
-        "<p>first</p>",
-        &[],
-    )
-    .expect("first export");
-    acknowledge_export(&source_uri, &workspace_uri, &destination_uri)
-        .expect("acknowledge first export");
+    let fixture = ExportFixture::initialized("symlinked-entry");
+    fixture.export("<p>first</p>").expect("first export");
+    fixture.acknowledge();
 
-    let outside = root.join("user-owned.txt");
+    let outside = fixture.root.join("user-owned.txt");
     fs::write(&outside, "user bytes").expect("write user file");
-    fs::remove_file(destination.join("index.html")).expect("remove generated index");
-    std::os::unix::fs::symlink(&outside, destination.join("index.html"))
+    fs::remove_file(fixture.destination.join("index.html")).expect("remove generated index");
+    std::os::unix::fs::symlink(&outside, fixture.destination.join("index.html"))
         .expect("create required managed-export symlink");
 
     assert!(matches!(
-        export_html(
-            &source_uri,
-            &workspace_uri,
-            &destination_uri,
-            "<p>second</p>",
-            &[],
-        ),
+        fixture.export("<p>second</p>"),
         Err(ServiceError::ExportContentConflict)
     ));
     assert_eq!(
@@ -412,7 +410,7 @@ fn managed_export_rejects_a_symlinked_entry_without_touching_the_target() {
         "user bytes"
     );
     assert!(
-        fs::symlink_metadata(destination.join("index.html"))
+        fs::symlink_metadata(fixture.destination.join("index.html"))
             .expect("symlink metadata")
             .file_type()
             .is_symlink()
@@ -422,39 +420,18 @@ fn managed_export_rejects_a_symlinked_entry_without_touching_the_target() {
 #[cfg(windows)]
 #[test]
 fn managed_export_rejects_a_junctioned_entry_without_touching_the_target() {
-    let root = test_workspace("junctioned-export-entry");
+    let fixture = ExportFixture::initialized("junctioned-export-entry");
     let outside = test_workspace("junctioned-export-target");
-    let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
-    initialize_workspace(&workspace_uri).expect("initialize workspace");
-    let source = root.join("document.md");
-    fs::write(&source, "# document\n").expect("write source");
-    let source_uri = path_to_file_uri(&source).expect("source URI");
-    let destination = root.join("public");
-    let destination_uri = path_to_file_uri(&destination).expect("destination URI");
-    export_html(
-        &source_uri,
-        &workspace_uri,
-        &destination_uri,
-        "<p>first</p>",
-        &[],
-    )
-    .expect("first export");
-    acknowledge_export(&source_uri, &workspace_uri, &destination_uri)
-        .expect("acknowledge first export");
+    fixture.export("<p>first</p>").expect("first export");
+    fixture.acknowledge();
 
     fs::write(outside.join("sentinel.txt"), "user bytes").expect("write target sentinel");
-    let index = destination.join("index.html");
+    let index = fixture.destination.join("index.html");
     fs::remove_file(&index).expect("remove generated index");
     let _junction_guard = create_junction(&index, &outside);
 
     assert!(matches!(
-        export_html(
-            &source_uri,
-            &workspace_uri,
-            &destination_uri,
-            "<p>second</p>",
-            &[],
-        ),
+        fixture.export("<p>second</p>"),
         Err(ServiceError::ExportContentConflict)
     ));
     assert_eq!(

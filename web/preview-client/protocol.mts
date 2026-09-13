@@ -151,6 +151,14 @@ type ContractTypeName = keyof typeof TYPE_VALIDATORS;
 const hasContractShape = (name: ContractTypeName, value: unknown): boolean =>
   validateContractDescriptor(VALIDATOR_TYPES, TYPE_VALIDATORS[name], value);
 
+const contractValidator =
+  <T,>(
+    name: ContractTypeName,
+    semantics: (value: T) => boolean = () => true,
+  ): Validator<T> =>
+  (value): value is T =>
+    hasContractShape(name, value) && semantics(value as T);
+
 const decodedBase64Length = (value: string): number | undefined => {
   if (
     value.length % 4 !== 0 ||
@@ -263,56 +271,37 @@ const wireValidator =
     );
   };
 
-export const isPosition: Validator<Position> = (value): value is Position =>
-  hasContractShape("position", value);
-
-export const isTextRange: Validator<TextRange> = (value): value is TextRange =>
-  hasContractShape("range", value);
-
-export const isSourcePosition: Validator<Contract.SourcePosition> = (
-  value,
-): value is Contract.SourcePosition =>
-  hasContractShape("sourcePosition", value);
-
-export const isSourceRange: Validator<Contract.SourceRange> = (
-  value,
-): value is Contract.SourceRange =>
-  hasContractShape("sourceRange", value) &&
-  rangeOrderIsValid(value as Contract.SourceRange);
-
-export const isRenderSnapshot: Validator<Contract.RenderSnapshot> = (
-  value,
-): value is Contract.RenderSnapshot =>
-  hasContractShape("renderSnapshot", value) &&
-  publicationSemanticsAreValid(value as Contract.RenderSnapshot);
-
-export const isRenderPatch: Validator<Contract.RenderPatch> = (
-  value,
-): value is Contract.RenderPatch =>
-  hasContractShape("renderPatch", value) &&
-  publicationSemanticsAreValid(value as Contract.RenderPatch);
-
-export const isRenderPublication: Validator<Contract.RenderPublication> = (
-  value,
-): value is Contract.RenderPublication =>
-  hasContractShape("renderPublication", value) &&
-  publicationSemanticsAreValid(value as Contract.RenderPublication);
-
-export const isEditorNavigationEvent: Validator<EditorNavigationEvent> = (
-  value,
-): value is EditorNavigationEvent =>
-  hasContractShape("previewNavigationEvent", value);
-
-export const isPreviewNavigationEvent: Validator<PreviewNavigationEvent> = (
-  value,
-): value is PreviewNavigationEvent =>
-  hasContractShape("renderNavigationEvent", value);
-
-export const isSourceNavigationEvent: Validator<
-  Contract.SourceNavigationEvent
-> = (value): value is Contract.SourceNavigationEvent =>
-  hasContractShape("sourceNavigationEvent", value) &&
-  sourceNavigationSemanticsAreValid(value as Contract.SourceNavigationEvent);
+export const isPosition = contractValidator<Position>("position");
+export const isTextRange = contractValidator<TextRange>("range");
+export const isSourcePosition =
+  contractValidator<Contract.SourcePosition>("sourcePosition");
+export const isSourceRange = contractValidator<Contract.SourceRange>(
+  "sourceRange",
+  rangeOrderIsValid,
+);
+export const isRenderSnapshot = contractValidator<Contract.RenderSnapshot>(
+  "renderSnapshot",
+  publicationSemanticsAreValid,
+);
+export const isRenderPatch = contractValidator<Contract.RenderPatch>(
+  "renderPatch",
+  publicationSemanticsAreValid,
+);
+export const isRenderPublication =
+  contractValidator<Contract.RenderPublication>(
+    "renderPublication",
+    publicationSemanticsAreValid,
+  );
+export const isEditorNavigationEvent = contractValidator<EditorNavigationEvent>(
+  "previewNavigationEvent",
+);
+export const isPreviewNavigationEvent =
+  contractValidator<PreviewNavigationEvent>("renderNavigationEvent");
+export const isSourceNavigationEvent =
+  contractValidator<Contract.SourceNavigationEvent>(
+    "sourceNavigationEvent",
+    sourceNavigationSemanticsAreValid,
+  );
 
 export function shouldForwardEditorNavigation(
   value: unknown,
@@ -364,32 +353,35 @@ type ClientValidators = {
   >;
 };
 
-export const customRequestParamsValidators = Object.fromEntries(
-  Object.entries(REQUEST_VALIDATORS).map(([method, [paramsIndex]]) => [
-    method,
-    wireValidator(paramsIndex),
-  ]),
+const wireValidatorMap = <Descriptor,>(
+  descriptors: Readonly<Record<string, Descriptor>>,
+  select: (descriptor: Descriptor) => number,
+): Record<string, Validator<unknown>> =>
+  Object.fromEntries(
+    Object.entries(descriptors).map(([method, descriptor]) => [
+      method,
+      wireValidator(select(descriptor)),
+    ]),
+  );
+
+export const customRequestParamsValidators = wireValidatorMap(
+  REQUEST_VALIDATORS,
+  ([paramsIndex]) => paramsIndex,
 ) as RequestParamsValidators;
 
-export const customRequestResultValidators = Object.fromEntries(
-  Object.entries(REQUEST_VALIDATORS).map(([method, [, resultIndex]]) => [
-    method,
-    wireValidator(resultIndex),
-  ]),
+export const customRequestResultValidators = wireValidatorMap(
+  REQUEST_VALIDATORS,
+  ([, resultIndex]) => resultIndex,
 ) as RequestResultValidators;
 
-export const clientNotificationValidators = Object.fromEntries(
-  Object.entries(CLIENT_NOTIFICATION_VALIDATORS).map(([method, index]) => [
-    method,
-    wireValidator(index),
-  ]),
+export const clientNotificationValidators = wireValidatorMap(
+  CLIENT_NOTIFICATION_VALIDATORS,
+  (index) => index,
 ) as ClientValidators;
 
-const fleximarkServerNotificationValidators = Object.fromEntries(
-  Object.entries(SERVER_NOTIFICATION_VALIDATORS).map(([method, index]) => [
-    method,
-    wireValidator(index),
-  ]),
+const fleximarkServerNotificationValidators = wireValidatorMap(
+  SERVER_NOTIFICATION_VALIDATORS,
+  (index) => index,
 ) as {
   [Method in keyof Contract.FleximarkServerNotificationMap]: Validator<
     Contract.FleximarkServerNotificationMap[Method]

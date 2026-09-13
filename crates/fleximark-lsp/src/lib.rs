@@ -886,8 +886,10 @@ mod tests {
 
     use super::*;
 
+    const DOCUMENT_URI: &str = "file:///doc.md";
+
     fn open(registry: &mut SessionRegistry, text: &str, version: i64) {
-        open_uri(registry, "file:///doc.md", text, version);
+        open_uri(registry, DOCUMENT_URI, text, version);
     }
 
     fn open_uri(registry: &mut SessionRegistry, uri: &str, text: &str, version: i64) {
@@ -900,6 +902,61 @@ mod tests {
                 },
             })
             .unwrap();
+    }
+
+    fn change(uri: &str, version: i64, range: Option<Range>, text: &str) -> DidChangeParams {
+        DidChangeParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.into(),
+                version,
+            },
+            content_changes: vec![ContentChange {
+                range,
+                text: text.into(),
+            }],
+        }
+    }
+
+    fn session_id<'a>(registry: &'a SessionRegistry, uri: &str) -> &'a str {
+        registry.session_id_for_uri(uri).unwrap()
+    }
+
+    fn attach_params(
+        registry: &SessionRegistry,
+        uri: &str,
+        version: u32,
+        text: &str,
+    ) -> AttachDocumentParams {
+        AttachDocumentParams {
+            daemon_instance_id: registry.daemon_instance_id().into(),
+            uri: uri.into(),
+            expected_document_version: version.into(),
+            content_hash: content_hash(text),
+        }
+    }
+
+    fn checkpoint_params(
+        registry: &SessionRegistry,
+        session_id: &str,
+        version: u32,
+        hash: String,
+    ) -> CheckpointDocumentParams {
+        CheckpointDocumentParams {
+            daemon_instance_id: registry.daemon_instance_id().into(),
+            document_session_id: session_id.into(),
+            document_version: version.into(),
+            content_hash: hash,
+        }
+    }
+
+    fn document<'a>(registry: &'a SessionRegistry, uri: &str, version: i64) -> &'a DocumentSession {
+        registry
+            .document(
+                registry.daemon_instance_id(),
+                session_id(registry, uri),
+                version,
+            )
+            .unwrap()
     }
 
     fn configured_host(label: &str, trusted: bool) -> (PluginHost, RenderConfig) {
@@ -924,7 +981,7 @@ mod tests {
         preview_id: &str,
     ) -> String {
         let daemon = registry.daemon_instance_id().to_owned();
-        let session_id = registry.session_id_for_uri(uri).unwrap().to_owned();
+        let session_id = session_id(registry, uri).to_owned();
         registry
             .render_full(&daemon, &session_id, version, preview_id)
             .unwrap()
@@ -949,10 +1006,7 @@ mod tests {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
         open(&mut registry, "# 😀 heading\n", 1);
         let daemon = registry.daemon_instance_id().to_owned();
-        let session = registry
-            .session_id_for_uri("file:///doc.md")
-            .unwrap()
-            .to_owned();
+        let session = session_id(&registry, DOCUMENT_URI).to_owned();
         let entry = registry
             .navigation_at_position(
                 &daemon,
@@ -980,21 +1034,12 @@ mod tests {
     fn stale_change_marks_session_out_of_sync_until_full_text() {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
         open(&mut registry, "old", 3);
-        let stale = DidChangeParams {
-            text_document: VersionedTextDocumentIdentifier {
-                uri: "file:///doc.md".into(),
-                version: 3,
-            },
-            content_changes: vec![ContentChange {
-                range: None,
-                text: "ignored".into(),
-            }],
-        };
+        let stale = change(DOCUMENT_URI, 3, None, "ignored");
         assert_eq!(registry.change(stale), Err(SessionError::StaleVersion));
         assert!(
             registry
                 .index
-                .by_uri("file:///doc.md")
+                .by_uri(DOCUMENT_URI)
                 .unwrap()
                 .engine
                 .is_out_of_sync()
@@ -1007,25 +1052,16 @@ mod tests {
         );
         assert_eq!(
             requests[0].document_session_id,
-            registry.session_id_for_uri("file:///doc.md").unwrap()
+            session_id(&registry, DOCUMENT_URI)
         );
 
         registry
-            .change(DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///doc.md".into(),
-                    version: 9,
-                },
-                content_changes: vec![ContentChange {
-                    range: None,
-                    text: "fresh".into(),
-                }],
-            })
+            .change(change(DOCUMENT_URI, 9, None, "fresh"))
             .unwrap();
         assert!(
             !registry
                 .index
-                .by_uri("file:///doc.md")
+                .by_uri(DOCUMENT_URI)
                 .unwrap()
                 .engine
                 .is_out_of_sync()
@@ -1037,20 +1073,15 @@ mod tests {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
         open(&mut registry, "text", 1);
         let attached = registry
-            .attach(&AttachDocumentParams {
-                daemon_instance_id: registry.daemon_instance_id().into(),
-                uri: "file:///doc.md".into(),
-                expected_document_version: 1.into(),
-                content_hash: content_hash("text"),
-            })
+            .attach(&attach_params(&registry, DOCUMENT_URI, 1, "text"))
             .unwrap();
         let error = registry
-            .checkpoint(&CheckpointDocumentParams {
-                daemon_instance_id: registry.daemon_instance_id().into(),
-                document_session_id: attached.document_session_id.clone(),
-                document_version: 1.into(),
-                content_hash: content_hash("different"),
-            })
+            .checkpoint(&checkpoint_params(
+                &registry,
+                &attached.document_session_id,
+                1,
+                content_hash("different"),
+            ))
             .unwrap_err();
         assert_eq!(error, SessionError::HashMismatch);
         assert_eq!(
@@ -1066,16 +1097,7 @@ mod tests {
         );
         assert_eq!(registry.take_full_text_requests().len(), 1);
         registry
-            .change(DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///doc.md".into(),
-                    version: 1,
-                },
-                content_changes: vec![ContentChange {
-                    range: None,
-                    text: "text".into(),
-                }],
-            })
+            .change(change(DOCUMENT_URI, 1, None, "text"))
             .unwrap();
         assert!(
             registry
@@ -1093,77 +1115,52 @@ mod tests {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
         let daemon = registry.daemon_instance_id().to_owned();
         open(&mut registry, "one", 1);
-        let first = registry
-            .session_id_for_uri("file:///doc.md")
-            .unwrap()
-            .to_owned();
+        let first = session_id(&registry, DOCUMENT_URI).to_owned();
 
         open(&mut registry, "two", 2);
-        let second = registry
-            .session_id_for_uri("file:///doc.md")
-            .unwrap()
-            .to_owned();
+        let second = session_id(&registry, DOCUMENT_URI).to_owned();
         assert_ne!(first, second);
         assert_eq!(
             registry.current_version(&daemon, &first),
             Err(SessionError::UnknownSession)
         );
         let attached = registry
-            .attach(&AttachDocumentParams {
-                daemon_instance_id: daemon.clone(),
-                uri: "file:///doc.md".into(),
-                expected_document_version: 2.into(),
-                content_hash: content_hash("two"),
-            })
+            .attach(&attach_params(&registry, DOCUMENT_URI, 2, "two"))
             .unwrap();
         assert_eq!(attached.document_session_id, second);
 
         registry
-            .change(DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///doc.md".into(),
-                    version: 3,
-                },
-                content_changes: vec![ContentChange {
-                    range: None,
-                    text: "three".into(),
-                }],
-            })
+            .change(change(DOCUMENT_URI, 3, None, "three"))
             .unwrap();
         registry
-            .checkpoint(&CheckpointDocumentParams {
-                daemon_instance_id: daemon.clone(),
-                document_session_id: second.clone(),
-                document_version: 3.into(),
-                content_hash: content_hash("three"),
-            })
+            .checkpoint(&checkpoint_params(
+                &registry,
+                &second,
+                3,
+                content_hash("three"),
+            ))
             .unwrap();
         assert_eq!(registry.current_version(&daemon, &second), Ok(3));
 
         registry.close(DidCloseParams {
             text_document: TextDocumentIdentifier {
-                uri: "file:///doc.md".into(),
+                uri: DOCUMENT_URI.into(),
             },
         });
-        assert_eq!(registry.session_id_for_uri("file:///doc.md"), None);
+        assert_eq!(registry.session_id_for_uri(DOCUMENT_URI), None);
         assert_eq!(
             registry.current_version(&daemon, &second),
             Err(SessionError::UnknownSession)
         );
         assert_eq!(
             registry
-                .attach(&AttachDocumentParams {
-                    daemon_instance_id: daemon.clone(),
-                    uri: "file:///doc.md".into(),
-                    expected_document_version: 3.into(),
-                    content_hash: content_hash("three"),
-                })
+                .attach(&attach_params(&registry, DOCUMENT_URI, 3, "three"))
                 .unwrap_err(),
             SessionError::NotOpen
         );
 
         open(&mut registry, "reopened", 4);
-        let third = registry.session_id_for_uri("file:///doc.md").unwrap();
+        let third = session_id(&registry, DOCUMENT_URI);
         assert_ne!(third, first);
         assert_ne!(third, second);
     }
@@ -1173,14 +1170,8 @@ mod tests {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
         open_uri(&mut registry, "file:///first.md", "first", 1);
         open_uri(&mut registry, "file:///second.md", "second", 1);
-        let first_id = registry
-            .session_id_for_uri("file:///first.md")
-            .unwrap()
-            .to_owned();
-        let second_id = registry
-            .session_id_for_uri("file:///second.md")
-            .unwrap()
-            .to_owned();
+        let first_id = session_id(&registry, "file:///first.md").to_owned();
+        let second_id = session_id(&registry, "file:///second.md").to_owned();
 
         let mut replacement = registry.index.remove_by_uri("file:///second.md").unwrap();
         replacement.id = first_id.clone();
@@ -1206,33 +1197,23 @@ mod tests {
             let mut registry = SessionRegistry::new(encoding);
             open(&mut registry, "a😀b\n", 1);
             registry
-                .change(DidChangeParams {
-                    text_document: VersionedTextDocumentIdentifier {
-                        uri: "file:///doc.md".into(),
-                        version: 2,
-                    },
-                    content_changes: vec![ContentChange {
-                        range: Some(Range {
-                            start: Position {
-                                line: 0,
-                                character: start,
-                            },
-                            end: Position {
-                                line: 0,
-                                character: end,
-                            },
-                        }),
-                        text: "x".into(),
-                    }],
-                })
-                .unwrap();
-            let session = registry
-                .document(
-                    registry.daemon_instance_id(),
-                    registry.session_id_for_uri("file:///doc.md").unwrap(),
+                .change(change(
+                    DOCUMENT_URI,
                     2,
-                )
+                    Some(Range {
+                        start: Position {
+                            line: 0,
+                            character: start,
+                        },
+                        end: Position {
+                            line: 0,
+                            character: end,
+                        },
+                    }),
+                    "x",
+                ))
                 .unwrap();
+            let session = document(&registry, DOCUMENT_URI, 2);
             assert_eq!(session.source(), "axb\n", "encoding: {encoding:?}");
             assert_eq!(session.position_encoding(), encoding);
         }
@@ -1279,10 +1260,7 @@ mod tests {
         ];
         for (uri, expected_workspace) in cases {
             open_uri(&mut registry, uri, "text", 1);
-            let session_id = registry.session_id_for_uri(uri).unwrap();
-            let session = registry
-                .document(registry.daemon_instance_id(), session_id, 1)
-                .unwrap();
+            let session = document(&registry, uri, 1);
             assert_eq!(session.workspace_uri(), expected_workspace);
         }
 
@@ -1364,7 +1342,7 @@ mod tests {
         let compatibility_fingerprint =
             render_fingerprint(&mut compatibility, uri, 1, "configured");
         assert_ne!(compatibility_fingerprint, plain_fingerprint);
-        let compatibility_session = compatibility.session_id_for_uri(uri).unwrap().to_owned();
+        let compatibility_session = session_id(&compatibility, uri).to_owned();
         let compatibility_daemon = compatibility.daemon_instance_id().to_owned();
         let (late_host, late_config) = configured_host("late", true);
         assert_eq!(
@@ -1392,25 +1370,15 @@ mod tests {
         open_uri(&mut workspace, original_uris[1], "beta", 2);
         let daemon = workspace.daemon_instance_id().to_owned();
         let baseline = original_uris.map(|uri| {
-            let session_id = workspace.session_id_for_uri(uri).unwrap().to_owned();
-            let session = workspace
-                .document(
-                    &daemon,
-                    &session_id,
-                    if uri.ends_with("alpha.md") { 1 } else { 2 },
-                )
-                .unwrap();
+            let session_id = session_id(&workspace, uri).to_owned();
+            let version = if uri.ends_with("alpha.md") { 1 } else { 2 };
+            let session = workspace.document(&daemon, &session_id, version).unwrap();
             (
                 uri,
                 session_id,
                 session.source().to_owned(),
                 session.document().document_version,
-                render_fingerprint(
-                    &mut workspace,
-                    uri,
-                    if uri.ends_with("alpha.md") { 1 } else { 2 },
-                    &format!("before-{uri}"),
-                ),
+                render_fingerprint(&mut workspace, uri, version, &format!("before-{uri}")),
             )
         });
         let stage_order = workspace
@@ -1458,7 +1426,7 @@ mod tests {
 
         let new_uri = "file:///workspace/after-failure.md";
         open_uri(&mut workspace, new_uri, "new", 3);
-        let new_session_id = workspace.session_id_for_uri(new_uri).unwrap().to_owned();
+        let new_session_id = session_id(&workspace, new_uri).to_owned();
         assert_eq!(
             workspace
                 .document(&daemon, &new_session_id, 3)

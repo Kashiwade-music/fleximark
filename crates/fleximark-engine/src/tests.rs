@@ -21,8 +21,8 @@ use crate::assets::MAX_RENDER_ASSET_BYTES;
 use crate::identity::{content_hash, content_hash_bytes};
 use crate::provenance::remap_provenance_for_test;
 use crate::{
-    DocumentSession, EngineError, PatchOperation, PreviewSessionId, RenderConfig,
-    RenderPublication, RenderStyle, ResolvedRenderAsset,
+    DocumentSession, EngineError, PatchOperation, PreviewSessionId, RenderConfig, RenderPatch,
+    RenderPublication, RenderSnapshot, RenderStyle, ResolvedRenderAsset,
 };
 
 fn utf8_range(source: &str, byte_start: usize, byte_end: usize) -> fleximark_model::SourceRange {
@@ -52,6 +52,26 @@ fn open(source: &str) -> DocumentSession {
         PositionEncoding::Utf16,
     )
     .unwrap()
+}
+
+fn full(publication: RenderPublication, message: &str) -> RenderSnapshot {
+    let RenderPublication::Full(snapshot) = publication else {
+        panic!("{message}")
+    };
+    snapshot
+}
+
+fn patch(publication: RenderPublication, message: &str) -> RenderPatch {
+    let RenderPublication::Patch(patch) = publication else {
+        panic!("{message}")
+    };
+    patch
+}
+
+fn render_default(session: &mut DocumentSession, id: &str) -> RenderPublication {
+    session
+        .render(PreviewSessionId(id.into()), &RenderContext::default())
+        .unwrap()
 }
 
 fn fixture_component() -> &'static [u8] {
@@ -376,13 +396,8 @@ fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
     session.render_config.style = Some(RenderStyle::from_validated_css(
         "main { color: canvastext; }".to_owned(),
     ));
-    let preview = PreviewSessionId("preview-1".into());
-    let first = session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap();
-    let RenderPublication::Full(snapshot) = first else {
-        panic!("first render must be full")
-    };
+    let first = render_default(&mut session, "preview-1");
+    let snapshot = full(first, "first render must be full");
     let original_id = session.document.blocks[0].id.clone();
     assert!(
         snapshot
@@ -398,12 +413,8 @@ fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
         session.document.blocks[0].id
     );
     session.change_full_text(2, "# A changed\n".into()).unwrap();
-    let second = session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap();
-    let RenderPublication::Patch(patch) = second else {
-        panic!("expected patch")
-    };
+    let second = render_default(&mut session, "preview-1");
+    let patch = patch(second, "expected patch");
     assert_eq!(session.document.blocks[0].id, original_id);
     assert!(
         matches!(patch.operations.as_slice(), [PatchOperation::Replace { node_id, .. }] if node_id == &original_id)
@@ -437,30 +448,26 @@ fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
         raw_html: RawHtmlPolicy::Reject,
         ..RenderContext::default()
     };
-    let third = session.render(preview, &strict).unwrap();
-    let RenderPublication::Full(snapshot) = third else {
-        panic!("fingerprint change must be full")
-    };
+    let third = session
+        .render(PreviewSessionId("preview-1".into()), &strict)
+        .unwrap();
+    let snapshot = full(third, "fingerprint change must be full");
     assert_eq!(snapshot.result_render_revision, 3);
 }
 
 #[test]
 fn emits_allowlisted_attribute_delta_and_serializes_it_in_camel_case() {
     let mut session = open(":::info[Note]\nbody\n:::\n");
-    let preview = PreviewSessionId("attributes".into());
-    session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap();
+    render_default(&mut session, "attributes");
     let original_id = session.document.blocks[0].id.clone();
     session
         .change_full_text(2, ":::tip[Note]\nbody\n:::\n".to_owned())
         .unwrap();
     assert_eq!(session.document.blocks[0].id, original_id);
-    let RenderPublication::Patch(patch) =
-        session.render(preview, &RenderContext::default()).unwrap()
-    else {
-        panic!("presentation-only change should patch")
-    };
+    let patch = patch(
+        render_default(&mut session, "attributes"),
+        "presentation-only change should patch",
+    );
     assert!(matches!(
         patch.operations.as_slice(),
         [PatchOperation::SetAttributes { attributes, .. }]
@@ -485,9 +492,10 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
         .unwrap();
     let preview = PreviewSessionId("asset-preview".into());
     let context = session.render_config.context.clone();
-    let RenderPublication::Full(first) = session.render(preview.clone(), &context).unwrap() else {
-        panic!("first asset publication must be full")
-    };
+    let first = full(
+        session.render(preview.clone(), &context).unwrap(),
+        "first asset publication must be full",
+    );
     assert_eq!(first.assets.len(), 1);
     assert_eq!(first.assets[0].data, BASE64.encode(b"png-one"));
     assert!(first.html.contains(&first.assets[0].reference));
@@ -498,9 +506,10 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
         .change_full_text(2, "![changed](private/diagram.png)\n".to_owned())
         .unwrap();
     let context = session.render_config.context.clone();
-    let RenderPublication::Patch(patch) = session.render(preview.clone(), &context).unwrap() else {
-        panic!("unchanged asset set may patch")
-    };
+    let patch = patch(
+        session.render(preview.clone(), &context).unwrap(),
+        "unchanged asset set may patch",
+    );
     assert!(
         serde_json::to_value(&patch)
             .unwrap()
@@ -519,9 +528,10 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
         ])
         .unwrap();
     let context = session.render_config.context.clone();
-    let RenderPublication::Full(second) = session.render(preview, &context).unwrap() else {
-        panic!("asset content change must force full publication")
-    };
+    let second = full(
+        session.render(preview, &context).unwrap(),
+        "asset content change must force full publication",
+    );
     assert_ne!(first.renderer_fingerprint, second.renderer_fingerprint);
     assert_ne!(first.assets[0].content_hash, second.assets[0].content_hash);
 
@@ -584,20 +594,16 @@ fn render_only_reconfiguration_preserves_ir_and_plugin_diagnostics() {
 #[test]
 fn staged_reconfiguration_preserves_preview_revision_and_forces_full() {
     let mut session = open("hello\n");
-    let preview = PreviewSessionId("reconfigure".into());
-    session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap();
+    render_default(&mut session, "reconfigure");
     let mut configured = open("hello\n");
     configured.render_config.style = Some(RenderStyle::from_validated_css(
         "p { color: green; }".to_owned(),
     ));
     session.adopt_reconfiguration(configured).unwrap();
-    let RenderPublication::Full(snapshot) =
-        session.render(preview, &RenderContext::default()).unwrap()
-    else {
-        panic!("configuration fingerprint change must be full")
-    };
+    let snapshot = full(
+        render_default(&mut session, "reconfigure"),
+        "configuration fingerprint change must be full",
+    );
     assert_eq!(snapshot.result_render_revision, 2);
 }
 
@@ -619,21 +625,14 @@ fn checkpoint_is_bound_to_version_and_utf8_content() {
 #[test]
 fn render_metadata_and_annotations_are_part_of_the_publication() {
     let mut session = open("# A\n");
-    let preview = PreviewSessionId("configured".into());
-    let first = session
-        .render(preview.clone(), &RenderContext::default())
-        .unwrap();
-    let RenderPublication::Full(first) = first else {
-        panic!("first publication must be full")
-    };
+    let first = render_default(&mut session, "configured");
+    let first = full(first, "first publication must be full");
 
     session.render_config.style = Some(RenderStyle::from_validated_css(
         "main { color: rebeccapurple; }".to_owned(),
     ));
-    let second = session.render(preview, &RenderContext::default()).unwrap();
-    let RenderPublication::Full(second) = second else {
-        panic!("metadata changes must force a full publication")
-    };
+    let second = render_default(&mut session, "configured");
+    let second = full(second, "metadata changes must force a full publication");
     assert_ne!(first.renderer_fingerprint, second.renderer_fingerprint);
     assert_eq!(second.style, session.render_config.style);
     let wire = serde_json::to_value(&second).unwrap();
@@ -648,9 +647,7 @@ fn render_metadata_and_annotations_are_part_of_the_publication() {
             &annotations,
         )
         .unwrap();
-    let RenderPublication::Full(annotated) = annotated else {
-        panic!("first annotated publication must be full")
-    };
+    let annotated = full(annotated, "first annotated publication must be full");
     assert!(annotated.html.contains("data-fleximark-render-annotations"));
     assert!(annotated.html.contains("\\u003c/script\\u003e"));
     assert!(!annotated.html.contains("</script><img"));

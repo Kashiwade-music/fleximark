@@ -8,6 +8,20 @@ import type { WorkspaceRuntime } from "../../adapters/vscode/src/runtime-state.m
 
 export const suiteName = "Document lifecycle adapter";
 
+function fullTextRequest(
+  id: number,
+  daemonInstanceId: string,
+  documentSessionId: string,
+  uri: string,
+): Parameters<typeof handleRequestFullText>[0] {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "fleximark/requestFullText",
+    params: { daemonInstanceId, documentSessionId, uri },
+  };
+}
+
 export function suite(): void {
   test("answers current full-text requests after the full change notification", async () => {
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -42,16 +56,7 @@ export function suite(): void {
 
       assert.equal(
         handleRequestFullText(
-          {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "fleximark/requestFullText",
-            params: {
-              daemonInstanceId: "daemon-current",
-              documentSessionId: "session-current",
-              uri,
-            },
-          },
+          fullTextRequest(1, "daemon-current", "session-current", uri),
           connection,
           [runtime],
           "daemon-current",
@@ -72,16 +77,12 @@ export function suite(): void {
 
       events.length = 0;
       handleRequestFullText(
-        {
-          jsonrpc: "2.0",
-          id: 2,
-          method: "fleximark/requestFullText",
-          params: {
-            daemonInstanceId: "daemon-current",
-            documentSessionId: "session-closed",
-            uri: "file:///closed.md",
-          },
-        },
+        fullTextRequest(
+          2,
+          "daemon-current",
+          "session-closed",
+          "file:///closed.md",
+        ),
         connection,
         [runtime],
         "daemon-current",
@@ -91,16 +92,7 @@ export function suite(): void {
 
       events.length = 0;
       handleRequestFullText(
-        {
-          jsonrpc: "2.0",
-          id: 3,
-          method: "fleximark/requestFullText",
-          params: {
-            daemonInstanceId: "daemon-stale",
-            documentSessionId: "session-current",
-            uri,
-          },
-        },
+        fullTextRequest(3, "daemon-stale", "session-current", uri),
         connection,
         [runtime],
         "daemon-current",

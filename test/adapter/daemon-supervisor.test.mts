@@ -206,18 +206,20 @@ class SupervisorHarness {
   }
 }
 
+function runningProcess(harness: SupervisorHarness): FakeProcess {
+  const process = harness.supervisor.process;
+  assert.ok(process);
+  return process;
+}
+
 async function reachRepeatedFailure(harness: SupervisorHarness): Promise<void> {
   await harness.supervisor.ensure();
   for (let attempt = 1; attempt <= 5; attempt += 1) {
-    const process = harness.supervisor.process;
-    assert.ok(process);
-    harness.exit(process, attempt, null);
+    harness.exit(runningProcess(harness), attempt, null);
     harness.fireNextTimer();
     await harness.settle();
   }
-  const process = harness.supervisor.process;
-  assert.ok(process);
-  harness.exit(process, 6, null);
+  harness.exit(runningProcess(harness), 6, null);
   await harness.settle();
 }
 
@@ -253,16 +255,12 @@ export function suite(): void {
     const delays: number[] = [];
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-      const process = harness.supervisor.process;
-      assert.ok(process);
-      harness.exit(process, attempt, null);
+      harness.exit(runningProcess(harness), attempt, null);
       assert.equal(harness.supervisor.snapshot().restartCount, attempt);
       delays.push(harness.fireNextTimer());
       await harness.settle();
     }
-    const process = harness.supervisor.process;
-    assert.ok(process);
-    harness.exit(process, 6, null);
+    harness.exit(runningProcess(harness), 6, null);
     await harness.settle();
 
     assert.deepEqual(delays, [250, 500, 1_000, 2_000, 4_000]);
@@ -272,13 +270,10 @@ export function suite(): void {
     assert.equal(harness.timers.filter((timer) => !timer.cancelled).length, 0);
     assert.deepEqual(
       harness.logs.filter((message) => message.includes("retry scheduled")),
-      [
-        "[recovery-1] retry scheduled in 250ms",
-        "[recovery-2] retry scheduled in 500ms",
-        "[recovery-3] retry scheduled in 1000ms",
-        "[recovery-4] retry scheduled in 2000ms",
-        "[recovery-5] retry scheduled in 4000ms",
-      ],
+      delays.map(
+        (delay, index) =>
+          `[recovery-${index + 1}] retry scheduled in ${delay}ms`,
+      ),
     );
     assert.equal(
       harness.statuses.filter(({ kind }) => kind === "recovering").length,
@@ -294,23 +289,20 @@ export function suite(): void {
   test("does not reset at thirty seconds and resets only after it", async () => {
     const harness = new SupervisorHarness();
     await harness.supervisor.ensure();
-    const firstProcess = harness.supervisor.process;
-    assert.ok(firstProcess);
+    const firstProcess = runningProcess(harness);
     harness.exit(firstProcess, 1, null);
     assert.equal(harness.fireNextTimer(), 250);
     await harness.settle();
 
     harness.now = 30_000;
-    const boundaryProcess = harness.supervisor.process;
-    assert.ok(boundaryProcess);
+    const boundaryProcess = runningProcess(harness);
     harness.exit(boundaryProcess, 2, null);
     assert.equal(harness.supervisor.snapshot().restartCount, 2);
     assert.equal(harness.fireNextTimer(), 500);
     await harness.settle();
 
     harness.now = 60_001;
-    const afterBoundaryProcess = harness.supervisor.process;
-    assert.ok(afterBoundaryProcess);
+    const afterBoundaryProcess = runningProcess(harness);
     harness.exit(afterBoundaryProcess, 3, null);
     assert.equal(harness.supervisor.snapshot().restartCount, 1);
     assert.equal(harness.fireNextTimer(), 250);
@@ -377,8 +369,7 @@ export function suite(): void {
 
     const scheduled = new SupervisorHarness();
     await scheduled.supervisor.ensure();
-    const process = scheduled.supervisor.process;
-    assert.ok(process);
+    const process = runningProcess(scheduled);
     scheduled.exit(process, 1, null);
     const recoveryStatus = scheduled.statuses.at(-1);
     assert.ok(recoveryStatus);
@@ -536,8 +527,7 @@ export function suite(): void {
     const harness = new SupervisorHarness();
     harness.rejectShutdown = true;
     await harness.supervisor.ensure();
-    const process = harness.supervisor.process;
-    assert.ok(process);
+    const process = runningProcess(harness);
     harness.supervisor.beginDispose();
     harness.supervisor.dispose();
     harness.supervisor.dispose();
