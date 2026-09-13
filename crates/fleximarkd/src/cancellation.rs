@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use fleximark_plugin_host::CancellationToken;
-use fleximark_protocol::{IncomingMessage, method};
+use fleximark_protocol::{IncomingMessage, RpcId, method};
 use serde_json::Value;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -81,7 +81,7 @@ impl CancellationCoordinator {
         } else {
             token.clone()
         };
-        let request_id = message.id.as_ref().and_then(rpc_id_key);
+        let request_id = message.id.as_ref().map(request_id_key);
         state.work.insert(
             work_id,
             (document.clone(), token.clone(), publication_token.clone()),
@@ -167,6 +167,10 @@ fn rpc_id_key(value: &Value) -> Option<String> {
         Value::String(_) | Value::Number(_) => serde_json::to_string(value).ok(),
         _ => None,
     }
+}
+
+fn request_id_key(value: &RpcId) -> String {
+    serde_json::to_string(value).expect("JSON-RPC ids are serializable")
 }
 
 fn document_key(message: &IncomingMessage) -> Option<DocumentKey> {

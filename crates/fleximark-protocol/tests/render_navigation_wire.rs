@@ -8,17 +8,17 @@ fn selection_wire_always_includes_null_or_object_active_position() {
     .unwrap();
     let without_active = RenderNavigationEvent::Selection {
         preview_session_id: "preview".into(),
-        render_revision: 1,
+        render_revision: 1.into(),
         node_ids: vec![NodeId("document-root".into())],
         active_position: None,
     };
     let with_active = RenderNavigationEvent::Selection {
         preview_session_id: "preview".into(),
-        render_revision: 2,
+        render_revision: 2.into(),
         node_ids: vec![NodeId("paragraph".into())],
         active_position: Some(TextPosition {
-            line: 3,
-            character: 5,
+            line: 3.into(),
+            character: 5.into(),
         }),
     };
 

@@ -20,6 +20,7 @@ static SESSION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 pub struct DocumentSessionId(pub String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct PreviewSessionId(pub String);
 
@@ -126,14 +127,16 @@ impl DocumentSession {
             .navigation()
             .into_iter()
             .filter(|entry| {
-                (entry.source_range.byte_start <= byte_offset
-                    && byte_offset < entry.source_range.byte_end)
-                    || (entry.source_range.byte_start == byte_offset
-                        && entry.source_range.byte_end == byte_offset)
+                (entry.source_range.byte_start.get() <= byte_offset
+                    && byte_offset < entry.source_range.byte_end.get())
+                    || (entry.source_range.byte_start.get() == byte_offset
+                        && entry.source_range.byte_end.get() == byte_offset)
             })
             .min_by(|left, right| {
-                let left_span = left.source_range.byte_end - left.source_range.byte_start;
-                let right_span = right.source_range.byte_end - right.source_range.byte_start;
+                let left_span =
+                    left.source_range.byte_end.get() - left.source_range.byte_start.get();
+                let right_span =
+                    right.source_range.byte_end.get() - right.source_range.byte_start.get();
                 left_span
                     .cmp(&right_span)
                     .then_with(|| right.depth.cmp(&left.depth))

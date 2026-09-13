@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use fleximark_lsp::content_hash;
-use fleximark_protocol::IncomingMessage;
+use fleximark_protocol::{IncomingMessage, RpcId};
 use serde_json::json;
 
 use fleximark_engine::RenderPublication;
@@ -28,7 +28,7 @@ use crate::telemetry::OperationalTrace;
 fn message(id: Option<i64>, method: &str, params: Value) -> IncomingMessage {
     IncomingMessage {
         jsonrpc: "2.0".into(),
-        id: id.map(Value::from),
+        id: id.map(|id| RpcId::try_from(id).unwrap()),
         method: method.into(),
         params,
     }
@@ -128,7 +128,7 @@ fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
             publications,
             publication_bytes,
             next_sequence: 3,
-            current_revision: 7,
+            current_revision: 7.into(),
             last_browser_event: None,
         },
     )])))

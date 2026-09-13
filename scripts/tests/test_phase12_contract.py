@@ -264,7 +264,11 @@ class JavaScriptEntrypointContract(unittest.TestCase):
 
 class CargoBoundaryContract(unittest.TestCase):
     def test_every_non_formatting_cargo_entrypoint_is_locked(self) -> None:
-        owners = ("scripts/tasks.py", "scripts/check_performance_budgets.py")
+        owners = (
+            "scripts/tasks.py",
+            "scripts/check_performance_budgets.py",
+            "scripts/protocol_codegen.py",
+        )
         for relative in owners:
             tree = ast.parse(read(relative), filename=relative)
             commands: list[list[str]] = []

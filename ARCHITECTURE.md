@@ -3,8 +3,14 @@
 This document records the architecture that is implemented in this repository. It is a
 baseline for compatibility-preserving changes, not a description of a future design.
 Capability-level ownership is machine-readable in
-[`capabilities/feature-inventory.json`](capabilities/feature-inventory.json), and wire shapes
-are defined in [`schemas/protocol.schema.json`](schemas/protocol.schema.json).
+[`capabilities/feature-inventory.json`](capabilities/feature-inventory.json). The Rust method
+registry and wire DTOs define its structure; Rust-owned generator policy defines additional scalar
+constraints such as hashes, MIME types, and JavaScript-safe integers. Together they are the only
+human-edited source of the FlexiMark custom protocol. `fleximark-protocol-codegen` deterministically derives
+[`schemas/protocol.schema.json`](schemas/protocol.schema.json) and
+`web/preview-client/protocol.generated.mts`; adapters consume those artifacts instead of defining
+an editor-specific copy of the contract. Handwritten TypeScript refinements enforce stateful and
+cross-field rules without redefining the generated wire shapes.
 
 ## Runtime composition and dependency direction
 
@@ -70,7 +76,7 @@ JavaScript.
 | Owner | Source | Responsibility |
 | --- | --- | --- |
 | Adapter | `adapters/vscode`; `adapter.mts` facade plus daemon, document, preview, registration, runtime-state, and pure policy modules | VS Code composition, settings, daemon recovery, document synchronization, preview lifecycle, diagnostics, commands, providers and editor/workspace events |
-| Protocol | `crates/fleximark-protocol`, `schemas/protocol.schema.json`, `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Protocol version, direction-specific custom method maps, JSON DTOs/runtime validation and stdio framing |
+| Protocol | `crates/fleximark-protocol`, `crates/fleximark-protocol-codegen`, generated `schemas/protocol.schema.json` and `web/preview-client/protocol.generated.mts`, handwritten refinements in `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Rust-owned custom-method registry and wire DTOs, generated editor-neutral contracts, semantic runtime validation and stdio framing |
 | Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
 | Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
 | LSP/session | `crates/fleximark-lsp` with private `index`, `workspace`, and `error` modules | URI-to-session authority, document versions, workspace configuration selection, diagnostics/navigation and preview publication state |
@@ -172,6 +178,9 @@ core DOM commit and do not wait for asynchronous enhancement.
   into the daemon.
 - `mise.toml` is the developer-facing build/test/package entry point. `scripts/tasks.py` and
   `scripts/build.py` are the orchestration and JavaScript bundle entry points.
+- `mise run protocol-generate` regenerates the checked-in Schema and TypeScript contract from
+  Rust. `mise run protocol-check` performs a read-only byte comparison; normal builds, verification,
+  and direct JavaScript build entry points fail before consuming stale generated artifacts.
 - `scripts/_targets.py` owns the ordered six-platform daemon target set, platform/architecture
   normalization, executable names and manifest-relative paths.
 - `scripts/release_artifact.py` validates prebuilt release inputs and the final VSIX, writes and
@@ -230,19 +239,28 @@ the authority to perform them.
 
 | Format | Canonical location | Compatibility notes |
 | --- | --- | --- |
-| JSON-RPC/LSP stdio | `fleximark-protocol`, `schemas/protocol.schema.json` | Protocol version 1, UTF-8 JSON, `Content-Length: N\r\n\r\n`; custom names are `fleximark/*` and fields use the casing declared by serde/schema |
-| Custom request/result DTOs | Rust protocol types, protocol schema, `web/preview-client/protocol.mts` | Optional fields are omitted on serialization where declared; error codes/messages and result envelopes are external behavior |
-| Preview publications | protocol schema and `web/preview-client/protocol.mts` | Discriminated `full`/`patch` JSON, camelCase fields, session/version/revision/fingerprint identity, navigation and optional style/assets |
+| Custom JSON-RPC methods | Rust method registry in `fleximark-protocol` | Human-edited source of truth for method identity, direction, request/notification kind, and parameter/result associations |
+| JSON-RPC/LSP stdio | Rust DTOs in their owning crates; generated `schemas/protocol.schema.json` | Protocol version 1, UTF-8 JSON, `Content-Length: N\r\n\r\n`; custom names and field casing are derived from the Rust contract |
+| Custom request/result DTOs | Rust serde/schema types in their owning crates, plus Rust generator policy | Only human-edited definition of custom wire structure and scalar constraints; optional fields, error codes/messages, and result envelopes are external behavior |
+| Generated adapter contract | `web/preview-client/protocol.generated.mts` | Generated editor-neutral DTO declarations, direction-specific method maps, and method metadata; it must not be edited by an adapter |
+| TypeScript protocol validation | `web/preview-client/protocol.mts` | Handwritten stateful and cross-field refinements layered on generated structural types |
+| Preview publications | Rust render contract types; generated schema and TypeScript declarations | Discriminated `full`/`patch` JSON, camelCase fields, session/version/revision/fingerprint identity, navigation and optional style/assets |
 | Embedded preview messages | `web/preview-client/host.mts` | `initializePreview` and `previewEvent` envelopes include a per-panel `messageToken`; client events return through VS Code webview messaging |
 | Browser preview | `fleximarkd/src/main.rs`, `browser-host.mts` | Tokenized loopback HTTP page, SSE publication stream and JSON POST navigation events |
 | Plugin manifest and ABI | `schemas/plugin-manifest.schema.json`, `fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit` | TOML manifest `schema_version = 1`, plugin `api_version = 1`, versioned WIT world and signed artifact digest |
 | Release manifest | `scripts/create_release_manifest.py` | JSON `schemaVersion: 1`, `protocolVersion: 1`, and platform/arch/path/SHA-256 entries for Linux, macOS and Windows on x64/arm64 |
 | Release identity sidecar | `scripts/release_artifact.py` | JSON `schemaVersion: 1`, fixed artifact name, strict semantic version, SHA-256, `gitTag`, and `sourceGitHead`; exact fields only |
 
-The current custom method set is `initialize`, `attachDocument`, `checkpointDocument`,
-`requestFullText`, `render`, `createPreview`, `disposePreview`, `setSelection`, `setViewport`,
-`previewEvent`, `reloadPreview`, `executeCommand`, `getNoteOptions`, `reconfigureWorkspace`,
-`openDocument`, `changeDocument`, and `closeDocument`, all in the `fleximark/` namespace.
+Engine-owned payloads, such as render publications, remain in the engine crate. The protocol
+registry refers to those payloads by closed, stable `WireType` IDs and uses generic envelopes at the
+transport boundary, avoiding a `fleximark-protocol` to `fleximark-engine` dependency cycle.
+Registry-to-fixture agreement is enforced by Rust unit tests, fixture-to-schema agreement by the
+Python contract tests, and fixture-to-TypeScript-map agreement by the TypeScript contract tests.
+The checked-in fixture remains a deliberately handwritten, independent compatibility oracle; it is
+not emitted by the generator. Generated files carry a do-not-edit marker, and protocol checking
+regenerates them in memory or temporary storage and fails on any byte-level drift. This keeps Rust
+as the sole implementation source while retaining a checked-in distributable contract and an
+independent test corpus.
 
 ## Persistent formats
 

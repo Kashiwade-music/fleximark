@@ -632,6 +632,7 @@ class WatchCleanupTests(unittest.TestCase):
         child = MagicMock()
         child.poll.side_effect = [None, None]
         with (
+            patch.object(tasks, "check_protocol_contract"),
             patch.object(tasks.javascript_build, "clean"),
             patch.object(
                 tasks.javascript_build,

@@ -124,7 +124,7 @@ fn process_message_with_observer(
         messages.clear();
         if let Some(id) = message.id.clone() {
             messages.push(response_value(Response::error(
-                id,
+                id.into(),
                 -32800,
                 "request cancelled",
             )));
@@ -155,13 +155,13 @@ enum InputEvent {
 mod tests {
     use super::*;
     use fleximark_lsp::content_hash;
-    use fleximark_protocol::method;
+    use fleximark_protocol::{RpcId, method};
     use serde_json::json;
 
     fn message(id: Option<i64>, method: &str, params: Value) -> IncomingMessage {
         IncomingMessage {
             jsonrpc: "2.0".into(),
-            id: id.map(Value::from),
+            id: id.map(|id| RpcId::try_from(id).unwrap()),
             method: method.into(),
             params,
         }

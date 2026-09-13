@@ -9,8 +9,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "test" / "fixtures" / "protocol-v1-contract.json"
+BIDIRECTIONAL_SERVER_FIXTURE = (
+    ROOT / "test" / "fixtures" / "protocol-v1-bidirectional-server.json"
+)
 SCHEMA = ROOT / "schemas" / "protocol.schema.json"
-RUST_PROTOCOL = ROOT / "crates" / "fleximark-protocol" / "src" / "lib.rs"
 
 
 class SchemaViolation(AssertionError):
@@ -181,25 +183,23 @@ class ProtocolContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        cls.bidirectional_server_fixture = json.loads(
+            BIDIRECTIONAL_SERVER_FIXTURE.read_text(encoding="utf-8")
+        )
         cls.schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
         cls.validator = Draft202012FixtureValidator(cls.schema)
 
-    def test_fixture_method_set_matches_rust_and_schema(self) -> None:
+    def test_fixture_method_set_matches_schema(self) -> None:
+        # The Rust protocol tests own registry-to-fixture validation. This test
+        # owns the next link in the contract chain: fixture-to-schema.
         cases = self.fixture["methods"]
         fixture_methods = [case["method"] for case in cases]
-        self.assertEqual(len(fixture_methods), 17)
+        self.assertTrue(fixture_methods)
         self.assertEqual(len(fixture_methods), len(set(fixture_methods)))
 
-        rust_methods = set(
-            re.findall(
-                r'pub const [A-Z_]+: &str = "(fleximark/[A-Za-z]+)";',
-                RUST_PROTOCOL.read_text(encoding="utf-8"),
-            )
-        )
         request_params = schema_method_params(self.schema, "customRequest")
         notification_params = schema_method_params(self.schema, "customNotification")
         schema_methods = request_params.keys() | notification_params.keys()
-        self.assertEqual(set(fixture_methods), rust_methods)
         self.assertEqual(set(fixture_methods), schema_methods)
 
         fixture_kinds = {case["method"]: case["kind"] for case in cases}
@@ -215,6 +215,22 @@ class ProtocolContractTests(unittest.TestCase):
             },
             notification_params.keys(),
         )
+
+    def test_json_rpc_id_schema_matches_javascript_safe_boundaries(self) -> None:
+        request_schema = self.schema["$defs"]["id"]
+        response_schema = self.schema["$defs"]["responseId"]
+        maximum = 9_007_199_254_740_991
+
+        for value in (-maximum, maximum, "request-id"):
+            self.validator.validate(value, request_schema)
+            self.validator.validate(value, response_schema)
+        for value in (-maximum - 1, maximum + 1, None):
+            with self.assertRaises(SchemaViolation):
+                self.validator.validate(value, request_schema)
+        self.validator.validate(None, response_schema)
+        for value in (-maximum - 1, maximum + 1):
+            with self.assertRaises(SchemaViolation):
+                self.validator.validate(value, response_schema)
 
     def test_every_fixture_matches_its_params_and_result_schema(self) -> None:
         request_params = schema_method_params(self.schema, "customRequest")
@@ -266,6 +282,33 @@ class ProtocolContractTests(unittest.TestCase):
         # requestFullText is outbound-only and intentionally has no response slot.
         self.assertNotIn("fleximark/requestFullText", result_schemas)
 
+    def test_bidirectional_methods_have_an_independent_server_fixture(self) -> None:
+        bidirectional_methods = {
+            case["method"]
+            for case in self.fixture["methods"]
+            if case["direction"] == "bidirectional"
+        }
+        cases = self.bidirectional_server_fixture["notifications"]
+        self.assertEqual(
+            {case["method"] for case in cases},
+            bidirectional_methods,
+        )
+        server_params = schema_method_params(
+            self.schema, "serverToClientCustomNotification"
+        )
+        for case in cases:
+            method = case["method"]
+            with self.subTest(method=method):
+                self.validator.validate(case["params"], server_params[method])
+                self.validator.validate(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": method,
+                        "params": case["params"],
+                    },
+                    self.schema["$defs"]["serverToClientCustomNotification"],
+                )
+
     def test_validator_rejects_python_boolean_number_equality(self) -> None:
         initialize = {
             "protocolVersion": True,
@@ -284,6 +327,20 @@ class ProtocolContractTests(unittest.TestCase):
 
         with self.assertRaises(SchemaViolation):
             self.validator.validate(True, {"enum": [1]})
+
+    def test_wire_integers_are_bounded_to_javascript_safe_values(self) -> None:
+        maximum = 9_007_199_254_740_991
+        unsigned = self.schema["$defs"]["position"]["properties"]["line"]
+        signed = self.schema["$defs"]["changeDocumentParams"]["properties"][
+            "documentVersion"
+        ]
+
+        self.validator.validate(maximum, unsigned)
+        self.validator.validate(-maximum, signed)
+        with self.assertRaises(SchemaViolation):
+            self.validator.validate(maximum + 1, unsigned)
+        with self.assertRaises(SchemaViolation):
+            self.validator.validate(-maximum - 1, signed)
 
     def test_fixture_exercises_current_optional_field_omission(self) -> None:
         cases = {case["method"]: case for case in self.fixture["methods"]}

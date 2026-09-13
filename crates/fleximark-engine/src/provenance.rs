@@ -1,6 +1,6 @@
 use fleximark_model::{
-    AnchorAffinity, Block, Document, GeneratedAnchor, Inline, InlineKind, Node, PositionEncoding,
-    SourcePosition, SourceProvenance, TransformId,
+    AnchorAffinity, Block, Document, GeneratedAnchor, Inline, InlineKind, JsSafeU64, Node,
+    PositionEncoding, SourcePosition, SourceProvenance, TransformId,
 };
 use fleximark_plugin_sdk::{EditOrigin, PreprocessedSource};
 
@@ -78,26 +78,33 @@ fn remap_provenance(
             let before = &original_source[..offset];
             let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
             SourcePosition {
-                line: before.bytes().filter(|byte| *byte == b'\n').count() as u64,
-                character: (offset - line_start) as u64,
+                line: JsSafeU64::new(before.bytes().filter(|byte| *byte == b'\n').count() as u64)
+                    .expect("source line count is JavaScript-safe"),
+                character: JsSafeU64::new((offset - line_start) as u64)
+                    .expect("source line length is JavaScript-safe"),
                 encoding: PositionEncoding::Utf8,
             }
         };
         Ok(fleximark_model::SourceRange {
-            byte_start,
-            byte_end,
+            byte_start: JsSafeU64::new(byte_start).map_err(|error| {
+                EngineError::Plugin(format!("preprocess origin offset is invalid: {error}"))
+            })?,
+            byte_end: JsSafeU64::new(byte_end).map_err(|error| {
+                EngineError::Plugin(format!("preprocess origin offset is invalid: {error}"))
+            })?,
             start: position(start),
             end: position(end),
         })
     };
+    let range_start = range.byte_start.get();
+    let range_end = range.byte_end.get();
     for segment in &preprocessed.segments {
         let empty = range.byte_start == range.byte_end;
-        let contains_empty = segment.output_start <= range.byte_start
-            && (range.byte_start < segment.output_end
-                || (range.byte_start == preprocessed.text.len() as u64
-                    && segment.output_end == range.byte_start));
-        if (!empty
-            && (segment.output_start >= range.byte_end || segment.output_end <= range.byte_start))
+        let contains_empty = segment.output_start <= range_start
+            && (range_start < segment.output_end
+                || (range_start == preprocessed.text.len() as u64
+                    && segment.output_end == range_start));
+        if (!empty && (segment.output_start >= range_end || segment.output_end <= range_start))
             || (empty && !contains_empty)
         {
             continue;
@@ -111,14 +118,14 @@ fn remap_provenance(
                 ranges: origin,
                 primary_range_index,
             } => {
-                let overlap_start = segment.output_start.max(range.byte_start);
-                let overlap_end = segment.output_end.min(range.byte_end);
+                let overlap_start = segment.output_start.max(range_start);
+                let overlap_end = segment.output_end.min(range_end);
                 let relative_start = overlap_start - segment.output_start;
                 let relative_end = overlap_end - segment.output_start;
                 let origin_length = origin
                     .iter()
                     .try_fold(0_u64, |length, range| {
-                        length.checked_add(range.byte_end - range.byte_start)
+                        length.checked_add(range.byte_end.get() - range.byte_start.get())
                     })
                     .ok_or_else(|| {
                         EngineError::Plugin("preprocess origin length overflowed".to_owned())
@@ -127,12 +134,13 @@ fn remap_provenance(
                 if exact {
                     let mut origin_offset = 0_u64;
                     for (index, origin_range) in origin.iter().enumerate() {
-                        let length = origin_range.byte_end - origin_range.byte_start;
+                        let origin_start = origin_range.byte_start.get();
+                        let length = origin_range.byte_end.get() - origin_start;
                         if empty
                             && (relative_start < origin_offset + length
                                 || (relative_start == origin_length && index + 1 == origin.len()))
                         {
-                            let offset = origin_range.byte_start + relative_start - origin_offset;
+                            let offset = origin_start + relative_start - origin_offset;
                             let mapped = source_range(offset, offset)?;
                             if index == *primary_range_index as usize && primary_range.is_none() {
                                 primary_range = Some(mapped.clone());
@@ -146,8 +154,8 @@ fn remap_provenance(
                         if start >= end {
                             continue;
                         }
-                        let byte_start = origin_range.byte_start + start - (origin_offset - length);
-                        let byte_end = origin_range.byte_start + end - (origin_offset - length);
+                        let byte_start = origin_start + start - (origin_offset - length);
+                        let byte_end = origin_start + end - (origin_offset - length);
                         let mapped = source_range(byte_start, byte_end)?;
                         if index == *primary_range_index as usize && primary_range.is_none() {
                             primary_range = Some(mapped.clone());

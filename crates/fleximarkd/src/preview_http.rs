@@ -10,10 +10,12 @@ use std::time::{Duration, Instant};
 use fleximark_engine::RenderPublication;
 use fleximark_model::NavigationEntry;
 use fleximark_protocol::{
-    PreviewNavigationEvent, RenderNavigationEvent, SourceNavigationEvent, method,
+    JsSafeU64, PreviewNavigationEvent, RenderNavigationEvent, ServerPreviewEvent,
+    ServerPreviewEventParams, SourceNavigationEvent,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
+use crate::server::preview_event_notification;
 use crate::telemetry::log_operational_event;
 
 pub(crate) struct PreviewServer {
@@ -29,7 +31,7 @@ pub(crate) struct PreviewPage {
     pub(crate) publications: Vec<StoredPublication>,
     pub(crate) publication_bytes: usize,
     pub(crate) next_sequence: u64,
-    pub(crate) current_revision: u64,
+    pub(crate) current_revision: JsSafeU64,
     pub(crate) last_browser_event: Option<Instant>,
 }
 
@@ -449,11 +451,11 @@ pub(crate) fn serve_preview_request(
                 source_range: entry.source_range,
             },
         };
-        let notification = json!({
-            "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-            "params":{"daemonInstanceId":page.daemon_instance_id,
-                "previewSessionId":page.preview_session_id,
-                "renderRevision":event_revision,"event":event}
+        let notification = preview_event_notification(ServerPreviewEventParams {
+            daemon_instance_id: page.daemon_instance_id.clone(),
+            preview_session_id: page.preview_session_id.clone(),
+            render_revision: event_revision,
+            event: ServerPreviewEvent::SourceNavigation(event),
         });
         let Some(sender) = sender else {
             write_preview_response(

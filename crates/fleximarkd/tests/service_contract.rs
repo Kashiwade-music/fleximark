@@ -198,7 +198,7 @@ fn initialization_preserves_default_bytes_and_command_result() {
         DEFAULT_THEME
     );
     let message = result.message.expect("initialization message");
-    assert_eq!(message.level, "info");
+    assert_eq!(message.level, fleximark_protocol::CommandMessageLevel::Info);
     assert_eq!(
         message.text,
         "Initialized .fleximark/config.toml and .fleximark/theme.css"

@@ -18,6 +18,7 @@ import {
 } from "../web/preview-client/host.mjs";
 import {
   PreviewDocument,
+  type RenderAsset,
   type RenderPatch,
   type RenderSnapshot,
 } from "../web/preview-client/index.mjs";
@@ -1594,7 +1595,7 @@ function navigation(nodeId: string, line: number) {
   };
 }
 
-function asset(data: string) {
+function asset(data: string): RenderAsset {
   return {
     reference: `fleximark-asset:${assetHash}`,
     mediaType: "image/png",
@@ -1604,7 +1605,7 @@ function asset(data: string) {
   };
 }
 
-function sizedAsset(contentHash: string, byteLength: number) {
+function sizedAsset(contentHash: string, byteLength: number): RenderAsset {
   return {
     reference: `fleximark-asset:${contentHash}`,
     mediaType: "image/png",

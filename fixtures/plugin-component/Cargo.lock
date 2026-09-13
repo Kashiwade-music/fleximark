@@ -87,6 +87,7 @@ dependencies = [
 name = "fleximark-model"
 version = "0.1.0"
 dependencies = [
+ "fleximark-wire",
  "serde",
  "thiserror",
 ]
@@ -101,6 +102,13 @@ dependencies = [
  "thiserror",
  "toml",
  "wit-bindgen",
+]
+
+[[package]]
+name = "fleximark-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

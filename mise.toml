@@ -20,6 +20,14 @@ run = [
 description = "Build the browser client, daemon, manifest, and VS Code adapter"
 run = "uv run --frozen python scripts/tasks.py build"
 
+[tasks.protocol-generate]
+description = "Regenerate Rust-owned protocol Schema and TypeScript artifacts"
+run = "uv run --frozen python scripts/tasks.py protocol-generate"
+
+[tasks.protocol-check]
+description = "Fail when generated protocol artifacts differ from the Rust contract"
+run = "uv run --frozen python scripts/tasks.py protocol-check"
+
 [tasks.clean]
 description = "Remove generated JavaScript and test output"
 run = "uv run --frozen python scripts/tasks.py clean"

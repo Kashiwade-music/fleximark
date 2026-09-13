@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
+pub use fleximark_wire::JsSafeU64;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -10,6 +11,7 @@ pub const DOCUMENT_SCHEMA_VERSION: u32 = 1;
 pub struct DocumentUri(pub String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct NodeId(pub String);
 
@@ -163,6 +165,7 @@ pub enum InlineKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum PositionEncoding {
     Utf8,
@@ -171,23 +174,26 @@ pub enum PositionEncoding {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SourcePosition {
-    pub line: u64,
-    pub character: u64,
+    pub line: JsSafeU64,
+    pub character: JsSafeU64,
     pub encoding: PositionEncoding,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SourceRange {
-    pub byte_start: u64,
-    pub byte_end: u64,
+    pub byte_start: JsSafeU64,
+    pub byte_end: JsSafeU64,
     pub start: SourcePosition,
     pub end: SourcePosition,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct NavigationEntry {
     pub node_id: NodeId,
@@ -471,16 +477,18 @@ mod tests {
     use super::*;
 
     fn range(start: u64, end: u64) -> SourceRange {
+        let start = JsSafeU64::new(start).unwrap();
+        let end = JsSafeU64::new(end).unwrap();
         SourceRange {
             byte_start: start,
             byte_end: end,
             start: SourcePosition {
-                line: 0,
+                line: 0.into(),
                 character: start,
                 encoding: PositionEncoding::Utf8,
             },
             end: SourcePosition {
-                line: 0,
+                line: 0.into(),
                 character: end,
                 encoding: PositionEncoding::Utf8,
             },
@@ -547,32 +555,32 @@ mod tests {
     fn validates_utf16_positions_without_accepting_surrogate_midpoints() {
         let source = "a🦀b";
         let valid = SourceRange {
-            byte_start: 1,
-            byte_end: 5,
+            byte_start: 1.into(),
+            byte_end: 5.into(),
             start: SourcePosition {
-                line: 0,
-                character: 1,
+                line: 0.into(),
+                character: 1.into(),
                 encoding: PositionEncoding::Utf16,
             },
             end: SourcePosition {
-                line: 0,
-                character: 3,
+                line: 0.into(),
+                character: 3.into(),
                 encoding: PositionEncoding::Utf16,
             },
         };
         assert_eq!(SourceProvenance::original(valid).validate(source), Ok(()));
 
         let invalid = SourceRange {
-            byte_start: 1,
-            byte_end: 5,
+            byte_start: 1.into(),
+            byte_end: 5.into(),
             start: SourcePosition {
-                line: 0,
-                character: 2,
+                line: 0.into(),
+                character: 2.into(),
                 encoding: PositionEncoding::Utf16,
             },
             end: SourcePosition {
-                line: 0,
-                character: 3,
+                line: 0.into(),
+                character: 3.into(),
                 encoding: PositionEncoding::Utf16,
             },
         };
@@ -595,7 +603,7 @@ mod tests {
             };
             let navigation = provenance.navigation_range().unwrap();
             assert_eq!(
-                (navigation.byte_start, navigation.byte_end),
+                (navigation.byte_start.get(), navigation.byte_end.get()),
                 (expected, expected)
             );
         }

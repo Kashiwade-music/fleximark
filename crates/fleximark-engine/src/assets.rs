@@ -4,6 +4,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use fleximark_plugin_host::PluginHost;
 use fleximark_render_html::RenderContext;
+use fleximark_wire::JsSafeU64;
 use serde::{Deserialize, Serialize};
 
 use crate::error::EngineError;
@@ -13,6 +14,7 @@ pub(super) const MAX_RENDER_ASSET_BYTES: usize = 1024 * 1024;
 const MAX_RENDER_ASSETS_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RenderStyle {
     css: String,
@@ -121,7 +123,7 @@ impl RenderConfig {
         } = resolved;
         let total = assets.iter().try_fold(0_usize, |total, asset| {
             total
-                .checked_add(asset.published.byte_length as usize)
+                .checked_add(asset.published.byte_length.get() as usize)
                 .filter(|total| *total <= MAX_RENDER_ASSETS_BYTES)
                 .ok_or_else(|| EngineError::Asset("resolved assets exceed 8 MiB".to_owned()))
         })?;
@@ -208,12 +210,13 @@ impl RenderConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenderAsset {
     pub reference: String,
     pub media_type: String,
     pub content_hash: String,
-    pub byte_length: u64,
+    pub byte_length: JsSafeU64,
     pub data: String,
 }
 
@@ -265,7 +268,8 @@ impl ResolvedRenderAsset {
                 reference: format!("fleximark-asset:{content_hash}"),
                 media_type,
                 content_hash,
-                byte_length: bytes.len() as u64,
+                byte_length: JsSafeU64::new(bytes.len() as u64)
+                    .expect("asset size limit is JavaScript-safe"),
                 data: BASE64.encode(bytes),
             },
         };
@@ -292,7 +296,7 @@ impl ResolvedRenderAsset {
             .decode(&self.published.data)
             .map_err(|_| EngineError::Asset("asset data is not canonical base64".to_owned()))?;
         if !media_type_valid
-            || decoded.len() != self.published.byte_length as usize
+            || decoded.len() != self.published.byte_length.get() as usize
             || decoded.len() > MAX_RENDER_ASSET_BYTES
             || content_hash_bytes(&decoded) != self.published.content_hash
             || self.published.reference

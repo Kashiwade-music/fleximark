@@ -87,7 +87,7 @@ impl Server {
         ) {
             (Some(session), Some(version), Some(workspace_uri)) => self
                 .registry
-                .document(&params.daemon_instance_id, session, version)
+                .document(&params.daemon_instance_id, session, version.get())
                 .map_err(|error| error.to_string())
                 .and_then(|document| {
                     if document.workspace_uri() != Some(workspace_uri) {
@@ -163,7 +163,7 @@ impl Server {
         ) {
             (Some(session), Some(version), Some(workspace_uri)) => self
                 .registry
-                .document(&params.daemon_instance_id, session, version)
+                .document(&params.daemon_instance_id, session, version.get())
                 .map_err(|error| error.to_string())
                 .and_then(|document| {
                     if document.workspace_uri() != Some(workspace_uri) {
@@ -182,7 +182,7 @@ impl Server {
                         .map_err(|error| error.to_string())?;
                     Ok(fleximark_protocol::CommandResult {
                         message: Some(fleximark_protocol::CommandMessage {
-                            level: "info",
+                            level: fleximark_protocol::CommandMessageLevel::Info,
                             text: "Export opened and validated; recovery backup released".into(),
                         }),
                         open_uri: None,
@@ -203,7 +203,7 @@ impl Server {
         ) {
             (Some(session), Some(version), Some(workspace_uri)) => self
                 .registry
-                .document(&params.daemon_instance_id, session, version)
+                .document(&params.daemon_instance_id, session, version.get())
                 .map_err(|error| error.to_string())
                 .and_then(|document| {
                     if document.workspace_uri() != Some(workspace_uri) {

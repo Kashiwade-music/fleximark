@@ -7,8 +7,8 @@ use comrak::{
 };
 use fleximark_model::{
     Block, BlockKind, DOCUMENT_SCHEMA_VERSION, Document, DocumentMetadata, DocumentUri, Inline,
-    InlineKind, Node, NodeId, PositionEncoding, SourcePosition, SourceProvenance, SourceRange,
-    ValidationError,
+    InlineKind, JsSafeU64, Node, NodeId, PositionEncoding, SourcePosition, SourceProvenance,
+    SourceRange, ValidationError,
 };
 use thiserror::Error;
 
@@ -455,8 +455,8 @@ impl<'a> SourceIndex<'a> {
             _ => return Err(self.invalid(sourcepos)),
         };
         Ok(SourceProvenance::original(SourceRange {
-            byte_start: start as u64,
-            byte_end: end as u64,
+            byte_start: JsSafeU64::new(start as u64).expect("source length is JavaScript-safe"),
+            byte_end: JsSafeU64::new(end as u64).expect("source length is JavaScript-safe"),
             start: self.position(start),
             end: self.position(end),
         }))
@@ -468,8 +468,9 @@ impl<'a> SourceIndex<'a> {
             .partition_point(|start| *start <= byte_offset)
             .saturating_sub(1);
         SourcePosition {
-            line: line as u64,
-            character: (byte_offset - self.line_starts[line]) as u64,
+            line: JsSafeU64::new(line as u64).expect("source line count is JavaScript-safe"),
+            character: JsSafeU64::new((byte_offset - self.line_starts[line]) as u64)
+                .expect("source line length is JavaScript-safe"),
             encoding: PositionEncoding::Utf8,
         }
     }
@@ -520,7 +521,7 @@ mod tests {
         let source = "# 🦀\n";
         let document = parse(DocumentUri("file:///unicode.md".into()), 1, source).unwrap();
         let range = document.blocks[0].provenance.primary_range().unwrap();
-        assert_eq!((range.byte_start, range.byte_end), (0, 6));
+        assert_eq!((range.byte_start.get(), range.byte_end.get()), (0, 6));
         assert_eq!(range.end.character, 6);
     }
 

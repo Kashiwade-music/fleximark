@@ -6,6 +6,8 @@ import {
   clientNotificationValidators,
   customRequestParamsValidators,
   customRequestResultValidators,
+  isJsonRpcMessageEnvelope,
+  isJsonRpcResponseEnvelope,
   serverNotificationValidators,
 } from "../web/preview-client/protocol.mjs";
 
@@ -27,6 +29,7 @@ export function suite(): void {
       methods: {
         method: string;
         kind: string;
+        direction: "clientToServer" | "serverToClient" | "bidirectional";
         params: unknown;
         result: unknown;
       }[];
@@ -58,26 +61,88 @@ export function suite(): void {
     const notifications = fixture.methods.filter(
       ({ kind }) => kind === "notification",
     );
-    const notificationMethods = notifications
+    const clientMethods = notifications
+      .filter(({ direction }) => direction !== "serverToClient")
       .map(({ method }) => method)
       .sort();
-    const registryMethods = [
-      ...Object.keys(clientNotificationValidators),
-      ...Object.keys(serverNotificationValidators).filter(
-        (method) => method !== "textDocument/publishDiagnostics",
-      ),
-    ];
-    assert.deepEqual([...new Set(registryMethods)].sort(), notificationMethods);
+    const serverMethods = notifications
+      .filter(({ direction }) => direction !== "clientToServer")
+      .map(({ method }) => method)
+      .sort();
+    const customKeys = (registry: object) =>
+      Object.keys(registry)
+        .filter((method) => method.startsWith("fleximark/"))
+        .sort();
+    assert.deepEqual(customKeys(clientNotificationValidators), clientMethods);
+    assert.deepEqual(customKeys(serverNotificationValidators), serverMethods);
 
     for (const notification of notifications) {
-      const validator =
-        notification.method === "fleximark/requestFullText"
-          ? serverNotificationValidators["fleximark/requestFullText"]
-          : clientNotificationValidators[
-              notification.method as keyof typeof clientNotificationValidators
-            ];
-      assert.equal(validator(notification.params), true, notification.method);
+      if (notification.direction !== "serverToClient")
+        assert.equal(
+          clientNotificationValidators[
+            notification.method as keyof typeof clientNotificationValidators
+          ](notification.params),
+          true,
+          notification.method,
+        );
+      if (notification.direction === "serverToClient")
+        assert.equal(
+          serverNotificationValidators[
+            notification.method as keyof typeof serverNotificationValidators
+          ](notification.params),
+          true,
+          notification.method,
+        );
     }
+  });
+
+  test("openDocument enforces JavaScript safe integer boundaries", () => {
+    const validate = customRequestParamsValidators["fleximark/openDocument"];
+    const params = (documentVersion: number) => ({
+      daemonInstanceId: "daemon",
+      uri: "file:///document.md",
+      documentVersion,
+      text: "text",
+    });
+
+    assert.equal(validate(params(-Number.MAX_SAFE_INTEGER)), true);
+    assert.equal(validate(params(Number.MAX_SAFE_INTEGER)), true);
+    assert.equal(validate(params(-Number.MAX_SAFE_INTEGER - 1)), false);
+    assert.equal(validate(params(Number.MAX_SAFE_INTEGER + 1)), false);
+  });
+
+  test("JSON-RPC ids share the generated JavaScript-safe boundary", () => {
+    const request = (id: unknown) => ({
+      jsonrpc: "2.0",
+      id,
+      method: "unknown/request",
+      params: {},
+    });
+    const response = (id: unknown) => ({
+      jsonrpc: "2.0",
+      id,
+      result: null,
+    });
+
+    for (const id of [
+      -Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER,
+      "request-id",
+    ]) {
+      assert.equal(isJsonRpcMessageEnvelope(request(id)), true);
+      assert.equal(isJsonRpcResponseEnvelope(response(id)), true);
+    }
+    for (const id of [
+      -Number.MAX_SAFE_INTEGER - 1,
+      Number.MAX_SAFE_INTEGER + 1,
+      null,
+    ])
+      assert.equal(isJsonRpcMessageEnvelope(request(id)), false);
+    assert.equal(isJsonRpcResponseEnvelope(response(null)), true);
+    assert.equal(
+      isJsonRpcResponseEnvelope(response(Number.MAX_SAFE_INTEGER + 1)),
+      false,
+    );
   });
 
   test("directional previewEvent validators accept only their wire direction", () => {
@@ -114,11 +179,12 @@ export function suite(): void {
         end: { line: 0, character: 0, encoding: "utf8" },
       },
     };
-    const selectionWithoutActive = {
+    const selectionWithNullActive = {
       type: "selection",
       previewSessionId: "preview",
       renderRevision: 1,
       nodeIds: ["document-root"],
+      activePosition: null,
     };
     const viewport = {
       type: "viewport",
@@ -136,7 +202,7 @@ export function suite(): void {
       snapshot,
       patch,
       source,
-      selectionWithoutActive,
+      selectionWithNullActive,
       viewport,
     ];
 
@@ -171,6 +237,27 @@ export function suite(): void {
       serverNotificationValidators["fleximark/previewEvent"](clientParams),
       false,
     );
+  });
+
+  test("accepts the independent server side of a bidirectional method", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        path.join(
+          process.cwd(),
+          "test",
+          "fixtures",
+          "protocol-v1-bidirectional-server.json",
+        ),
+        "utf8",
+      ),
+    ) as {
+      notifications: { method: "fleximark/previewEvent"; params: unknown }[];
+    };
+
+    for (const { method, params } of fixture.notifications) {
+      assert.equal(serverNotificationValidators[method](params), true, method);
+      assert.equal(clientNotificationValidators[method](params), false, method);
+    }
   });
 
   test("accepts every legal optional-present DTO from the shared fixture", () => {

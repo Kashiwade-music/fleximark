@@ -624,8 +624,8 @@ mod tests {
         assert!(navigation.iter().any(|entry| entry.depth >= 2));
         assert!(navigation.iter().all(|entry| {
             entry.source_range.byte_end <= source.len() as u64
-                && source.is_char_boundary(entry.source_range.byte_start as usize)
-                && source.is_char_boundary(entry.source_range.byte_end as usize)
+                && source.is_char_boundary(entry.source_range.byte_start.get() as usize)
+                && source.is_char_boundary(entry.source_range.byte_end.get() as usize)
         }));
     }
 }

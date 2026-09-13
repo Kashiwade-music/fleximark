@@ -21,7 +21,7 @@ pub fn initialize_workspace(workspace_uri: &str) -> Result<CommandResult, Servic
     let config = root.join(".fleximark/config.toml");
     Ok(CommandResult {
         message: Some(CommandMessage {
-            level: "info",
+            level: fleximark_protocol::CommandMessageLevel::Info,
             text: "Initialized .fleximark/config.toml and .fleximark/theme.css".into(),
         }),
         open_uri: Some(path_to_file_uri(&config)?),

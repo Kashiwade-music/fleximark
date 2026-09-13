@@ -231,6 +231,8 @@
     "vscode:prepublish": "python scripts/tasks.py vscode-prepublish",
     "clean": "mise run clean",
     "build": "mise run build",
+    "protocol:generate": "mise run protocol-generate",
+    "protocol:check": "mise run protocol-check",
     "dev": "mise run dev",
     "test": "mise run test",
     "verify": "mise run verify",

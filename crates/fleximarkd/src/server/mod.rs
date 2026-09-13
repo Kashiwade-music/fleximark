@@ -19,11 +19,12 @@ use fleximark_plugin_host::CancellationToken;
 use fleximark_protocol::{
     AttachDocumentParams, CONTENT_MODIFIED, CheckpointDocumentParams, CreatePreviewParams,
     CreatePreviewResult, DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams,
-    IncomingMessage, InitializeParams, InitializeResult, Notification, PROTOCOL_VERSION,
+    IncomingMessage, InitializeParams, InitializeResult, JsSafeU64, Notification, PROTOCOL_VERSION,
     PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
     ReloadPreviewParams, RenderNavigationEvent, RenderParams, Response, RpcChangeDocumentParams,
-    RpcCloseDocumentParams, RpcOpenDocumentParams, ServerCapabilities, SetSelectionParams,
-    SetViewportParams, SourceNavigationEvent, WorkspaceStatus, method,
+    RpcCloseDocumentParams, RpcOpenDocumentParams, ServerCapabilities, ServerPreviewEvent,
+    ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
+    WorkspaceStatus, method,
 };
 use fleximark_service::{
     acknowledge_export, collect_admonitions, create_note_with_options, default_export_destination,
@@ -61,7 +62,7 @@ pub(crate) struct PreviewState {
     pub(crate) token: Option<String>,
     document_session_id: String,
     // Browser delivery state only; the engine owns the authoritative render revision.
-    delivered_revision: u64,
+    delivered_revision: JsSafeU64,
 }
 
 fn invalid_params(id: Value, error: impl std::fmt::Display) -> Value {
@@ -96,4 +97,15 @@ pub(crate) fn session_error(id: Value, error: SessionError) -> Value {
 
 pub(crate) fn response_value(response: Response) -> Value {
     serde_json::to_value(response).expect("response is serializable")
+}
+
+pub(crate) fn preview_event_notification(
+    params: ServerPreviewEventParams<RenderPublication>,
+) -> Value {
+    serde_json::to_value(Notification {
+        jsonrpc: "2.0",
+        method: method::PREVIEW_EVENT,
+        params,
+    })
+    .expect("preview event notification is serializable")
 }

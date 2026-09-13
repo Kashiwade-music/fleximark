@@ -7,6 +7,11 @@ rust-version.workspace = true
 
 [dependencies]
 fleximark-model = { path = "../fleximark-model" }
+fleximark-wire = { path = "../fleximark-wire" }
+schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[features]
+contract-schema = ["dep:schemars", "fleximark-model/contract-schema", "fleximark-wire/contract-schema"]

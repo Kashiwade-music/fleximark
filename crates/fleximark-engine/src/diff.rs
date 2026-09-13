@@ -2,18 +2,20 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fleximark_model::{NavigationEntry, NodeId};
 use fleximark_render_html::RenderedBlock;
+use fleximark_wire::JsSafeU64;
 use serde::{Deserialize, Serialize};
 
 use crate::assets::RenderStyle;
 use crate::session::PreviewSessionId;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RenderPatch {
     pub preview_session_id: PreviewSessionId,
-    pub document_version: u64,
-    pub base_render_revision: u64,
-    pub result_render_revision: u64,
+    pub document_version: JsSafeU64,
+    pub base_render_revision: JsSafeU64,
+    pub result_render_revision: JsSafeU64,
     pub base_renderer_fingerprint: String,
     pub result_renderer_fingerprint: String,
     pub style: Option<RenderStyle>,
@@ -22,6 +24,7 @@ pub struct RenderPatch {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchPrecondition {
     pub node_exists: bool,
@@ -29,6 +32,7 @@ pub struct PatchPrecondition {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(
     tag = "type",
     rename_all = "camelCase",

@@ -1575,16 +1575,16 @@ fn unchanged_bytes_do_not_discard_explicit_generated_provenance() {
 fn original_edit_map_requires_ordered_exact_utf8_source_bytes() {
     let source = "a🦀b";
     let range = |start: u64, end: u64| SourceRange {
-        byte_start: start,
-        byte_end: end,
+        byte_start: start.try_into().unwrap(),
+        byte_end: end.try_into().unwrap(),
         start: SourcePosition {
-            line: 0,
-            character: start,
+            line: 0.into(),
+            character: start.try_into().unwrap(),
             encoding: PositionEncoding::Utf8,
         },
         end: SourcePosition {
-            line: 0,
-            character: end,
+            line: 0.into(),
+            character: end.try_into().unwrap(),
             encoding: PositionEncoding::Utf8,
         },
     };

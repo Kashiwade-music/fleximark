@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "notifications": [
+    {
+      "method": "fleximark/previewEvent",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview",
+        "renderRevision": 1,
+        "event": {
+          "type": "full",
+          "previewSessionId": "preview",
+          "documentVersion": 3,
+          "resultRenderRevision": 1,
+          "rendererFingerprint": "sha256:renderer",
+          "nodeIds": ["document-root"],
+          "navigation": [],
+          "style": null,
+          "assets": [],
+          "html": "<main data-fleximark-node-id=\"document-root\"></main>"
+        }
+      }
+    }
+  ]
+}

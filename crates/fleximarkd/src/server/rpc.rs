@@ -142,7 +142,7 @@ impl Server {
         let publication = match self.registry.render_with_cancellation(
             &params.daemon_instance_id,
             &params.document_session_id,
-            params.document_version,
+            params.document_version.get(),
             &preview_id,
             &self.work_cancellation,
         ) {
@@ -182,7 +182,7 @@ impl Server {
         let publication = match self.registry.render_with_cancellation(
             &params.daemon_instance_id,
             &params.document_session_id,
-            params.expected_document_version,
+            params.expected_document_version.get(),
             &preview_id,
             &self.work_cancellation,
         ) {
@@ -357,7 +357,7 @@ impl Server {
             match self.registry.navigation_at_position(
                 &params.daemon_instance_id,
                 &params.document_session_id,
-                params.expected_document_version,
+                params.expected_document_version.get(),
                 &selection.active,
             ) {
                 Ok(Some(entry)) if !node_ids.contains(&entry.node_id) => {
@@ -384,12 +384,13 @@ impl Server {
                 if let Some(token) = &state.token {
                     self.previews.navigate(token, &event);
                 }
-                self.outgoing_events.push(json!({
-                    "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-                    "params":{"daemonInstanceId":params.daemon_instance_id,
-                        "previewSessionId":preview_id,"renderRevision":state.delivered_revision,
-                        "event":event}
-                }));
+                self.outgoing_events
+                    .push(preview_event_notification(ServerPreviewEventParams {
+                        daemon_instance_id: params.daemon_instance_id.clone(),
+                        preview_session_id: preview_id.clone(),
+                        render_revision: state.delivered_revision,
+                        event: ServerPreviewEvent::RenderNavigation(event),
+                    }));
             }
         }
         id.map(|id| response_value(Response::success(id, Value::Null)))
@@ -404,7 +405,7 @@ impl Server {
             Some(range) => match self.registry.navigation_at_position(
                 &params.daemon_instance_id,
                 &params.document_session_id,
-                params.expected_document_version,
+                params.expected_document_version.get(),
                 &range.start,
             ) {
                 Ok(Some(entry)) => Some(entry.node_id),
@@ -429,12 +430,13 @@ impl Server {
                 if let Some(token) = &state.token {
                     self.previews.navigate(token, &event);
                 }
-                self.outgoing_events.push(json!({
-                    "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-                    "params":{"daemonInstanceId":params.daemon_instance_id,
-                        "previewSessionId":preview_id,"renderRevision":state.delivered_revision,
-                        "event":event}
-                }));
+                self.outgoing_events
+                    .push(preview_event_notification(ServerPreviewEventParams {
+                        daemon_instance_id: params.daemon_instance_id.clone(),
+                        preview_session_id: preview_id.clone(),
+                        render_revision: state.delivered_revision,
+                        event: ServerPreviewEvent::RenderNavigation(event),
+                    }));
             }
         }
         id.map(|id| response_value(Response::success(id, Value::Null)))
@@ -506,12 +508,13 @@ impl Server {
                 source_range: entry.source_range,
             },
         };
-        self.outgoing_events.push(json!({
-            "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-            "params":{"daemonInstanceId":params.daemon_instance_id,
-                "previewSessionId":params.preview_session_id,
-                "renderRevision":state.delivered_revision,"event":event}
-        }));
+        self.outgoing_events
+            .push(preview_event_notification(ServerPreviewEventParams {
+                daemon_instance_id: params.daemon_instance_id,
+                preview_session_id: params.preview_session_id,
+                render_revision: state.delivered_revision,
+                event: ServerPreviewEvent::SourceNavigation(event),
+            }));
         id.map(|id| response_value(Response::success(id, Value::Null)))
     }
 
@@ -556,12 +559,13 @@ impl Server {
             .get_mut(&params.preview_session_id)
             .unwrap()
             .delivered_revision = revision;
-        self.outgoing_events.push(json!({
-            "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-            "params":{"daemonInstanceId":params.daemon_instance_id,
-                "previewSessionId":params.preview_session_id,
-                "renderRevision":revision,"event":RenderPublication::Full(snapshot)}
-        }));
+        self.outgoing_events
+            .push(preview_event_notification(ServerPreviewEventParams {
+                daemon_instance_id: params.daemon_instance_id,
+                preview_session_id: params.preview_session_id,
+                render_revision: revision,
+                event: ServerPreviewEvent::Publication(RenderPublication::Full(snapshot)),
+            }));
         id.map(|id| response_value(Response::success(id, Value::Null)))
     }
 
@@ -671,12 +675,13 @@ impl Server {
             if let Some(current) = self.preview_states.get_mut(&preview_id) {
                 current.delivered_revision = snapshot.result_render_revision;
             }
-            self.outgoing_events.push(json!({
-                "jsonrpc":"2.0","method":method::PREVIEW_EVENT,
-                "params":{"daemonInstanceId":daemon,"previewSessionId":preview_id,
-                    "renderRevision":snapshot.result_render_revision,
-                    "event":RenderPublication::Full(snapshot)}
-            }));
+            self.outgoing_events
+                .push(preview_event_notification(ServerPreviewEventParams {
+                    daemon_instance_id: daemon.clone(),
+                    preview_session_id: preview_id,
+                    render_revision: snapshot.result_render_revision,
+                    event: ServerPreviewEvent::Publication(RenderPublication::Full(snapshot)),
+                }));
         }
         Some(response_value(Response::success(id, Value::Null)))
     }

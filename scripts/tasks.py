@@ -13,6 +13,7 @@ from _tools import ROOT, executable, run, script_entrypoint, yarn
 from check_performance_budgets import check_performance_budgets
 from create_release_manifest import create_manifest
 from l10n_export import export_localization
+from protocol_codegen import check_protocol_contract, generate_protocol_contract
 from release_artifact import validate_prebuilt_inputs
 from smoke_vsix import smoke_vsix
 from stage_daemon import stage_daemon
@@ -23,12 +24,17 @@ def clean(_: Sequence[str]) -> None:
     javascript_build.clean()
 
 
-def build(_: Sequence[str]) -> None:
+def build_product() -> None:
     javascript_build.build_browser_client()
     run("cargo", "build", "--release", "-p", "fleximarkd", "--locked")
     stage_daemon()
     create_manifest()
     javascript_build.build_extension(production=True)
+
+
+def build(_: Sequence[str]) -> None:
+    check_protocol_contract()
+    build_product()
 
 
 def vscode_prepublish(args: Sequence[str]) -> None:
@@ -86,6 +92,7 @@ def start_watch_process(
 
 
 def dev(_: Sequence[str]) -> None:
+    check_protocol_contract()
     javascript_build.clean()
     commands = [
         (command, "[watch] build finished")
@@ -132,13 +139,15 @@ def integration_test(args: Sequence[str]) -> None:
     arguments = tuple(args)
     if arguments not in {(), ("--prebuilt",)}:
         raise RuntimeError("test accepts only the optional --prebuilt flag")
+    check_protocol_contract()
     compile_tests()
     if not arguments:
-        build(())
+        build_product()
     yarn("vscode-test")
 
 
 def pure_test(_: Sequence[str]) -> None:
+    check_protocol_contract()
     javascript_build.build_pure_tests()
     run("node", "--test", "out/test/unit/pure-tests.cjs")
 
@@ -166,13 +175,14 @@ def check_localization() -> None:
 
 
 def verify(_: Sequence[str]) -> None:
+    check_protocol_contract()
     verify_architecture()
     run("python", "-m", "compileall", "-q", "scripts")
     python_test()
     yarn("tsc", "-b")
     yarn("eslint", "adapters", "web", "test", "scripts")
     check_localization()
-    build(())
+    build_product()
     compile_tests()
     javascript_build.build_pure_tests()
     run("node", "--test", "out/test/unit/pure-tests.cjs")
@@ -210,6 +220,8 @@ TASKS = {
     "dev": dev,
     "l10n": localization,
     "package": package_vsix,
+    "protocol-check": check_protocol_contract,
+    "protocol-generate": generate_protocol_contract,
     "test-pure": pure_test,
     "smoke": smoke,
     "test": integration_test,

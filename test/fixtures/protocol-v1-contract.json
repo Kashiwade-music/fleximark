@@ -3,6 +3,7 @@
   "methods": [
     {
       "method": "fleximark/initialize",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "protocolVersion": 1,
@@ -25,6 +26,7 @@
     },
     {
       "method": "fleximark/attachDocument",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -40,6 +42,7 @@
     },
     {
       "method": "fleximark/checkpointDocument",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -51,6 +54,7 @@
     },
     {
       "method": "fleximark/requestFullText",
+      "direction": "serverToClient",
       "kind": "notification",
       "params": {
         "daemonInstanceId": "daemon",
@@ -62,6 +66,7 @@
     },
     {
       "method": "fleximark/render",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -83,6 +88,7 @@
     },
     {
       "method": "fleximark/createPreview",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -108,6 +114,7 @@
     },
     {
       "method": "fleximark/disposePreview",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -117,6 +124,7 @@
     },
     {
       "method": "fleximark/setSelection",
+      "direction": "clientToServer",
       "kind": "notification",
       "params": {
         "daemonInstanceId": "daemon",
@@ -133,6 +141,7 @@
     },
     {
       "method": "fleximark/setViewport",
+      "direction": "clientToServer",
       "kind": "notification",
       "params": {
         "daemonInstanceId": "daemon",
@@ -149,6 +158,7 @@
     },
     {
       "method": "fleximark/previewEvent",
+      "direction": "bidirectional",
       "kind": "notification",
       "params": {
         "daemonInstanceId": "daemon",
@@ -165,6 +175,7 @@
     },
     {
       "method": "fleximark/reloadPreview",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -174,12 +185,14 @@
     },
     {
       "method": "fleximark/executeCommand",
+      "direction": "clientToServer",
       "kind": "request",
       "params": { "daemonInstanceId": "daemon", "command": "editTheme" },
       "result": {}
     },
     {
       "method": "fleximark/getNoteOptions",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -189,6 +202,7 @@
     },
     {
       "method": "fleximark/reconfigureWorkspace",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -199,6 +213,7 @@
     },
     {
       "method": "fleximark/openDocument",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -214,6 +229,7 @@
     },
     {
       "method": "fleximark/changeDocument",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
@@ -227,6 +243,7 @@
     },
     {
       "method": "fleximark/closeDocument",
+      "direction": "clientToServer",
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",

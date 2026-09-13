@@ -53,7 +53,12 @@ fn optional_present_fixture_matches_directional_public_dtos() {
     let execute: ExecuteCommandParams =
         serde_json::from_value(case(&fixture, "executeCommandParams").clone()).unwrap();
     assert_eq!(execute.document_session_id.as_deref(), Some("document"));
-    assert_eq!(execute.expected_document_version, Some(3));
+    assert_eq!(
+        execute
+            .expected_document_version
+            .map(|version| version.get()),
+        Some(3)
+    );
     assert_eq!(execute.workspace_uri.as_deref(), Some("file:///workspace"));
     assert_eq!(
         execute.destination_uri.as_deref(),
@@ -96,7 +101,7 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
     let command_result = CommandResult {
         message: Some(CommandMessage {
-            level: "warning",
+            level: fleximark_protocol::CommandMessageLevel::Warning,
             text: "review note".into(),
         }),
         open_uri: Some("file:///workspace/note.md".into()),

@@ -101,7 +101,7 @@ pub fn create_note_with_options(
     file.sync_all()?;
     Ok(CommandResult {
         message: Some(CommandMessage {
-            level: "info",
+            level: fleximark_protocol::CommandMessageLevel::Info,
             text: "Created a new note".into(),
         }),
         open_uri: Some(path_to_file_uri(&note)?),
@@ -226,7 +226,7 @@ pub fn collect_admonitions(
     file.sync_all()?;
     Ok(CommandResult {
         message: Some(CommandMessage {
-            level: "info",
+            level: fleximark_protocol::CommandMessageLevel::Info,
             text: format!("Collected {} admonition(s)", fragments.len()),
         }),
         open_uri: Some(path_to_file_uri(&output)?),

@@ -432,7 +432,7 @@ impl SessionRegistry {
             DidOpenParams {
                 text_document: TextDocumentItem {
                     uri: params.uri.clone(),
-                    version: params.document_version,
+                    version: params.document_version.get(),
                     text: params.text,
                 },
             },
@@ -467,7 +467,7 @@ impl SessionRegistry {
         let current_version = i64::try_from(session.engine.document().document_version)
             .map_err(|_| SessionError::VersionMismatch)?;
         if session.engine.is_out_of_sync()
-            || current_version != params.base_document_version
+            || current_version != params.base_document_version.get()
             || session.content_hash != params.base_content_hash
         {
             self.mark_out_of_sync(&uri, "standalone RPC change base mismatch");
@@ -477,7 +477,7 @@ impl SessionRegistry {
             DidChangeParams {
                 text_document: VersionedTextDocumentIdentifier {
                     uri,
-                    version: params.document_version,
+                    version: params.document_version.get(),
                 },
                 content_changes: vec![ContentChange {
                     range: None,
@@ -531,7 +531,9 @@ impl SessionRegistry {
         }
         Ok(AttachDocumentResult {
             document_session_id: session.id.clone(),
-            document_version: version,
+            document_version: version
+                .try_into()
+                .map_err(|_| SessionError::VersionMismatch)?,
             content_hash: session.content_hash.clone(),
         })
     }
@@ -572,7 +574,9 @@ impl SessionRegistry {
             )
             .map_err(engine_error)?;
         Ok(CheckpointDocumentResult {
-            document_version: version,
+            document_version: version
+                .try_into()
+                .map_err(|_| SessionError::VersionMismatch)?,
             content_hash: session.content_hash.clone(),
         })
     }
@@ -955,8 +959,8 @@ mod tests {
                 &session,
                 1,
                 &TextPosition {
-                    line: 0,
-                    character: 4,
+                    line: 0.into(),
+                    character: 4.into(),
                 },
             )
             .unwrap()
@@ -1036,7 +1040,7 @@ mod tests {
             .attach(&AttachDocumentParams {
                 daemon_instance_id: registry.daemon_instance_id().into(),
                 uri: "file:///doc.md".into(),
-                expected_document_version: 1,
+                expected_document_version: 1.into(),
                 content_hash: content_hash("text"),
             })
             .unwrap();
@@ -1044,7 +1048,7 @@ mod tests {
             .checkpoint(&CheckpointDocumentParams {
                 daemon_instance_id: registry.daemon_instance_id().into(),
                 document_session_id: attached.document_session_id.clone(),
-                document_version: 1,
+                document_version: 1.into(),
                 content_hash: content_hash("different"),
             })
             .unwrap_err();
@@ -1108,7 +1112,7 @@ mod tests {
             .attach(&AttachDocumentParams {
                 daemon_instance_id: daemon.clone(),
                 uri: "file:///doc.md".into(),
-                expected_document_version: 2,
+                expected_document_version: 2.into(),
                 content_hash: content_hash("two"),
             })
             .unwrap();
@@ -1130,7 +1134,7 @@ mod tests {
             .checkpoint(&CheckpointDocumentParams {
                 daemon_instance_id: daemon.clone(),
                 document_session_id: second.clone(),
-                document_version: 3,
+                document_version: 3.into(),
                 content_hash: content_hash("three"),
             })
             .unwrap();
@@ -1151,7 +1155,7 @@ mod tests {
                 .attach(&AttachDocumentParams {
                     daemon_instance_id: daemon.clone(),
                     uri: "file:///doc.md".into(),
-                    expected_document_version: 3,
+                    expected_document_version: 3.into(),
                     content_hash: content_hash("three"),
                 })
                 .unwrap_err(),

@@ -7,6 +7,7 @@ use fleximark_plugin_host::{
 use fleximark_render_html::{
     HtmlRenderer, HtmlTarget, RawHtmlPolicy, RenderContext, RenderedBlock,
 };
+use fleximark_wire::JsSafeU64;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -16,11 +17,12 @@ use crate::error::EngineError;
 use crate::session::{DocumentSession, PreviewCache, PreviewSessionId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RenderSnapshot {
     pub preview_session_id: PreviewSessionId,
-    pub document_version: u64,
-    pub result_render_revision: u64,
+    pub document_version: JsSafeU64,
+    pub result_render_revision: JsSafeU64,
     pub renderer_fingerprint: String,
     pub style: Option<RenderStyle>,
     pub assets: Vec<RenderAsset>,
@@ -30,6 +32,7 @@ pub struct RenderSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum RenderPublication {
     Full(RenderSnapshot),
@@ -134,9 +137,12 @@ impl DocumentSession {
             }
             Some(cache) => RenderPublication::Patch(RenderPatch {
                 preview_session_id: preview_session_id.clone(),
-                document_version: self.document.document_version,
-                base_render_revision: cache.revision,
-                result_render_revision: revision,
+                document_version: JsSafeU64::new(self.document.document_version)
+                    .expect("document version is JavaScript-safe"),
+                base_render_revision: JsSafeU64::new(cache.revision)
+                    .expect("render revision is JavaScript-safe"),
+                result_render_revision: JsSafeU64::new(revision)
+                    .expect("render revision is JavaScript-safe"),
                 base_renderer_fingerprint: fingerprint.clone(),
                 result_renderer_fingerprint: fingerprint.clone(),
                 style: self.render_config.style.clone(),
@@ -384,8 +390,10 @@ fn build_render_snapshot(
     };
     RenderSnapshot {
         preview_session_id: preview.clone(),
-        document_version: document.document_version,
-        result_render_revision: revision,
+        document_version: JsSafeU64::new(document.document_version)
+            .expect("document version is JavaScript-safe"),
+        result_render_revision: JsSafeU64::new(revision)
+            .expect("render revision is JavaScript-safe"),
         renderer_fingerprint: fingerprint.to_owned(),
         style: config.style.clone(),
         assets: config

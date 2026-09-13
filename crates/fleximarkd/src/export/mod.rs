@@ -390,7 +390,7 @@ fn export_html_transaction(
     commit_installed_export(&mut journal, &journal_path, journal_digest, &mut checkpoint)?;
     Ok(CommandResult {
         message: Some(CommandMessage {
-            level: "info",
+            level: fleximark_protocol::CommandMessageLevel::Info,
             text: format!("Exported generation {generation}"),
         }),
         open_uri: Some(path_to_file_uri(&index_for_destination(&destination))?),

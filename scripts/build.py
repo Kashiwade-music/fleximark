@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from _tools import ROOT, script_entrypoint, yarn
+from protocol_codegen import check_protocol_contract
 
 
 DIST = ROOT / "dist"
@@ -140,12 +141,15 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.target == "browser":
+        check_protocol_contract()
         build_browser_client()
     elif args.target == "clean":
         clean()
     elif args.target == "extension":
+        check_protocol_contract()
         build_extension(production=args.production)
     else:
+        check_protocol_contract()
         build_tests()
 
 

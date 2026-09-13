@@ -1,4 +1,4 @@
-use fleximark_model::{PositionEncoding, SourcePosition, SourceProvenance, SourceRange};
+use fleximark_model::{JsSafeU64, PositionEncoding, SourcePosition, SourceProvenance, SourceRange};
 use fleximark_plugin_sdk::{EditOrigin, PreprocessedSource};
 
 pub(super) fn identity_edit_map(source: &str) -> Vec<fleximark_plugin_sdk::EditMapSegment> {
@@ -19,16 +19,19 @@ pub(super) fn identity_edit_map(source: &str) -> Vec<fleximark_plugin_sdk::EditM
         output_end: source.len() as u64,
         origin: EditOrigin::Original {
             ranges: vec![SourceRange {
-                byte_start: 0,
-                byte_end: source.len() as u64,
+                byte_start: 0.into(),
+                byte_end: JsSafeU64::new(source.len() as u64)
+                    .expect("source length is JavaScript-safe"),
                 start: SourcePosition {
-                    line: 0,
-                    character: 0,
+                    line: 0.into(),
+                    character: 0.into(),
                     encoding: PositionEncoding::Utf8,
                 },
                 end: SourcePosition {
-                    line: line as u64,
-                    character: character as u64,
+                    line: JsSafeU64::new(line as u64)
+                        .expect("source line count is JavaScript-safe"),
+                    character: JsSafeU64::new(character as u64)
+                        .expect("source line length is JavaScript-safe"),
                     encoding: PositionEncoding::Utf8,
                 },
             }],
@@ -176,9 +179,11 @@ fn map_input_range(
     original: &str,
 ) -> Result<Vec<(u64, EditOrigin)>, String> {
     let mut mapped = Vec::new();
+    let range_start = range.byte_start.get();
+    let range_end = range.byte_end.get();
     for segment in &previous.segments {
-        let start = range.byte_start.max(segment.output_start);
-        let end = range.byte_end.min(segment.output_end);
+        let start = range_start.max(segment.output_start);
+        let end = range_end.min(segment.output_end);
         if start >= end {
             continue;
         }
@@ -191,12 +196,14 @@ fn map_input_range(
                 let mut take = end - start;
                 let mut clipped = Vec::new();
                 for source_range in ranges {
-                    let length = source_range.byte_end - source_range.byte_start;
+                    let source_start = source_range.byte_start.get();
+                    let source_end = source_range.byte_end.get();
+                    let length = source_end - source_start;
                     if skip >= length {
                         skip -= length;
                         continue;
                     }
-                    let clipped_start = source_range.byte_start + skip;
+                    let clipped_start = source_start + skip;
                     let clipped_end = clipped_start + take.min(length - skip);
                     clipped.push(utf8_source_range(original, clipped_start, clipped_end)?);
                     take -= clipped_end - clipped_start;
@@ -226,7 +233,7 @@ fn map_input_range(
         };
         mapped.push((end - start, origin));
     }
-    if mapped.iter().map(|(length, _)| *length).sum::<u64>() != range.byte_end - range.byte_start {
+    if mapped.iter().map(|(length, _)| *length).sum::<u64>() != range_end - range_start {
         return Err("edit-map range is not covered by the previous output".to_owned());
     }
     Ok(mapped)
@@ -241,14 +248,16 @@ fn utf8_source_range(source: &str, start: u64, end: u64) -> Result<SourceRange, 
         let before = &source[..offset];
         let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
         Ok(SourcePosition {
-            line: before.bytes().filter(|byte| *byte == b'\n').count() as u64,
-            character: (offset - line_start) as u64,
+            line: JsSafeU64::new(before.bytes().filter(|byte| *byte == b'\n').count() as u64)
+                .map_err(|error| error.to_string())?,
+            character: JsSafeU64::new((offset - line_start) as u64)
+                .map_err(|error| error.to_string())?,
             encoding: PositionEncoding::Utf8,
         })
     };
     Ok(SourceRange {
-        byte_start: start,
-        byte_end: end,
+        byte_start: JsSafeU64::new(start).map_err(|error| error.to_string())?,
+        byte_end: JsSafeU64::new(end).map_err(|error| error.to_string())?,
         start: position(start)?,
         end: position(end)?,
     })

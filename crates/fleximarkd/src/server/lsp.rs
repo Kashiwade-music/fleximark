@@ -108,6 +108,13 @@ impl Server {
                 "invalid hover parameters",
             )));
         };
+        let (Ok(line), Ok(character)) = (JsSafeU64::new(line), JsSafeU64::new(character)) else {
+            return Some(response_value(Response::error(
+                id,
+                -32602,
+                "hover position is outside the JavaScript safe integer range",
+            )));
+        };
         let Some(session_id) = self.registry.session_id_for_uri(uri) else {
             return Some(response_value(Response::error(
                 id,
@@ -507,23 +514,29 @@ impl Server {
                     if let Some(state) = self.preview_states.get_mut(&preview_id) {
                         state.delivered_revision = snapshot.result_render_revision;
                     }
-                    self.outgoing_events.push(json!({
-                        "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-                        "params":{"daemonInstanceId":daemon_id,"previewSessionId":preview_id,
-                            "renderRevision":snapshot.result_render_revision,
-                            "event":RenderPublication::Full(snapshot)}
-                    }));
+                    self.outgoing_events.push(preview_event_notification(
+                        ServerPreviewEventParams {
+                            daemon_instance_id: daemon_id.clone(),
+                            preview_session_id: preview_id.clone(),
+                            render_revision: snapshot.result_render_revision,
+                            event: ServerPreviewEvent::Publication(RenderPublication::Full(
+                                snapshot,
+                            )),
+                        },
+                    ));
                     continue;
                 }
             }
             if let Some(state) = self.preview_states.get_mut(&preview_id) {
                 state.delivered_revision = revision;
             }
-            self.outgoing_events.push(json!({
-                "jsonrpc":"2.0", "method":method::PREVIEW_EVENT,
-                "params":{"daemonInstanceId":daemon_id,"previewSessionId":preview_id,
-                    "renderRevision":revision,"event":publication}
-            }));
+            self.outgoing_events
+                .push(preview_event_notification(ServerPreviewEventParams {
+                    daemon_instance_id: daemon_id.clone(),
+                    preview_session_id: preview_id,
+                    render_revision: revision,
+                    event: ServerPreviewEvent::Publication(publication),
+                }));
         }
     }
 }

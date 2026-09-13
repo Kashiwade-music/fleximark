@@ -63,7 +63,7 @@ impl Server {
     }
 
     pub(crate) fn handle(&mut self, message: IncomingMessage) -> Vec<Value> {
-        let id = message.id.clone();
+        let id = message.id.clone().map(Value::from);
         let response = match message.method.as_str() {
             "initialize" if self.lsp_mode => self.lsp_initialize(id, &message.params),
             "initialized" if self.lsp_mode => None,

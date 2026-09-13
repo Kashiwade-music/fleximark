@@ -6,6 +6,7 @@ import {
   type CustomRequestMap,
   type JsonValue,
   type LspMethod,
+  type RpcId,
   type Validator,
   clientNotificationValidators,
   customRequestParamsValidators,
@@ -19,14 +20,14 @@ import {
 
 export interface JsonRpcResponse {
   jsonrpc: "2.0";
-  id: number | string;
+  id: RpcId | null;
   result?: JsonValue;
   error?: { code: number; message: string; data?: JsonValue };
 }
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
-  id?: number | string;
+  id?: RpcId;
   method: string;
   params?: object | JsonValue[];
 }

@@ -13,6 +13,7 @@ export {
   serverNotificationValidators,
   shouldForwardEditorNavigation,
 } from "../../../web/preview-client/protocol.mjs";
+export { PROTOCOL_VERSION as protocolVersion } from "../../../web/preview-client/protocol.mjs";
 export type {
   AttachDocumentResult,
   CheckpointDocumentResult,
@@ -37,6 +38,7 @@ export type {
   PublishDiagnosticsParams,
   RequestFullTextParams,
   RenderPublication,
+  RpcId,
   ServerNotificationMap,
   SourcePosition,
   SourceNavigationEvent,
@@ -44,5 +46,3 @@ export type {
   Validator,
   WebviewInboundMessage,
 } from "../../../web/preview-client/protocol.mjs";
-
-export const protocolVersion = 1;

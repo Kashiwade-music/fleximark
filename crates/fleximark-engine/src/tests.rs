@@ -7,8 +7,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use ed25519_dalek::{Signer, SigningKey};
 use fleximark_model::{
-    AnchorAffinity, DocumentUri, GeneratedAnchor, NodeId, PositionEncoding, SourcePosition,
-    SourceProvenance, TransformId,
+    AnchorAffinity, DocumentUri, GeneratedAnchor, JsSafeU64, NodeId, PositionEncoding,
+    SourcePosition, SourceProvenance, TransformId,
 };
 use fleximark_plugin_host::{
     CancellationToken, ExecutionLimits, HostPolicy, PluginFailureKind, PluginHost,
@@ -30,14 +30,15 @@ fn utf8_range(source: &str, byte_start: usize, byte_end: usize) -> fleximark_mod
         let before = &source[..offset];
         let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
         SourcePosition {
-            line: before.bytes().filter(|byte| *byte == b'\n').count() as u64,
-            character: (offset - line_start) as u64,
+            line: JsSafeU64::new(before.bytes().filter(|byte| *byte == b'\n').count() as u64)
+                .unwrap(),
+            character: JsSafeU64::new((offset - line_start) as u64).unwrap(),
             encoding: PositionEncoding::Utf8,
         }
     };
     fleximark_model::SourceRange {
-        byte_start: byte_start as u64,
-        byte_end: byte_end as u64,
+        byte_start: JsSafeU64::new(byte_start as u64).unwrap(),
+        byte_end: JsSafeU64::new(byte_end as u64).unwrap(),
         start: position(byte_start),
         end: position(byte_end),
     }
@@ -413,7 +414,10 @@ fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
     );
     assert_eq!(patch.style, session.render_config.style);
     assert_eq!(
-        (patch.base_render_revision, patch.result_render_revision),
+        (
+            patch.base_render_revision.get(),
+            patch.result_render_revision.get()
+        ),
         (1, 2)
     );
     assert!(!patch.operations.is_empty());
@@ -816,7 +820,8 @@ fn identity_edit_mapping_preserves_every_unicode_half_open_slice() {
             let bytes = ranges
                 .iter()
                 .flat_map(|range| {
-                    source.as_bytes()[range.byte_start as usize..range.byte_end as usize]
+                    source.as_bytes()
+                        [range.byte_start.get() as usize..range.byte_end.get() as usize]
                         .iter()
                         .copied()
                 })
@@ -840,7 +845,7 @@ fn navigation_selects_the_smallest_deepest_unicode_block_and_round_trips() {
     );
     assert_eq!(
         serde_json::to_value(&selected).unwrap()["sourceRange"]["byteStart"],
-        selected.source_range.byte_start
+        selected.source_range.byte_start.get()
     );
 }
 
