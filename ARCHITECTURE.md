@@ -1,0 +1,327 @@
+# FlexiMark architecture
+
+This document records the architecture that is implemented in this repository. It is a
+baseline for compatibility-preserving changes, not a description of a future design.
+Capability-level ownership is machine-readable in
+[`capabilities/feature-inventory.json`](capabilities/feature-inventory.json). The Rust method
+registry and wire DTOs define its structure; Rust-owned generator policy defines additional scalar
+constraints such as hashes, MIME types, and JavaScript-safe integers. Together they are the only
+human-edited source of the FlexiMark custom protocol. `fleximark-protocol-codegen` deterministically derives
+[`schemas/protocol.schema.json`](schemas/protocol.schema.json) and
+`web/preview-client/protocol.generated.mts`; adapters consume those artifacts instead of defining
+an editor-specific copy of the contract. Handwritten TypeScript refinements enforce stateful and
+cross-field rules without redefining the generated wire shapes.
+
+## Runtime composition and dependency direction
+
+The VS Code extension is the normal composition root. One adapter process owns one
+`fleximarkd lsp` child process for all folders in a VS Code window. The daemon owns the
+authoritative document sessions and serves both embedded and external previews.
+
+```text
+VS Code
+  -> adapters/vscode (window lifecycle, UI, commands, daemon lifecycle)
+     -> fleximarkd lsp over Content-Length framed JSON-RPC/LSP
+        -> fleximark-lsp (authoritative document/session registry)
+           -> fleximark-engine (parse/transform/validate/render pipeline)
+        -> fleximark_service (workspace commands, assets, export transactions)
+        -> loopback preview HTTP/SSE server
+           -> web/preview-client
+
+fleximark CLI
+  -> fleximark-engine + fleximark_service directly (no JSON-RPC transport)
+```
+
+The acyclic internal Rust crate graph below lists direct normal/runtime repository dependencies.
+Third-party and test-only development dependencies are omitted; the latter add parser test
+fixtures to `fleximark-plugin-host` and `fleximark-render-html` without changing the runtime DAG.
+
+```text
+fleximark-model
+  <- fleximark-parser
+  <- fleximark-render-html
+  <- fleximark-plugin-sdk
+  <- fleximark-protocol
+
+fleximark-model + fleximark-plugin-sdk
+  <- fleximark-plugin-host
+
+model + parser + render-html + plugin-sdk + plugin-host
+  <- fleximark-engine
+
+model + render-html + plugin-host + engine + protocol
+  <- fleximark-lsp
+
+model + render-html + plugin-sdk + plugin-host + engine + lsp + protocol
+  <- fleximarkd (the fleximark_service library and fleximarkd binary)
+
+model + parser + render-html + plugin-host + engine + fleximark_service
+  <- fleximark CLI
+```
+
+The TypeScript adapter imports protocol and RPC modules plus preview DTO types. The two preview
+hosts import the shared preview document, host, navigation, enhancement, and runtime modules.
+Neither the shared preview client nor the Rust core imports VS Code APIs.
+
+TypeScript checking uses a project-reference graph rooted at `tsconfig.json`. Shared strict and
+emit settings live in `tsconfig.base.json`; the browser project owns DOM ambient types, the
+adapter project owns Node and VS Code ambient types, the pure unit project owns Node, Mocha, and
+DOM test types, and the Electron project owns Node, Mocha, and VS Code test types. `tsc -b` is the
+canonical type-check entry point. Declaration-only output and each project's build metadata live
+under separate `out/types` directories, while esbuild remains the only producer of shipped
+JavaScript.
+
+## Component owners
+
+| Owner | Source | Responsibility |
+| --- | --- | --- |
+| Adapter | `adapters/vscode`; `adapter.mts` facade plus daemon, document, preview, registration, runtime-state, and pure policy modules | VS Code composition, settings, daemon recovery, document synchronization, preview lifecycle, diagnostics, commands, providers and editor/workspace events |
+| Protocol | `crates/fleximark-protocol`, `crates/fleximark-protocol-codegen`, generated `schemas/protocol.schema.json` and `web/preview-client/protocol.generated.mts`, handwritten refinements in `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Rust-owned custom-method registry and wire DTOs, generated editor-neutral contracts, semantic runtime validation and stdio framing |
+| Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
+| Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
+| LSP/session | `crates/fleximark-lsp` with private `index`, `workspace`, and `error` modules | URI-to-session authority, document versions, workspace configuration selection, diagnostics/navigation and preview publication state |
+| Engine | `crates/fleximark-engine` facade with private `session`, `pipeline`, `render`, `diff`, `identity`, `provenance`, `assets`, and `error` modules | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
+| Model | `crates/fleximark-model` | IR, node identity, source provenance and navigation data |
+| Parser | `crates/fleximark-parser` | Markdown/Comrak AST to validated FlexiMark IR |
+| HTML renderer | `crates/fleximark-render-html` | Safe HTML and render-model serialization |
+| Plugin SDK/host | `crates/fleximark-plugin-sdk`; `crates/fleximark-plugin-host` facade with private `runtime`, `package`, `pipeline`, `edit_map`, `candidate`, and `error` modules | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
+| Preview client | `web/preview-client`; `index.mts` and `enhance.mts` facades plus security, asset, patch, host/transport and feature modules | Atomic full/patch DOM application, navigation, host failure isolation and opt-in enhancement runtimes |
+| CLI | `crates/fleximark-cli` | Direct render, benchmark and workspace/service commands |
+| Release | `scripts/_targets.py`, `scripts/release_artifact.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, exact-artifact identity, VSIX validation and publishing |
+
+The capability inventory is the detailed owner map. In particular, adapter settings remain in
+`package.json`; note, asset, plugin, theme and export policy remain service-owned workspace
+configuration; Markdown semantics remain engine-owned; Mermaid/ABC enhancement remains
+preview-client-owned.
+
+`capabilities/v0.16.14-inventory.json` is retained as an immutable audit baseline captured from
+the matching `v0.16.14` tag. It is not an input to current architecture verification; it exists
+to compare historical public commands, settings, and package contributions when evaluating an
+explicit clean break. `capabilities/feature-inventory.json` remains the current owner map.
+
+Within `fleximark_service`, `lib.rs` is a compatibility facade that explicitly re-exports the
+existing public operations and types. `workspace.rs`, `notes.rs`, `theme.rs`, `assets.rs`,
+`plugins.rs`, `uri.rs`, and `error.rs` own their named responsibilities. `export/mod.rs` owns the
+export coordinator and public export operations, while its private `model`, `journal`,
+`filesystem`, and `recovery` modules own the persistent representation, digest-chained journal,
+filesystem primitives, and crash recovery respectively. These module boundaries do not add new
+public module paths or alter transaction ordering.
+
+Within the `fleximarkd` binary, `main.rs` owns CLI mode selection and standalone-preview
+composition. `transport/stdio.rs` owns framed process I/O and the ordered per-message dispatch
+operation; `cancellation.rs` owns request/document generations and cancellation tokens.
+`server/routing.rs` selects mode-scoped handlers, while `server/lsp.rs`, `server/rpc.rs`,
+`server/commands.rs`, and `server/diagnostics.rs` own their respective request operations.
+`preview_http.rs` owns the bounded loopback listener, request parsing, authority policy, SSE
+history, navigation and exact HTTP responses. `telemetry.rs` owns redacted operational traces.
+All of these modules are private implementation boundaries of the binary.
+
+Within `fleximark-engine`, `lib.rs` preserves the existing public type and method paths as an
+explicit facade. `pipeline.rs` prepares a document candidate through preprocess, parse,
+provenance remap, identity reconciliation, base validation, block/document transforms and final
+validation; `session.rs` commits a successful candidate and owns synchronization and preview
+cache state. `render.rs` prepares fingerprints, rendered blocks and revisions, builds full or
+patch publications and commits cache state only after publication construction succeeds.
+`diff.rs`, `identity.rs`, `provenance.rs`, `assets.rs`, and `error.rs` are one-directional leaf or
+supporting owners; the private module dependency graph is acyclic.
+
+Within `fleximark-plugin-host`, `lib.rs` preserves the existing public type and method paths as
+an explicit facade. `runtime/wasmtime.rs` owns Component execution, WASI preopens, resource
+limits and cancellation; `package.rs` owns signature and hash verification plus registered
+package state. `pipeline.rs` owns ordered hook orchestration, with only the workspace-trust gate
+and required/optional failure disposition shared across hooks. Hook-specific validation and
+transaction commit points remain local. `edit_map.rs`, `candidate.rs`, and `error.rs` are private
+supporting owners; the module dependency graph is acyclic and does not depend back on the facade.
+
+Within `fleximark-lsp`, the private `SessionIndex` owns the forward URI-to-document map and the
+reverse session-ID-to-URI map as one invariant. Private key newtypes keep URI and session identity
+distinct until values cross the public protocol boundary. `WorkspaceAuthority` owns the default
+compatibility configuration and the ordered rooted configurations, including the existing raw
+longest segment-prefix matching policy. `error.rs` is the single EngineError-to-SessionError
+mapping boundary. Registry operations retain their public signatures and delegate lookup and
+configuration selection to these owners.
+
+Within the VS Code adapter, `DaemonSupervisor` is a framework-independent owner of daemon
+process/RPC identity, concurrent startup, workspace revisions, restart/backoff, recovery status,
+and shutdown. Process, clock, timer, RPC, logging, status, and replay effects are injected by the
+`FlexiMarkAdapter` facade. `release-manifest.mts` verifies the selected bundled executable before
+spawn; `workspace-selection.mts`, `position.mts`, and `error-policy.mts` own their pure policies.
+`document-coordinator.mts` owns didOpen/didChange/didClose, attach/checkpoint and full-text recovery;
+`preview-coordinator.mts` owns candidate identity, bounded pre-registration events, readiness,
+publication recovery, panels, external URLs, disposal/recreation, navigation and echo suppression.
+`diagnostics.mts` converts validated protocol diagnostics. `commands.mts`, `providers.mts`, and
+`events.mts` register their VS Code surfaces, while `runtime-state.mts` is the shared in-memory
+shape. The facade supplies VS Code and supervisor effects and remains the public adapter API.
+
+Within the preview client, `index.mts` remains the `PreviewDocument` compatibility facade and the
+only owner of live DOM, revision, navigation, style and blob-URL commits. `content-security.mts`,
+`assets.mts`, `patch-attributes.mts` and `patch-transaction.mts` prepare and validate detached
+snapshot or patch candidates without committing live state. `enhance.mts` remains the
+`PreviewEnhancer` facade and owns generation, fingerprint, tab and audio lifetimes; the functions
+under `enhancers/` render Mermaid, ABC, math, YouTube, tabs and code highlighting. `host.mts`
+sequences publications and observes asynchronous enhancement, while the browser navigation
+transport owns pending POST cancellation. VS Code rendered acknowledgements still confirm the
+core DOM commit and do not wait for asynchronous enhancement.
+
+## Entry points
+
+- `package.json` activates `dist/extension.cjs`, bundled from
+  `adapters/vscode/src/extension.mts`, for Markdown documents or
+  `.fleximark/config.toml` workspaces.
+- `fleximarkd lsp` is the VS Code transport and combines standard LSP with `fleximark/*`
+  methods. `fleximarkd rpc` exposes the custom protocol without LSP, and
+  `fleximarkd serve <document>` starts a standalone loopback preview.
+- The `fleximark` binary supports `render`, `benchmark`, `init`, `edit-theme`, `create-note`,
+  `collect-admonitions`, `export`, and `ack-export`.
+- `web/preview-client/vscode-host.mts` is bundled for the webview;
+  `web/preview-client/browser-host.mts` is bundled for the loopback browser preview and embedded
+  into the daemon.
+- `mise.toml` is the developer-facing build/test/package entry point. `scripts/tasks.py` and
+  `scripts/build.py` are the orchestration and JavaScript bundle entry points.
+- `mise run protocol-generate` regenerates the checked-in Schema and TypeScript contract from
+  Rust. `mise run protocol-check` performs a read-only byte comparison; normal builds, verification,
+  and direct JavaScript build entry points fail before consuming stale generated artifacts.
+- `scripts/_targets.py` owns the ordered six-platform daemon target set, platform/architecture
+  normalization, executable names and manifest-relative paths.
+- `scripts/release_artifact.py` validates prebuilt release inputs and the final VSIX, writes and
+  verifies its identity sidecar, and is the shared gate used before cross-job handoff, smoke,
+  attestation and publication.
+
+## Trust boundaries
+
+1. **VS Code to daemon.** Stdio contains untrusted JSON. Messages use JSON-RPC 2.0 with LSP
+   `Content-Length` framing and a 16 MiB daemon limit. Rust request DTOs reject unknown fields.
+   The TypeScript connection parses envelopes but currently relies on requested generic types
+   for result shapes; the protocol schema and characterization tests are therefore part of the
+   compatibility boundary.
+2. **Workspace authority.** The adapter forwards VS Code Workspace Trust for every root at
+   initialization and reconfiguration. The daemon records per-root grants. Workspace writes,
+   local asset reads and plugins are service-side operations and are constrained to the granted,
+   canonical workspace. Symlink and path-escape checks are security invariants, not adapter UI
+   policy.
+3. **Plugin packages.** A configured plugin is accepted only from `.fleximark/plugins` after
+   manifest hash, WebAssembly hash and Ed25519 signature checks. Effective capabilities are the
+   intersection of workspace configuration grants and the signed manifest. Wasmtime supplies the
+   component sandbox; unsafe HTML is a separate explicit export-only capability.
+4. **Daemon to embedded preview.** The adapter creates a CSP-restricted webview and a random
+   message token. The host ignores messages with a different token. Rendered markup is still
+   checked by the preview client before it is committed to the live DOM.
+5. **Daemon to browser preview.** The server binds an ephemeral `127.0.0.1` port and uses an
+   opaque preview token in the path. It checks request host/origin, sends CSP and no-store
+   headers, publishes render events through SSE, and receives navigation events through
+   POST requests whose `Origin` is one of the allowed loopback origins. The accepted host and
+   origin are each allowlisted as `127.0.0.1` or `localhost`; they are not required to use the
+   same spelling. The current parser treats an unparsable first `Content-Length` as absent and
+   can therefore adopt a later valid value; this pre-existing, loopback-only compatibility debt
+   is characterized but requires a separately reviewed security behavior change to reject.
+6. **Source and filesystem to rendered output.** Raw HTML policy is loaded from trusted workspace
+   configuration. Local assets must remain under configured roots, are content-typed and become
+   opaque content-hash references. Preview markup is applied to a detached clone and rejects
+   executable scripts and protected attributes before commit.
+7. **Release artifact to process execution.** The adapter selects the current platform/CPU entry
+   from `bin/manifest.json`, confines its path to the extension, and verifies SHA-256 before
+   launching the bundled daemon. An explicitly configured external daemon path is user-supplied
+   and outside this checksum boundary.
+8. **Release assembly to publication.** Semantic-release creates one universal VSIX with a
+   hash/version/tag/source identity that every consumer revalidates. Six-target smoke and
+   attestation gate GitHub publication; Marketplace receives the same artifact. Reruns recover a
+   complete release and reject contradictory state. Setup and trust are documented in
+   [`README_DEV.md`](README_DEV.md#release-and-repository-setup) and [`SECURITY.md`](SECURITY.md#release-integrity).
+
+The CLI deliberately bypasses the JSON-RPC and VS Code trust boundary. Its filesystem commands
+still use `fleximark_service` validation and transaction rules; invocation by the local user is
+the authority to perform them.
+
+## Wire and ABI formats
+
+| Format | Canonical location | Compatibility notes |
+| --- | --- | --- |
+| Custom JSON-RPC methods | Rust method registry in `fleximark-protocol` | Human-edited source of truth for method identity, direction, request/notification kind, and parameter/result associations |
+| JSON-RPC/LSP stdio | Rust DTOs in their owning crates; generated `schemas/protocol.schema.json` | Protocol version 1, UTF-8 JSON, `Content-Length: N\r\n\r\n`; custom names and field casing are derived from the Rust contract |
+| Custom request/result DTOs | Rust serde/schema types in their owning crates, plus Rust generator policy | Only human-edited definition of custom wire structure and scalar constraints; optional fields, error codes/messages, and result envelopes are external behavior |
+| Generated adapter contract | `web/preview-client/protocol.generated.mts` | Generated editor-neutral DTO declarations, direction-specific method maps, and method metadata; it must not be edited by an adapter |
+| TypeScript protocol validation | `web/preview-client/protocol.mts` | Handwritten stateful and cross-field refinements layered on generated structural types |
+| Preview publications | Rust render contract types; generated schema and TypeScript declarations | Discriminated `full`/`patch` JSON, camelCase fields, session/version/revision/fingerprint identity, navigation and optional style/assets |
+| Embedded preview messages | `web/preview-client/host.mts` | `initializePreview` and `previewEvent` envelopes include a per-panel `messageToken`; client events return through VS Code webview messaging |
+| Browser preview | `fleximarkd/src/main.rs`, `browser-host.mts` | Tokenized loopback HTTP page, SSE publication stream and JSON POST navigation events |
+| Plugin manifest and ABI | `schemas/plugin-manifest.schema.json`, `fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit` | TOML manifest `schema_version = 1`, plugin `api_version = 1`, versioned WIT world and signed artifact digest |
+| Release manifest | `scripts/create_release_manifest.py` | JSON `schemaVersion: 1`, `protocolVersion: 1`, and platform/arch/path/SHA-256 entries for Linux, macOS and Windows on x64/arm64 |
+| Release identity sidecar | `scripts/release_artifact.py` | JSON `schemaVersion: 1`, fixed artifact name, strict semantic version, SHA-256, `gitTag`, and `sourceGitHead`; exact fields only |
+
+Engine-owned payloads, such as render publications, remain in the engine crate. The protocol
+registry refers to those payloads by closed, stable `WireType` IDs and uses generic envelopes at the
+transport boundary, avoiding a `fleximark-protocol` to `fleximark-engine` dependency cycle.
+Registry-to-fixture agreement is enforced by Rust unit tests, fixture-to-schema agreement by the
+Python contract tests, and fixture-to-TypeScript-map agreement by the TypeScript contract tests.
+The checked-in fixture remains a deliberately handwritten, independent compatibility oracle; it is
+not emitted by the generator. Generated files carry a do-not-edit marker, and protocol checking
+regenerates them in memory or temporary storage and fails on any byte-level drift. This keeps Rust
+as the sole implementation source while retaining a checked-in distributable contract and an
+independent test corpus.
+
+## Persistent formats
+
+FlexiMark has no database or database schema. Compatibility-sensitive filesystem formats are:
+
+- `.fleximark/config.toml`, whose `schema_version = 1` shape is described by
+  `schemas/config.schema.json`;
+- the legacy `.fleximark/fleximark.json` marker is read only by the VS Code adapter to offer a
+  user-approved migration when `config.toml` is absent; it is never configuration authority;
+- `.fleximark/theme.css` and user Markdown/note files;
+- plugin `.toml`, `.wasm`, and `.sig` files below `.fleximark/plugins`, including their hashes,
+  signer key and capability grants;
+- exported portable HTML/assets plus the destination `.fleximark-export.json` ownership marker;
+- `.fleximark/export-targets/<destination-hash>.json` registry records and adjacent
+  `.*.fleximark-export-journal.json` transaction journals. Staging and backup names are also part
+  of crash recovery. Their representations and journal encoding are owned by the private
+  `export/model.rs` and `export/journal.rs` modules; filesystem mutation and recovery remain
+  coordinated through `export/mod.rs`;
+- generated `bin/manifest.json`, whose entries select and authenticate packaged daemon binaries;
+- the repository capability inventory and clean-break catalog, which are source-controlled
+  governance contracts rather than user runtime state.
+
+Ownership markers, registry records and journals contain identity/digest/generation information.
+They must only be advanced by the export transaction and recovery implementation; hand-editing
+or partially copying them makes a destination unmanaged or conflicted.
+
+## Cross-component invariants
+
+- `SessionRegistry` is the authority for open document text, URI mapping, document session ID,
+  daemon instance ID and current document version. Adapter replay after a crash creates a new
+  daemon generation and reattaches all still-open roots/documents/previews.
+- Document versions and render revisions do not move backwards. Stale or out-of-sync edits cause
+  a full-text request; a patch is valid only for its stated preview session, base revision,
+  renderer fingerprint and structural preconditions.
+- Preview changes are transactional: validate against a detached DOM, resolve only declared
+  assets, update navigation/style with the same revision, then commit. Any failed operation leaves
+  the live DOM unchanged and requests/awaits a full publication.
+- Node IDs, provenance and source navigation refer to the same validated IR. Plugin preprocess,
+  parse, provenance remap, transform and validation complete before rendering/publication.
+- Preview and normal export are safe by default. Portable safe HTML is composed before the
+  explicitly granted unsafe export hook can run; unsafe plugin output never enters preview.
+- Export replacement is an ownership-checked filesystem transaction. Marker, registry, journal,
+  destination identity and digest/generation must agree, and recovery must not overwrite an
+  unmanaged or externally changed destination.
+- Workspace roots are independent trust/configuration domains even though one daemon serves a
+  multi-root window. Removing one root must not dispose state belonging to another root.
+- Legacy workspace migration is offered once per open root without persisting cancellation.
+  Migration keeps legacy files, writes `config.toml` last as its completion marker, and therefore
+  asks again after a cancelled workspace is reopened without repeatedly prompting in one session.
+- Public command IDs, extension activation/settings, protocol version and fields, CLI output and
+  packaged runtime contents are compatibility surfaces. Move-only refactors must preserve them
+  unless a separately approved clean break is recorded.
+
+## Build and verification boundaries
+
+The product build order is browser client, release daemon, platform staging, release manifest,
+then production extension/preview bundles. Pure RPC/preview tests compile to `out/test/unit` and
+run in Node, while the non-overlapping VS Code integration suite compiles to `out/test/electron`
+and remains responsible for extension activation and editor/workspace behavior.
+Python `unittest`, TypeScript checks, Rust tests/lints, architecture inventory checks, packaging
+inspection and platform clean-install smoke tests cover the remaining boundaries.
+Rust builds and tests use the committed lockfiles. CI checks the root workspace with Rust 1.86 on
+all six supported host combinations and checks the independent WebAssembly plugin fixture with
+Rust 1.86 on `wasm32-wasip2`; current-toolchain tests, lints, and release builds remain separate.
+Standalone `mise run test` performs the full product build before integration tests. CI and
+release jobs that already assembled all six daemons use `mise run test -- --prebuilt`; this is not
+the default developer path.

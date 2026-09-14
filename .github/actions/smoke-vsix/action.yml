@@ -1,0 +1,7 @@
+name: Smoke-test VSIX
+description: Install the packaged extension and verify its daemon manifest and startup
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: ${{ runner.os == 'Linux' && 'xvfb-run -a mise run smoke -- fleximark.vsix' || 'mise run smoke -- fleximark.vsix' }}

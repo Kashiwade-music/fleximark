@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate extension
+    needs: daemon-platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate and package extension
+        uses: ./.github/actions/validate-extension
+        with:
+          development-contracts: "true"
+          package-vsix: "true"
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+
+  daemon-platforms:
+    name: Build daemon for ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, platform: linux, arch: x64 }
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+          - { os: macos-15-intel, platform: darwin, arch: x64 }
+          - { os: macos-15, platform: darwin, arch: arm64 }
+          - { os: windows-2025, platform: win32, arch: x64 }
+          - { os: windows-11-arm, platform: win32, arch: arm64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup toolchain and dependencies
+        uses: ./.github/actions/setup-toolchain
+
+      - name: Build external preview client
+        run: uv run --frozen python scripts/build.py browser
+
+      - name: Install minimum supported Rust version
+        run: rustup toolchain install 1.86.0 --profile minimal
+
+      - name: Check host workspace with minimum Rust version
+        env:
+          CARGO_TARGET_DIR: target/msrv-1.86
+        run: cargo +1.86.0 check --workspace --all-targets --locked
+
+      - name: Build daemon
+        run: cargo build --release -p fleximarkd --locked
+
+      - name: Stage daemon
+        run: uv run --frozen python scripts/stage_daemon.py
+
+      - name: Upload daemon
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-${{ matrix.platform }}-${{ matrix.arch }}
+          path: bin
+          if-no-files-found: error
+
+  clean-install:
+    name: Clean install on ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, platform: linux, arch: x64 }
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+          - { os: macos-15-intel, platform: darwin, arch: x64 }
+          - { os: macos-15, platform: darwin, arch: arm64 }
+          - { os: windows-2025, platform: win32, arch: x64 }
+          - { os: windows-11-arm, platform: win32, arch: arm64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup toolchain and dependencies
+        uses: ./.github/actions/setup-toolchain
+
+      - name: Download universal VSIX
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fleximark-vsix
+
+      - name: Install packaged extension
+        uses: ./.github/actions/smoke-vsix

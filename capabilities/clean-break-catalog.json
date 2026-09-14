@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "cleanBreaks": {
+    "clean-break.abc-completion": {
+      "rationale": "Completion moved to the daemon LSP authority.",
+      "replacement": "Daemon-backed completion",
+      "unsupportedBehavior": "Legacy adapter completion is removed.",
+      "releaseNoteId": "architecture-v1.lsp"
+    },
+    "clean-break.asset-policy": {
+      "rationale": "Assets require typed bounded resolution.",
+      "replacement": "Typed publication assets",
+      "unsupportedBehavior": "Ambient asset URLs are unsupported.",
+      "releaseNoteId": "architecture-v1.assets"
+    },
+    "clean-break.auto-open": {
+      "rationale": "The adapter owns editor presentation preferences.",
+      "replacement": "fleximark.autoOpenPreview",
+      "unsupportedBehavior": "Legacy preference names are ignored.",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    "clean-break.daemon-path": {
+      "rationale": "Native daemon selection is adapter-owned.",
+      "replacement": "fleximark.daemonPath",
+      "unsupportedBehavior": "Legacy daemon discovery is removed.",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    "clean-break.global-css": {
+      "rationale": "Global executable styling violated workspace ownership.",
+      "replacement": ".fleximark/theme.css",
+      "unsupportedBehavior": "Global CSS is never loaded.",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    "clean-break.global-js-plugin": {
+      "rationale": "Arbitrary JavaScript execution is removed.",
+      "replacement": "Signed capability-gated WASM",
+      "unsupportedBehavior": "Global JavaScript plugins are never loaded.",
+      "releaseNoteId": "architecture-v1.wasm-plugins"
+    },
+    "clean-break.install-verification": {
+      "rationale": "Native artifacts require packaged smoke verification.",
+      "replacement": "Three-platform VSIX smoke gate",
+      "unsupportedBehavior": "Unverified packages are not released.",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    "clean-break.legacy-settings-update": {
+      "rationale": "Released legacy workspaces are migrated explicitly into the service-owned v1 configuration.",
+      "replacement": "Automatic, user-approved v1 workspace migration",
+      "unsupportedBehavior": "Legacy settings update commands are removed; the version marker is only used to detect migration candidates.",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    "clean-break.log-level": {
+      "rationale": "Adapter logs must be redacted and structured.",
+      "replacement": "fleximark.logLevel",
+      "unsupportedBehavior": "Legacy logging settings are ignored.",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    "clean-break.native-daemon": {
+      "rationale": "Parsing and rendering moved out of the extension host.",
+      "replacement": "Platform native daemon",
+      "unsupportedBehavior": "Adapter-side runtime is removed.",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    "clean-break.note-categories": {
+      "rationale": "Note policy is workspace-owned.",
+      "replacement": ".fleximark/config.toml notes.categories",
+      "unsupportedBehavior": "VS Code category settings are ignored.",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    "clean-break.note-filename-prefix": {
+      "rationale": "Note policy is workspace-owned.",
+      "replacement": "notes.file_name_prefix",
+      "unsupportedBehavior": "Legacy prefix settings are ignored.",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    "clean-break.note-filename-suffix": {
+      "rationale": "Note policy is workspace-owned.",
+      "replacement": "notes.file_name_suffix",
+      "unsupportedBehavior": "Legacy suffix settings are ignored.",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    "clean-break.note-templates": {
+      "rationale": "Templates are canonical workspace configuration.",
+      "replacement": "notes.templates",
+      "unsupportedBehavior": "Legacy templates are ignored.",
+      "releaseNoteId": "architecture-v1.config"
+    },
+    "clean-break.preview-column": {
+      "rationale": "The adapter owns editor placement.",
+      "replacement": "fleximark.previewColumn",
+      "unsupportedBehavior": "Legacy placement is ignored.",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    "clean-break.preview-port": {
+      "rationale": "Fixed ports weaken isolation.",
+      "replacement": "OS-assigned loopback port",
+      "unsupportedBehavior": "Configured preview ports are ignored.",
+      "releaseNoteId": "architecture-v1.preview-transport"
+    },
+    "clean-break.preview-target": {
+      "rationale": "Preview target is an adapter presentation choice.",
+      "replacement": "fleximark.previewTarget",
+      "unsupportedBehavior": "Legacy target names are ignored.",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    "clean-break.raw-html-policy": {
+      "rationale": "Raw HTML needs an explicit security boundary.",
+      "replacement": "security.raw_html_preview/export",
+      "unsupportedBehavior": "Implicit raw HTML execution is removed.",
+      "releaseNoteId": "architecture-v1.render-security"
+    },
+    "clean-break.release-manifest": {
+      "rationale": "Native artifacts require exact provenance.",
+      "replacement": "Release manifest and attestation",
+      "unsupportedBehavior": "Unmanifested artifacts are rejected.",
+      "releaseNoteId": "architecture-v1.native-distribution"
+    },
+    "clean-break.scroll-capability": {
+      "rationale": "Navigation is negotiated and typed.",
+      "replacement": "Typed selection and viewport events",
+      "unsupportedBehavior": "Legacy boolean sync is ignored.",
+      "releaseNoteId": "architecture-v1.adapter-settings"
+    },
+    "clean-break.syntax-highlighting": {
+      "rationale": "Preview behavior uses one bundled client.",
+      "replacement": "Local common-client highlighter",
+      "unsupportedBehavior": "Legacy Shiki runtime is removed.",
+      "releaseNoteId": "architecture-v1.rendering"
+    },
+    "clean-break.workspace-authority": {
+      "rationale": "One daemon owns all root policies.",
+      "replacement": "Longest-root session authority",
+      "unsupportedBehavior": "Per-root daemon authority is removed.",
+      "releaseNoteId": "architecture-v1.multi-root"
+    },
+    "clean-break.workspace-css": {
+      "rationale": "Theme CSS is validated service-owned input.",
+      "replacement": ".fleximark/theme.css",
+      "unsupportedBehavior": "fleximark.css is copied during approved migration but is never loaded directly.",
+      "releaseNoteId": "architecture-v1.theme"
+    },
+    "clean-break.workspace-js-plugin": {
+      "rationale": "Arbitrary JavaScript execution is removed.",
+      "replacement": "Signed capability-gated WASM",
+      "unsupportedBehavior": "parserPlugin.js is never loaded.",
+      "releaseNoteId": "architecture-v1.wasm-plugins"
+    },
+    "clean-break.workspace-marker": {
+      "rationale": "The v1 schema is the only configuration authority.",
+      "replacement": ".fleximark/config.toml",
+      "unsupportedBehavior": "fleximark.json is only used to detect migration candidates and is never configuration authority.",
+      "releaseNoteId": "architecture-v1.config"
+    }
+  },
+  "releaseNotes": {
+    "architecture-v1.adapter-settings": "Adapter settings were replaced by the v1 names.",
+    "architecture-v1.assets": "Assets use typed bounded offline-safe delivery.",
+    "architecture-v1.config": "Only .fleximark/config.toml schema version 1 is supported.",
+    "architecture-v1.lsp": "Language features are served by the authoritative daemon session.",
+    "architecture-v1.multi-root": "One daemon isolates multiple workspace authorities.",
+    "architecture-v1.native-distribution": "The extension ships verified native daemons.",
+    "architecture-v1.preview-transport": "Browser previews use token-bound loopback transport.",
+    "architecture-v1.render-security": "Preview and export raw HTML policies are explicit.",
+    "architecture-v1.rendering": "Preview targets share one bundled rendering client.",
+    "architecture-v1.theme": "Themes use validated workspace CSS only.",
+    "architecture-v1.wasm-plugins": "Legacy JavaScript plugins were removed; signed WASM is the replacement."
+  }
+}

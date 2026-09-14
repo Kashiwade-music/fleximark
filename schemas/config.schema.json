@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleximark.dev/schemas/config-v1.json",
+  "title": "FlexiMark configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file_name_prefix": { "type": "string", "default": "" },
+        "file_name_suffix": { "type": "string", "default": "" },
+        "categories": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "templates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "raw_html_preview": {
+          "enum": ["escape", "reject"],
+          "default": "escape"
+        },
+        "raw_html_export": {
+          "enum": ["escape", "reject"],
+          "default": "reject"
+        }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "wasm",
+          "manifest",
+          "signature",
+          "manifest_sha256",
+          "signer_public_key"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "wasm": {
+            "type": "string",
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*\\.wasm$"
+          },
+          "manifest": {
+            "type": "string",
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*\\.toml$"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*\\.sig$"
+          },
+          "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "signer_public_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "environment": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "enabled": { "type": "boolean", "default": true },
+          "grants": { "$ref": "#/$defs/pluginCapabilities" }
+        }
+      }
+    }
+  },
+  "required": ["schema_version"],
+  "$defs": {
+    "pluginCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read_workspace": { "type": "boolean", "default": false },
+        "write_workspace": { "type": "boolean", "default": false },
+        "environment": { "type": "boolean", "default": false },
+        "unsafe_html_output": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}

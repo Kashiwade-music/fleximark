@@ -1,43 +1,77 @@
-import * as assert from "assert";
-// You can import and use all API from the 'vscode' module
-// as well as import your extension to test it
+import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 
-import * as commands_css_index from "./command/lib/css/index.test.mjs";
-import * as commands_genSettingsJson_index from "./command/lib/settings/index.test.mjs";
-import * as commands_utils_getBlockLineAndOffset from "./command/lib/unist/getBlockLineAndOffset.test.mjs";
-import * as completion_lib_checkCurrentLineLangMode from "./completion/lib/checkCurrentLineLangMode.test.mjs";
-
-export interface CommandTestModule {
-  suiteName: string;
-  suite: () => void;
-}
+import * as daemonRuntime from "./adapter/daemon-runtime.test.mjs";
+import * as documentLifecycle from "./adapter/document-lifecycle.test.mjs";
+import * as exportAck from "./adapter/export-ack.test.mjs";
+import * as multiRootRuntime from "./adapter/multi-root-runtime.test.mjs";
+import * as noteOptions from "./adapter/note-options.test.mjs";
+import * as wiring from "./adapter/wiring.test.mjs";
+import * as workspaceMigrationRuntime from "./adapter/workspace-migration-runtime.test.mjs";
+import * as workspaceSelection from "./adapter/workspace-selection.test.mjs";
+import * as contributions from "./contributions.test.mjs";
 
 suite("Extension Test Suite", () => {
   suiteSetup(async () => {
-    // activate the extension before running tests
-    await vscode.extensions.getExtension("Kashiwade.fleximark")?.activate();
+    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
+    assert.ok(extension);
+    await extension.activate();
   });
 
-  test("Sample test", () => {
-    assert.strictEqual(-1, [1, 2, 3].indexOf(5));
-    assert.strictEqual(-1, [1, 2, 3].indexOf(0));
+  test("ships only adapter-owned settings", () => {
+    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
+    assert.ok(extension);
+    assert.deepEqual(
+      Object.keys(
+        extension.packageJSON.contributes.configuration.properties,
+      ).sort(),
+      [
+        "fleximark.autoOpenPreview",
+        "fleximark.daemonPath",
+        "fleximark.logLevel",
+        "fleximark.previewColumn",
+        "fleximark.previewTarget",
+      ],
+    );
   });
 
-  suite(commands_css_index.suiteName, commands_css_index.suite);
-  suite(
-    commands_genSettingsJson_index.suiteName,
-    commands_genSettingsJson_index.suite,
-  );
-  suite(
-    commands_utils_getBlockLineAndOffset.suiteName,
-    commands_utils_getBlockLineAndOffset.suite,
-  );
+  test("declares daemon resolution and redacted adapter logging settings", () => {
+    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
+    assert.ok(extension);
+    const properties =
+      extension.packageJSON.contributes.configuration.properties;
+    assert.equal(
+      properties["fleximark.daemonPath"].scope,
+      "machine-overridable",
+    );
+    assert.equal(properties["fleximark.previewTarget"].scope, "resource");
+    assert.deepEqual(properties["fleximark.logLevel"].enum, [
+      "off",
+      "error",
+      "info",
+      "debug",
+    ]);
+  });
 
-  // =======================
+  test("does not ship the legacy JavaScript plugin runtime", async () => {
+    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
+    assert.ok(extension);
+    await assert.rejects(
+      Promise.resolve(
+        vscode.workspace.fs.stat(
+          vscode.Uri.joinPath(extension.extensionUri, "parserPlugin.js"),
+        ),
+      ),
+    );
+  });
 
-  suite(
-    completion_lib_checkCurrentLineLangMode.suiteName,
-    completion_lib_checkCurrentLineLangMode.suite,
-  );
+  suite(contributions.suiteName, contributions.suite);
+  suite(daemonRuntime.suiteName, daemonRuntime.suite);
+  suite(documentLifecycle.suiteName, documentLifecycle.suite);
+  suite(exportAck.suiteName, exportAck.suite);
+  suite(noteOptions.suiteName, noteOptions.suite);
+  suite(wiring.suiteName, wiring.suite);
+  suite(workspaceSelection.suiteName, workspaceSelection.suite);
+  suite(workspaceMigrationRuntime.suiteName, workspaceMigrationRuntime.suite);
+  suite(multiRootRuntime.suiteName, multiRootRuntime.suite);
 });

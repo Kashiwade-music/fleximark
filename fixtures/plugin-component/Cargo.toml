@@ -1,0 +1,15 @@
+[package]
+name = "fleximark-fixture-plugin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fleximark-model = { path = "../../crates/fleximark-model" }
+fleximark-plugin-sdk = { path = "../../crates/fleximark-plugin-sdk" }
+
+[workspace]

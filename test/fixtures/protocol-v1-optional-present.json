@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "initialize params with all optional fields",
+      "definition": "initializeParams",
+      "value": {
+        "protocolVersion": 1,
+        "client": { "name": "contract-test", "version": "1" },
+        "capabilities": {
+          "embeddedHtml": true,
+          "structuredPreview": false,
+          "selectionEvents": true,
+          "viewportEvents": true,
+          "openExternal": true
+        },
+        "workspaces": [
+          { "uri": "file:///workspace", "trusted": true }
+        ]
+      }
+    },
+    {
+      "name": "initialize result with workspace error",
+      "definition": "initializeResult",
+      "value": {
+        "protocolVersion": 1,
+        "daemonInstanceId": "daemon",
+        "workspaceStatuses": [
+          {
+            "uri": "file:///workspace",
+            "enabled": false,
+            "error": "invalid configuration"
+          }
+        ],
+        "capabilities": {
+          "htmlRender": true,
+          "documentCheckpoint": true,
+          "selectionEvents": true,
+          "viewportEvents": true,
+          "workspaceCommands": ["editTheme"]
+        }
+      }
+    },
+    {
+      "name": "create preview result with external URL",
+      "definition": "createPreviewResult",
+      "value": {
+        "previewSessionId": "preview",
+        "url": "http://127.0.0.1:3000/preview",
+        "initialPublication": {
+          "type": "full",
+          "previewSessionId": "preview",
+          "documentVersion": 3,
+          "resultRenderRevision": 1,
+          "rendererFingerprint": "sha256:renderer",
+          "nodeIds": ["document-root"],
+          "navigation": [],
+          "style": null,
+          "assets": [],
+          "html": "<main data-fleximark-node-id=\"document-root\"></main>"
+        }
+      }
+    },
+    {
+      "name": "execute command params with all optional fields",
+      "definition": "executeCommandParams",
+      "value": {
+        "daemonInstanceId": "daemon",
+        "command": "createNote",
+        "documentSessionId": "document",
+        "expectedDocumentVersion": 3,
+        "workspaceUri": "file:///workspace",
+        "destinationUri": "file:///workspace/note.md",
+        "noteCategory": "work",
+        "noteTemplate": "daily"
+      }
+    },
+    {
+      "name": "command result with all optional fields",
+      "definition": "commandResult",
+      "value": {
+        "message": { "level": "warning", "text": "review note" },
+        "openUri": "file:///workspace/note.md"
+      }
+    }
+  ]
+}

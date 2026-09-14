@@ -1,0 +1,17 @@
+[package]
+name = "fleximark-lsp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+fleximark-model = { path = "../fleximark-model" }
+fleximark-plugin-host = { path = "../fleximark-plugin-host" }
+fleximark-engine = { path = "../fleximark-engine" }
+fleximark-protocol = { path = "../fleximark-protocol" }
+fleximark-render-html = { path = "../fleximark-render-html" }
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
