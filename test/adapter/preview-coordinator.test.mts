@@ -345,6 +345,50 @@ export function suite(): void {
     assert.equal(navigated.length, 1);
   });
 
+  test("forwards editor viewport navigation to the embedded preview", async () => {
+    const messages: unknown[] = [];
+    const rpc = { closed: false } as JsonRpcConnection;
+    const origin = daemonOrigin(rpc, "daemon", 1);
+    const preview = previewState(origin, async (message) => {
+      messages.push(message);
+      return true;
+    });
+    preview.renderRevision = 3;
+    const runtime = runtimeWithPreview(preview);
+
+    assert.equal(
+      await handlePreviewEventLifecycle(
+        origin,
+        {
+          daemonInstanceId: "daemon",
+          previewSessionId: "preview",
+          renderRevision: 3,
+          event: {
+            type: "viewport",
+            previewSessionId: "preview",
+            renderRevision: 3,
+            nodeId: "section-2",
+          },
+        },
+        [runtime],
+        assert.fail,
+      ),
+      true,
+    );
+    assert.deepEqual(messages, [
+      {
+        type: "previewEvent",
+        messageToken: "token",
+        event: {
+          type: "viewport",
+          previewSessionId: "preview",
+          renderRevision: 3,
+          nodeId: "section-2",
+        },
+      },
+    ]);
+  });
+
   test("removes membership before awaiting daemon disposal", async () => {
     const disposed = deferred<null>();
     const rpc = {

@@ -542,8 +542,16 @@ export async function handlePreviewEventLifecycle(
   if (
     event.event.type === "selectSource" ||
     event.event.type === "revealSource"
-  )
+  ) {
     await navigate(runtime, preview, event.event);
+    return true;
+  }
+  if (preview.panel && preview.messageToken)
+    await preview.panel.webview.postMessage({
+      type: "previewEvent",
+      messageToken: preview.messageToken,
+      event: event.event,
+    });
   return true;
 }
 
