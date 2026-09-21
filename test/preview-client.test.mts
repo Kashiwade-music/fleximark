@@ -936,7 +936,7 @@ export function suite(): void {
     }
   });
 
-  test("renders KaTeX-compatible math as MathML", async () => {
+  test("renders KaTeX-compatible math as styled HTML with a MathML fallback", async () => {
     preview.applySnapshot({
       ...specialSnapshot("math", ""),
       html: '<main data-fleximark-node-id="document-root"><div data-fleximark-node-id="special" data-fleximark-kind="math">x^2</div></main>',
@@ -949,6 +949,7 @@ export function suite(): void {
       root.querySelector<HTMLElement>("[data-fleximark-kind=math]")?.dataset
         .fleximarkRenderError ?? root.innerHTML,
     );
+    assert.ok(root.querySelector("[data-fleximark-output] .katex-html"));
   });
 
   test("renders ABC notation into an SVG output", async () => {
@@ -956,7 +957,11 @@ export function suite(): void {
     const { previewRuntimes } =
       await import("../web/preview-client/runtimes.mjs");
     await new PreviewEnhancer(previewRuntimes).render(root);
-    assert.ok(root.querySelector("[data-fleximark-output] svg"));
+    const svg = root.querySelector("[data-fleximark-output] svg");
+    assert.ok(svg);
+    assert.equal(svg.getAttribute("width"), null);
+    assert.equal(svg.getAttribute("height"), null);
+    assert.ok(svg.getAttribute("viewBox"));
   });
 
   test("starts ABC audio only after user action and cleans it up", async () => {
@@ -989,6 +994,62 @@ export function suite(): void {
     assert.equal(stopped, 1);
     enhancer.dispose();
     assert.equal(stopped, 1);
+  });
+
+  test("stops ABC audio and displays the current note and beat", async () => {
+    preview.applySnapshot(specialSnapshot("abc", "X:1\nK:C\nC"));
+    let timingCallbacks:
+      Parameters<PreviewRuntimes["abc"]["createTiming"]>[1] | undefined;
+    let timingStarts = 0;
+    let timingStops = 0;
+    let synthStops = 0;
+    const runtimes = inertRuntimes();
+    runtimes.abc.render = (target) => {
+      target.innerHTML = '<svg><g data-note="true"></g></svg>';
+      return [{}];
+    };
+    runtimes.abc.supportsAudio = () => true;
+    runtimes.abc.createTiming = (_visual, callbacks) => {
+      timingCallbacks = callbacks;
+      return {
+        start: () => timingStarts++,
+        stop: () => timingStops++,
+        reset: () => undefined,
+      };
+    };
+    runtimes.abc.createSynth = () => audioSynth({ stop: () => synthStops++ });
+    const enhancer = new PreviewEnhancer(runtimes);
+    await enhancer.render(root);
+    const button = root.querySelector<HTMLButtonElement>(
+      "[data-fleximark-audio]",
+    );
+    const note = root.querySelector<Element>("[data-note]");
+    assert.ok(button);
+    assert.ok(note);
+
+    button.click();
+    await flushMicrotasks();
+    assert.equal(button.textContent, "Stop");
+    assert.equal(button.dataset.fleximarkAudio, "stop");
+    assert.equal(button.getAttribute("aria-pressed"), "true");
+    assert.equal(timingStarts, 1);
+    assert.ok(timingCallbacks);
+    timingCallbacks.event([[note]]);
+    timingCallbacks.beat(1, 4, { left: 12, top: 3, height: 9 });
+    assert.equal(note.classList.contains("color"), true);
+    const cursor = root.querySelector(".abcjs-cursor");
+    assert.equal(cursor?.getAttribute("x1"), "10");
+    assert.equal(cursor?.getAttribute("y2"), "12");
+
+    button.click();
+    assert.equal(button.textContent, "Play");
+    assert.equal(button.dataset.fleximarkAudio, "play");
+    assert.equal(button.getAttribute("aria-pressed"), "false");
+    assert.equal(timingStops, 1);
+    assert.equal(synthStops, 1);
+    assert.equal(note.classList.contains("color"), false);
+    assert.equal(cursor?.getAttribute("x1"), "0");
+    enhancer.dispose();
   });
 
   test("loads only validated youtube-nocookie embeds after explicit consent", async () => {
@@ -1463,6 +1524,11 @@ function inertRuntimes(): PreviewRuntimes {
     abc: {
       render: () => [],
       supportsAudio: () => false,
+      createTiming: () => ({
+        start: () => undefined,
+        stop: () => undefined,
+        reset: () => undefined,
+      }),
       createSynth: audioSynth,
     },
     math: { render: () => undefined },

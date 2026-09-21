@@ -33,6 +33,7 @@ pub fn compose_portable_html(
     style: Option<&RenderStyle>,
     common_runtime: &str,
 ) -> Result<String, ServiceError> {
+    const KATEX_CSS: &str = include_str!("../../../web/preview-client/katex.css");
     let node_ids = rendered_html
         .split("data-fleximark-node-id=\"")
         .skip(1)
@@ -60,7 +61,7 @@ pub fn compose_portable_html(
         .replace("</script", "<\\/script")
         .replace("</SCRIPT", "<\\/SCRIPT");
     Ok(format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\"><style>.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script>{runtime}</script><script id=\"fleximark-publication\" type=\"application/json\">{publication}</script><script>window.FlexiMarkPreview.boot(JSON.parse(document.getElementById('fleximark-publication').textContent));</script></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\"><style>{KATEX_CSS}.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script>{runtime}</script><script id=\"fleximark-publication\" type=\"application/json\">{publication}</script><script>window.FlexiMarkPreview.boot(JSON.parse(document.getElementById('fleximark-publication').textContent));</script></body></html>"
     ))
 }
 
@@ -284,6 +285,8 @@ mod tests {
         assert!(html.contains(style.fingerprint()));
         assert!(html.contains(":root { color: red; }"));
         assert!(html.contains("default-src 'none'"));
+        assert!(html.contains("font-src data:"));
+        assert!(html.contains(".katex{font:"));
     }
 
     #[test]

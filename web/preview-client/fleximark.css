@@ -484,9 +484,31 @@ body {
     margin: 0;
   }
 
-  & .score g.color {
+  & [data-fleximark-kind="abc"] {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  & [data-fleximark-kind="abc"] > [data-fleximark-output] {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  & [data-fleximark-kind="abc"] svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  & [data-fleximark-kind="abc"] g.color {
     fill: red;
     stroke: red;
+  }
+
+  & [data-fleximark-kind="abc"] .abcjs-cursor {
+    stroke: #0969da;
+    stroke-width: 2;
   }
 
   /* Editor/preview navigation state */

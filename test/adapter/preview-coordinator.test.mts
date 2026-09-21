@@ -111,6 +111,7 @@ export function suite(): void {
     );
     assert.match(shell, /Content-Security-Policy/);
     assert.match(shell, /default-src 'none'/);
+    assert.match(shell, /font-src data:/);
     assert.match(shell, /script-src 'nonce-nonce' vscode-webview:/);
     assert.match(shell, /name="fleximark-message-token" content="token"/);
     assert.match(shell, /<main id="preview" class="markdown-body"><\/main>/);

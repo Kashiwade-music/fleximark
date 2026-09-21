@@ -193,8 +193,9 @@ impl PreviewServer {
 
 pub(crate) fn preview_shell(token: &str) -> String {
     const DEFAULT_PREVIEW_CSS: &str = include_str!("../../../web/preview-client/fleximark.css");
+    const KATEX_CSS: &str = include_str!("../../../web/preview-client/katex.css");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>{DEFAULT_PREVIEW_CSS}</style></head><body><main id=\"preview\" class=\"markdown-body\"></main><script data-fleximark-live src=\"/preview/{token}/client.js\"></script></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>{KATEX_CSS}\n{DEFAULT_PREVIEW_CSS}</style></head><body><main id=\"preview\" class=\"markdown-body\"></main><script data-fleximark-live src=\"/preview/{token}/client.js\"></script></body></html>"
     )
 }
 
@@ -508,7 +509,7 @@ pub(crate) fn serve_preview_request(
     };
     let (status, body) = body.map_or(("403 Forbidden", String::new()), |body| ("200 OK", body));
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nContent-Security-Policy: default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nContent-Security-Policy: default-src 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     write_preview_response(&mut stream, response.as_bytes());

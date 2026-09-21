@@ -23,7 +23,7 @@ export function renderMath(
   }
   runtime.render(source, replaceOutput(block), {
     displayMode: block.tagName === "DIV",
-    output: "mathml",
+    output: "htmlAndMathml",
     strict: "error",
     throwOnError: false,
     trust: false,

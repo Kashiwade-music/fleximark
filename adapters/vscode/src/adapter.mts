@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 
 import defaultPreviewCss from "../../../web/preview-client/fleximark.css";
+import katexCss from "../../../web/preview-client/katex.css";
 import { executeCreateNote, openCommandResult } from "./commands.mjs";
 import {
   DaemonSupervisor,
@@ -197,7 +198,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         )
         .toString(),
     random: (size, encoding) => randomBytes(size).toString(encoding),
-    css: defaultPreviewCss,
+    css: `${katexCss}\n${defaultPreviewCss}`,
     log: (message) => this.#log(message),
     previewCurrent: (runtime, preview) =>
       this.#previewIsActive(runtime, preview),

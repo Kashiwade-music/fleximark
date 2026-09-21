@@ -9,6 +9,21 @@ export interface PreviewRuntimes {
   abc: {
     render(target: HTMLElement, source: string): unknown[];
     supportsAudio(): boolean;
+    createTiming(
+      visual: unknown,
+      callbacks: {
+        beat(
+          currentBeat: number,
+          totalBeats: number,
+          position: { left: number; top: number; height: number },
+        ): void;
+        event(elements: Element[][] | null): void;
+      },
+    ): {
+      start(): void;
+      stop(): void;
+      reset(): void;
+    };
     createSynth(): {
       init(options: { visualObj: unknown }): Promise<unknown>;
       prime(): Promise<unknown>;
@@ -22,7 +37,7 @@ export interface PreviewRuntimes {
       target: HTMLElement,
       options: {
         displayMode: boolean;
-        output: "mathml";
+        output: "htmlAndMathml";
         strict: "error";
         throwOnError: boolean;
         trust: false;

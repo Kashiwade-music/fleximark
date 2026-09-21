@@ -102,8 +102,24 @@ class OscillatorSynth {
 export const previewRuntimes: PreviewRuntimes = {
   mermaid,
   abc: {
-    render: (target, source) => abcjs.renderAbc(target, source),
+    render: (target, source) =>
+      abcjs.renderAbc(target, source, { responsive: "resize" }),
     supportsAudio: () => typeof AudioContext !== "undefined",
+    createTiming: (visual, callbacks) => {
+      const timing = new abcjs.TimingCallbacks(visual as abcjs.TuneObject, {
+        beatCallback: (currentBeat, totalBeats, _totalTime, position) =>
+          callbacks.beat(currentBeat, totalBeats, position),
+        eventCallback: (event) => {
+          callbacks.event(event?.elements ?? null);
+          return event ? "continue" : undefined;
+        },
+      });
+      return {
+        start: () => timing.start(),
+        stop: () => timing.stop(),
+        reset: () => timing.reset(),
+      };
+    },
     createSynth: () => new OscillatorSynth(),
   },
   math: katex,
