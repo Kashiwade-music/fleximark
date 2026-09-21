@@ -42,26 +42,25 @@ pub fn compose_portable_html(
     if node_ids.is_empty() {
         return Err(ServiceError::ExportContentConflict);
     }
-    let publication = serde_json::json!({
-        "type":"full",
+    let frame = serde_json::json!({
         "previewSessionId":"portable-export",
         "documentVersion":1,
-        "resultRenderRevision":1,
+        "renderRevision":1,
         "rendererFingerprint":sha256(rendered_html.as_bytes()),
-        "nodeIds":node_ids,
         "navigation":[],
         "style":style,
         "assets":[],
-        "html":rendered_html,
+        "blocks":[{"id":node_ids[0],"nodeIds":node_ids,"html":rendered_html}],
+        "annotations":{},
     });
-    let publication = serde_json::to_string(&vec![publication])?
+    let frames = serde_json::to_string(&vec![frame])?
         .replace('<', "\\u003c")
         .replace('&', "\\u0026");
     let runtime = common_runtime
         .replace("</script", "<\\/script")
         .replace("</SCRIPT", "<\\/SCRIPT");
     Ok(format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\"><style>{KATEX_CSS}.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script>{runtime}</script><script id=\"fleximark-publication\" type=\"application/json\">{publication}</script><script>window.FlexiMarkPreview.boot(JSON.parse(document.getElementById('fleximark-publication').textContent));</script></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\"><style>{KATEX_CSS}.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script>{runtime}</script><script id=\"fleximark-frame\" type=\"application/json\">{frames}</script><script>window.FlexiMarkPreview.boot(JSON.parse(document.getElementById('fleximark-frame').textContent));</script></body></html>"
     ))
 }
 
@@ -280,7 +279,7 @@ mod tests {
         )
         .unwrap();
         assert!(html.contains("window.FlexiMarkPreview.boot"));
-        assert!(html.contains("fleximark-publication"));
+        assert!(html.contains("fleximark-frame"));
         assert!(html.contains("document-root") && html.contains("math-1"));
         assert!(html.contains(style.fingerprint()));
         assert!(html.contains(":root { color: red; }"));

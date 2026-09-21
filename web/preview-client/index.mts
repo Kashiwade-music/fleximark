@@ -5,65 +5,52 @@ import {
   validAssets,
 } from "./assets.mjs";
 import {
-  identityMap,
   parseContent,
-  sameStyle,
   validNavigation,
   validStyle,
 } from "./content-security.mjs";
-import { preparePatchTransaction } from "./patch-transaction.mjs";
-import type {
-  NavigationEntry,
-  RenderPatch,
-  RenderPublication,
-  RenderSnapshot,
-  RenderStyle,
-} from "./protocol.mjs";
-import { isRenderPublication } from "./protocol.mjs";
+import type { NavigationEntry, RenderFrame } from "./protocol.mjs";
+import { isRenderFrame } from "./protocol.mjs";
 
 export type {
   NavigationEntry,
-  PatchOperation,
   RenderAsset,
-  RenderPatch,
-  RenderPublication,
-  RenderSnapshot,
+  RenderBlock,
+  RenderFrame,
   RenderStyle,
   SourcePosition,
   SourceRange,
 } from "./protocol.mjs";
 
+interface DisplayedBlock {
+  readonly html: string;
+  readonly element: HTMLElement;
+  readonly assetReferences: readonly string[];
+}
+
+/** Applies complete frames while preserving unchanged top-level block DOM. */
 export class PreviewDocument {
   readonly #root: HTMLElement;
   readonly #style: HTMLStyleElement;
-  readonly #requestSnapshot: () => void;
+  readonly #requestFrame: () => void;
   readonly #highlightTimers = new Map<
     HTMLElement,
     ReturnType<typeof setTimeout>
   >();
   #sessionId?: string;
   #revision = 0;
-  #fingerprint?: string;
+  #rendererFingerprint?: string;
   #navigation: NavigationEntry[] = [];
-  #renderStyle?: RenderStyle | null;
   #assetUrls = new Map<string, string>();
+  #blocks = new Map<string, DisplayedBlock>();
+  #rejectedFrame?: string;
 
-  constructor(root: HTMLElement, requestSnapshot: () => void) {
+  constructor(root: HTMLElement, requestFrame: () => void) {
     this.#root = root;
-    this.#requestSnapshot = requestSnapshot;
+    this.#requestFrame = requestFrame;
     this.#style = document.createElement("style");
     this.#style.dataset.fleximarkTheme = "true";
     document.head.append(this.#style);
-  }
-
-  apply(publication: RenderPublication): boolean {
-    if (!isRenderPublication(publication)) {
-      this.#requestSnapshot();
-      return false;
-    }
-    return publication.type === "full"
-      ? this.applySnapshot(publication)
-      : this.applyPatch(publication);
   }
 
   get navigation(): readonly NavigationEntry[] {
@@ -78,98 +65,145 @@ export class PreviewDocument {
     return this.#revision;
   }
 
+  apply(frame: RenderFrame): boolean {
+    if (!isRenderFrame(frame)) return this.#reject();
+    if (
+      frame.previewSessionId === this.#sessionId &&
+      frame.renderRevision <= this.#revision
+    )
+      return false;
+    const frameKey = `${frame.previewSessionId}:${frame.renderRevision}`;
+    const reject = (createdUrls?: ReadonlyMap<string, string>) =>
+      this.#reject(createdUrls, frameKey);
+    if (!validStyle(frame.style) || !validAssets(frame.assets)) return reject();
+
+    const blockIds = new Set<string>();
+    const nodeIds = new Set<string>();
+    const nextBlocks = new Map<string, DisplayedBlock>();
+    const nextElements: HTMLElement[] = [];
+    const highlighted: HTMLElement[] = [];
+    let addedAssetUrls: Map<string, string>;
+    try {
+      addedAssetUrls = createAssetUrls(
+        frame.assets.filter(({ reference }) => !this.#assetUrls.has(reference)),
+      );
+    } catch {
+      return reject();
+    }
+    const nextAssetUrls = new Map(this.#assetUrls);
+    for (const [reference, url] of addedAssetUrls)
+      nextAssetUrls.set(reference, url);
+
+    try {
+      for (const block of frame.blocks) {
+        if (blockIds.has(block.id)) return reject(addedAssetUrls);
+        blockIds.add(block.id);
+        for (const nodeId of block.nodeIds) {
+          if (nodeIds.has(nodeId)) return reject(addedAssetUrls);
+          nodeIds.add(nodeId);
+        }
+        const previous = this.#blocks.get(block.id);
+        const changed = previous !== undefined && previous.html !== block.html;
+        let element: HTMLElement;
+        let assetReferences: readonly string[];
+        if (
+          frame.rendererFingerprint === this.#rendererFingerprint &&
+          previous?.html === block.html
+        ) {
+          if (
+            previous.assetReferences.some(
+              (reference) => !nextAssetUrls.has(reference),
+            )
+          )
+            return reject(addedAssetUrls);
+          element = previous.element;
+          assetReferences = previous.assetReferences;
+        } else {
+          const parsed = parseContent(block.html, block.id, block.nodeIds);
+          if (!parsed) return reject(addedAssetUrls);
+          assetReferences = referencedAssets(parsed);
+          if (
+            assetReferences.some(
+              (reference) => !nextAssetUrls.has(reference),
+            ) ||
+            !resolveAssetUrls(parsed, nextAssetUrls)
+          )
+            return reject(addedAssetUrls);
+          element = parsed;
+        }
+        nextBlocks.set(block.id, {
+          html: block.html,
+          element,
+          assetReferences,
+        });
+        nextElements.push(element);
+        if (changed) highlighted.push(element);
+      }
+
+      const identities = new Map<string, HTMLElement>();
+      for (const { element } of nextBlocks.values()) {
+        const elements = [
+          element,
+          ...element.querySelectorAll<HTMLElement>("[data-fleximark-node-id]"),
+        ];
+        for (const candidate of elements) {
+          const nodeId = candidate.dataset.fleximarkNodeId;
+          if (!nodeId || identities.has(nodeId)) return reject(addedAssetUrls);
+          identities.set(nodeId, candidate);
+        }
+      }
+      if (
+        identities.size !== nodeIds.size ||
+        !validNavigation(frame.navigation, identities)
+      )
+        return reject(addedAssetUrls);
+
+      const annotationScript = annotationElement(frame.annotations);
+      this.#clearHighlights();
+      this.#root.replaceChildren(
+        ...(annotationScript ? [annotationScript] : []),
+        ...nextElements,
+      );
+      for (const element of highlighted) this.#highlight(element);
+      this.#sessionId = frame.previewSessionId;
+      this.#revision = frame.renderRevision;
+      this.#rendererFingerprint = frame.rendererFingerprint;
+      this.#navigation = frame.navigation;
+      this.#blocks = nextBlocks;
+      this.#rejectedFrame = undefined;
+      this.#style.textContent = frame.style?.css ?? "";
+
+      const retainedReferences = new Set(
+        frame.assets.map(({ reference }) => reference),
+      );
+      revokeAssetUrls(
+        [...this.#assetUrls]
+          .filter(([reference]) => !retainedReferences.has(reference))
+          .map(([, url]) => url),
+      );
+      this.#assetUrls = new Map(
+        [...nextAssetUrls].filter(([reference]) =>
+          retainedReferences.has(reference),
+        ),
+      );
+      return true;
+    } catch {
+      return reject(addedAssetUrls);
+    }
+  }
+
   dispose(): void {
     this.#clearHighlights();
     this.#style.remove();
     revokeAssetUrls(this.#assetUrls.values());
     this.#assetUrls.clear();
-  }
-
-  applySnapshot(snapshot: RenderSnapshot): boolean {
-    if (
-      snapshot.previewSessionId === this.#sessionId &&
-      snapshot.resultRenderRevision <= this.#revision
-    )
-      return false;
-    const content = parseContent(
-      snapshot.html,
-      "document-root",
-      snapshot.nodeIds,
-    );
-    if (!content || !validAssets(snapshot.assets)) {
-      this.#requestSnapshot();
-      return false;
-    }
-    const identities = identityMap(content);
-    const assetUrls = createAssetUrls(snapshot.assets);
-    if (
-      !identities ||
-      !validNavigation(snapshot.navigation, identities) ||
-      !validStyle(snapshot.style) ||
-      !resolveAssetUrls(content, assetUrls)
-    ) {
-      revokeAssetUrls(assetUrls.values());
-      this.#requestSnapshot();
-      return false;
-    }
-    this.#clearHighlights();
-    this.#root.replaceChildren(...content.childNodes);
-    this.#sessionId = snapshot.previewSessionId;
-    this.#revision = snapshot.resultRenderRevision;
-    this.#fingerprint = snapshot.rendererFingerprint;
-    this.#navigation = snapshot.navigation;
-    this.#renderStyle = snapshot.style;
-    revokeAssetUrls(this.#assetUrls.values());
-    this.#assetUrls = assetUrls;
-    this.#style.textContent = snapshot.style?.css ?? "";
-    return true;
-  }
-
-  applyPatch(patch: RenderPatch): boolean {
-    if (
-      patch.previewSessionId === this.#sessionId &&
-      patch.resultRenderRevision <= this.#revision
-    )
-      return false;
-    if (
-      patch.previewSessionId !== this.#sessionId ||
-      patch.baseRenderRevision !== this.#revision ||
-      patch.resultRenderRevision <= patch.baseRenderRevision ||
-      patch.baseRendererFingerprint !== this.#fingerprint ||
-      patch.baseRendererFingerprint !== patch.resultRendererFingerprint ||
-      !validStyle(patch.style) ||
-      !sameStyle(patch.style, this.#renderStyle)
-    ) {
-      this.#requestSnapshot();
-      return false;
-    }
-
-    const transaction = preparePatchTransaction(
-      this.#root,
-      patch,
-      this.#assetUrls,
-    );
-    if (!transaction) {
-      this.#requestSnapshot();
-      return false;
-    }
-
-    this.#clearHighlights();
-    this.#root.replaceChildren(...transaction.shadow.childNodes);
-    const identities = identityMap(this.#root);
-    for (const nodeId of transaction.highlightedIds) {
-      const element = identities?.get(nodeId);
-      if (element) this.#highlight(element);
-    }
-    this.#revision = patch.resultRenderRevision;
-    this.#fingerprint = patch.resultRendererFingerprint;
-    this.#navigation = patch.navigation;
-    return true;
+    this.#blocks.clear();
   }
 
   #highlight(element: HTMLElement): void {
     element.classList.add("fade-highlight");
     const timer = setTimeout(() => {
+      if (this.#highlightTimers.get(element) !== timer) return;
       element.classList.remove("fade-highlight");
       this.#highlightTimers.delete(element);
     }, 1_000);
@@ -183,4 +217,34 @@ export class PreviewDocument {
     }
     this.#highlightTimers.clear();
   }
+
+  #reject(createdUrls?: ReadonlyMap<string, string>, frameKey?: string): false {
+    if (createdUrls) revokeAssetUrls(createdUrls.values());
+    if (frameKey && this.#rejectedFrame === frameKey) return false;
+    this.#rejectedFrame = frameKey;
+    this.#requestFrame();
+    return false;
+  }
+}
+
+function annotationElement(
+  annotations: Readonly<Record<string, string>>,
+): HTMLScriptElement | undefined {
+  if (Object.keys(annotations).length === 0) return;
+  const script = document.createElement("script");
+  script.type = "application/json";
+  script.dataset.fleximarkRenderAnnotations = "";
+  script.textContent = JSON.stringify(annotations);
+  return script;
+}
+
+function referencedAssets(root: HTMLElement): string[] {
+  const references = new Set<string>();
+  for (const element of [root, ...root.querySelectorAll<HTMLElement>("*")]) {
+    for (const name of ["src", "href", "xlink:href"]) {
+      const value = element.getAttribute(name);
+      if (value?.startsWith("fleximark-asset:")) references.add(value);
+    }
+  }
+  return [...references];
 }

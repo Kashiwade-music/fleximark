@@ -30,34 +30,29 @@ import {
   type PreviewCandidateCurrentState,
   type PreviewCandidateOrigin,
   type PreviewEchoState,
-  type PreviewEventDependencies,
   type PreviewLifecycleDependencies,
-  type PreviewReadinessDependencies,
-  type PreviewRecreationDependencies,
-  UnmatchedPreviewEventQueue,
-  applySourceNavigationLifecycle,
-  beginEmbeddedPreviewHandshake,
-  completePreviewReadiness,
   disposePreviewCandidate,
   disposePreviewLifecycle,
-  handleEditorSelectionLifecycle,
-  handleEditorViewportLifecycle,
+  handlePreviewChangedLifecycle,
   handlePreviewEventLifecycle,
   openPreviewLifecycle,
   previewCandidateIdentityIsCurrent,
   previewCandidateIsCurrent,
   previewIsCurrent,
   recreatePreviewsLifecycle,
-  reloadPreviewLifecycle,
   requestPreviewCandidate,
+  rerenderPreviewLifecycle,
   sameDaemonOrigin,
+  synchronizePreviewLifecycle,
 } from "./preview-coordinator.mjs";
 import type { SourcePosition } from "./protocol.mjs";
 import {
+  type CommandResult,
   type ExecuteCommandParams,
   type LspMethod,
-  type PreviewEvent,
+  type PreviewChangedParams,
   type PreviewTarget,
+  type ServerPreviewEventParams,
   type SourceNavigationEvent,
   protocolVersion,
 } from "./protocol.mjs";
@@ -85,10 +80,7 @@ export {
   sourcePositionWithinLine,
 } from "./position.mjs";
 
-export {
-  findVisibleSourceEditor,
-  previewEventAction,
-} from "./workspace-selection.mjs";
+export { findVisibleSourceEditor } from "./workspace-selection.mjs";
 export {
   executeCreateNote,
   openCommandResult,
@@ -118,36 +110,9 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   readonly #runtimes = new Map<string, WorkspaceRuntime>();
   readonly #supervisor: AdapterSupervisor;
   #disposed = false;
+  #testOrigin?: DaemonOrigin;
   readonly #previewEchoes: PreviewEchoState = {};
-  readonly #unmatchedPreviewEvents = new UnmatchedPreviewEventQueue();
-  readonly #previewEventDependencies: PreviewEventDependencies = {
-    reload: (runtime, preview) => void this.#reloadPreview(runtime, preview),
-    overflow: (origin) => this.#clearOverflowOrigin(origin),
-    navigate: (runtime, preview, event) =>
-      this.#applySourceNavigation(runtime, preview, event),
-    reactivate: (runtime, preview) => this.#activatePreview(runtime, preview),
-    report: (error) => this.#report(error),
-  };
-  readonly #previewReadinessDependencies: PreviewReadinessDependencies = {
-    current: (runtime, preview) => this.#previewIsActive(runtime, preview),
-    take: (origin, previewSessionId) =>
-      this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId),
-    markReload: (origin, previewSessionId) =>
-      this.#markPreviewReload(origin, previewSessionId),
-    deliver: (origin, event) =>
-      handlePreviewEventLifecycle(
-        origin,
-        event,
-        this.#runtimes.values(),
-        this.#unmatchedPreviewEvents,
-        this.#previewEventDependencies,
-        true,
-      ),
-    reload: (runtime, preview) => this.#reloadPreview(runtime, preview),
-    report: (error) => this.#report(error),
-  };
-  readonly #previewLifecycleContext: PreviewLifecycleDependencies &
-    PreviewRecreationDependencies = {
+  readonly #previewLifecycleContext: PreviewLifecycleDependencies = {
     activeEditor: () => vscode.window.activeTextEditor,
     showNoDocument: () => this.#showNoDocument(),
     showNoWorkspace: () => this.#showNoWorkspace(),
@@ -161,16 +126,10 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       ),
     request: (runtime, document, target) =>
       this.#requestPreview(runtime, document, target),
-    currentOrigin: () => this.#daemonOrigin(),
     candidateCurrent: (candidate) => this.#previewCandidateIsCurrent(candidate),
-    candidateIdentityCurrent: (candidate) =>
-      this.#previewCandidateIdentityIsCurrent(candidate),
-    rejectCandidate: (candidate) => this.#rejectPreviewCandidate(candidate),
-    handshake: (runtime, preview) => this.#handshakePreview(runtime, preview),
-    activate: (runtime, preview) => this.#activatePreview(runtime, preview),
-    discardQueued: (origin, previewSessionId) => {
-      this.#unmatchedPreviewEvents.takeForDelivery(origin, previewSessionId);
-    },
+    rejectCandidate: disposePreviewCandidate,
+    synchronize: (runtime, preview, force) =>
+      this.#synchronizePreview(runtime, preview, force),
     openExternal: async (url) => {
       await vscode.env.openExternal(vscode.Uri.parse(url));
     },
@@ -202,9 +161,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     log: (message) => this.#log(message),
     previewCurrent: (runtime, preview) =>
       this.#previewIsActive(runtime, preview),
-    markReload: (origin, previewSessionId) =>
-      this.#markPreviewReload(origin, previewSessionId),
-    reload: (runtime, preview) => this.#reloadPreview(runtime, preview),
     report: (error) => this.#report(error),
     dispose: (runtime, preview) => this.#disposePreview(runtime, preview),
     notifyNavigation: (event) => {
@@ -338,6 +294,28 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (document?.languageId === "markdown") await this.syncDocument(document);
   }
 
+  async executeMigrationCommand(
+    workspace: vscode.WorkspaceFolder,
+    command: "inspectLegacyWorkspace" | "migrateWorkspace",
+    args: readonly string[] = [],
+  ): Promise<CommandResult> {
+    if (!(await this.start(workspace)))
+      throw new Error("FlexiMark adapter is unavailable");
+    const rpc = this.#supervisor.rpc;
+    const daemonInstanceId = this.#supervisor.daemonInstanceId;
+    if (!rpc || !daemonInstanceId)
+      throw new Error("FlexiMark daemon is unavailable");
+    const result = await rpc.request("fleximark/executeCommand", {
+      daemonInstanceId,
+      command,
+      workspaceUri: workspace.uri.toString(),
+      arguments: [...args],
+    });
+    if (command === "migrateWorkspace")
+      await this.reconfigureWorkspace(workspace);
+    return result;
+  }
+
   async requestLanguageFeature<T>(
     method: LspMethod,
     document: vscode.TextDocument,
@@ -431,17 +409,68 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   selectionChanged(event: vscode.TextEditorSelectionChangeEvent): void {
-    handleEditorSelectionLifecycle(event, this.#previewEchoes, {
-      runtime: (document) => this.#runtimeForDocument(document),
-      currentOrigin: () => this.#daemonOrigin(),
+    const uri = event.textEditor.document.uri.toString();
+    const value = event.selections
+      .map(
+        ({ anchor, active }) =>
+          `${anchor.line}:${anchor.character}-${active.line}:${active.character}`,
+      )
+      .join(",");
+    if (
+      this.#previewEchoes.selection?.uri === uri &&
+      this.#previewEchoes.selection.value === value
+    ) {
+      this.#previewEchoes.selection = undefined;
+      return;
+    }
+    const state = this.#runtimeForDocument(
+      event.textEditor.document,
+    )?.documents.get(uri);
+    const origin = this.#daemonOrigin();
+    if (!state?.sessionId || !origin) return;
+    origin.rpc.notify("fleximark/setSelection", {
+      daemonInstanceId: origin.daemonInstanceId,
+      documentSessionId: state.sessionId,
+      expectedDocumentVersion: event.textEditor.document.version,
+      selections: event.selections.map(({ anchor, active }) => ({
+        anchor,
+        active,
+      })),
     });
   }
 
   viewportChanged(event: vscode.TextEditorVisibleRangesChangeEvent): void {
-    handleEditorViewportLifecycle(event, this.#previewEchoes, {
-      runtime: (document) => this.#runtimeForDocument(document),
-      currentOrigin: () => this.#daemonOrigin(),
+    const document = event.textEditor.document;
+    const uri = document.uri.toString();
+    if (this.#previewEchoes.viewport?.uri === uri) {
+      this.#previewEchoes.viewport = undefined;
+      return;
+    }
+    const state = this.#runtimeForDocument(document)?.documents.get(uri);
+    const origin = this.#daemonOrigin();
+    if (!state?.sessionId || !origin) return;
+    origin.rpc.notify("fleximark/setViewport", {
+      daemonInstanceId: origin.daemonInstanceId,
+      documentSessionId: state.sessionId,
+      expectedDocumentVersion: document.version,
+      ranges: event.visibleRanges.map(({ start, end }) => ({
+        start: { line: start.line, character: start.character },
+        end: { line: end.line, character: end.character },
+      })),
     });
+  }
+
+  async previewNavigationForTest(
+    runtime: WorkspaceRuntime,
+    preview: PreviewState,
+    event: SourceNavigationEvent,
+  ): Promise<void> {
+    if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
+      throw new Error("preview navigation seam is only available in tests");
+    this.#runtimes.set(runtime.workspace.uri.toString(), runtime);
+    runtime.previews.set(preview.previewSessionId, preview);
+    this.#testOrigin = preview.origin;
+    await this.#applySourceNavigation(runtime, preview, event);
   }
 
   async execute(command: string): Promise<void> {
@@ -511,9 +540,15 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   async forceReload(): Promise<void> {
     await Promise.all(
       [...this.#runtimes.values()].flatMap((runtime) =>
-        [...runtime.previews.values()].map((preview) =>
-          this.#reloadPreview(runtime, preview),
-        ),
+        [...runtime.previews.values()].map(async (preview) => {
+          const current = await rerenderPreviewLifecycle(
+            runtime,
+            preview,
+            this.#previewLifecycleContext,
+          );
+          if (current && preview.panel)
+            await this.#synchronizePreview(runtime, preview, true);
+        }),
       ),
     );
   }
@@ -536,7 +571,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     this.#supervisor.beginDispose();
     for (const runtime of this.#runtimes.values()) this.#stop(runtime);
     this.#runtimes.clear();
-    this.#unmatchedPreviewEvents.clearAll();
     this.#supervisor.dispose();
     this.#diagnostics.dispose();
     this.#output.dispose();
@@ -575,7 +609,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         [...this.#runtimes.values()].flatMap((runtime) =>
           [...runtime.previews.values()].map((preview) => [
             preview.documentUri,
-            preview.renderedRevision,
+            preview.renderRevision || undefined,
           ]),
         ),
       ),
@@ -606,7 +640,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   #daemonOrigin(): DaemonOrigin | undefined {
     const rpc = this.#supervisor.rpc;
     const daemonInstanceId = this.#supervisor.daemonInstanceId;
-    if (!rpc || rpc.closed || !daemonInstanceId) return;
+    if (!rpc || rpc.closed || !daemonInstanceId) return this.#testOrigin;
     return {
       rpc,
       daemonInstanceId,
@@ -660,49 +694,17 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
   }
 
-  #markPreviewReload(origin: DaemonOrigin, previewSessionId: string): void {
-    const queued = this.#unmatchedPreviewEvents.markReloadRequired(
-      origin,
-      previewSessionId,
-    );
-    if (typeof queued !== "object") return;
-    for (const affectedOrigin of queued.origins)
-      this.#clearOverflowOrigin(affectedOrigin);
-  }
-
-  #clearOverflowOrigin(origin: DaemonOrigin): void {
-    origin.rpc.close();
-    this.#unmatchedPreviewEvents.clearOrigin(origin);
-  }
-
-  #handshakePreview(
+  #synchronizePreview(
     runtime: WorkspaceRuntime,
     preview: PreviewState,
+    force = false,
   ): Promise<void> {
-    return beginEmbeddedPreviewHandshake(
+    return synchronizePreviewLifecycle(
       runtime,
       preview,
-      this.#previewReadinessDependencies,
+      this.#previewLifecycleContext,
+      force,
     );
-  }
-
-  #activatePreview(
-    runtime: WorkspaceRuntime,
-    preview: PreviewState,
-  ): Promise<void> {
-    return completePreviewReadiness(
-      runtime,
-      preview,
-      this.#previewReadinessDependencies,
-    );
-  }
-
-  async #rejectPreviewCandidate(candidate: PreviewCandidate): Promise<void> {
-    this.#unmatchedPreviewEvents.take(
-      candidate.origin,
-      candidate.result.previewSessionId,
-    );
-    await disposePreviewCandidate(candidate);
   }
 
   #stop(runtime: WorkspaceRuntime): void {
@@ -735,19 +737,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       void this.#handleDaemonMessage(message, rpc, generation).catch(
         (error: unknown) => this.#report(error),
       );
-    });
-    rpc.on("invalidMessage", (message: JsonRpcRequest) => {
-      this.#handleInvalidDaemonMessage(message, rpc, generation);
-    });
-    rpc.on("close", () => {
-      const daemonInstanceId = this.#supervisor.daemonInstanceId;
-      if (daemonInstanceId)
-        this.#unmatchedPreviewEvents.clearOrigin({
-          rpc,
-          generation,
-          daemonInstanceId,
-        });
-      else this.#unmatchedPreviewEvents.clearAll();
     });
   }
 
@@ -789,7 +778,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   #resetDocumentSessions(): void {
-    this.#unmatchedPreviewEvents.clearAll();
     resetDocumentSessions(this.#runtimes.values());
   }
 
@@ -836,14 +824,16 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     document: vscode.TextDocument,
     target: PreviewTarget,
   ): Promise<PreviewCandidate | undefined> {
-    return requestPreviewCandidate(runtime, document, target, {
-      currentOrigin: () => this.#daemonOrigin(),
-      checkpoint: (openedDocument, state, origin) =>
+    return requestPreviewCandidate(
+      runtime,
+      document,
+      target,
+      () => this.#daemonOrigin(),
+      (openedDocument, state, origin) =>
         this.#checkpoint(openedDocument, state, origin),
-      identityCurrent: (candidate) =>
-        this.#previewCandidateIdentityIsCurrent(candidate),
-      reject: (candidate) => this.#rejectPreviewCandidate(candidate),
-    });
+      (candidate) => this.#previewCandidateIdentityIsCurrent(candidate),
+      disposePreviewCandidate,
+    );
   }
 
   async #checkpoint(
@@ -870,7 +860,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     )
       return;
     if (message.method === "fleximark/previewEvent") {
-      const event = message.params as PreviewEvent;
+      const event = message.params as ServerPreviewEventParams;
       if (event.daemonInstanceId !== this.#supervisor.daemonInstanceId) return;
       const eventOrigin = {
         rpc: connection,
@@ -881,8 +871,24 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         eventOrigin,
         event,
         this.#runtimes.values(),
-        this.#unmatchedPreviewEvents,
-        this.#previewEventDependencies,
+        (runtime, preview, navigation) =>
+          this.#applySourceNavigation(runtime, preview, navigation),
+      );
+      return;
+    }
+    if (message.method === "fleximark/previewChanged") {
+      const changed = message.params as PreviewChangedParams;
+      if (changed.daemonInstanceId !== this.#supervisor.daemonInstanceId)
+        return;
+      handlePreviewChangedLifecycle(
+        {
+          rpc: connection,
+          generation,
+          daemonInstanceId: changed.daemonInstanceId,
+        },
+        changed,
+        this.#runtimes.values(),
+        (runtime, preview) => void this.#synchronizePreview(runtime, preview),
       );
       return;
     }
@@ -903,115 +909,74 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       applyPublishedDiagnostics(this.#diagnostics, message.params);
   }
 
-  #handleInvalidDaemonMessage(
-    message: JsonRpcRequest,
-    connection: JsonRpcConnection,
-    generation: number,
-  ): void {
-    if (
-      connection.closed ||
-      connection !== this.#supervisor.rpc ||
-      generation !== this.#supervisor.connectionGeneration ||
-      message.method !== "fleximark/previewEvent" ||
-      !message.params
-    )
-      return;
-    const params = message.params as Record<string, unknown>;
-    const event = params.event;
-    if (
-      params.daemonInstanceId !== this.#supervisor.daemonInstanceId ||
-      typeof params.previewSessionId !== "string" ||
-      event === null ||
-      typeof event !== "object" ||
-      !["full", "patch"].includes(
-        (event as Record<string, unknown>).type as string,
-      )
-    )
-      return;
-    for (const runtime of this.#runtimes.values()) {
-      const preview = runtime.previews.get(params.previewSessionId);
-      if (preview) {
-        void this.#reloadPreview(runtime, preview);
-        return;
-      }
-    }
-    this.#markPreviewReload(
-      {
-        rpc: connection,
-        generation,
-        daemonInstanceId: params.daemonInstanceId as string,
-      },
-      params.previewSessionId,
-    );
-  }
-
   async #applySourceNavigation(
     runtime: WorkspaceRuntime,
     preview: PreviewState,
     event: SourceNavigationEvent,
   ): Promise<void> {
-    await applySourceNavigationLifecycle(runtime, preview, event, {
-      document: (uri) =>
-        vscode.workspace.textDocuments.find(
-          (document) => document.uri.toString() === uri,
-        ),
-      sourcePositionInDocument: (document, position) =>
-        this.#sourcePositionInDocument(document, position),
-      range: (document, navigation) => {
-        const { start, end } = navigation.sourceRange;
-        return new vscode.Range(
-          start.line,
-          sourcePositionToCharacter(document.lineAt(start.line).text, start),
-          end.line,
-          sourcePositionToCharacter(document.lineAt(end.line).text, end),
-        );
-      },
-      visibleEditor: (documentUri, sourceViewColumn) =>
-        findVisibleSourceEditor(
-          vscode.window.visibleTextEditors,
-          documentUri,
-          sourceViewColumn,
-        ),
-      showEditor: (document, sourceViewColumn) =>
-        vscode.window.showTextDocument(document, {
-          viewColumn: sourceViewColumn,
-          preserveFocus: true,
-          preview: false,
-        }),
-      current: (owner, item) => this.#previewIsActive(owner, item),
-      documentOpen: (document) =>
-        vscode.workspace.textDocuments.includes(document),
-      selection: (range) => new vscode.Selection(range.start, range.end),
-      select: (editor, selection) => {
-        editor.selection = selection;
-      },
-      reveal: (editor, range, kind) =>
-        editor.revealRange(
-          range,
-          kind === "center"
-            ? vscode.TextEditorRevealType.InCenterIfOutsideViewport
-            : vscode.TextEditorRevealType.AtTop,
-        ),
-      setSelectionEcho: (uri, value) => {
-        const token = { uri, value };
-        this.#previewEchoes.selection = token;
-        return token;
-      },
-      clearSelectionEcho: (token) => {
-        if (this.#previewEchoes.selection === token)
-          this.#previewEchoes.selection = undefined;
-      },
-      setViewportEcho: (uri) => {
-        const token = { uri };
-        this.#previewEchoes.viewport = token;
-        return token;
-      },
-      clearViewportEcho: (token) => {
-        if (this.#previewEchoes.viewport === token)
-          this.#previewEchoes.viewport = undefined;
-      },
-      schedule: (callback, delay) => void setTimeout(callback, delay),
-    });
+    const expectedRevision = preview.renderRevision;
+    const expectedSession = preview.previewSessionId;
+    const expectedOrigin = preview.origin;
+    const document = vscode.workspace.textDocuments.find(
+      (item) => item.uri.toString() === preview.documentUri,
+    );
+    if (!document) return;
+    const expectedDocumentVersion = document.version;
+    const { start, end } = event.sourceRange;
+    if (
+      !this.#sourcePositionInDocument(document, start) ||
+      !this.#sourcePositionInDocument(document, end)
+    )
+      return;
+    const range = new vscode.Range(
+      start.line,
+      sourcePositionToCharacter(document.lineAt(start.line).text, start),
+      end.line,
+      sourcePositionToCharacter(document.lineAt(end.line).text, end),
+    );
+    const editor =
+      findVisibleSourceEditor(
+        vscode.window.visibleTextEditors,
+        preview.documentUri,
+        preview.sourceViewColumn,
+      ) ??
+      (await vscode.window.showTextDocument(document, {
+        viewColumn: preview.sourceViewColumn,
+        preserveFocus: true,
+        preview: false,
+      }));
+    if (
+      !this.#previewIsActive(runtime, preview) ||
+      preview.previewSessionId !== expectedSession ||
+      preview.origin !== expectedOrigin ||
+      preview.renderRevision !== expectedRevision ||
+      !vscode.workspace.textDocuments.includes(document) ||
+      document.version !== expectedDocumentVersion ||
+      editor.document !== document
+    )
+      return;
+    const clearEcho = (type: keyof PreviewEchoState, token: object) =>
+      setTimeout(() => {
+        if (this.#previewEchoes[type] === token)
+          this.#previewEchoes[type] = undefined;
+      }, 500);
+    const viewportEcho = { uri: preview.documentUri };
+    this.#previewEchoes.viewport = viewportEcho;
+    if (event.type === "selectSource") {
+      const selection = new vscode.Selection(range.start, range.end);
+      const selectionEcho = {
+        uri: preview.documentUri,
+        value: `${selection.anchor.line}:${selection.anchor.character}-${selection.active.line}:${selection.active.character}`,
+      };
+      this.#previewEchoes.selection = selectionEcho;
+      editor.selection = selection;
+      clearEcho("selection", selectionEcho);
+      editor.revealRange(
+        range,
+        vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+      );
+    } else editor.revealRange(range, vscode.TextEditorRevealType.AtTop);
+    clearEcho("viewport", viewportEcho);
   }
 
   #sourcePositionInDocument(
@@ -1023,27 +988,13 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     return sourcePositionWithinLine(line, position);
   }
 
-  async #reloadPreview(
-    runtime: WorkspaceRuntime,
-    preview: PreviewState,
-  ): Promise<boolean> {
-    return reloadPreviewLifecycle(runtime, preview, {
-      disposed: () => this.#disposed,
-      currentOrigin: () => this.#daemonOrigin(),
-      reportFailure: (message) => this.#appendOutputLine(message),
-    });
-  }
-
   async #disposePreview(
     runtime: WorkspaceRuntime,
     preview: PreviewState,
   ): Promise<void> {
-    await disposePreviewLifecycle(runtime, preview, {
-      clearQueued: (origin, previewSessionId) => {
-        this.#unmatchedPreviewEvents.take(origin, previewSessionId);
-      },
-      reportFailure: (message) => this.#appendOutputLine(message),
-    });
+    await disposePreviewLifecycle(runtime, preview, (message) =>
+      this.#appendOutputLine(message),
+    );
   }
 
   report(error: unknown): void {

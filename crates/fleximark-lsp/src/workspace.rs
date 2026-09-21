@@ -14,21 +14,10 @@ struct RootedConfig {
 
 #[derive(Default)]
 pub(super) struct WorkspaceAuthority {
-    default_host: Option<Arc<PluginHost>>,
-    default_render: Option<RenderConfig>,
     rooted: Vec<RootedConfig>,
 }
 
 impl WorkspaceAuthority {
-    pub(super) fn configure_default(
-        &mut self,
-        host: Option<PluginHost>,
-        render: Option<RenderConfig>,
-    ) {
-        self.default_host = host.map(Arc::new);
-        self.default_render = render;
-    }
-
     pub(super) fn replace_roots(&mut self, workspaces: Vec<(String, PluginHost, RenderConfig)>) {
         self.rooted = workspaces
             .into_iter()
@@ -61,14 +50,6 @@ impl WorkspaceAuthority {
             .iter()
             .find(|entry| entry.root.0 == workspace_uri)
             .map(|entry| (&entry.host, &entry.render))
-    }
-
-    pub(super) fn default_host(&self) -> Option<&Arc<PluginHost>> {
-        self.default_host.as_ref()
-    }
-
-    pub(super) fn default_render(&self) -> Option<&RenderConfig> {
-        self.default_render.as_ref()
     }
 
     pub(super) fn replace(

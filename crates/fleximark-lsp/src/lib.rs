@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_engine::{
-    DocumentSession as EngineSession, PreviewSessionId, RenderAsset, RenderConfig,
-    RenderPublication, RenderStyle, ResolvedRenderAsset,
+    DocumentSession as EngineSession, PreviewSessionId, RenderConfig, RenderFrame,
+    ResolvedRenderAsset,
 };
 use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
-use fleximark_plugin_host::{CancellationToken, PluginHost, UnsafeExportOutput};
+use fleximark_plugin_host::{CancellationToken, PluginHost};
 use fleximark_protocol::{
     AttachDocumentParams, AttachDocumentResult, CheckpointDocumentParams, CheckpointDocumentResult,
     RequestFullTextParams, RpcChangeDocumentParams, RpcCloseDocumentParams, RpcOpenDocumentParams,
@@ -92,6 +92,10 @@ pub struct DocumentSession {
 }
 
 impl DocumentSession {
+    pub fn engine(&self) -> &EngineSession {
+        &self.engine
+    }
+
     pub fn document(&self) -> &fleximark_model::Document {
         self.engine.document()
     }
@@ -102,10 +106,6 @@ impl DocumentSession {
 
     pub fn node_at_source_offset(&self, byte_offset: u64) -> Option<NavigationEntry> {
         self.engine.node_at_source_offset(byte_offset)
-    }
-
-    pub fn source_range_for_node(&self, node_id: &NodeId) -> Option<NavigationEntry> {
-        self.engine.source_range_for_node(node_id)
     }
 
     pub fn position_encoding(&self) -> PositionEncoding {
@@ -161,20 +161,6 @@ impl SessionRegistry {
         }
     }
 
-    pub fn configure_plugins(
-        &mut self,
-        host: Option<PluginHost>,
-        render_config: Option<RenderConfig>,
-    ) -> Result<(), SessionError> {
-        if !self.index.is_empty() {
-            return Err(SessionError::Engine(
-                "plugins must be configured before opening documents".into(),
-            ));
-        }
-        self.workspaces.configure_default(host, render_config);
-        Ok(())
-    }
-
     pub fn configure_workspaces(
         &mut self,
         workspaces: Vec<(String, PluginHost, RenderConfig)>,
@@ -203,7 +189,6 @@ impl SessionRegistry {
             .as_deref()
             .and_then(|workspace_uri| self.workspaces.exact(workspace_uri))
             .map(|(_, config)| config.clone())
-            .or_else(|| self.workspaces.default_render().cloned())
             .ok_or_else(|| SessionError::Engine("render configuration is missing".into()))?
             .with_resolved_assets(assets)
             .map_err(engine_error)?;
@@ -239,6 +224,7 @@ impl SessionRegistry {
         host: PluginHost,
         render_config: RenderConfig,
         mut assets: HashMap<String, Vec<ResolvedRenderAsset>>,
+        cancellation: &CancellationToken,
     ) -> Result<(), SessionError> {
         let workspace_uri = workspace_uri.trim_end_matches('/');
         let host = Arc::new(host);
@@ -256,7 +242,7 @@ impl SessionRegistry {
                     session.engine.position_encoding(),
                     config,
                     Arc::clone(&host),
-                    &CancellationToken::default(),
+                    cancellation,
                 )
                 .map_err(engine_error)?;
                 replacements.push((uri.to_owned(), engine));
@@ -272,10 +258,6 @@ impl SessionRegistry {
                 .map_err(engine_error)?;
         }
         Ok(())
-    }
-
-    pub fn open(&mut self, params: DidOpenParams) -> Result<(), SessionError> {
-        self.open_with_cancellation(params, &CancellationToken::default())
     }
 
     pub fn open_with_cancellation(
@@ -303,23 +285,11 @@ impl SessionRegistry {
                 cancellation,
             )
             .map_err(engine_error),
-            None if self.workspaces.default_host().is_none() => EngineSession::open(
+            None => EngineSession::open(
                 DocumentUri(item.uri.clone()),
                 version,
                 item.text.clone(),
                 self.position_encoding,
-            )
-            .map_err(engine_error),
-            None => EngineSession::open_configured(
-                DocumentUri(item.uri.clone()),
-                version,
-                item.text.clone(),
-                self.position_encoding,
-                self.workspaces.default_render().cloned().ok_or_else(|| {
-                    SessionError::Engine("plugin host is missing render configuration".into())
-                })?,
-                Arc::clone(self.workspaces.default_host().expect("checked above")),
-                cancellation,
             )
             .map_err(engine_error),
         }?;
@@ -333,10 +303,6 @@ impl SessionRegistry {
             engine,
         });
         Ok(())
-    }
-
-    pub fn change(&mut self, params: DidChangeParams) -> Result<(), SessionError> {
-        self.change_with_cancellation(params, &CancellationToken::default())
     }
 
     pub fn change_with_cancellation(
@@ -414,13 +380,6 @@ impl SessionRegistry {
         self.index.remove_by_uri(&params.text_document.uri);
     }
 
-    pub fn open_rpc(
-        &mut self,
-        params: RpcOpenDocumentParams,
-    ) -> Result<AttachDocumentResult, SessionError> {
-        self.open_rpc_with_cancellation(params, &CancellationToken::default())
-    }
-
     pub fn open_rpc_with_cancellation(
         &mut self,
         params: RpcOpenDocumentParams,
@@ -444,13 +403,6 @@ impl SessionRegistry {
             expected_document_version: params.document_version,
             content_hash: hash,
         })
-    }
-
-    pub fn change_rpc(
-        &mut self,
-        params: RpcChangeDocumentParams,
-    ) -> Result<CheckpointDocumentResult, SessionError> {
-        self.change_rpc_with_cancellation(params, &CancellationToken::default())
     }
 
     pub fn change_rpc_with_cancellation(
@@ -561,18 +513,6 @@ impl SessionRegistry {
             self.mark_out_of_sync(&uri, "checkpoint content hash mismatch");
             return Err(SessionError::HashMismatch);
         }
-        let session = self
-            .index
-            .by_session_mut(&params.document_session_id)
-            .ok_or(SessionError::UnknownSession)?;
-        session
-            .engine
-            .checkpoint(
-                u64::try_from(params.document_version)
-                    .map_err(|_| SessionError::VersionMismatch)?,
-                &session.engine.content_hash(),
-            )
-            .map_err(engine_error)?;
         Ok(CheckpointDocumentResult {
             document_version: version
                 .try_into()
@@ -621,32 +561,25 @@ impl SessionRegistry {
         Ok(session.node_at_source_offset(offset as u64))
     }
 
-    pub fn navigation_for_node(
+    pub fn navigate_preview(
         &self,
         daemon: &str,
         session_id: &str,
-        version: i64,
+        preview_id: &str,
+        render_revision: fleximark_protocol::JsSafeU64,
         node_id: &NodeId,
     ) -> Result<Option<NavigationEntry>, SessionError> {
-        Ok(self
-            .document(daemon, session_id, version)?
-            .source_range_for_node(node_id))
-    }
-
-    pub fn render(
-        &mut self,
-        daemon: &str,
-        session_id: &str,
-        version: i64,
-        preview_id: &str,
-    ) -> Result<RenderPublication, SessionError> {
-        self.render_with_cancellation(
-            daemon,
-            session_id,
-            version,
-            preview_id,
-            &CancellationToken::default(),
-        )
+        self.verify_daemon(daemon)?;
+        self.index
+            .by_session(session_id)
+            .ok_or(SessionError::UnknownSession)?
+            .engine
+            .navigate_preview(
+                &PreviewSessionId(preview_id.to_owned()),
+                render_revision,
+                node_id,
+            )
+            .map_err(engine_error)
     }
 
     pub fn render_with_cancellation(
@@ -656,7 +589,7 @@ impl SessionRegistry {
         version: i64,
         preview_id: &str,
         cancellation: &CancellationToken,
-    ) -> Result<RenderPublication, SessionError> {
+    ) -> Result<RenderFrame, SessionError> {
         self.verify_daemon(daemon)?;
         let session = self
             .index
@@ -671,54 +604,28 @@ impl SessionRegistry {
         session
             .engine
             .render_configured(PreviewSessionId(preview_id.to_owned()), cancellation)
-            .map(|result| result.publication)
+            .map(|result| result.frame)
             .map_err(engine_error)
     }
 
-    pub fn render_full(
-        &mut self,
+    pub fn read_preview(
+        &self,
         daemon: &str,
         session_id: &str,
-        version: i64,
         preview_id: &str,
-    ) -> Result<fleximark_engine::RenderSnapshot, SessionError> {
-        self.render_full_with_cancellation(
-            daemon,
-            session_id,
-            version,
-            preview_id,
-            &CancellationToken::default(),
-        )
-    }
-
-    pub fn render_full_with_cancellation(
-        &mut self,
-        daemon: &str,
-        session_id: &str,
-        version: i64,
-        preview_id: &str,
-        cancellation: &CancellationToken,
-    ) -> Result<fleximark_engine::RenderSnapshot, SessionError> {
+        after_revision: Option<fleximark_protocol::JsSafeU64>,
+    ) -> Result<Option<RenderFrame>, SessionError> {
         self.verify_daemon(daemon)?;
         let session = self
             .index
-            .by_session_mut(session_id)
+            .by_session(session_id)
             .ok_or(SessionError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
             return Err(SessionError::ContentModified);
         }
-        if i64::try_from(session.engine.document().document_version).ok() != Some(version) {
-            return Err(SessionError::VersionMismatch);
-        }
-        let publication = session
+        Ok(session
             .engine
-            .render_full_configured(PreviewSessionId(preview_id.to_owned()), cancellation)
-            .map_err(engine_error)?
-            .publication;
-        match publication {
-            RenderPublication::Full(snapshot) => Ok(snapshot),
-            RenderPublication::Patch(_) => unreachable!("full render returned a patch"),
-        }
+            .read_preview_frame(&PreviewSessionId(preview_id.to_owned()), after_revision))
     }
 
     pub fn dispose_preview(
@@ -749,46 +656,6 @@ impl SessionRegistry {
             .map_err(|_| SessionError::VersionMismatch)
     }
 
-    pub fn export_html(
-        &self,
-        daemon: &str,
-        session_id: &str,
-        context: &fleximark_render_html::RenderContext,
-        common_runtime: &str,
-        composer: impl FnOnce(
-            &str,
-            Option<&RenderStyle>,
-            &[RenderAsset],
-            &str,
-        ) -> Result<String, SessionError>,
-    ) -> Result<UnsafeExportOutput, SessionError> {
-        self.verify_daemon(daemon)?;
-        let session = self
-            .index
-            .by_session(session_id)
-            .ok_or(SessionError::UnknownSession)?;
-        if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
-        }
-        let mut context = context.clone();
-        context.resolved_resources = session
-            .engine
-            .render_config()
-            .context
-            .resolved_resources
-            .clone();
-        let prepared = session
-            .engine
-            .prepare_safe_export(&context)
-            .map_err(engine_error)?;
-        let resolved = prepared.compose_portable(common_runtime, composer)?;
-        session
-            .engine
-            .apply_unsafe_export_html(resolved, &CancellationToken::default())
-            .map(|run| run.value)
-            .map_err(engine_error)
-    }
-
     pub fn session_id_for_uri(&self, uri: &str) -> Option<&str> {
         self.index.session_id_for_uri(uri)
     }
@@ -816,8 +683,7 @@ impl SessionRegistry {
 
     fn mark_out_of_sync(&mut self, uri: &str, reason: &str) {
         if let Some(session) = self.index.by_uri_mut(uri) {
-            let version = session.engine.document().document_version;
-            let _ = session.engine.checkpoint(version, "invalid");
+            session.engine.mark_out_of_sync();
             self.events.push(RequestFullTextParams {
                 daemon_instance_id: self.daemon_instance_id.clone(),
                 uri: session.uri.clone(),
@@ -894,13 +760,16 @@ mod tests {
 
     fn open_uri(registry: &mut SessionRegistry, uri: &str, text: &str, version: i64) {
         registry
-            .open(DidOpenParams {
-                text_document: TextDocumentItem {
-                    uri: uri.into(),
-                    version,
-                    text: text.into(),
+            .open_with_cancellation(
+                DidOpenParams {
+                    text_document: TextDocumentItem {
+                        uri: uri.into(),
+                        version,
+                        text: text.into(),
+                    },
                 },
-            })
+                &CancellationToken::default(),
+            )
             .unwrap();
     }
 
@@ -983,7 +852,13 @@ mod tests {
         let daemon = registry.daemon_instance_id().to_owned();
         let session_id = session_id(registry, uri).to_owned();
         registry
-            .render_full(&daemon, &session_id, version, preview_id)
+            .render_with_cancellation(
+                &daemon,
+                &session_id,
+                version,
+                preview_id,
+                &CancellationToken::default(),
+            )
             .unwrap()
             .renderer_fingerprint
     }
@@ -1002,7 +877,7 @@ mod tests {
     }
 
     #[test]
-    fn utf16_position_and_node_id_round_trip_through_authoritative_session() {
+    fn utf16_position_resolves_through_the_authoritative_session() {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
         open(&mut registry, "# 😀 heading\n", 1);
         let daemon = registry.daemon_instance_id().to_owned();
@@ -1022,12 +897,6 @@ mod tests {
         assert!(entry.source_range.byte_start <= 6);
         assert!(entry.source_range.byte_end >= 6);
         assert_eq!(entry.source_range.start.encoding, PositionEncoding::Utf8);
-        assert_eq!(
-            registry
-                .navigation_for_node(&daemon, &session, 1, &entry.node_id)
-                .unwrap(),
-            Some(entry)
-        );
     }
 
     #[test]
@@ -1035,7 +904,10 @@ mod tests {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
         open(&mut registry, "old", 3);
         let stale = change(DOCUMENT_URI, 3, None, "ignored");
-        assert_eq!(registry.change(stale), Err(SessionError::StaleVersion));
+        assert_eq!(
+            registry.change_with_cancellation(stale, &CancellationToken::default()),
+            Err(SessionError::StaleVersion)
+        );
         assert!(
             registry
                 .index
@@ -1056,7 +928,10 @@ mod tests {
         );
 
         registry
-            .change(change(DOCUMENT_URI, 9, None, "fresh"))
+            .change_with_cancellation(
+                change(DOCUMENT_URI, 9, None, "fresh"),
+                &CancellationToken::default(),
+            )
             .unwrap();
         assert!(
             !registry
@@ -1097,7 +972,10 @@ mod tests {
         );
         assert_eq!(registry.take_full_text_requests().len(), 1);
         registry
-            .change(change(DOCUMENT_URI, 1, None, "text"))
+            .change_with_cancellation(
+                change(DOCUMENT_URI, 1, None, "text"),
+                &CancellationToken::default(),
+            )
             .unwrap();
         assert!(
             registry
@@ -1130,7 +1008,10 @@ mod tests {
         assert_eq!(attached.document_session_id, second);
 
         registry
-            .change(change(DOCUMENT_URI, 3, None, "three"))
+            .change_with_cancellation(
+                change(DOCUMENT_URI, 3, None, "three"),
+                &CancellationToken::default(),
+            )
             .unwrap();
         registry
             .checkpoint(&checkpoint_params(
@@ -1197,21 +1078,24 @@ mod tests {
             let mut registry = SessionRegistry::new(encoding);
             open(&mut registry, "a😀b\n", 1);
             registry
-                .change(change(
-                    DOCUMENT_URI,
-                    2,
-                    Some(Range {
-                        start: Position {
-                            line: 0,
-                            character: start,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: end,
-                        },
-                    }),
-                    "x",
-                ))
+                .change_with_cancellation(
+                    change(
+                        DOCUMENT_URI,
+                        2,
+                        Some(Range {
+                            start: Position {
+                                line: 0,
+                                character: start,
+                            },
+                            end: Position {
+                                line: 0,
+                                character: end,
+                            },
+                        }),
+                        "x",
+                    ),
+                    &CancellationToken::default(),
+                )
                 .unwrap();
             let session = document(&registry, DOCUMENT_URI, 2);
             assert_eq!(session.source(), "axb\n", "encoding: {encoding:?}");
@@ -1284,82 +1168,13 @@ mod tests {
         );
         assert_eq!(encoded_fingerprint, parent_fingerprint);
         assert_ne!(nested_fingerprint, parent_fingerprint);
-        // Compatibility boundary/security debt: authority matching compares raw URI text. Case and
-        // percent-encoded aliases therefore miss the untrusted nested root and inherit its trusted
-        // parent. Normalization requires a separately reviewed behavior and policy change.
+        // Security boundary: authority matching compares raw URI text. Case and percent-encoded
+        // aliases therefore miss the untrusted nested root and inherit its trusted parent.
+        // Normalization requires a separately reviewed behavior and policy change.
     }
 
     #[test]
-    fn compatibility_configuration_and_workspace_reconfiguration_are_transactional() {
-        let uri = "file:///outside/document.md";
-        let mut no_defaults = SessionRegistry::new(PositionEncoding::Utf8);
-        no_defaults.configure_plugins(None, None).unwrap();
-        open_uri(&mut no_defaults, uri, "global", 1);
-        let plain_fingerprint = render_fingerprint(&mut no_defaults, uri, 1, "plain");
-
-        let mut render_without_host = SessionRegistry::new(PositionEncoding::Utf8);
-        let (_, ignored_render) = configured_host("ignored-render", true);
-        render_without_host
-            .configure_plugins(None, Some(ignored_render))
-            .unwrap();
-        open_uri(&mut render_without_host, uri, "global", 1);
-        assert_eq!(
-            render_fingerprint(&mut render_without_host, uri, 1, "render-only"),
-            plain_fingerprint
-        );
-
-        let mut host_without_render = SessionRegistry::new(PositionEncoding::Utf8);
-        let (orphan_host, _) = configured_host("orphan-host", true);
-        host_without_render
-            .configure_plugins(Some(orphan_host), None)
-            .unwrap();
-        assert_eq!(
-            host_without_render.open(DidOpenParams {
-                text_document: TextDocumentItem {
-                    uri: uri.into(),
-                    version: 1,
-                    text: "global".into(),
-                },
-            }),
-            Err(SessionError::Engine(
-                "plugin host is missing render configuration".into()
-            ))
-        );
-        assert!(host_without_render.open_documents().is_empty());
-        assert_eq!(host_without_render.session_id_for_uri(uri), None);
-        let (retry_host, retry_render) = configured_host("retry", true);
-        host_without_render
-            .configure_plugins(Some(retry_host), Some(retry_render))
-            .unwrap();
-        open_uri(&mut host_without_render, uri, "global", 1);
-
-        let mut compatibility = SessionRegistry::new(PositionEncoding::Utf8);
-        let (compatibility_host, compatibility_config) = configured_host("compatibility", true);
-        compatibility
-            .configure_plugins(Some(compatibility_host), Some(compatibility_config))
-            .unwrap();
-        open_uri(&mut compatibility, uri, "global", 1);
-        let compatibility_fingerprint =
-            render_fingerprint(&mut compatibility, uri, 1, "configured");
-        assert_ne!(compatibility_fingerprint, plain_fingerprint);
-        let compatibility_session = session_id(&compatibility, uri).to_owned();
-        let compatibility_daemon = compatibility.daemon_instance_id().to_owned();
-        let (late_host, late_config) = configured_host("late", true);
-        assert_eq!(
-            compatibility.configure_plugins(Some(late_host), Some(late_config)),
-            Err(SessionError::Engine(
-                "plugins must be configured before opening documents".into()
-            ))
-        );
-        assert_eq!(
-            compatibility.current_version(&compatibility_daemon, &compatibility_session),
-            Ok(1)
-        );
-        assert_eq!(
-            render_fingerprint(&mut compatibility, uri, 1, "after-late-rejection"),
-            compatibility_fingerprint
-        );
-
+    fn workspace_reconfiguration_is_transactional() {
         let mut workspace = SessionRegistry::new(PositionEncoding::Utf8);
         let (old_host, old_config) = configured_host("old", true);
         workspace
@@ -1398,6 +1213,7 @@ mod tests {
                 mismatched_host,
                 mismatched_config,
                 oversized_assets,
+                &CancellationToken::default(),
             )
             .unwrap_err();
         assert_eq!(
@@ -1446,6 +1262,7 @@ mod tests {
                 replacement_host,
                 replacement_config,
                 HashMap::new(),
+                &CancellationToken::default(),
             )
             .unwrap();
         let all_documents = [
@@ -1485,7 +1302,6 @@ mod tests {
                 },
                 SessionError::StaleVersion,
             ),
-            (EngineError::CheckpointMismatch, SessionError::HashMismatch),
             (
                 EngineError::Plugin("plugin detail".into()),
                 SessionError::Engine("plugin pipeline failed: plugin detail".into()),

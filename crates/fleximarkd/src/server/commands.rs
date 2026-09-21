@@ -3,13 +3,14 @@ use fleximark_lsp::DocumentSession;
 
 struct CommandDocument<'a> {
     document: &'a DocumentSession,
-    session_id: &'a str,
     workspace_uri: &'a str,
 }
 
 #[derive(Clone, Copy)]
 enum WorkspaceCommand {
     InitializeWorkspace,
+    InspectLegacyWorkspace,
+    MigrateWorkspace,
     EditTheme,
     CreateNote,
     ExportHtml,
@@ -21,6 +22,8 @@ impl WorkspaceCommand {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "initializeWorkspace" => Some(Self::InitializeWorkspace),
+            "inspectLegacyWorkspace" => Some(Self::InspectLegacyWorkspace),
+            "migrateWorkspace" => Some(Self::MigrateWorkspace),
             "editTheme" => Some(Self::EditTheme),
             "createNote" => Some(Self::CreateNote),
             "exportHtml" => Some(Self::ExportHtml),
@@ -34,6 +37,7 @@ impl WorkspaceCommand {
         matches!(
             self,
             Self::InitializeWorkspace
+                | Self::MigrateWorkspace
                 | Self::CreateNote
                 | Self::ExportHtml
                 | Self::AcknowledgeExport
@@ -70,6 +74,10 @@ impl Server {
             Some(WorkspaceCommand::InitializeWorkspace) => {
                 self.initialize_workspace_command(&params)
             }
+            Some(WorkspaceCommand::InspectLegacyWorkspace) => {
+                self.inspect_legacy_workspace_command(&params)
+            }
+            Some(WorkspaceCommand::MigrateWorkspace) => self.migrate_workspace_command(&params),
             Some(WorkspaceCommand::EditTheme) => self.edit_theme_command(&params),
             Some(WorkspaceCommand::CreateNote) => self.create_note_command(&params),
             Some(WorkspaceCommand::ExportHtml) => self.export_html_command(&params),
@@ -87,53 +95,20 @@ impl Server {
         &mut self,
         params: &ExecuteCommandParams,
     ) -> Result<fleximark_protocol::CommandResult, String> {
-        let (session_id, workspace_uri, source_uri) = {
-            let context = self.command_document(params, "exportHtml")?;
-            (
-                context.session_id.to_owned(),
-                context.workspace_uri.to_owned(),
-                context.document.uri.clone(),
-            )
-        };
+        let context = self.command_document(params, "exportHtml")?;
+        let source_uri = &context.document.uri;
         let destination_uri = params
             .destination_uri
             .clone()
             .map(Ok)
-            .unwrap_or_else(|| default_export_destination(&source_uri))
+            .unwrap_or_else(|| default_export_destination(source_uri))
             .map_err(|error| error.to_string())?;
-        fleximark_service::preflight_export(&source_uri, &workspace_uri, &destination_uri)
-            .map_err(|error| error.to_string())?;
-        let export_context = fleximark_service::export_render_context(&workspace_uri)
-            .map_err(|error| error.to_string())?;
-        let mut assets = None;
-        let output = self
-            .registry
-            .export_html(
-                &params.daemon_instance_id,
-                &session_id,
-                &export_context,
-                PREVIEW_CLIENT,
-                |safe_html, style, render_assets, runtime| {
-                    let resolved = fleximark_service::resolve_export_assets(
-                        &source_uri,
-                        &workspace_uri,
-                        safe_html,
-                        render_assets,
-                    )
-                    .map_err(|error| SessionError::Engine(error.to_string()))?;
-                    assets = Some(resolved.assets);
-                    fleximark_service::compose_portable_html(&resolved.html, style, runtime)
-                        .map_err(|error| SessionError::Engine(error.to_string()))
-                },
-            )
-            .map_err(|error| error.to_string())?;
-        export_html_with_safety(
-            &source_uri,
-            &workspace_uri,
+        export_document(
+            context.document.engine(),
+            source_uri,
+            context.workspace_uri,
             &destination_uri,
-            &output.html,
-            &assets.unwrap_or_default(),
-            output.unsafe_output_used,
+            &self.work_cancellation,
         )
         .map_err(|error| error.to_string())
     }
@@ -158,6 +133,7 @@ impl Server {
                 text: "Export opened and validated; recovery backup released".into(),
             }),
             open_uri: None,
+            data: None,
         })
     }
 
@@ -197,7 +173,6 @@ impl Server {
         }
         Ok(CommandDocument {
             document,
-            session_id,
             workspace_uri,
         })
     }
@@ -215,6 +190,48 @@ impl Server {
     ) -> Result<fleximark_protocol::CommandResult, String> {
         self.command_workspace(params)
             .and_then(|uri| initialize_workspace(uri).map_err(|error| error.to_string()))
+    }
+
+    fn inspect_legacy_workspace_command(
+        &self,
+        params: &ExecuteCommandParams,
+    ) -> Result<fleximark_protocol::CommandResult, String> {
+        if !params.arguments.is_empty() {
+            return Err("inspectLegacyWorkspace does not accept arguments".into());
+        }
+        let data = self
+            .command_workspace(params)
+            .and_then(|uri| inspect_legacy_workspace(uri).map_err(|error| error.to_string()))?
+            .map(|has_legacy_plugin| {
+                if has_legacy_plugin {
+                    "legacy-plugin"
+                } else {
+                    "legacy"
+                }
+                .to_owned()
+            });
+        Ok(fleximark_protocol::CommandResult {
+            message: None,
+            open_uri: None,
+            data,
+        })
+    }
+
+    fn migrate_workspace_command(
+        &self,
+        params: &ExecuteCommandParams,
+    ) -> Result<fleximark_protocol::CommandResult, String> {
+        let [settings_json] = params.arguments.as_slice() else {
+            return Err("migrateWorkspace requires exactly one settings object".into());
+        };
+        let settings: Value = serde_json::from_str(settings_json)
+            .map_err(|_| "migrateWorkspace settings must be valid JSON")?;
+        if !settings.is_object() {
+            return Err("migrateWorkspace settings must be an object".into());
+        }
+        self.command_workspace(params).and_then(|uri| {
+            migrate_legacy_workspace(uri, &settings).map_err(|error| error.to_string())
+        })
     }
 
     fn edit_theme_command(

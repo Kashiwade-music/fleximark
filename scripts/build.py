@@ -77,6 +77,7 @@ def pure_test_args() -> list[str]:
         "--format=cjs",
         "--sourcemap",
         "--outfile=out/test/unit/pure-tests.cjs",
+        "--alias:vscode=./test/adapter/vscode-pure-stub.mts",
         "--loader:.css=text",
     ]
 

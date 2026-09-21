@@ -8,7 +8,9 @@ publish = false
 
 [dependencies]
 fleximark-engine = { path = "../fleximark-engine", features = ["contract-schema"] }
+fleximark-model = { path = "../fleximark-model" }
 fleximark-protocol = { path = "../fleximark-protocol", features = ["contract-schema"] }
+fleximark-render-html = { path = "../fleximark-render-html" }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

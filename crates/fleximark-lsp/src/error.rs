@@ -29,7 +29,6 @@ pub(super) fn engine_error(error: EngineError) -> SessionError {
     match error {
         EngineError::ContentModified => SessionError::ContentModified,
         EngineError::StaleVersion { .. } => SessionError::StaleVersion,
-        EngineError::CheckpointMismatch => SessionError::HashMismatch,
         other => SessionError::Engine(other.to_string()),
     }
 }

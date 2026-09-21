@@ -125,36 +125,6 @@ impl Server {
         })
     }
 
-    pub(super) fn render(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        let id = id?;
-        if !self.fleximark_initialized {
-            return Some(response_value(Response::error(
-                id,
-                -32002,
-                "FlexiMark connection is not initialized",
-            )));
-        }
-        let params = match deserialize_params::<RenderParams>(&id, params) {
-            Ok(params) => params,
-            Err(response) => return Some(response),
-        };
-        let preview_id = format!("render-{}", params.document_session_id);
-        let publication = match self.registry.render_with_cancellation(
-            &params.daemon_instance_id,
-            &params.document_session_id,
-            params.document_version.get(),
-            &preview_id,
-            &self.work_cancellation,
-        ) {
-            Ok(publication) => publication,
-            Err(error) => return Some(session_error(id, error)),
-        };
-        if self.publication_cancellation.is_cancelled() {
-            return None;
-        }
-        Some(response_value(Response::success(id, publication)))
-    }
-
     pub(super) fn create_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
         let id = id?;
         if !self.fleximark_initialized {
@@ -179,22 +149,15 @@ impl Server {
             }
         };
         let preview_id = format!("preview-{preview_nonce}");
-        let publication = match self.registry.render_with_cancellation(
+        let frame = match self.registry.render_with_cancellation(
             &params.daemon_instance_id,
             &params.document_session_id,
             params.expected_document_version.get(),
             &preview_id,
             &self.work_cancellation,
         ) {
-            Ok(publication) => publication,
+            Ok(frame) => frame,
             Err(error) => return Some(session_error(id, error)),
-        };
-        let RenderPublication::Full(snapshot) = &publication else {
-            return Some(response_value(Response::error(
-                id,
-                -32603,
-                "new preview did not produce a full snapshot",
-            )));
         };
         if self.publication_cancellation.is_cancelled() {
             return None;
@@ -210,12 +173,9 @@ impl Server {
                     )));
                 }
             };
-            let url = self.previews.publish(
-                &token,
-                &params.daemon_instance_id,
-                &preview_id,
-                &publication,
-            );
+            let url =
+                self.previews
+                    .publish(&token, &params.daemon_instance_id, &preview_id, &frame);
             (Some(token), Some(url))
         } else {
             (None, None)
@@ -225,7 +185,7 @@ impl Server {
             PreviewState {
                 token,
                 document_session_id: params.document_session_id,
-                delivered_revision: snapshot.result_render_revision,
+                delivered_revision: frame.render_revision,
             },
         );
         Some(response_value(Response::success(
@@ -233,9 +193,85 @@ impl Server {
             CreatePreviewResult {
                 preview_session_id: preview_id,
                 url,
-                initial_publication: publication,
             },
         )))
+    }
+
+    pub(super) fn read_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
+        let id = id?;
+        let params = match deserialize_params::<ReadPreviewParams>(&id, params) {
+            Ok(params) => params,
+            Err(response) => return Some(response),
+        };
+        let Some(state) = self.preview_states.get(&params.preview_session_id) else {
+            return Some(response_value(Response::error(
+                id,
+                -32602,
+                "unknown preview session",
+            )));
+        };
+        let frame = match self.registry.read_preview(
+            &params.daemon_instance_id,
+            &state.document_session_id,
+            &params.preview_session_id,
+            params.after_revision,
+        ) {
+            Ok(frame) => frame,
+            Err(error) => return Some(session_error(id, error)),
+        };
+        Some(response_value(Response::success(
+            id,
+            ReadPreviewResult { frame },
+        )))
+    }
+
+    pub(super) fn rerender_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
+        let id = id?;
+        let params = match deserialize_params::<RerenderPreviewParams>(&id, params) {
+            Ok(params) => params,
+            Err(response) => return Some(response),
+        };
+        let Some(state) = self.preview_states.get(&params.preview_session_id).cloned() else {
+            return Some(response_value(Response::error(
+                id,
+                -32602,
+                "unknown preview session",
+            )));
+        };
+        let version = match self
+            .registry
+            .current_version(&params.daemon_instance_id, &state.document_session_id)
+        {
+            Ok(version) => version,
+            Err(error) => return Some(session_error(id, error)),
+        };
+        let frame = match self.registry.render_with_cancellation(
+            &params.daemon_instance_id,
+            &state.document_session_id,
+            version,
+            &params.preview_session_id,
+            &self.work_cancellation,
+        ) {
+            Ok(frame) => frame,
+            Err(error) => return Some(session_error(id, error)),
+        };
+        if self.publication_cancellation.is_cancelled() {
+            return None;
+        }
+        if let Some(token) = &state.token {
+            self.previews.update(token, &frame);
+        }
+        self.preview_states
+            .get_mut(&params.preview_session_id)
+            .expect("preview state remains present")
+            .delivered_revision = frame.render_revision;
+        self.outgoing_events
+            .push(preview_changed_notification(PreviewChangedParams {
+                daemon_instance_id: params.daemon_instance_id,
+                preview_session_id: params.preview_session_id,
+                render_revision: frame.render_revision,
+            }));
+        Some(response_value(Response::success(id, Value::Null)))
     }
 
     pub(super) fn dispose_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
@@ -309,11 +345,17 @@ impl Server {
             Ok(params) => params,
             Err(response) => return Some(response),
         };
+        let document_session_id = params.document_session_id.clone();
         match self
             .registry
             .change_rpc_with_cancellation(params, &self.work_cancellation)
         {
             Ok(result) if !self.publication_cancellation.is_cancelled() => {
+                let document_version = u64::try_from(result.document_version.get())
+                    .ok()
+                    .and_then(|version| JsSafeU64::new(version).ok())
+                    .expect("accepted document versions are non-negative JavaScript integers");
+                self.mark_preview_document_version(&document_session_id, document_version);
                 Some(response_value(Response::success(id, result)))
             }
             Ok(_) => None,
@@ -479,17 +521,11 @@ impl Server {
                 ))
             });
         }
-        let version = match self
-            .registry
-            .current_version(&params.daemon_instance_id, &state.document_session_id)
-        {
-            Ok(version) => version,
-            Err(error) => return id.map(|id| session_error(id, error)),
-        };
-        let entry = match self.registry.navigation_for_node(
+        let entry = match self.registry.navigate_preview(
             &params.daemon_instance_id,
             &state.document_session_id,
-            version,
+            &params.preview_session_id,
+            state.delivered_revision,
             node_id,
         ) {
             Ok(Some(entry)) => entry,
@@ -514,57 +550,6 @@ impl Server {
                 preview_session_id: params.preview_session_id,
                 render_revision: state.delivered_revision,
                 event: ServerPreviewEvent::SourceNavigation(event),
-            }));
-        id.map(|id| response_value(Response::success(id, Value::Null)))
-    }
-
-    pub(super) fn reload_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        let params = match serde_json::from_value::<ReloadPreviewParams>(params) {
-            Ok(params) => params,
-            Err(error) => return id.map(|id| invalid_params(id, error)),
-        };
-        if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return id.map(|id| session_error(id, SessionError::WrongDaemon));
-        }
-        let Some(state) = self.preview_states.get(&params.preview_session_id).cloned() else {
-            return id
-                .map(|id| response_value(Response::error(id, -32602, "unknown preview session")));
-        };
-        let document_version = match self
-            .registry
-            .current_version(&params.daemon_instance_id, &state.document_session_id)
-        {
-            Ok(version) => version,
-            Err(error) => return id.map(|id| session_error(id, error)),
-        };
-        let snapshot = match self.registry.render_full_with_cancellation(
-            &params.daemon_instance_id,
-            &state.document_session_id,
-            document_version,
-            &params.preview_session_id,
-            &self.work_cancellation,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => return id.map(|id| session_error(id, error)),
-        };
-        if self.publication_cancellation.is_cancelled() {
-            return None;
-        }
-        let revision = snapshot.result_render_revision;
-        if let Some(token) = &state.token {
-            self.previews
-                .update(token, &RenderPublication::Full(snapshot.clone()));
-        }
-        self.preview_states
-            .get_mut(&params.preview_session_id)
-            .unwrap()
-            .delivered_revision = revision;
-        self.outgoing_events
-            .push(preview_event_notification(ServerPreviewEventParams {
-                daemon_instance_id: params.daemon_instance_id,
-                preview_session_id: params.preview_session_id,
-                render_revision: revision,
-                event: ServerPreviewEvent::Publication(RenderPublication::Full(snapshot)),
             }));
         id.map(|id| response_value(Response::success(id, Value::Null)))
     }
@@ -626,10 +611,13 @@ impl Server {
             };
             assets.insert(uri, resolved);
         }
-        if let Err(error) =
-            self.registry
-                .reconfigure_workspace(&params.workspace_uri, host, render_config, assets)
-        {
+        if let Err(error) = self.registry.reconfigure_workspace(
+            &params.workspace_uri,
+            host,
+            render_config,
+            assets,
+            &self.work_cancellation,
+        ) {
             return Some(session_error(id, error));
         }
         self.config_generation = generation;
@@ -655,32 +643,30 @@ impl Server {
                 Ok(version) => version,
                 Err(error) => return Some(session_error(id, error)),
             };
-            let snapshot = match self.registry.render_full_with_cancellation(
+            let frame = match self.registry.render_with_cancellation(
                 &daemon,
                 &state.document_session_id,
                 version,
                 &preview_id,
                 &self.work_cancellation,
             ) {
-                Ok(snapshot) => snapshot,
+                Ok(frame) => frame,
                 Err(error) => return Some(session_error(id, error)),
             };
             if self.publication_cancellation.is_cancelled() {
                 return None;
             }
             if let Some(token) = &state.token {
-                self.previews
-                    .update(token, &RenderPublication::Full(snapshot.clone()));
+                self.previews.update(token, &frame);
             }
             if let Some(current) = self.preview_states.get_mut(&preview_id) {
-                current.delivered_revision = snapshot.result_render_revision;
+                current.delivered_revision = frame.render_revision;
             }
             self.outgoing_events
-                .push(preview_event_notification(ServerPreviewEventParams {
+                .push(preview_changed_notification(PreviewChangedParams {
                     daemon_instance_id: daemon.clone(),
                     preview_session_id: preview_id,
-                    render_revision: snapshot.result_render_revision,
-                    event: ServerPreviewEvent::Publication(RenderPublication::Full(snapshot)),
+                    render_revision: frame.render_revision,
                 }));
         }
         Some(response_value(Response::success(id, Value::Null)))

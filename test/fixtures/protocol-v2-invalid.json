@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "cases": [
     {
       "name": "wrong JSON-RPC version",
@@ -44,14 +44,13 @@
     },
     {
       "name": "malformed nested preview navigation position",
-      "definition": "renderPublication",
+      "definition": "renderFrame",
       "value": {
-        "type": "full",
         "previewSessionId": "preview",
         "documentVersion": 3,
-        "resultRenderRevision": 1,
-        "rendererFingerprint": "sha256:renderer",
-        "nodeIds": ["document-root"],
+        "renderRevision": 1,
+        "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blocks": [{"id":"document-root","html":"<p></p>","nodeIds":["document-root"]}],
         "navigation": [
           {
             "nodeId": "document-root",
@@ -66,33 +65,22 @@
         ],
         "style": null,
         "assets": [],
-        "html": "<main data-fleximark-node-id=\"document-root\"></main>"
+        "annotations": {}
       }
     },
     {
-      "name": "malformed nested patch precondition",
-      "definition": "renderPublication",
+      "name": "malformed empty block node IDs",
+      "definition": "renderFrame",
       "value": {
-        "type": "patch",
         "previewSessionId": "preview",
         "documentVersion": 4,
-        "baseRenderRevision": 1,
-        "resultRenderRevision": 2,
-        "baseRendererFingerprint": "sha256:renderer",
-        "resultRendererFingerprint": "sha256:renderer",
+        "renderRevision": 2,
+        "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
         "navigation": [],
         "style": null,
-        "operations": [
-          {
-            "type": "remove",
-            "nodeId": "document-root",
-            "parentId": "document-root",
-            "precondition": {
-              "nodeExists": "yes",
-              "currentParentId": "document-root"
-            }
-          }
-        ]
+        "assets": [],
+        "blocks": [{"id":"document-root","html":"<p></p>","nodeIds":[]}],
+        "annotations": {}
       }
     },
     {

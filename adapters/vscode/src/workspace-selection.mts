@@ -1,21 +1,5 @@
 import type { ViewColumn } from "vscode";
 
-import type { PreviewEvent } from "./protocol.mjs";
-
-export function previewEventAction(
-  currentRevision: number,
-  params: PreviewEvent,
-): "apply" | "ignore" | "reload" {
-  const event = params.event;
-  if (event.type === "full")
-    return event.resultRenderRevision <= currentRevision ? "ignore" : "apply";
-  if (event.type === "patch") {
-    if (event.resultRenderRevision <= currentRevision) return "ignore";
-    return event.baseRenderRevision === currentRevision ? "apply" : "reload";
-  }
-  return params.renderRevision === currentRevision ? "apply" : "ignore";
-}
-
 interface VisibleSourceEditor {
   readonly document: {
     readonly uri: {

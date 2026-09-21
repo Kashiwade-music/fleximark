@@ -1,16 +1,16 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "methods": [
     {
       "method": "fleximark/initialize",
       "direction": "clientToServer",
       "kind": "request",
       "params": {
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "client": { "name": "contract-test", "version": "1" }
       },
       "result": {
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "daemonInstanceId": "daemon",
         "workspaceStatuses": [
           { "uri": "file:///workspace", "enabled": true }
@@ -65,28 +65,6 @@
       "result": null
     },
     {
-      "method": "fleximark/render",
-      "direction": "clientToServer",
-      "kind": "request",
-      "params": {
-        "daemonInstanceId": "daemon",
-        "documentSessionId": "document",
-        "documentVersion": 3
-      },
-      "result": {
-        "type": "full",
-        "previewSessionId": "preview",
-        "documentVersion": 3,
-        "resultRenderRevision": 1,
-        "rendererFingerprint": "sha256:renderer",
-        "nodeIds": ["document-root"],
-        "navigation": [],
-        "style": null,
-        "assets": [],
-        "html": "<main data-fleximark-node-id=\"document-root\"></main>"
-      }
-    },
-    {
       "method": "fleximark/createPreview",
       "direction": "clientToServer",
       "kind": "request",
@@ -97,20 +75,40 @@
         "target": "externalBrowser"
       },
       "result": {
-        "previewSessionId": "preview",
-        "initialPublication": {
-          "type": "full",
-          "previewSessionId": "preview",
-          "documentVersion": 3,
-          "resultRenderRevision": 1,
-          "rendererFingerprint": "sha256:renderer",
-          "nodeIds": ["document-root"],
-          "navigation": [],
-          "style": null,
-          "assets": [],
-          "html": "<main data-fleximark-node-id=\"document-root\"></main>"
-        }
+        "previewSessionId": "preview"
       }
+    },
+    {
+      "method": "fleximark/readPreview",
+      "direction": "clientToServer",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview",
+        "afterRevision": 1
+      },
+      "result": { "frame": null }
+    },
+    {
+      "method": "fleximark/previewChanged",
+      "direction": "serverToClient",
+      "kind": "notification",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview",
+        "renderRevision": 2
+      },
+      "result": null
+    },
+    {
+      "method": "fleximark/rerenderPreview",
+      "direction": "clientToServer",
+      "kind": "request",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "previewSessionId": "preview"
+      },
+      "result": null
     },
     {
       "method": "fleximark/disposePreview",
@@ -170,16 +168,6 @@
           "renderRevision": 1,
           "nodeId": "document-root"
         }
-      },
-      "result": null
-    },
-    {
-      "method": "fleximark/reloadPreview",
-      "direction": "clientToServer",
-      "kind": "request",
-      "params": {
-        "daemonInstanceId": "daemon",
-        "previewSessionId": "preview"
       },
       "result": null
     },

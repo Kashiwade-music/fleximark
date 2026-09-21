@@ -7,8 +7,7 @@ use std::time::Instant;
 
 use fleximark_engine::{DocumentSession, PreviewSessionId};
 use fleximark_model::{DocumentUri, PositionEncoding};
-
-const PREVIEW_CLIENT: &str = include_str!("../../../web/preview-client/browser-host.js");
+use fleximark_plugin_host::CancellationToken;
 
 fn main() {
     if let Err(error) = run() {
@@ -72,9 +71,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
                 let render_ms = render_started.elapsed().as_secs_f64() * 1_000.0;
                 let full_bytes = serde_json::to_vec(&full)?.len();
-                let mut patch_bytes = 0;
-                let mut max_patch_bytes = 0;
-                let mut full_fallbacks = 0;
+                let mut frame_bytes = 0;
+                let mut max_frame_bytes = 0;
                 let mut edit_update_ms = 0.0;
                 let mut edit_render_ms = 0.0;
                 let edits_started = Instant::now();
@@ -83,22 +81,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let mut changed = source.clone();
                     changed.replace_range(..4, replacement);
                     let update_started = Instant::now();
-                    session.change_full_text(edit + 2, changed)?;
+                    session.change_full_text_with_cancellation(
+                        edit + 2,
+                        changed,
+                        &CancellationToken::default(),
+                    )?;
                     edit_update_ms += update_started.elapsed().as_secs_f64() * 1_000.0;
                     let edit_render_started = Instant::now();
-                    let publication = session.render(
+                    let frame = session.render(
                         PreviewSessionId(format!("benchmark-{lines}")),
                         &fleximark_render_html::RenderContext::default(),
                     )?;
                     edit_render_ms += edit_render_started.elapsed().as_secs_f64() * 1_000.0;
-                    match publication {
-                        fleximark_engine::RenderPublication::Patch(patch) => {
-                            let bytes = serde_json::to_vec(&patch)?.len();
-                            patch_bytes += bytes;
-                            max_patch_bytes = max_patch_bytes.max(bytes);
-                        }
-                        fleximark_engine::RenderPublication::Full(_) => full_fallbacks += 1,
-                    }
+                    let bytes = serde_json::to_vec(&frame)?.len();
+                    frame_bytes += bytes;
+                    max_frame_bytes = max_frame_bytes.max(bytes);
                 }
                 let edit_burst_ms = edits_started.elapsed().as_secs_f64() * 1_000.0;
                 eprintln!(
@@ -113,9 +110,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     "editBurstMs": edit_burst_ms,
                     "editUpdateMs": edit_update_ms,
                     "editRenderMs": edit_render_ms,
-                    "patchBytes": patch_bytes,
-                    "maxPatchBytes": max_patch_bytes,
-                    "fullFallbacks": full_fallbacks
+                    "frameBytes": frame_bytes,
+                    "maxFrameBytes": max_frame_bytes
                 }));
             }
             let special_started = Instant::now();
@@ -145,15 +141,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let source = fs::read_to_string(&path)?;
             let uri = path_to_uri(Path::new(&path))?;
             let mut session = open_session(uri, source, trusted_workspace)?;
-            let publication = session.render_full_configured(
+            let frame = session.render_configured(
                 PreviewSessionId("cli".into()),
                 &fleximark_plugin_host::CancellationToken::default(),
             )?;
-            let fleximark_engine::RenderPublication::Full(snapshot) = publication.publication
-            else {
-                unreachable!("configured full render returned a patch")
-            };
-            let html = snapshot.html;
+            let html = frame.frame.html();
             io::stdout().lock().write_all(html.as_bytes())?;
         }
         "init" | "edit-theme" | "create-note" => {
@@ -195,7 +187,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let source_uri = path_to_uri(&canonical)?;
             let source = fs::read_to_string(&canonical)?;
             let workspace_uri = fleximark_service::workspace_for_document(&source_uri)?;
-            let context = fleximark_service::export_render_context(&workspace_uri)?;
             let destination_uri = match destination {
                 Some(path) => {
                     let path = PathBuf::from(path);
@@ -210,36 +201,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 None => fleximark_service::default_export_destination(&source_uri)?,
             };
-            fleximark_service::preflight_export(&source_uri, &workspace_uri, &destination_uri)?;
             let session = open_session(source_uri.clone(), source.clone(), trusted_workspace)?;
-            let prepared = session.prepare_safe_export(&context)?;
-            let mut assets = None;
-            let resolved = prepared.compose_portable(
-                PREVIEW_CLIENT,
-                |safe_html, style, render_assets, runtime| {
-                    let resolved = fleximark_service::resolve_export_assets(
-                        &source_uri,
-                        &workspace_uri,
-                        safe_html,
-                        render_assets,
-                    )?;
-                    assets = Some(resolved.assets);
-                    fleximark_service::compose_portable_html(&resolved.html, style, runtime)
-                },
-            )?;
-            let output = session
-                .apply_unsafe_export_html(
-                    resolved,
-                    &fleximark_plugin_host::CancellationToken::default(),
-                )?
-                .value;
-            let result = fleximark_service::export_html_with_safety(
+            let result = fleximark_service::export_document(
+                &session,
                 &source_uri,
                 &workspace_uri,
                 &destination_uri,
-                &output.html,
-                &assets.unwrap_or_default(),
-                output.unsafe_output_used,
+                &fleximark_plugin_host::CancellationToken::default(),
             )?;
             if let Some(message) = result.message {
                 println!("{}", message.text);

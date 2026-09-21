@@ -1,25 +1,32 @@
 import * as vscode from "vscode";
 
+import type { CommandResult } from "./protocol.mjs";
 import {
   type LegacyWorkspaceSettings,
   type LegacyWorkspaceState,
   WorkspaceMigrationController,
-  createMigratedConfig,
 } from "./workspace-migration-policy.mjs";
 
-const DEFAULT_THEME =
-  "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
+type MigrationCommand = "inspectLegacyWorkspace" | "migrateWorkspace";
+export type ExecuteMigrationCommand = (
+  workspace: vscode.WorkspaceFolder,
+  command: MigrationCommand,
+  args?: readonly string[],
+) => Promise<CommandResult>;
 
 export class LegacyWorkspaceMigrator {
-  readonly #controller =
-    new WorkspaceMigrationController<vscode.WorkspaceFolder>({
+  readonly #controller: WorkspaceMigrationController<vscode.WorkspaceFolder>;
+
+  constructor(execute: ExecuteMigrationCommand) {
+    this.#controller = new WorkspaceMigrationController({
       key: (workspace) => workspace.uri.toString(),
-      detect: (workspace) => detectLegacyWorkspace(workspace),
+      detect: (workspace) => detectLegacyWorkspace(workspace, execute),
       confirm: (workspace, state) => confirmMigration(workspace, state),
-      migrate: (workspace, state) => migrateWorkspace(workspace, state),
-      completed: (workspace, result) =>
-        showMigrationCompleted(workspace, result),
+      migrate: (workspace, state) =>
+        migrateWorkspace(workspace, state, execute),
+      completed: (workspace, state) => showMigrationCompleted(workspace, state),
     });
+  }
 
   offer(workspace: vscode.WorkspaceFolder): Promise<void> {
     return this.#controller.offer(workspace);
@@ -32,26 +39,14 @@ export class LegacyWorkspaceMigrator {
 
 export async function detectLegacyWorkspace(
   workspace: vscode.WorkspaceFolder,
+  execute: ExecuteMigrationCommand,
 ): Promise<LegacyWorkspaceState | undefined> {
-  const control = vscode.Uri.joinPath(workspace.uri, ".fleximark");
-  const marker = vscode.Uri.joinPath(control, "fleximark.json");
-  const config = vscode.Uri.joinPath(control, "config.toml");
-  if (
-    !(await directoryExists(control)) ||
-    !(await regularFileExists(marker)) ||
-    (await pathExists(config))
-  )
-    return;
+  const { data } = await execute(workspace, "inspectLegacyWorkspace");
+  if (data === undefined) return;
+  if (data !== "legacy" && data !== "legacy-plugin")
+    throw new Error("Invalid legacy workspace inspection result");
   return {
-    hasLegacyTheme: await regularFileExists(
-      vscode.Uri.joinPath(control, "fleximark.css"),
-    ),
-    hasLegacyPlugin: await regularFileExists(
-      vscode.Uri.joinPath(control, "parserPlugin.js"),
-    ),
-    hasAttachments: await directoryExists(
-      vscode.Uri.joinPath(workspace.uri, "attachments"),
-    ),
+    hasLegacyPlugin: data === "legacy-plugin",
     settings: readLegacySettings(workspace),
   };
 }
@@ -95,24 +90,8 @@ async function confirmMigration(
 export async function migrateWorkspace(
   workspace: vscode.WorkspaceFolder,
   state: LegacyWorkspaceState,
-): Promise<{ legacyPluginRetained: boolean }> {
-  const control = vscode.Uri.joinPath(workspace.uri, ".fleximark");
-  const marker = vscode.Uri.joinPath(control, "fleximark.json");
-  if (!(await directoryExists(control)) || !(await regularFileExists(marker)))
-    throw new Error("The legacy FlexiMark workspace changed during migration");
-  const config = vscode.Uri.joinPath(control, "config.toml");
-  if (await pathExists(config)) return { legacyPluginRetained: false };
-
-  const theme = vscode.Uri.joinPath(control, "theme.css");
-  if (!(await pathExists(theme))) {
-    const contents = state.hasLegacyTheme
-      ? await vscode.workspace.fs.readFile(
-          vscode.Uri.joinPath(control, "fleximark.css"),
-        )
-      : Buffer.from(DEFAULT_THEME);
-    await vscode.workspace.fs.writeFile(theme, contents);
-  }
-
+  execute: ExecuteMigrationCommand,
+): Promise<void> {
   if (
     state.settings.defaultPreviewMode === "vscode" ||
     state.settings.defaultPreviewMode === "browser"
@@ -126,21 +105,16 @@ export async function migrateWorkspace(
           : "embeddedHtml",
         vscode.ConfigurationTarget.WorkspaceFolder,
       );
-
-  // config.toml is written last because its presence marks a completed migration.
-  if (await pathExists(config)) return { legacyPluginRetained: false };
-  await vscode.workspace.fs.writeFile(
-    config,
-    Buffer.from(createMigratedConfig(state.settings, state.hasAttachments)),
-  );
-  return { legacyPluginRetained: state.hasLegacyPlugin };
+  await execute(workspace, "migrateWorkspace", [
+    JSON.stringify(state.settings),
+  ]);
 }
 
 async function showMigrationCompleted(
   workspace: vscode.WorkspaceFolder,
-  result: { legacyPluginRetained: boolean },
+  state: LegacyWorkspaceState,
 ): Promise<void> {
-  const message = result.legacyPluginRetained
+  const message = state.hasLegacyPlugin
     ? vscode.l10n.t(
         "Migrated FlexiMark workspace “{0}”. Its legacy JavaScript plugin was retained but is disabled.",
         workspace.name,
@@ -150,41 +124,4 @@ async function showMigrationCompleted(
         workspace.name,
       );
   await vscode.window.showInformationMessage(message);
-}
-
-async function regularFileExists(uri: vscode.Uri): Promise<boolean> {
-  const stat = await statOrUndefined(uri);
-  return (
-    stat !== undefined &&
-    (stat.type & vscode.FileType.File) !== 0 &&
-    (stat.type & vscode.FileType.SymbolicLink) === 0
-  );
-}
-
-async function directoryExists(uri: vscode.Uri): Promise<boolean> {
-  const stat = await statOrUndefined(uri);
-  return (
-    stat !== undefined &&
-    (stat.type & vscode.FileType.Directory) !== 0 &&
-    (stat.type & vscode.FileType.SymbolicLink) === 0
-  );
-}
-
-async function pathExists(uri: vscode.Uri): Promise<boolean> {
-  return (await statOrUndefined(uri)) !== undefined;
-}
-
-async function statOrUndefined(
-  uri: vscode.Uri,
-): Promise<vscode.FileStat | undefined> {
-  try {
-    return await vscode.workspace.fs.stat(uri);
-  } catch (error) {
-    if (
-      error instanceof vscode.FileSystemError &&
-      error.code === "FileNotFound"
-    )
-      return;
-    throw error;
-  }
 }

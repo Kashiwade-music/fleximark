@@ -105,6 +105,7 @@ pub fn create_note_with_options(
             text: "Created a new note".into(),
         }),
         open_uri: Some(path_to_file_uri(&note)?),
+        data: None,
     })
 }
 
@@ -230,6 +231,7 @@ pub fn collect_admonitions(
             text: format!("Collected {} admonition(s)", fragments.len()),
         }),
         open_uri: Some(path_to_file_uri(&output)?),
+        data: None,
     })
 }
 

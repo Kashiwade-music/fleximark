@@ -55,7 +55,7 @@ class ReleaseArtifactTests(unittest.TestCase):
             root / "bin" / "manifest.json",
             {
                 "schemaVersion": 1,
-                "protocolVersion": 1,
+                "protocolVersion": 2,
                 "artifacts": artifacts,
             },
         )
@@ -134,7 +134,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                 json.dumps(
                     {
                         "schemaVersion": 1,
-                        "protocolVersion": 1,
+                        "protocolVersion": 2,
                         "artifacts": artifacts,
                     }
                 ),

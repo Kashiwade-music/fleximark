@@ -1,6 +1,5 @@
 /** Browser-neutral consumers of the Rust-owned FlexiMark wire contract. */
 import { validateContractDescriptor } from "./contract-validator.mjs";
-import { isSafePatchAttribute } from "./patch-attributes.mjs";
 import {
   CLIENT_NOTIFICATION_VALIDATORS,
   PROTOCOL_VERSION,
@@ -23,12 +22,11 @@ export type {
   InitializeParams,
   InitializeResult,
   NavigationEntry,
-  PatchOperation,
+  PreviewChangedParams,
   PreviewTarget,
   RenderAsset,
-  RenderPatch,
-  RenderPublication,
-  RenderSnapshot,
+  RenderBlock,
+  RenderFrame,
   RenderStyle,
   RequestFullTextParams,
   SourceNavigationEvent,
@@ -46,10 +44,6 @@ export type ServerPreviewEventParams = Contract.ServerPreviewEventParams;
 export type RpcId = Contract.RpcId;
 export type CustomRequestMap = Contract.CustomRequestMap;
 export type ClientNotificationMap = Contract.ClientNotificationMap;
-
-/** Historical public aliases retained at the adapter boundary. */
-export type PreviewEvent = ServerPreviewEventParams;
-export type PreviewClientEvent = EditorNavigationEvent;
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -106,10 +100,7 @@ export interface ServerNotificationMap
 
 /** This envelope belongs to the browser host, not to the daemon protocol. */
 export type WebviewInboundMessage =
-  | { type: "ready" }
-  | { type: "requestSnapshot" }
-  | { type: "rendered"; previewSessionId: string; renderRevision: number }
-  | EditorNavigationEvent;
+  { type: "ready" } | { type: "requestFrame" } | EditorNavigationEvent;
 
 export type Validator<T> = ((value: unknown) => boolean) & {
   readonly __validatedType?: T;
@@ -194,23 +185,17 @@ const assetsAreValid = (assets: readonly Contract.RenderAsset[]): boolean =>
   assets.reduce((total, { byteLength }) => total + byteLength, 0) <=
     8 * 1024 * 1024;
 
-const patchOperationsAreValid = (
-  operations: readonly Contract.PatchOperation[],
-): boolean =>
-  operations.every(
-    (operation) =>
-      operation.type !== "setAttributes" ||
-      Object.entries(operation.attributes).every(([name, value]) =>
-        isSafePatchAttribute(name, value),
-      ),
+const frameSemanticsAreValid = (frame: Contract.RenderFrame): boolean => {
+  const blockIds = new Set(frame.blocks.map(({ id }) => id));
+  const nodeIds = frame.blocks.flatMap(({ nodeIds }) => nodeIds);
+  return (
+    /^[0-9a-f]{64}$/.test(frame.rendererFingerprint) &&
+    blockIds.size === frame.blocks.length &&
+    new Set(nodeIds).size === nodeIds.length &&
+    frame.blocks.every(({ id, nodeIds: ids }) => ids.includes(id)) &&
+    navigationIsValid(frame.navigation) &&
+    assetsAreValid(frame.assets)
   );
-
-const publicationSemanticsAreValid = (
-  publication: Contract.RenderPublication,
-): boolean => {
-  if (!navigationIsValid(publication.navigation)) return false;
-  if (publication.type === "full") return assetsAreValid(publication.assets);
-  return patchOperationsAreValid(publication.operations);
 };
 
 const sourceNavigationSemanticsAreValid = (
@@ -234,23 +219,12 @@ const serverPreviewEventParamsSemanticsAreValid = (
       event.previewSessionId === params.previewSessionId &&
       event.renderRevision === params.renderRevision
     );
-  return (
-    publicationSemanticsAreValid(event) &&
-    event.previewSessionId === params.previewSessionId &&
-    event.resultRenderRevision === params.renderRevision
-  );
+  return false;
 };
 
 function semanticContractCheck(index: number, value: unknown): boolean {
-  if (index === TYPE_VALIDATORS.renderPublication)
-    return publicationSemanticsAreValid(value as Contract.RenderPublication);
-  if (index === TYPE_VALIDATORS.createPreviewResult) {
-    const result = value as Contract.CreatePreviewResult;
-    return (
-      publicationSemanticsAreValid(result.initialPublication) &&
-      result.initialPublication.previewSessionId === result.previewSessionId
-    );
-  }
+  if (index === TYPE_VALIDATORS.renderFrame)
+    return frameSemanticsAreValid(value as Contract.RenderFrame);
   if (index === TYPE_VALIDATORS.previewEventParams)
     return previewEventParamsSemanticsAreValid(
       value as Contract.PreviewEventParams,
@@ -279,19 +253,12 @@ export const isSourceRange = contractValidator<Contract.SourceRange>(
   "sourceRange",
   rangeOrderIsValid,
 );
-export const isRenderSnapshot = contractValidator<Contract.RenderSnapshot>(
-  "renderSnapshot",
-  publicationSemanticsAreValid,
+export const isRenderFrame = contractValidator<Contract.RenderFrame>(
+  "renderFrame",
+  frameSemanticsAreValid,
 );
-export const isRenderPatch = contractValidator<Contract.RenderPatch>(
-  "renderPatch",
-  publicationSemanticsAreValid,
-);
-export const isRenderPublication =
-  contractValidator<Contract.RenderPublication>(
-    "renderPublication",
-    publicationSemanticsAreValid,
-  );
+export const isPreviewChangedParams =
+  contractValidator<Contract.PreviewChangedParams>("previewChangedParams");
 export const isEditorNavigationEvent = contractValidator<EditorNavigationEvent>(
   "previewNavigationEvent",
 );
@@ -319,23 +286,16 @@ export function isWebviewInboundMessage(
   value: unknown,
 ): value is WebviewInboundMessage {
   if (!object(value)) return false;
-  if (value.type === "ready" || value.type === "requestSnapshot")
+  if (value.type === "ready" || value.type === "requestFrame")
     return Object.keys(value).length === 1;
-  if (value.type === "rendered")
-    return shape(value, {
-      type: (item) => item === "rendered",
-      previewSessionId: (item) => string(item) && item.length > 0,
-      renderRevision: (item) => safeInteger(item) && item >= 1,
-    });
   return isEditorNavigationEvent(value);
 }
 
-export type PreviewHostEvent =
-  Contract.RenderPublication | PreviewNavigationEvent;
+export type PreviewHostEvent = Contract.RenderFrame | PreviewNavigationEvent;
 export const isPreviewHostEvent: Validator<PreviewHostEvent> = (
   value,
 ): value is PreviewHostEvent =>
-  isRenderPublication(value) || isPreviewNavigationEvent(value);
+  isRenderFrame(value) || isPreviewNavigationEvent(value);
 
 type RequestParamsValidators = {
   [Method in keyof CustomRequestMap]: Validator<

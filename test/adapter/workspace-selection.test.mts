@@ -2,71 +2,12 @@ import * as assert from "node:assert/strict";
 
 import {
   findVisibleSourceEditor,
-  previewEventAction,
   selectWorkspaceUri,
   sourcePositionToCharacter,
   sourcePositionWithinLine,
 } from "../../adapters/vscode/src/adapter.mjs";
-import type { PreviewEvent } from "../../adapters/vscode/src/protocol.mjs";
 
 export const suiteName = "Multi-root workspace adapter";
-
-function previewMessage(
-  renderRevision: number,
-  event: PreviewEvent["event"],
-): PreviewEvent {
-  return {
-    daemonInstanceId: "daemon",
-    previewSessionId: "preview",
-    renderRevision,
-    event,
-  };
-}
-
-function fullPreview(
-  documentVersion: number,
-  resultRenderRevision: number,
-): PreviewEvent["event"] {
-  return {
-    type: "full",
-    previewSessionId: "preview",
-    documentVersion,
-    resultRenderRevision,
-    rendererFingerprint: "sha256:renderer",
-    nodeIds: ["document-root"],
-    navigation: [],
-    style: null,
-    assets: [],
-    html: '<main data-fleximark-node-id="document-root"></main>',
-  };
-}
-
-function patchPreview(
-  baseRenderRevision: number,
-  resultRenderRevision: number,
-): PreviewEvent["event"] {
-  return {
-    type: "patch",
-    previewSessionId: "preview",
-    documentVersion: 2,
-    baseRenderRevision,
-    resultRenderRevision,
-    baseRendererFingerprint: "sha256:renderer",
-    resultRendererFingerprint: "sha256:renderer",
-    navigation: [],
-    style: null,
-    operations: [],
-  };
-}
-
-function viewportPreview(renderRevision: number): PreviewEvent["event"] {
-  return {
-    type: "viewport",
-    previewSessionId: "preview",
-    renderRevision,
-    nodeId: "a",
-  };
-}
 
 export function suite(): void {
   const workspaces = [
@@ -150,33 +91,6 @@ export function suite(): void {
         encoding: "utf32",
       }),
       false,
-    );
-  });
-
-  test("classifies current, stale, and discontinuous preview revisions", () => {
-    assert.equal(
-      previewEventAction(4, previewMessage(4, fullPreview(1, 4))),
-      "ignore",
-    );
-    assert.equal(
-      previewEventAction(4, previewMessage(4, fullPreview(2, 5))),
-      "apply",
-    );
-    assert.equal(
-      previewEventAction(4, previewMessage(5, patchPreview(4, 5))),
-      "apply",
-    );
-    assert.equal(
-      previewEventAction(4, previewMessage(6, patchPreview(5, 6))),
-      "reload",
-    );
-    assert.equal(
-      previewEventAction(4, previewMessage(3, viewportPreview(3))),
-      "ignore",
-    );
-    assert.equal(
-      previewEventAction(4, previewMessage(4, viewportPreview(4))),
-      "apply",
     );
   });
 

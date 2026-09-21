@@ -19,7 +19,9 @@ export async function activate(
   adapter = new FlexiMarkAdapter(context);
   const activatedAdapter = adapter;
   const isActive = () => adapter === activatedAdapter;
-  const migrator = new LegacyWorkspaceMigrator();
+  const migrator = new LegacyWorkspaceMigrator((workspace, command, args) =>
+    activatedAdapter.executeMigrationCommand(workspace, command, args),
+  );
   let migrationQueue = Promise.resolve();
   const offerMigration = (workspace: vscode.WorkspaceFolder): Promise<void> => {
     const result = migrationQueue.then(async () => {
@@ -27,7 +29,13 @@ export async function activate(
       const stillOpen = vscode.workspace.workspaceFolders?.some(
         (folder) => folder.uri.toString() === workspace.uri.toString(),
       );
-      if (stillOpen) await migrator.offer(workspace);
+      if (!stillOpen) return;
+      await Promise.all(
+        (vscode.workspace.workspaceFolders ?? []).map((folder) =>
+          activatedAdapter.start(folder),
+        ),
+      );
+      if (isActive()) await migrator.offer(workspace);
     });
     migrationQueue = result.catch(() => undefined);
     return result;

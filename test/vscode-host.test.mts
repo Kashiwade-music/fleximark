@@ -6,7 +6,7 @@ import { previewRuntimes } from "../web/preview-client/runtimes.mjs";
 export const suiteName = "VS Code preview host";
 
 export function suite(): void {
-  test("acknowledges a Mermaid snapshot before asynchronous enhancement completes", async () => {
+  test("applies a frame without a rendered acknowledgement", async () => {
     const names = [
       "document",
       "HTMLElement",
@@ -27,23 +27,9 @@ export function suite(): void {
       '<!doctype html><html><head><meta name="fleximark-message-token" content="token"></head><body><main id="preview"></main></body></html>',
     );
     const messages: unknown[] = [];
-    const originalMermaidRender = previewRuntimes.mermaid.render;
-    let mermaidRenderCount = 0;
-    let resolveMermaid!: (value: { svg: string }) => void;
-    const mermaidRender = new Promise<{ svg: string }>((resolve) => {
-      resolveMermaid = resolve;
-    });
-    const dispatchMessage = (data: unknown) => {
-      const event = new window.Event("message");
-      Object.defineProperty(event, "data", { value: data });
-      window.dispatchEvent(event);
-    };
-
+    const originalRender = previewRuntimes.mermaid.render;
     try {
-      previewRuntimes.mermaid.render = () => {
-        mermaidRenderCount += 1;
-        return mermaidRender;
-      };
+      previewRuntimes.mermaid.render = async () => ({ svg: "<svg></svg>" });
       Object.defineProperties(globalThis, {
         document: { configurable: true, value: window.document },
         HTMLElement: { configurable: true, value: window.HTMLElement },
@@ -62,49 +48,45 @@ export function suite(): void {
           }),
         },
       });
-
       await import("../web/preview-client/vscode-host.mjs");
       assert.deepEqual(messages, [{ type: "ready" }]);
-
-      dispatchMessage({
-        type: "initializePreview",
-        messageToken: "token",
-        publication: {
-          ...snapshot(),
-          previewSessionId: "mermaid-preview",
-          resultRenderRevision: 8,
-          nodeIds: ["document-root", "mermaid"],
-          navigation: [
-            {
-              ...snapshot().navigation[0],
-              nodeId: "mermaid",
-            },
-          ],
-          html: '<main data-fleximark-node-id="document-root"><div data-fleximark-node-id="mermaid" data-fleximark-kind="mermaid"><script type="application/json">"graph TD; A--&gt;B"</script></div></main>',
+      const event = new window.Event("message");
+      Object.defineProperty(event, "data", {
+        value: {
+          type: "previewFrame",
+          messageToken: "token",
+          frame: frame(),
         },
       });
-      assert.deepEqual(messages.at(-1), {
-        type: "rendered",
-        previewSessionId: "mermaid-preview",
-        renderRevision: 8,
-      });
-      assert.equal(mermaidRenderCount, 1);
-      assert.equal(window.document.querySelector("svg"), null);
-      const acknowledgedMessageCount = messages.length;
-      resolveMermaid({ svg: "<svg></svg>" });
-      await mermaidRender;
+      window.dispatchEvent(event);
       await Promise.resolve();
       await Promise.resolve();
-      assert.equal(messages.length, acknowledgedMessageCount);
       assert.ok(window.document.querySelector("svg"));
+      assert.deepEqual(messages, [{ type: "ready" }]);
 
-      window.dispatchEvent(new window.Event("unload"));
+      const invalid = new window.Event("message");
+      Object.defineProperty(invalid, "data", {
+        value: {
+          type: "previewFrame",
+          messageToken: "token",
+          frame: { ...frame(), blocks: "invalid" },
+        },
+      });
+      window.dispatchEvent(invalid);
+      assert.ok(window.document.querySelector("svg"));
+      window.dispatchEvent(invalid);
+      assert.deepEqual(messages, [{ type: "ready" }, { type: "requestFrame" }]);
+      assert.equal(window.document.querySelector("svg"), null);
       assert.equal(
-        window.document.querySelectorAll("style[data-fleximark-theme]").length,
-        0,
+        window.document.querySelector("#preview")?.textContent,
+        "Preview unavailable. Reopen it to retry.",
       );
+
+      window.dispatchEvent(event);
+      assert.equal(window.document.querySelector("svg"), null);
+      assert.deepEqual(messages, [{ type: "ready" }, { type: "requestFrame" }]);
     } finally {
-      previewRuntimes.mermaid.render = originalMermaidRender;
+      previewRuntimes.mermaid.render = originalRender;
       for (const name of names) {
         const descriptor = descriptors.get(name);
         if (descriptor) Object.defineProperty(globalThis, name, descriptor);
@@ -114,28 +96,22 @@ export function suite(): void {
   });
 }
 
-function snapshot() {
+function frame() {
   return {
-    type: "full" as const,
     previewSessionId: "preview",
-    documentVersion: 3,
-    resultRenderRevision: 7,
-    rendererFingerprint: "sha256:renderer",
-    nodeIds: ["document-root", "paragraph"],
-    navigation: [
-      {
-        nodeId: "paragraph",
-        sourceRange: {
-          byteStart: 0,
-          byteEnd: 5,
-          start: { line: 0, character: 0, encoding: "utf8" as const },
-          end: { line: 0, character: 5, encoding: "utf8" as const },
-        },
-        depth: 0,
-      },
-    ],
+    documentVersion: 1,
+    renderRevision: 1,
+    rendererFingerprint: "a".repeat(64),
     style: null,
     assets: [],
-    html: '<main data-fleximark-node-id="document-root"><p data-fleximark-node-id="paragraph">ready</p></main>',
+    blocks: [
+      {
+        id: "mermaid",
+        nodeIds: ["mermaid"],
+        html: '<div data-fleximark-node-id="mermaid" data-fleximark-kind="mermaid"><script type="application/json">"graph TD; A--&gt;B"</script></div>',
+      },
+    ],
+    navigation: [],
+    annotations: {},
   };
 }

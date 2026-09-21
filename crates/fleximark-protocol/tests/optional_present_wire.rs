@@ -20,7 +20,7 @@ struct Case {
 
 fn fixture() -> Fixture {
     serde_json::from_str(include_str!(
-        "../../../test/fixtures/protocol-v1-optional-present.json"
+        "../../../test/fixtures/protocol-v2-optional-present.json"
     ))
     .unwrap()
 }
@@ -37,7 +37,7 @@ fn case<'a>(fixture: &'a Fixture, definition: &str) -> &'a Value {
 #[test]
 fn optional_present_fixture_matches_directional_public_dtos() {
     let fixture = fixture();
-    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.schema_version, 2);
     assert_eq!(fixture.cases.len(), 5);
 
     let initialize: InitializeParams =
@@ -68,7 +68,7 @@ fn optional_present_fixture_matches_directional_public_dtos() {
     assert_eq!(execute.note_template.as_deref(), Some("daily"));
 
     let initialize_result = InitializeResult {
-        protocol_version: 1,
+        protocol_version: 2,
         daemon_instance_id: "daemon".into(),
         workspace_statuses: vec![WorkspaceStatus {
             uri: "file:///workspace".into(),
@@ -92,7 +92,6 @@ fn optional_present_fixture_matches_directional_public_dtos() {
     let create_preview_result = CreatePreviewResult {
         preview_session_id: "preview".into(),
         url: Some("http://127.0.0.1:3000/preview".into()),
-        initial_publication: create_preview["initialPublication"].clone(),
     };
     assert_eq!(
         serde_json::to_value(create_preview_result).unwrap(),
@@ -105,6 +104,7 @@ fn optional_present_fixture_matches_directional_public_dtos() {
             text: "review note".into(),
         }),
         open_uri: Some("file:///workspace/note.md".into()),
+        data: None,
     };
     assert_eq!(
         serde_json::to_value(command_result).unwrap(),
@@ -113,6 +113,6 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
     assert_eq!(
         case(&fixture, "initializeParams")["protocolVersion"],
-        json!(1)
+        json!(2)
     );
 }
