@@ -1,327 +1,254 @@
-# FlexiMark architecture
+# FlexiMark アーキテクチャ
 
-This document records the architecture that is implemented in this repository. It is a
-baseline for compatibility-preserving changes, not a description of a future design.
-Capability-level ownership is machine-readable in
-[`capabilities/feature-inventory.json`](capabilities/feature-inventory.json). The Rust method
-registry and wire DTOs define its structure; Rust-owned generator policy defines additional scalar
-constraints such as hashes, MIME types, and JavaScript-safe integers. Together they are the only
-human-edited source of the FlexiMark custom protocol. `fleximark-protocol-codegen` deterministically derives
-[`schemas/protocol.schema.json`](schemas/protocol.schema.json) and
-`web/preview-client/protocol.generated.mts`; adapters consume those artifacts instead of defining
-an editor-specific copy of the contract. Handwritten TypeScript refinements enforce stateful and
-cross-field rules without redefining the generated wire shapes.
+本書はリポジトリの実装・設定・テストを調査して記述した、現在の構成の説明である。
 
-## Runtime composition and dependency direction
+## 1. 全体構成と責務
 
-The VS Code extension is the normal composition root. One adapter process owns one
-`fleximarkd lsp` child process for all folders in a VS Code window. The daemon owns the
-authoritative document sessions and serves both embedded and external previews.
+FlexiMark は、Rust の文書処理基盤、VS Code 用 TypeScript アダプター、ブラウザで動く共通プレビュークライアントで構成される。Markdown の解析、文書モデル、レンダリング、ワークスペース操作は Rust 側が担う。VS Code は編集内容と操作をサービスへ伝え、プレビュークライアントは受信した HTML と差分を表示する。
 
-```text
-VS Code
-  -> adapters/vscode (window lifecycle, UI, commands, daemon lifecycle)
-     -> fleximarkd lsp over Content-Length framed JSON-RPC/LSP
-        -> fleximark-lsp (authoritative document/session registry)
-           -> fleximark-engine (parse/transform/validate/render pipeline)
-        -> fleximark_service (workspace commands, assets, export transactions)
-        -> loopback preview HTTP/SSE server
-           -> web/preview-client
-
-fleximark CLI
-  -> fleximark-engine + fleximark_service directly (no JSON-RPC transport)
+```mermaid
+flowchart TB
+    VS[VS Code Extension Host]
+    Adapter[adapters/vscode]
+    Daemon[fleximarkd]
+    Registry[fleximark-lsp / SessionRegistry]
+    Engine[fleximark-engine]
+    Parser[fleximark-parser / comrak]
+    Model[fleximark-model]
+    Renderer[fleximark-render-html]
+    Plugins[fleximark-plugin-host / Wasmtime]
+    Service[fleximark_service]
+    CLI[fleximark CLI]
+    Webview[VS Code Webview]
+    Browser[外部ブラウザ]
+    Client[web/preview-client 共通表示処理]
+    Disk[ワークスペース / 出力ファイル]
+    VS --> Adapter
+    Adapter <-->|stdio: LSP + FlexiMark JSON-RPC| Daemon
+    Daemon --> Registry
+    Registry --> Engine
+    Engine --> Parser
+    Parser --> Model
+    Engine --> Renderer
+    Renderer --> Model
+    Engine --> Plugins
+    Daemon --> Service
+    CLI --> Engine
+    CLI --> Service
+    Service --> Disk
+    Adapter <-->|Webview メッセージ| Webview
+    Daemon <-->|HTTP / SSE / navigation POST| Browser
+    Webview --> Client
+    Browser --> Client
 ```
 
-The acyclic internal Rust crate graph below lists direct normal/runtime repository dependencies.
-Third-party and test-only development dependencies are omitted; the latter add parser test
-fixtures to `fleximark-plugin-host` and `fleximark-render-html` without changing the runtime DAG.
+この図は主要な実行時の連携を表す。Cargo の全依存関係を列挙したものではない。特に `fleximark_service` は別パッケージではなく、`crates/fleximarkd/Cargo.toml` の `[lib]` で定義されたライブラリ名であり、デーモンと CLI から共有される。
 
-```text
-fleximark-model
-  <- fleximark-parser
-  <- fleximark-render-html
-  <- fleximark-plugin-sdk
-  <- fleximark-protocol
+| 配置                                 | 主な責務                                                                                 |
+| ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `adapters/vscode/src/`               | 拡張の起動、コマンド・言語機能の登録、デーモン監視、文書同期、Webview とエディターの連携 |
+| `crates/fleximark-wire/`             | JavaScript と交換可能な整数型 `JsSafeU64` などの基礎的な通信型                           |
+| `crates/fleximark-model/`            | `Document`、ブロック・インライン、NodeId、ソース位置と生成元情報、モデル検証             |
+| `crates/fleximark-parser/`           | comrak の解析結果を FlexiMark の文書モデルへ変換                                         |
+| `crates/fleximark-render-html/`      | 文書モデルからポリシーに従う HTML、ノード一覧、ナビゲーション情報を生成                  |
+| `crates/fleximark-engine/`           | 文書セッション、解析・変換パイプライン、NodeId の維持、描画キャッシュと差分              |
+| `crates/fleximark-lsp/`              | セッション登録、文書同期、位置変換・検索、ワークスペースとの対応管理                     |
+| `crates/fleximark-protocol/`         | JSON-RPC フレーム、メソッドと要求・応答・通知の契約                                      |
+| `crates/fleximark-protocol-codegen/` | Rust の通信契約から JSON Schema と TypeScript を生成                                     |
+| `crates/fleximarkd/`                 | LSP/RPC サーバー、HTTP プレビュー配信、ファイル操作サービス                              |
+| `crates/fleximark-cli/`              | レンダリング、ワークスペース操作、HTML 出力、ベンチマークの CLI                          |
+| `crates/fleximark-plugin-sdk/`       | プラグイン契約、WIT、マニフェスト、ワークスペース設定型                                  |
+| `crates/fleximark-plugin-host/`      | プラグインの検証・実行、権限制御、変換結果の検証                                         |
+| `web/preview-client/`                | HTML の検証・適用、描画補助、ソースとの双方向ナビゲーション                              |
 
-fleximark-model + fleximark-plugin-sdk
-  <- fleximark-plugin-host
+## 2. プロセスと通信契約
 
-model + parser + render-html + plugin-sdk + plugin-host
-  <- fleximark-engine
+VS Code のエントリーポイントは `adapters/vscode/src/extension.mts`、配布時は `dist/extension.cjs` である。`FlexiMarkAdapter` が接続を統括し、`DaemonSupervisor` が `fleximarkd lsp` を子プロセスとして起動する。一つのアダプターが一つのデーモンを管理し、複数ルートのワークスペースはその接続内で扱う。アダプター側にはワークスペースごとの `WorkspaceRuntime` があり、文書とプレビューの状態を分けて保持する。
 
-model + render-html + plugin-host + engine + protocol
-  <- fleximark-lsp
+標準入出力では `Content-Length` フレームの JSON-RPC 2.0 を使う。LSP の `initialize` / `initialized` に続けて `fleximark/initialize` を呼び、プロトコルバージョン、クライアント能力、ワークスペース URI と信頼状態を交換する。VS Code は位置の符号化に UTF-16 を指定する。サービス側には UTF-8・UTF-16・UTF-32 の位置処理がある。
 
-model + render-html + plugin-sdk + plugin-host + engine + lsp + protocol
-  <- fleximarkd (the fleximark_service library and fleximarkd binary)
+LSP は文書の開閉・更新、補完、ホバー、文書シンボル、診断、コードアクションを受け持つ。FlexiMark 独自メソッドは文書への接続確認、プレビュー作成・再読込、選択・スクロール連携、ワークスペース再設定、ノート作成やエクスポートなどを受け持つ。`fleximarkd rpc` は LSP の文書通知を使わず、独自の open/change/close メソッドを提供する別の起動モードである。
 
-model + parser + render-html + plugin-host + engine + fleximark_service
-  <- fleximark CLI
+`transport/stdio.rs` は入力読取と出力書込を別スレッドに置き、サーバーの要求処理をキューで直列化する。入力側でキャンセル情報を更新できるため、処理中のプラグイン実行や古い結果の公開を取り消せる。ログは標準エラーへ出力し、標準出力の RPC フレームと分離する。
+
+通信型の正本は Rust 側にある。生成物は `schemas/protocol.schema.json` と `web/preview-client/protocol.generated.mts` で、アダプターとプレビューの双方がこの契約を利用する。実行時の受信値も検証する。`JsSafeU64` は Rust と JavaScript の整数精度の違いを通信境界で扱う。
+
+## 3. 文書モデルとレンダリング
+
+`Document` は URI、文書バージョン、メタデータ、ブロック列を保持する。ブロックは `NodeId`、種類、属性、子ノード、`SourceProvenance` を持つ。見出しやリストだけでなく、Mermaid、ABC 記譜、数式、admonition、tabs、details、メディア、プラグイン用ブロックもモデルに表現される。
+
+解析は comrak で Markdown を読み、独自モデルへ変換して検証する。comrak の AST をそのまま外部へ渡す構成ではない。ソース範囲には UTF-8 のバイト位置などを持ち、生成・変換されたノードも生成元を追跡する。これをプレビューとエディターの位置対応に利用する。
+
+文書更新時の処理順序は次のとおり。
+
+1. プラグインが有効ならソースの前処理を実行する。
+2. 全文を解析して新しい文書モデルを作り、前処理の位置対応を元ソースへ戻す。
+3. 旧モデルと照合して NodeId を維持し、モデルを検証する。
+4. プラグインのブロック変換、文書変換を順に適用し、結果を検証してセッションへ反映する。
+5. 描画時にプラグインの描画モデル拡張を実行し、HTML と位置対応を生成する。
+
+現在の実装は、更新後の全文を再解析したうえで描画結果の差分を生成する。差分配信と構文解析の増分処理は区別する必要がある。VS Code アダプターの `didChange` も、各編集で現在の全文を送信する。
+
+エンジンはプレビューごとに描画済みブロック、描画 revision、renderer fingerprint を保存する。初回または fingerprint が変わった場合は `RenderPublication::Full`、同じ描画条件で更新する場合は `Patch` を返す。差分の契約には insert / remove / replace / move / setAttributes があり、各操作はノードと親などの前提条件を持つ。
+
+| 識別子・値            | 意味                                               |
+| --------------------- | -------------------------------------------------- |
+| `daemonInstanceId`    | 起動中のデーモンを識別し、再起動前の応答を区別する |
+| `documentSessionId`   | デーモン上の開いている文書を識別する               |
+| `documentVersion`     | 編集内容の世代を示す                               |
+| `previewSessionId`    | 同じ文書に対する個々のプレビューを識別する         |
+| `renderRevision`      | プレビューごとの描画世代を示す                     |
+| `rendererFingerprint` | 描画条件の一致を判定し、差分を適用できるか決める   |
+| `NodeId`              | 文書モデルと描画されたブロックを対応付ける         |
+
+文書の version と描画 revision は別物である。同じ文書でも複数のプレビューがあり、それぞれが独立した描画履歴を持つ。
+
+## 4. 編集からプレビュー更新まで
+
+```mermaid
+sequenceDiagram
+    participant E as VS Code エディター
+    participant A as アダプター
+    participant D as fleximarkd
+    participant R as SessionRegistry / Engine
+    participant P as Webview プレビュー
+    A->>D: initialize / initialized
+    A->>D: fleximark/initialize
+    D-->>A: daemonInstanceId・能力・workspaceStatuses
+    E->>A: 文書を開く
+    A->>D: textDocument/didOpen（全文・version）
+    D->>R: 解析して文書セッションを登録
+    A->>D: fleximark/attachDocument（version・SHA-256）
+    D-->>A: documentSessionId
+    A->>D: fleximark/createPreview
+    D->>R: 初回描画
+    D-->>A: プレビュー情報と Full
+    A->>P: ハンドシェイク後に初期表示
+    E->>A: 文書を編集
+    A->>D: textDocument/didChange（更新後の全文）
+    D->>R: 再解析・変換・アセット更新・描画
+    D-->>A: fleximark/previewEvent（Full または Patch）
+    A->>P: previewEvent
+    P->>P: 契約と前提条件を検証して反映
+    A->>D: fleximark/checkpointDocument（編集停止後にハッシュ照合）
+    alt 差分を適用できない
+        P->>A: スナップショット再取得を要求
+        A->>D: fleximark/reloadPreview
+        D-->>A: Full
+        A->>P: 全体を再同期
+    end
 ```
 
-The TypeScript adapter imports protocol and RPC modules plus preview DTO types. The two preview
-hosts import the shared preview document, host, navigation, enhancement, and runtime modules.
-Neither the shared preview client nor the Rust core imports VS Code APIs.
+`document-coordinator.mts` は初回接続時とチェックポイントで本文の SHA-256 を送信する。チェックポイントは編集通知の後、150 ms の遅延でまとめる。version やハッシュが一致しない文書は同期不良として扱われ、`fleximark/requestFullText` により全文を再送できる。
 
-TypeScript checking uses a project-reference graph rooted at `tsconfig.json`. Shared strict and
-emit settings live in `tsconfig.base.json`; the browser project owns DOM ambient types, the
-adapter project owns Node and VS Code ambient types, the pure unit project owns Node, Mocha, and
-DOM test types, and the Electron project owns Node, Mocha, and VS Code test types. `tsc -b` is the
-canonical type-check entry point. Declaration-only output and each project's build metadata live
-under separate `out/types` directories, while esbuild remains the only producer of shipped
-JavaScript.
+プレビューの準備完了前に届いたイベントは `preview-coordinator.mts` が一時保持する。接続世代、デーモン ID、プレビューの生存状態を確認し、キューの上限超過や履歴不一致時は全体再取得へ切り替える。
 
-## Component owners
+デーモンが終了すると `DaemonSupervisor` が再起動を管理する。再接続後はプロトコルとワークスペースを初期化し、VS Code が保持する文書を再送し、プレビューを再作成する。旧セッション ID を無効化し、古い接続から遅れて届いた結果が新しい表示へ混入しないようにする。繰り返し失敗した場合は再試行やログ表示の UI を提示する。
 
-| Owner | Source | Responsibility |
-| --- | --- | --- |
-| Adapter | `adapters/vscode`; `adapter.mts` facade plus daemon, document, preview, registration, runtime-state, and pure policy modules | VS Code composition, settings, daemon recovery, document synchronization, preview lifecycle, diagnostics, commands, providers and editor/workspace events |
-| Protocol | `crates/fleximark-protocol`, `crates/fleximark-protocol-codegen`, generated `schemas/protocol.schema.json` and `web/preview-client/protocol.generated.mts`, handwritten refinements in `web/preview-client/protocol.mts` (`adapters/vscode/src/protocol.mts` re-exports it), `adapters/vscode/src/rpc.mts` | Rust-owned custom-method registry and wire DTOs, generated editor-neutral contracts, semantic runtime validation and stdio framing |
-| Daemon | `crates/fleximarkd/src/main.rs` facade plus `transport`, `cancellation`, `server`, `preview_http`, and `telemetry` modules | LSP/custom RPC routing, cancellation, preview server and process-level composition |
-| Service | `crates/fleximarkd/src/lib.rs` facade and its private responsibility modules (`fleximark_service`) | Trusted workspace configuration, notes, themes, local assets and recoverable export filesystem transactions |
-| LSP/session | `crates/fleximark-lsp` with private `index`, `workspace`, and `error` modules | URI-to-session authority, document versions, workspace configuration selection, diagnostics/navigation and preview publication state |
-| Engine | `crates/fleximark-engine` facade with private `session`, `pipeline`, `render`, `diff`, `identity`, `provenance`, `assets`, and `error` modules | Plugin-aware parse/transform/validation pipeline and full/patch render policy |
-| Model | `crates/fleximark-model` | IR, node identity, source provenance and navigation data |
-| Parser | `crates/fleximark-parser` | Markdown/Comrak AST to validated FlexiMark IR |
-| HTML renderer | `crates/fleximark-render-html` | Safe HTML and render-model serialization |
-| Plugin SDK/host | `crates/fleximark-plugin-sdk`; `crates/fleximark-plugin-host` facade with private `runtime`, `package`, `pipeline`, `edit_map`, `candidate`, and `error` modules | Manifest/WIT contract, package verification, Wasmtime sandbox and hook transactions |
-| Preview client | `web/preview-client`; `index.mts` and `enhance.mts` facades plus security, asset, patch, host/transport and feature modules | Atomic full/patch DOM application, navigation, host failure isolation and opt-in enhancement runtimes |
-| CLI | `crates/fleximark-cli` | Direct render, benchmark and workspace/service commands |
-| Release | `scripts/_targets.py`, `scripts/release_artifact.py`, `scripts`, `.github/workflows`, `bin/manifest.json` | Supported target identity, build order, six-platform daemon assembly, exact-artifact identity, VSIX validation and publishing |
+## 5. 共通プレビューとブラウザ配信
 
-The capability inventory is the detailed owner map. In particular, adapter settings remain in
-`package.json`; note, asset, plugin, theme and export policy remain service-owned workspace
-configuration; Markdown semantics remain engine-owned; Mermaid/ABC enhancement remains
-preview-client-owned.
+`PreviewHost` は `PreviewDocument`、`PreviewEnhancer`、`PreviewNavigation` を組み合わせる。VS Code 用の `vscode-host.mts` と外部ブラウザ用の `browser-host.mts` は通信方法を分担し、共通の表示処理を使う。
 
-`capabilities/v0.16.14-inventory.json` is retained as an immutable audit baseline captured from
-the matching `v0.16.14` tag. It is not an input to current architecture verification; it exists
-to compare historical public commands, settings, and package contributions when evaluating an
-explicit clean break. `capabilities/feature-inventory.json` remains the current owner map.
+`PreviewDocument` は HTML、ノード ID、アセット、位置対応、スタイルを検証する。Patch はセッション、base revision、fingerprint を照合し、`patch-transaction.mts` で複製した DOM 上の操作を検証してから反映する。古い revision は無視し、不整合は再取得を要求する。アセットは検証済みデータから表示用 URL を作り、不要になった URL を解放する。
 
-Within `fleximark_service`, `lib.rs` is a compatibility facade that explicitly re-exports the
-existing public operations and types. `workspace.rs`, `notes.rs`, `theme.rs`, `assets.rs`,
-`plugins.rs`, `uri.rs`, and `error.rs` own their named responsibilities. `export/mod.rs` owns the
-export coordinator and public export operations, while its private `model`, `journal`,
-`filesystem`, and `recovery` modules own the persistent representation, digest-chained journal,
-filesystem primitives, and crash recovery respectively. These module boundaries do not add new
-public module paths or alter transaction ordering.
+`PreviewEnhancer` は Mermaid、abcjs、KaTeX による表示、YouTube、タブ、コード強調などを担当する。Rust が生成する構造と、ブラウザ内で実行する図・音楽・数式の描画を分けている。非同期描画の世代を確認し、更新・破棄時には音声などの資源を停止する。
 
-Within the `fleximarkd` binary, `main.rs` owns CLI mode selection and standalone-preview
-composition. `transport/stdio.rs` owns framed process I/O and the ordered per-message dispatch
-operation; `cancellation.rs` owns request/document generations and cancellation tokens.
-`server/routing.rs` selects mode-scoped handlers, while `server/lsp.rs`, `server/rpc.rs`,
-`server/commands.rs`, and `server/diagnostics.rs` own their respective request operations.
-`preview_http.rs` owns the bounded loopback listener, request parsing, authority policy, SSE
-history, navigation and exact HTTP responses. `telemetry.rs` owns redacted operational traces.
-All of these modules are private implementation boundaries of the binary.
+外部プレビューの HTTP サーバーは Rust の `preview_http.rs` にあり、`127.0.0.1` の OS が割り当てるポートで待ち受ける。URL は推測困難なトークンを含む `/preview/{token}` である。
 
-Within `fleximark-engine`, `lib.rs` preserves the existing public type and method paths as an
-explicit facade. `pipeline.rs` prepares a document candidate through preprocess, parse,
-provenance remap, identity reconciliation, base validation, block/document transforms and final
-validation; `session.rs` commits a successful candidate and owns synchronization and preview
-cache state. `render.rs` prepares fingerprints, rendered blocks and revisions, builds full or
-patch publications and commits cache state only after publication construction succeeds.
-`diff.rs`, `identity.rs`, `provenance.rs`, `assets.rs`, and `error.rs` are one-directional leaf or
-supporting owners; the private module dependency graph is acyclic.
+```mermaid
+sequenceDiagram
+    participant A as VS Code アダプター
+    participant D as fleximarkd
+    participant H as PreviewServer
+    participant B as 外部ブラウザ
+    A->>D: createPreview（externalBrowser）
+    D->>H: 初期 Full とトークンを登録
+    D-->>A: プレビュー URL
+    A->>B: URL を開く
+    B->>H: GET /preview/{token}
+    H-->>B: HTML シェルと共通クライアント
+    B->>H: GET /preview/{token}/events
+    H-->>B: SSE で描画・ナビゲーションイベントを配信
+    A->>D: didChange
+    D->>H: 描画結果を更新
+    H-->>B: SSE で更新を配信
+    B->>H: POST /preview/{token}/navigation
+    H-->>A: stdio の previewEvent（ソース位置への移動）
+    A->>A: エディターの選択・表示位置を変更
+```
 
-Within `fleximark-plugin-host`, `lib.rs` preserves the existing public type and method paths as
-an explicit facade. `runtime/wasmtime.rs` owns Component execution, WASI preopens, resource
-limits and cancellation; `package.rs` owns signature and hash verification plus registered
-package state. `pipeline.rs` owns ordered hook orchestration, with only the workspace-trust gate
-and required/optional failure disposition shared across hooks. Hook-specific validation and
-transaction commit points remain local. `edit_map.rs`, `candidate.rs`, and `error.rs` are private
-supporting owners; the module dependency graph is acyclic and does not depend back on the facade.
+ブラウザの更新受信は EventSource/SSE、逆方向の操作は HTTP POST である。配信履歴と revision を使って再接続を扱う。Host / Origin、トークン、入力サイズなどを検査し、CSP を設定する。Webview 側はメッセージトークンとハンドシェイクを使う。
 
-Within `fleximark-lsp`, the private `SessionIndex` owns the forward URI-to-document map and the
-reverse session-ID-to-URI map as one invariant. Private key newtypes keep URI and session identity
-distinct until values cross the public protocol boundary. `WorkspaceAuthority` owns the default
-compatibility configuration and the ordered rooted configurations, including the existing raw
-longest segment-prefix matching policy. `error.rs` is the single EngineError-to-SessionError
-mapping boundary. Registry operations retain their public signatures and delegate lookup and
-configuration selection to these owners.
+選択・スクロール連携ではソース範囲と NodeId の対応を利用する。エディターからは `setSelection` / `setViewport`、プレビューからはソース移動イベントを送る。アダプター側には、連携によって発生したエディターイベントをそのまま送り返すループを抑制する処理がある。
 
-Within the VS Code adapter, `DaemonSupervisor` is a framework-independent owner of daemon
-process/RPC identity, concurrent startup, workspace revisions, restart/backoff, recovery status,
-and shutdown. Process, clock, timer, RPC, logging, status, and replay effects are injected by the
-`FlexiMarkAdapter` facade. `release-manifest.mts` verifies the selected bundled executable before
-spawn; `workspace-selection.mts`, `position.mts`, and `error-policy.mts` own their pure policies.
-`document-coordinator.mts` owns didOpen/didChange/didClose, attach/checkpoint and full-text recovery;
-`preview-coordinator.mts` owns candidate identity, bounded pre-registration events, readiness,
-publication recovery, panels, external URLs, disposal/recreation, navigation and echo suppression.
-`diagnostics.mts` converts validated protocol diagnostics. `commands.mts`, `providers.mts`, and
-`events.mts` register their VS Code surfaces, while `runtime-state.mts` is the shared in-memory
-shape. The facade supplies VS Code and supervisor effects and remains the public adapter API.
+## 6. ワークスペースとファイル操作
 
-Within the preview client, `index.mts` remains the `PreviewDocument` compatibility facade and the
-only owner of live DOM, revision, navigation, style and blob-URL commits. `content-security.mts`,
-`assets.mts`, `patch-attributes.mts` and `patch-transaction.mts` prepare and validate detached
-snapshot or patch candidates without committing live state. `enhance.mts` remains the
-`PreviewEnhancer` facade and owns generation, fingerprint, tab and audio lifetimes; the functions
-under `enhancers/` render Mermaid, ABC, math, YouTube, tabs and code highlighting. `host.mts`
-sequences publications and observes asynchronous enhancement, while the browser navigation
-transport owns pending POST cancellation. VS Code rendered acknowledgements still confirm the
-core DOM commit and do not wait for asynchronous enhancement.
+`.fleximark/config.toml` は Rust サービスが読むワークスペース設定であり、ノートの命名・カテゴリ・テンプレート、アセットのルート、生 HTML の扱い、プラグイン設定を保持する。型は `fleximark-plugin-sdk`、スキーマは `schemas/config.schema.json` にある。テーマは `.fleximark/theme.css` を使う。
 
-## Entry points
+VS Code 設定はデーモンの場所、表示先、表示列、自動プレビュー、ログレベルなど、エディター統合に関わるものを担当する。旧 `.fleximark/fleximark.json` の移行処理は `workspace-migration*.mts` に隔離されている。
 
-- `package.json` activates `dist/extension.cjs`, bundled from
-  `adapters/vscode/src/extension.mts`, for Markdown documents or
-  `.fleximark/config.toml` workspaces.
-- `fleximarkd lsp` is the VS Code transport and combines standard LSP with `fleximark/*`
-  methods. `fleximarkd rpc` exposes the custom protocol without LSP, and
-  `fleximarkd serve <document>` starts a standalone loopback preview.
-- The `fleximark` binary supports `render`, `benchmark`, `init`, `edit-theme`, `create-note`,
-  `collect-admonitions`, `export`, and `ack-export`.
-- `web/preview-client/vscode-host.mts` is bundled for the webview;
-  `web/preview-client/browser-host.mts` is bundled for the loopback browser preview and embedded
-  into the daemon.
-- `mise.toml` is the developer-facing build/test/package entry point. `scripts/tasks.py` and
-  `scripts/build.py` are the orchestration and JavaScript bundle entry points.
-- `mise run protocol-generate` regenerates the checked-in Schema and TypeScript contract from
-  Rust. `mise run protocol-check` performs a read-only byte comparison; normal builds, verification,
-  and direct JavaScript build entry points fail before consuming stale generated artifacts.
-- `scripts/_targets.py` owns the ordered six-platform daemon target set, platform/architecture
-  normalization, executable names and manifest-relative paths.
-- `scripts/release_artifact.py` validates prebuilt release inputs and the final VSIX, writes and
-  verifies its identity sidecar, and is the shared gate used before cross-job handoff, smoke,
-  attestation and publication.
+ノート作成、admonition の収集、テーマ編集、初期化、エクスポートは `fleximark_service` がファイル操作を実施する。アダプターは対象ワークスペースや選択肢を決め、サービスの結果に含まれるメッセージや URI を UI へ反映する。設定の不備はワークスペースの状態として返され、複数ルートの各設定を個別に扱える。
 
-## Trust boundaries
+VS Code 拡張は未信頼・仮想ワークスペースをサポート対象外として宣言している。サービス側にも信頼状態、ワークスペース内のパス、通常ファイルであること、シンボリックリンクなどの検証がある。ローカルアセットの解決はサービスで行い、クライアントへ任意のファイルシステムアクセスを委譲しない。
 
-1. **VS Code to daemon.** Stdio contains untrusted JSON. Messages use JSON-RPC 2.0 with LSP
-   `Content-Length` framing and a 16 MiB daemon limit. Rust request DTOs reject unknown fields.
-   The TypeScript connection parses envelopes but currently relies on requested generic types
-   for result shapes; the protocol schema and characterization tests are therefore part of the
-   compatibility boundary.
-2. **Workspace authority.** The adapter forwards VS Code Workspace Trust for every root at
-   initialization and reconfiguration. The daemon records per-root grants. Workspace writes,
-   local asset reads and plugins are service-side operations and are constrained to the granted,
-   canonical workspace. Symlink and path-escape checks are security invariants, not adapter UI
-   policy.
-3. **Plugin packages.** A configured plugin is accepted only from `.fleximark/plugins` after
-   manifest hash, WebAssembly hash and Ed25519 signature checks. Effective capabilities are the
-   intersection of workspace configuration grants and the signed manifest. Wasmtime supplies the
-   component sandbox; unsafe HTML is a separate explicit export-only capability.
-4. **Daemon to embedded preview.** The adapter creates a CSP-restricted webview and a random
-   message token. The host ignores messages with a different token. Rendered markup is still
-   checked by the preview client before it is committed to the live DOM.
-5. **Daemon to browser preview.** The server binds an ephemeral `127.0.0.1` port and uses an
-   opaque preview token in the path. It checks request host/origin, sends CSP and no-store
-   headers, publishes render events through SSE, and receives navigation events through
-   POST requests whose `Origin` is one of the allowed loopback origins. The accepted host and
-   origin are each allowlisted as `127.0.0.1` or `localhost`; they are not required to use the
-   same spelling. The current parser treats an unparsable first `Content-Length` as absent and
-   can therefore adopt a later valid value; this pre-existing, loopback-only compatibility debt
-   is characterized but requires a separately reviewed security behavior change to reject.
-6. **Source and filesystem to rendered output.** Raw HTML policy is loaded from trusted workspace
-   configuration. Local assets must remain under configured roots, are content-typed and become
-   opaque content-hash references. Preview markup is applied to a detached clone and rejects
-   executable scripts and protected attributes before commit.
-7. **Release artifact to process execution.** The adapter selects the current platform/CPU entry
-   from `bin/manifest.json`, confines its path to the extension, and verifies SHA-256 before
-   launching the bundled daemon. An explicitly configured external daemon path is user-supplied
-   and outside this checksum boundary.
-8. **Release assembly to publication.** Semantic-release creates one universal VSIX with a
-   hash/version/tag/source identity that every consumer revalidates. Six-target smoke and
-   attestation gate GitHub publication; Marketplace receives the same artifact. Reruns recover a
-   complete release and reject contradictory state. Setup and trust are documented in
-   [`README_DEV.md`](README_DEV.md#release-and-repository-setup) and [`SECURITY.md`](SECURITY.md#release-integrity).
+## 7. WebAssembly プラグイン
 
-The CLI deliberately bypasses the JSON-RPC and VS Code trust boundary. Its filesystem commands
-still use `fleximark_service` validation and transaction rules; invocation by the local user is
-the authority to perform them.
+プラグインは Wasmtime の Component Model で実行する。WIT 契約は `crates/fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit` にあり、API バージョン、フック名、JSON ペイロードを受け渡す。
 
-## Wire and ABI formats
+サービスは `.fleximark/plugins` 内のマニフェスト・WASM・署名を読み、設定に固定されたマニフェストの SHA-256 と公開鍵、Ed25519 署名、マニフェスト内の WASM ハッシュを照合する。設定順に登録されたプラグインをホストが実行する。
 
-| Format | Canonical location | Compatibility notes |
-| --- | --- | --- |
-| Custom JSON-RPC methods | Rust method registry in `fleximark-protocol` | Human-edited source of truth for method identity, direction, request/notification kind, and parameter/result associations |
-| JSON-RPC/LSP stdio | Rust DTOs in their owning crates; generated `schemas/protocol.schema.json` | Protocol version 1, UTF-8 JSON, `Content-Length: N\r\n\r\n`; custom names and field casing are derived from the Rust contract |
-| Custom request/result DTOs | Rust serde/schema types in their owning crates, plus Rust generator policy | Only human-edited definition of custom wire structure and scalar constraints; optional fields, error codes/messages, and result envelopes are external behavior |
-| Generated adapter contract | `web/preview-client/protocol.generated.mts` | Generated editor-neutral DTO declarations, direction-specific method maps, and method metadata; it must not be edited by an adapter |
-| TypeScript protocol validation | `web/preview-client/protocol.mts` | Handwritten stateful and cross-field refinements layered on generated structural types |
-| Preview publications | Rust render contract types; generated schema and TypeScript declarations | Discriminated `full`/`patch` JSON, camelCase fields, session/version/revision/fingerprint identity, navigation and optional style/assets |
-| Embedded preview messages | `web/preview-client/host.mts` | `initializePreview` and `previewEvent` envelopes include a per-panel `messageToken`; client events return through VS Code webview messaging |
-| Browser preview | `fleximarkd/src/main.rs`, `browser-host.mts` | Tokenized loopback HTTP page, SSE publication stream and JSON POST navigation events |
-| Plugin manifest and ABI | `schemas/plugin-manifest.schema.json`, `fleximark-plugin-sdk/wit/fleximark-plugin-v1.wit` | TOML manifest `schema_version = 1`, plugin `api_version = 1`, versioned WIT world and signed artifact digest |
-| Release manifest | `scripts/create_release_manifest.py` | JSON `schemaVersion: 1`, `protocolVersion: 1`, and platform/arch/path/SHA-256 entries for Linux, macOS and Windows on x64/arm64 |
-| Release identity sidecar | `scripts/release_artifact.py` | JSON `schemaVersion: 1`, fixed artifact name, strict semantic version, SHA-256, `gitTag`, and `sourceGitHead`; exact fields only |
+フックはソース前処理、ブロック変換、文書変換、描画モデル拡張、エクスポート後段の HTML 変換に分かれる。前処理には元のソースへ戻す位置対応が必要で、モデル変換後もノード・深さ・生成元などを検証する。
 
-Engine-owned payloads, such as render publications, remain in the engine crate. The protocol
-registry refers to those payloads by closed, stable `WireType` IDs and uses generic envelopes at the
-transport boundary, avoiding a `fleximark-protocol` to `fleximark-engine` dependency cycle.
-Registry-to-fixture agreement is enforced by Rust unit tests, fixture-to-schema agreement by the
-Python contract tests, and fixture-to-TypeScript-map agreement by the TypeScript contract tests.
-The checked-in fixture remains a deliberately handwritten, independent compatibility oracle; it is
-not emitted by the generator. Generated files carry a do-not-edit marker, and protocol checking
-regenerates them in memory or temporary storage and fails on any byte-level drift. This keeps Rust
-as the sole implementation source while retaining a checked-in distributable contract and an
-independent test corpus.
+ホストは付与された読み書きルートと環境変数をサンドボックスへ渡し、実行時間、fuel、メモリー、出力サイズ、ノード数、深さを制限する。キャンセルもホストを通して伝播する。通常のプレビューでは HTML ポリシーを適用し、危険な HTML 出力を許す特別な経路は明示的な権限を持つエクスポート用フックとして分離する。
 
-## Persistent formats
+## 8. HTML エクスポートと復旧
 
-FlexiMark has no database or database schema. Compatibility-sensitive filesystem formats are:
+エクスポートは文書モデルから Portable 用 HTML を生成し、ローカルアセットを解決し、テーマと共通ブラウザランタイムを組み込む。既定の出力先は文書の隣の `<文書名>.fleximark-export` ディレクトリである。初期設定では生 HTML はプレビューで escape、エクスポートで reject となる。
 
-- `.fleximark/config.toml`, whose `schema_version = 1` shape is described by
-  `schemas/config.schema.json`;
-- the legacy `.fleximark/fleximark.json` marker is read only by the VS Code adapter to offer a
-  user-approved migration when `config.toml` is absent; it is never configuration authority;
-- `.fleximark/theme.css` and user Markdown/note files;
-- plugin `.toml`, `.wasm`, and `.sig` files below `.fleximark/plugins`, including their hashes,
-  signer key and capability grants;
-- exported portable HTML/assets plus the destination `.fleximark-export.json` ownership marker;
-- `.fleximark/export-targets/<destination-hash>.json` registry records and adjacent
-  `.*.fleximark-export-journal.json` transaction journals. Staging and backup names are also part
-  of crash recovery. Their representations and journal encoding are owned by the private
-  `export/model.rs` and `export/journal.rs` modules; filesystem mutation and recovery remain
-  coordinated through `export/mod.rs`;
-- generated `bin/manifest.json`, whose entries select and authenticate packaged daemon binaries;
-- the repository capability inventory and clean-break catalog, which are source-controlled
-  governance contracts rather than user runtime state.
+```mermaid
+sequenceDiagram
+    participant C as VS Code または CLI
+    participant S as fleximark_service
+    participant E as Engine / PluginHost
+    participant F as ファイルシステム
+    C->>S: 出力先の事前検査
+    S->>F: 既存出力の所有情報・復旧状態を検査
+    C->>E: Portable HTML を準備
+    E-->>C: 検証済み HTML・スタイル・アセット参照
+    C->>S: アセット解決・共通ランタイムを合成
+    S-->>C: 出力用 HTML とアセット
+    C->>E: 許可された場合のみ unsafe export フック
+    C->>S: export_html_with_safety
+    S->>F: staging と journal を作成
+    S->>F: 旧出力を backup へ移動
+    S->>F: 新出力を設置・検証し管理情報を更新
+    S-->>C: 出力を開く URI
+    C->>C: 出力を開く
+    C->>S: acknowledgeExport / ack-export
+    S->>F: 出力を再検証し復旧用 backup を解放
+```
 
-Ownership markers, registry records and journals contain identity/digest/generation information.
-They must only be advanced by the export transaction and recovery implementation; hand-editing
-or partially copying them makes a destination unmanaged or conflicted.
+ファイルの更新は `export/filesystem.rs`、`journal.rs`、`model.rs`、`recovery.rs` に分かれる。出力の所有情報、ファイル内容のハッシュ、ファイルシステム上の同一性、追記型ジャーナルを使って、途中終了や予期しない置換を検出する。単純な HTML ファイルの上書きではなく、管理対象のディレクトリを段階的に更新する。
 
-## Cross-component invariants
+VS Code は出力 URI を開く処理が成功した後に `acknowledgeExport` を送る。これはユーザーによる目視確認を自動判定する仕組みではない。CLI では `ack-export` を別途実行する。ack 前には復旧用情報を残し、次の操作時の復旧と検証に利用する。
 
-- `SessionRegistry` is the authority for open document text, URI mapping, document session ID,
-  daemon instance ID and current document version. Adapter replay after a crash creates a new
-  daemon generation and reattaches all still-open roots/documents/previews.
-- Document versions and render revisions do not move backwards. Stale or out-of-sync edits cause
-  a full-text request; a patch is valid only for its stated preview session, base revision,
-  renderer fingerprint and structural preconditions.
-- Preview changes are transactional: validate against a detached DOM, resolve only declared
-  assets, update navigation/style with the same revision, then commit. Any failed operation leaves
-  the live DOM unchanged and requests/awaits a full publication.
-- Node IDs, provenance and source navigation refer to the same validated IR. Plugin preprocess,
-  parse, provenance remap, transform and validation complete before rendering/publication.
-- Preview and normal export are safe by default. Portable safe HTML is composed before the
-  explicitly granted unsafe export hook can run; unsafe plugin output never enters preview.
-- Export replacement is an ownership-checked filesystem transaction. Marker, registry, journal,
-  destination identity and digest/generation must agree, and recovery must not overwrite an
-  unmanaged or externally changed destination.
-- Workspace roots are independent trust/configuration domains even though one daemon serves a
-  multi-root window. Removing one root must not dispose state belonging to another root.
-- Legacy workspace migration is offered once per open root without persisting cancellation.
-  Migration keeps legacy files, writes `config.toml` last as its completion marker, and therefore
-  asks again after a cancelled workspace is reopened without repeatedly prompting in one session.
-- Public command IDs, extension activation/settings, protocol version and fields, CLI output and
-  packaged runtime contents are compatibility surfaces. Move-only refactors must preserve them
-  unless a separately approved clean break is recorded.
+## 9. CLI・ビルド・検証
 
-## Build and verification boundaries
+`fleximark` CLI はデーモンを RPC 経由で呼ぶのではなく、エンジンとサービスライブラリを直接利用する。`render`、`export`、`init`、`edit-theme`、`create-note`、`collect-admonitions`、`ack-export`、`benchmark` を提供する。ワークスペースへの書込みは `--trusted-workspace` を要求し、信頼指定のない通常の render はワークスペースプラグインを読み込まない。
 
-The product build order is browser client, release daemon, platform staging, release manifest,
-then production extension/preview bundles. Pure RPC/preview tests compile to `out/test/unit` and
-run in Node, while the non-overlapping VS Code integration suite compiles to `out/test/electron`
-and remains responsible for extension activation and editor/workspace behavior.
-Python `unittest`, TypeScript checks, Rust tests/lints, architecture inventory checks, packaging
-inspection and platform clean-install smoke tests cover the remaining boundaries.
-Rust builds and tests use the committed lockfiles. CI checks the root workspace with Rust 1.86 on
-all six supported host combinations and checks the independent WebAssembly plugin fixture with
-Rust 1.86 on `wasm32-wasip2`; current-toolchain tests, lints, and release builds remain separate.
-Standalone `mise run test` performs the full product build before integration tests. CI and
-release jobs that already assembled all six daemons use `mise run test -- --prebuilt`; this is not
-the default developer path.
+`fleximarkd serve <document>` は別の簡易起動経路で、文書を一度読み込んで外部プレビュー URL を出力する。現在の経路にはファイル監視ループがなく、エディター連携によるライブ更新とは区別される。
+
+ビルドは `mise.toml` と `scripts/tasks.py` が統括する。ブラウザクライアントを esbuild で生成してから Rust デーモンをビルドする。これはデーモンと CLI がブラウザ用 JavaScript を `include_str!` で取り込むためである。続いてデーモンを配布場所へ配置し、release manifest を生成し、拡張と Webview 用バンドルを作る。同梱デーモンの選択・検証はアダプターの `release-manifest.mts` が担う。
+
+検証の主な境界は以下に対応する。
+
+| 検証対象                                         | 実装・テストの所在                                                                       |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| モデル、解析、差分、プラグイン、サービス         | 各 Rust crate のテストと `crates/*/tests/`                                               |
+| 通信契約と生成物の一致                           | `scripts/protocol_codegen.py`、`test/protocol-contract.test.mts`、独立した JSON fixtures |
+| 接続復旧、複数ルート、文書・プレビューの生存期間 | `test/adapter/`                                                                          |
+| DOM 差分適用とホスト間の連携                     | `test/preview-client.test.mts`、`browser-host.test.mts`、`vscode-host.test.mts`          |
+| VS Code 統合                                     | `test/extension.test.mts` と Electron 実行環境                                           |
+| 配布物・構成境界・性能                           | `scripts/verify_architecture.py`、リリース関連スクリプト、`check_performance_budgets.py` |
+
+変更時には、文書処理は Rust のモデル・エンジン、エディター固有の操作はアダプター、表示効果は共通プレビュー、ファイルへの副作用はサービスという責務に沿って配置する。通信契約を変更する場合は Rust の定義と生成物、独立した契約テストを合わせて更新する。
