@@ -62,6 +62,7 @@ JavaScript の custom task は、semantic-release が module として直接 imp
 リポジトリのルートで次を実行する。
 
 ```sh
+yarn
 mise run build
 ```
 
