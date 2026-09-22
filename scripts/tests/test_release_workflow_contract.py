@@ -15,6 +15,9 @@ VERIFIER = (ROOT / ".github/actions/verified-release-artifact/action.yml").read_
 VALIDATOR = (ROOT / ".github/actions/validate-extension/action.yml").read_text(
     encoding="utf-8"
 )
+TOOLCHAIN_SETUP = (ROOT / ".github/actions/setup-toolchain/action.yml").read_text(
+    encoding="utf-8"
+)
 RELEASE_CONFIG = (ROOT / "release.config.mjs").read_text(encoding="utf-8")
 
 
@@ -199,6 +202,13 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn("--skip-duplicate", marketplace)
 
     def test_shared_actions_preserve_setup_and_platform_smoke_contracts(self) -> None:
+        assert_ordered(
+            self,
+            TOOLCHAIN_SETUP,
+            "jdx/mise-action@",
+            "rustup component add rustfmt clippy",
+            "mise run install",
+        )
         for workflow in (CI_WORKFLOW, WORKFLOW):
             contract = with_local_actions(workflow)
             for marker in (
