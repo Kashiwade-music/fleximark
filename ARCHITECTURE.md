@@ -67,7 +67,7 @@ VS Code のエントリーポイントは `adapters/vscode/src/extension.mts`、
 
 標準入出力では `Content-Length` フレームの JSON-RPC 2.0 を使う。LSP の `initialize` / `initialized` に続けて `fleximark/initialize` を呼び、プロトコルバージョン、クライアント能力、ワークスペース URI と信頼状態を交換する。VS Code は位置の符号化に UTF-16 を指定する。サービス側には UTF-8・UTF-16・UTF-32 の位置処理がある。
 
-LSP は文書の開閉・更新、補完、ホバー、文書シンボル、診断、コードアクションを受け持つ。FlexiMark 独自メソッドは文書への接続確認、プレビューの作成・読取り・明示的な再描画、選択・スクロール連携、ワークスペース再設定、ノート作成やエクスポートなどを受け持つ。`fleximarkd rpc` は LSP の文書通知を使わず、独自の open/change/close メソッドを提供する別の起動モードである。
+LSP は文書の開閉・更新、snippet 補完、Semantic Tokens、ホバー、文書シンボル、診断、コードアクションを受け持つ。補完カタログと FlexiMark 固有構文のトークン化は `fleximark-lsp` を正本とし、エディター固有の静的 snippet は持たない。Markdown と埋め込み言語の基礎的な字句強調にはエディター側の grammar を使い、FlexiMark 固有の意味的強調を Semantic Tokens で重ねる。FlexiMark 独自メソッドは文書への接続確認、プレビューの作成・読取り・明示的な再描画、選択・スクロール連携、ワークスペース再設定、ノート作成やエクスポートなどを受け持つ。`fleximarkd rpc` は LSP の文書通知を使わず、独自の open/change/close メソッドを提供する別の起動モードである。
 
 `transport/stdio.rs` は入力読取と出力書込を別スレッドに置き、サーバーの要求処理をキューで直列化する。入力側でキャンセル情報を更新できるため、処理中のプラグイン実行や古い結果の公開を取り消せる。ログは標準エラーへ出力し、標準出力の RPC フレームと分離する。
 

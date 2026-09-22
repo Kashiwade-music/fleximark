@@ -292,6 +292,7 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         "initialize",
         "shutdown",
         "textDocument/completion",
+        "textDocument/semanticTokens/full",
         "textDocument/hover",
         "textDocument/documentSymbol",
         "textDocument/diagnostic",
@@ -1406,10 +1407,21 @@ fn export_preflight_rejects_unmanaged_destination_before_render_hooks() {
 #[test]
 fn completion_uses_authoritative_open_document_and_position() {
     let mut server = Server::new(true);
-    server.request(
+    let initialized = server.request(
         1,
         "initialize",
-        json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
+        json!({"capabilities":{
+            "general":{"positionEncodings":["utf-8"]},
+            "textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}
+        }}),
+    );
+    assert_eq!(
+        initialized[0]["result"]["capabilities"]["completionProvider"]["triggerCharacters"],
+        json!([":", "`", ">"])
+    );
+    assert_eq!(
+        initialized[0]["result"]["capabilities"]["semanticTokensProvider"]["legend"]["tokenTypes"],
+        json!(["keyword", "string", "operator", "type", "property"])
     );
     server.request(2, method::INITIALIZE, initialize_params(json!({}), None));
     server.notify(
@@ -1421,13 +1433,15 @@ fn completion_uses_authoritative_open_document_and_position() {
         "textDocument/completion",
         json!({"textDocument":{"uri":"file:///completion.md"},"position":{"line":0,"character":2}}),
     );
+    assert_eq!(completion[0]["result"]["items"][0]["label"], "admonition");
+    assert_eq!(completion[0]["result"]["items"][0]["insertTextFormat"], 2);
     assert_eq!(
-        completion[0]["result"]["items"][0]["label"],
-        "info admonition"
+        completion[0]["result"]["items"][0]["textEdit"]["range"]["start"],
+        json!({"line":0,"character":0})
     );
     assert_eq!(
-        completion[0]["result"]["items"][1]["label"],
-        "important admonition"
+        completion[0]["result"]["items"][0]["textEdit"]["range"]["end"],
+        json!({"line":0,"character":2})
     );
     let attach = server.request(
         4,
@@ -1454,9 +1468,15 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
         json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
     );
     server.request(2, method::INITIALIZE, initialize_params(json!({}), None));
+    let unopened_tokens = server.request(
+        3,
+        "textDocument/semanticTokens/full",
+        json!({"textDocument":{"uri":"file:///not-open.md"}}),
+    );
+    assert!(unopened_tokens[0]["result"].is_null());
     let opened = server.notify(
             "textDocument/didOpen",
-            json!({"textDocument":{"uri":"file:///features.md","version":7,"text":"# Héllo\n\n<div>x</div>\n"}}),
+            json!({"textDocument":{"uri":"file:///features.md","version":7,"text":"# Héllo\n\n:::warning[Care]\n<div>x</div>\n:::\n"}}),
         );
     let published = opened
         .iter()
@@ -1487,14 +1507,23 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
             .get("encoding")
             .is_none()
     );
-    let diagnostics = server.request(
+    let semantic_tokens = server.request(
         5,
+        "textDocument/semanticTokens/full",
+        json!({"textDocument":{"uri":"file:///features.md"}}),
+    );
+    assert_eq!(
+        semantic_tokens[0]["result"]["data"],
+        json!([2, 0, 3, 2, 0, 0, 3, 7, 0, 0, 0, 7, 6, 1, 0, 2, 0, 3, 2, 0])
+    );
+    let diagnostics = server.request(
+        6,
         "textDocument/diagnostic",
         json!({"textDocument":{"uri":"file:///features.md"}}),
     );
     let diagnostic = diagnostics[0]["result"]["items"][0].clone();
     let actions = server.request(
-            6,
+            7,
             "textDocument/codeAction",
             json!({"textDocument":{"uri":"file:///features.md"},"range":diagnostic["range"],"context":{"diagnostics":[diagnostic]}}),
         );
@@ -1507,6 +1536,7 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     for method in [
         "textDocument/hover",
         "textDocument/documentSymbol",
+        "textDocument/semanticTokens/full",
         "textDocument/diagnostic",
         "textDocument/codeAction",
     ] {

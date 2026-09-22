@@ -760,7 +760,20 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         version: this.#context.extension.packageJSON.version,
       },
       rootUri: null,
-      capabilities: { general: { positionEncodings: ["utf-16"] } },
+      capabilities: {
+        general: { positionEncodings: ["utf-16"] },
+        textDocument: {
+          completion: { completionItem: { snippetSupport: true } },
+          semanticTokens: {
+            requests: { full: true },
+            tokenTypes: ["keyword", "string", "operator", "type", "property"],
+            tokenModifiers: [],
+            formats: ["relative"],
+            overlappingTokenSupport: false,
+            multilineTokenSupport: false,
+          },
+        },
+      },
     });
     rpc.notifyLsp("initialized", {});
   }

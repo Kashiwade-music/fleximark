@@ -1,5 +1,6 @@
 mod error;
 mod index;
+mod language_features;
 mod workspace;
 
 use std::collections::HashMap;
@@ -18,12 +19,15 @@ use fleximark_protocol::{
     RequestFullTextParams, RpcChangeDocumentParams, RpcCloseDocumentParams, RpcOpenDocumentParams,
     TextPosition,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub use error::SessionError;
 use error::engine_error;
 use index::SessionIndex;
+pub use language_features::{
+    CompletionItem, SEMANTIC_TOKEN_TYPES, completion_items, semantic_token_data,
+};
 use workspace::WorkspaceAuthority;
 
 static NEXT_DAEMON: AtomicU64 = AtomicU64::new(1);
@@ -66,7 +70,7 @@ pub struct Range {
     pub end: Position,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Position {
     pub line: u32,
     pub character: u32,
@@ -658,6 +662,17 @@ impl SessionRegistry {
 
     pub fn session_id_for_uri(&self, uri: &str) -> Option<&str> {
         self.index.session_id_for_uri(uri)
+    }
+
+    pub fn source_for_uri(&self, uri: &str) -> Result<&str, SessionError> {
+        self.index
+            .by_uri(uri)
+            .map(DocumentSession::source)
+            .ok_or(SessionError::NotOpen)
+    }
+
+    pub fn position_encoding(&self) -> PositionEncoding {
+        self.position_encoding
     }
 
     pub fn line_prefix(&self, uri: &str, position: Position) -> Result<&str, SessionError> {

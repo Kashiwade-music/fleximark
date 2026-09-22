@@ -151,7 +151,6 @@ def _is_allowed_package_path(parts: tuple[str, ...], *, is_directory: bool) -> b
             "language-support",
             "language-support/abc",
             "l10n",
-            "snippets",
             "syntaxes",
             *(target.bin_relative_path.parent.as_posix() for target in TARGETS),
         }
@@ -168,7 +167,7 @@ def _is_allowed_package_path(parts: tuple[str, ...], *, is_directory: bool) -> b
         return True
     if re.fullmatch(r"l10n/bundle\.l10n(?:\.[A-Za-z0-9-]+)?\.json", relative):
         return True
-    if re.fullmatch(r"(?:snippets|syntaxes)/[^/]+\.json", relative):
+    if re.fullmatch(r"syntaxes/[^/]+\.json", relative):
         return True
     return (
         relative.startswith("assets/")
@@ -277,7 +276,7 @@ def _package_declaration_contract(
     contributes = package.get("contributes")
     if not isinstance(contributes, dict):
         raise RuntimeError("packaged extension contributions are missing")
-    for collection_name in ("grammars", "snippets"):
+    for collection_name in ("grammars",):
         collection = contributes.get(collection_name)
         if not isinstance(collection, list) or not collection:
             raise RuntimeError(

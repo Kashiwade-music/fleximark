@@ -160,24 +160,6 @@
         }
       }
     },
-    "snippets": [
-      {
-        "language": "markdown",
-        "path": "./snippets/abc.json"
-      },
-      {
-        "language": "markdown",
-        "path": "./snippets/admonition.json"
-      },
-      {
-        "language": "markdown",
-        "path": "./snippets/tabs.json"
-      },
-      {
-        "language": "markdown",
-        "path": "./snippets/details.json"
-      }
-    ],
     "languages": [
       {
         "id": "abc",
@@ -192,13 +174,6 @@
       }
     ],
     "grammars": [
-      {
-        "path": "./syntaxes/markdown.tmLanguage.json",
-        "scopeName": "custom.markdown.admonition",
-        "injectTo": [
-          "text.html.markdown"
-        ]
-      },
       {
         "path": "./syntaxes/markdown-mermaid.tmLanguage.json",
         "scopeName": "custom.markdown.mermaid",

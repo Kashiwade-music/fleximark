@@ -14,6 +14,7 @@ impl Server {
         Self {
             lsp_mode,
             lsp_initialized: false,
+            snippet_support: false,
             fleximark_initialized: false,
             selection_events: false,
             viewport_events: false,
@@ -80,6 +81,9 @@ impl Server {
             "textDocument/didChange" if self.lsp_mode => self.change_document(id, message.params),
             "textDocument/didClose" if self.lsp_mode => self.close_document(id, message.params),
             "textDocument/completion" if self.lsp_mode => self.completion(id, &message.params),
+            "textDocument/semanticTokens/full" if self.lsp_mode => {
+                self.semantic_tokens(id, &message.params)
+            }
             "textDocument/hover" if self.lsp_mode => self.hover(id, &message.params),
             "textDocument/documentSymbol" if self.lsp_mode => {
                 self.document_symbols(id, &message.params)

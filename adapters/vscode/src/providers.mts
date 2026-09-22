@@ -10,6 +10,14 @@ interface ProviderAdapter {
   ): Promise<T | undefined>;
 }
 
+const semanticTokenTypes = [
+  "keyword",
+  "string",
+  "operator",
+  "type",
+  "property",
+] as const;
+
 export function registerProviders(
   adapter: ProviderAdapter,
   registrar: ProviderRegistrar = vscode.languages,
@@ -30,24 +38,59 @@ export function registerProviders(
             adapter.requestLanguageFeature<{
               items: {
                 label: string;
-                insertText?: string;
-                insertTextFormat?: number;
+                kind: number;
+                detail: string;
+                filterText: string;
+                insertTextFormat: number;
+                textEdit: {
+                  range: {
+                    start: vscode.Position;
+                    end: vscode.Position;
+                  };
+                  newText: string;
+                };
               }[];
             }>("textDocument/completion", document, { position }),
           );
           return (result?.items ?? []).map((item) => {
-            const completion = new vscode.CompletionItem(item.label);
-            if (item.insertText)
-              completion.insertText =
-                item.insertTextFormat === 2
-                  ? new vscode.SnippetString(item.insertText)
-                  : item.insertText;
+            const completion = new vscode.CompletionItem(
+              item.label,
+              item.kind as vscode.CompletionItemKind,
+            );
+            completion.detail = item.detail;
+            completion.filterText = item.filterText;
+            completion.range = new vscode.Range(
+              item.textEdit.range.start,
+              item.textEdit.range.end,
+            );
+            completion.insertText =
+              item.insertTextFormat === 2
+                ? new vscode.SnippetString(item.textEdit.newText)
+                : item.textEdit.newText;
             return completion;
           });
         },
       },
       ":",
       "`",
+      ">",
+    ),
+    registrar.registerDocumentSemanticTokensProvider(
+      { language: "markdown" },
+      {
+        async provideDocumentSemanticTokens(document) {
+          const result = await request(() =>
+            adapter.requestLanguageFeature<{ data: number[] }>(
+              "textDocument/semanticTokens/full",
+              document,
+            ),
+          );
+          return new vscode.SemanticTokens(
+            Uint32Array.from(result?.data ?? []),
+          );
+        },
+      },
+      new vscode.SemanticTokensLegend([...semanticTokenTypes]),
     ),
     registrar.registerHoverProvider(
       { language: "markdown" },
@@ -156,6 +199,7 @@ export function registerProviders(
 export type ProviderRegistrar = Pick<
   typeof vscode.languages,
   | "registerCompletionItemProvider"
+  | "registerDocumentSemanticTokensProvider"
   | "registerHoverProvider"
   | "registerDocumentSymbolProvider"
   | "registerCodeActionsProvider"

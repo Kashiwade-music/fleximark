@@ -3,6 +3,10 @@ use super::*;
 impl Server {
     pub(super) fn lsp_initialize(&mut self, id: Option<Value>, params: &Value) -> Option<Value> {
         let id = id?;
+        self.snippet_support = params
+            .pointer("/capabilities/textDocument/completion/completionItem/snippetSupport")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let encoding = params
             .pointer("/capabilities/general/positionEncodings")
             .and_then(Value::as_array)
@@ -31,9 +35,16 @@ impl Server {
                 "capabilities": {
                     "positionEncoding": position_encoding,
                     "textDocumentSync": { "openClose": true, "change": 2 },
-                    "completionProvider": {"triggerCharacters":[":","`"]},
+                    "completionProvider": {"triggerCharacters":[":","`",">"]},
                     "hoverProvider": true,
                     "documentSymbolProvider": true,
+                    "semanticTokensProvider": {
+                        "legend": {
+                            "tokenTypes": fleximark_lsp::SEMANTIC_TOKEN_TYPES,
+                            "tokenModifiers": []
+                        },
+                        "full": true
+                    },
                     "diagnosticProvider": {"interFileDependencies":false,"workspaceDiagnostics":false},
                     "codeActionProvider": true
                 },
@@ -69,24 +80,41 @@ impl Server {
                 "completion position is not in an open document",
             )));
         };
-        let directive = prefix.trim_start().starts_with(':');
-        let items = if directive {
-            vec![
-                json!({"label":"info admonition","insertText":":::info\n${1:content}\n:::","insertTextFormat":2}),
-                json!({"label":"important admonition","insertText":":::important\n${1:content}\n:::","insertTextFormat":2}),
-                json!({"label":"tabs","insertText":":::tabs\n${1:content}\n:::","insertTextFormat":2}),
-                json!({"label":"details","insertText":":::details\n${1:content}\n:::","insertTextFormat":2}),
-            ]
-        } else {
-            vec![
-                json!({"label":"mermaid","insertText":"```mermaid\n${1:graph TD}\n```","insertTextFormat":2}),
-                json!({"label":"abc","insertText":"```abc\n${1:X:1}\n```","insertTextFormat":2}),
-                json!({"label":"math","insertText":"```math\n${1:formula}\n```","insertTextFormat":2}),
-            ]
-        };
+        let items = fleximark_lsp::completion_items(
+            prefix,
+            fleximark_lsp::Position {
+                line: line as u32,
+                character: character as u32,
+            },
+            self.registry.position_encoding(),
+            self.snippet_support,
+        );
         Some(response_value(Response::success(
             id,
             json!({"isIncomplete":false,"items":items}),
+        )))
+    }
+
+    pub(super) fn semantic_tokens(&self, id: Option<Value>, params: &Value) -> Option<Value> {
+        let id = id?;
+        let Some(uri) = params.pointer("/textDocument/uri").and_then(Value::as_str) else {
+            return Some(response_value(Response::error(
+                id,
+                -32602,
+                "semantic tokens require textDocument.uri",
+            )));
+        };
+        let Ok(source) = self.registry.source_for_uri(uri) else {
+            return Some(response_value(Response::success(id, Value::Null)));
+        };
+        Some(response_value(Response::success(
+            id,
+            json!({
+                "data": fleximark_lsp::semantic_token_data(
+                    source,
+                    self.registry.position_encoding(),
+                )
+            }),
         )))
     }
 

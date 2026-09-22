@@ -41,6 +41,7 @@ use diagnostics::{collect_heading_symbols, find_block};
 pub(crate) struct Server {
     lsp_mode: bool,
     lsp_initialized: bool,
+    snippet_support: bool,
     fleximark_initialized: bool,
     selection_events: bool,
     viewport_events: bool,

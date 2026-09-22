@@ -114,11 +114,13 @@ export function suite(): void {
     assert.deepEqual(reported, []);
   });
 
-  test("registers the four markdown providers with stable triggers and QuickFix metadata", async () => {
+  test("registers the markdown providers with stable triggers and QuickFix metadata", async () => {
     const registeredDisposables: vscode.Disposable[] = [];
     const selectors: vscode.DocumentSelector[] = [];
     let completionProvider: vscode.CompletionItemProvider | undefined;
     let completionTriggers: readonly string[] | undefined;
+    let semanticProvider: vscode.DocumentSemanticTokensProvider | undefined;
+    let semanticLegend: vscode.SemanticTokensLegend | undefined;
     let hoverProvider: vscode.HoverProvider | undefined;
     let symbolProvider: vscode.DocumentSymbolProvider | undefined;
     let codeActionProvider: vscode.CodeActionProvider | undefined;
@@ -145,6 +147,16 @@ export function suite(): void {
       ) {
         selectors.push(selector);
         hoverProvider = provider;
+        return addRegistration();
+      },
+      registerDocumentSemanticTokensProvider(
+        selector: vscode.DocumentSelector,
+        provider: vscode.DocumentSemanticTokensProvider,
+        legend: vscode.SemanticTokensLegend,
+      ) {
+        selectors.push(selector);
+        semanticProvider = provider;
+        semanticLegend = legend;
         return addRegistration();
       },
       registerDocumentSymbolProvider(
@@ -181,11 +193,26 @@ export function suite(): void {
         "textDocument/completion",
         {
           items: [
-            { label: "plain", insertText: "plain text" },
-            { label: "snippet", insertText: "${1:value}", insertTextFormat: 2 },
+            {
+              label: "plain",
+              kind: vscode.CompletionItemKind.Snippet,
+              detail: "Plain completion",
+              filterText: "plain-filter",
+              insertTextFormat: 1,
+              textEdit: { range, newText: "plain text" },
+            },
+            {
+              label: "snippet",
+              kind: vscode.CompletionItemKind.Snippet,
+              detail: "Snippet completion",
+              filterText: "snippet-filter",
+              insertTextFormat: 2,
+              textEdit: { range, newText: "${1:value}" },
+            },
           ],
         },
       ],
+      ["textDocument/semanticTokens/full", { data: [0, 0, 3, 2, 0] }],
       ["textDocument/hover", { contents: { value: "**hover**" } }],
       [
         "textDocument/documentSymbol",
@@ -227,15 +254,25 @@ export function suite(): void {
     const registrations = registerProviders(adapter, registrar);
     assert.deepEqual(
       selectors,
-      Array.from({ length: 4 }, () => ({ language: "markdown" })),
+      Array.from({ length: 5 }, () => ({ language: "markdown" })),
     );
-    assert.deepEqual(completionTriggers, [":", "`"]);
+    assert.deepEqual(completionTriggers, [":", "`", ">"]);
     assert.deepEqual(codeActionMetadata, {
       providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
     });
     assert.deepEqual(registrations, registeredDisposables);
 
     assert.ok(completionProvider);
+    assert.ok(semanticProvider);
+    const legend = semanticLegend;
+    assert.ok(legend);
+    assert.deepEqual(legend.tokenTypes, [
+      "keyword",
+      "string",
+      "operator",
+      "type",
+      "property",
+    ]);
     assert.ok(hoverProvider);
     assert.ok(symbolProvider);
     assert.ok(codeActionProvider);
@@ -252,18 +289,41 @@ export function suite(): void {
     assert.ok(Array.isArray(completionResult));
     assert.deepEqual(
       completionResult.map((item) => ({
+        detail: item.detail,
+        filterText: item.filterText,
         insertText:
           item.insertText instanceof vscode.SnippetString
             ? item.insertText.value
             : item.insertText,
         label: item.label,
+        range: item.range,
         snippet: item.insertText instanceof vscode.SnippetString,
       })),
       [
-        { insertText: "plain text", label: "plain", snippet: false },
-        { insertText: "${1:value}", label: "snippet", snippet: true },
+        {
+          detail: "Plain completion",
+          filterText: "plain-filter",
+          insertText: "plain text",
+          label: "plain",
+          range,
+          snippet: false,
+        },
+        {
+          detail: "Snippet completion",
+          filterText: "snippet-filter",
+          insertText: "${1:value}",
+          label: "snippet",
+          range,
+          snippet: true,
+        },
       ],
     );
+    const semanticResult = await semanticProvider.provideDocumentSemanticTokens(
+      document,
+      token,
+    );
+    assert.ok(semanticResult instanceof vscode.SemanticTokens);
+    assert.deepEqual([...semanticResult.data], [0, 0, 3, 2, 0]);
     const hoverResult = await hoverProvider.provideHover(
       document,
       position,
@@ -323,6 +383,7 @@ export function suite(): void {
       requests.map(({ method, params }) => ({ method, params })),
       [
         { method: "textDocument/completion", params: { position } },
+        { method: "textDocument/semanticTokens/full", params: undefined },
         { method: "textDocument/hover", params: { position } },
         { method: "textDocument/documentSymbol", params: undefined },
         {
@@ -358,6 +419,7 @@ export function suite(): void {
         return disposable();
       },
       registerHoverProvider: () => disposable(),
+      registerDocumentSemanticTokensProvider: () => disposable(),
       registerDocumentSymbolProvider: () => disposable(),
       registerCodeActionsProvider: () => disposable(),
     } as unknown as ProviderRegistrar;
@@ -394,7 +456,21 @@ export function suite(): void {
     pendingRequest = deferred<unknown>();
     const successfulResult = provide();
     active = false;
-    pendingRequest.resolve({ items: [{ label: "preserved" }] });
+    pendingRequest.resolve({
+      items: [
+        {
+          label: "preserved",
+          kind: vscode.CompletionItemKind.Snippet,
+          detail: "Preserved completion",
+          filterText: "preserved",
+          insertTextFormat: 1,
+          textEdit: {
+            range: new vscode.Range(position, position),
+            newText: "preserved",
+          },
+        },
+      ],
+    });
     const successfulItems = (await successfulResult) as vscode.CompletionItem[];
     assert.equal(successfulItems.length, 1);
     assert.equal(successfulItems[0].label, "preserved");

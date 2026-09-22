@@ -146,7 +146,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                 package["icon"],
                 *(
                     contribution["path"]
-                    for key in ("grammars", "snippets")
+                    for key in ("grammars",)
                     for contribution in package["contributes"][key]
                 ),
                 *(
@@ -365,7 +365,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                 "missing required extension metadata or runtime files",
             ),
             (
-                "extension/syntaxes/markdown.tmLanguage.json",
+                "extension/syntaxes/markdown-mermaid.tmLanguage.json",
                 "missing declared package path",
             ),
         ):

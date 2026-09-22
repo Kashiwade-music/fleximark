@@ -12,6 +12,7 @@
       "args": [
         "${input:targetWorkspace}",
         "--disable-extensions",
+        "--disable-extension=GitHub.copilot-chat",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
@@ -24,6 +25,7 @@
       "args": [
         "${workspaceFolder}",
         "--disable-extensions",
+        "--disable-extension=GitHub.copilot-chat",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
