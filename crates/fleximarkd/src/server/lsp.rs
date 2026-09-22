@@ -73,6 +73,7 @@ impl Server {
         let items = if directive {
             vec![
                 json!({"label":"info admonition","insertText":":::info\n${1:content}\n:::","insertTextFormat":2}),
+                json!({"label":"important admonition","insertText":":::important\n${1:content}\n:::","insertTextFormat":2}),
                 json!({"label":"tabs","insertText":":::tabs\n${1:content}\n:::","insertTextFormat":2}),
                 json!({"label":"details","insertText":":::details\n${1:content}\n:::","insertTextFormat":2}),
             ]

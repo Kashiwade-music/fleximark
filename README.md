@@ -52,7 +52,7 @@ Whether you’re a **developer**, **writer**, **researcher**, or **student**, Fl
 
 Based on GitHub Flavored Markdown (GFM) with advanced extensions:
 
-- **Admonitions**: Notes, tips, warnings, dangers.
+- **Admonitions and GitHub Alerts**: Notes/info, tips, important notices, warnings, and caution/danger blocks.
   ![Admonitions](assets/demo_admonitions.avif)
 - **Tabs**: Organize content into neat sections.
   ![Tabs](assets/demo_tab.webp)

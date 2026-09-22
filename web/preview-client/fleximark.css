@@ -151,6 +151,8 @@ body {
 
   /* Admonitions: legacy classes and current renderer attributes */
   & div.info,
+  & div.note,
+  & [data-admonition-kind="note"],
   & [data-admonition-kind="info"] {
     --fleximark-admonition-background: #eef9fd;
     --fleximark-admonition-border: #4cb3d4;
@@ -164,6 +166,13 @@ body {
     --fleximark-admonition-color: #003100;
   }
 
+  & div.important,
+  & [data-admonition-kind="important"] {
+    --fleximark-admonition-background: #f5f0ff;
+    --fleximark-admonition-border: #8250df;
+    --fleximark-admonition-color: #3b1e70;
+  }
+
   & div.warning,
   & [data-admonition-kind="warning"] {
     --fleximark-admonition-background: #fff8e6;
@@ -172,6 +181,8 @@ body {
   }
 
   & div.danger,
+  & div.caution,
+  & [data-admonition-kind="caution"],
   & [data-admonition-kind="danger"] {
     --fleximark-admonition-background: #ffebec;
     --fleximark-admonition-border: #e13238;
@@ -179,9 +190,12 @@ body {
   }
 
   & div.info,
+  & div.note,
   & div.tip,
+  & div.important,
   & div.warning,
   & div.danger,
+  & div.caution,
   & [data-fleximark-kind="admonition"] {
     margin: 0 0 1rem;
     color: var(--fleximark-admonition-color, inherit);
@@ -191,9 +205,12 @@ body {
   }
 
   & div.info > .admonition-title,
+  & div.note > .admonition-title,
   & div.tip > .admonition-title,
+  & div.important > .admonition-title,
   & div.warning > .admonition-title,
   & div.danger > .admonition-title,
+  & div.caution > .admonition-title,
   & [data-fleximark-kind="admonition"] > .fleximark-admonition-title {
     display: flex;
     gap: 0.5rem;
@@ -205,17 +222,23 @@ body {
   }
 
   & div.info > .admonition-title > svg,
+  & div.note > .admonition-title > svg,
   & div.tip > .admonition-title > svg,
+  & div.important > .admonition-title > svg,
   & div.warning > .admonition-title > svg,
-  & div.danger > .admonition-title > svg {
+  & div.danger > .admonition-title > svg,
+  & div.caution > .admonition-title > svg {
     height: 1.6em;
     fill: currentColor;
   }
 
   & div.info > .admonition-content,
+  & div.note > .admonition-content,
   & div.tip > .admonition-content,
+  & div.important > .admonition-content,
   & div.warning > .admonition-content,
-  & div.danger > .admonition-content {
+  & div.danger > .admonition-content,
+  & div.caution > .admonition-content {
     margin: 1rem;
   }
 

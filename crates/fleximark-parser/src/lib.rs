@@ -186,7 +186,7 @@ fn convert_block<'a>(
                 "details" => BlockKind::Details {
                     summary: label.unwrap_or("Details").to_owned(),
                 },
-                "info" | "tip" | "warning" | "danger" => BlockKind::Admonition {
+                "info" | "tip" | "important" | "warning" | "danger" => BlockKind::Admonition {
                     kind: name.to_owned(),
                     title: label.map(str::to_owned).unwrap_or_else(|| name.to_owned()),
                 },
@@ -544,6 +544,30 @@ mod tests {
                 .iter()
                 .any(|block| matches!(block.kind, BlockKind::Mermaid { .. }))
         );
+        document.validate(source).unwrap();
+    }
+
+    #[test]
+    fn parses_all_github_alerts_and_the_important_directive() {
+        let source = "> [!NOTE]\n> note\n\n> [!TIP]\n> tip\n\n> [!IMPORTANT]\n> important\n\n> [!WARNING]\n> warning\n\n> [!CAUTION]\n> caution\n\n:::important[Custom]\nimportant directive\n:::\n";
+        let document = parse(DocumentUri("file:///alerts.md".into()), 1, source).unwrap();
+        let expected = [
+            ("note", "Note"),
+            ("tip", "Tip"),
+            ("important", "Important"),
+            ("warning", "Warning"),
+            ("caution", "Caution"),
+            ("important", "Custom"),
+        ];
+
+        assert_eq!(document.blocks.len(), expected.len());
+        for (block, (expected_kind, expected_title)) in document.blocks.iter().zip(expected) {
+            let BlockKind::Admonition { kind, title } = &block.kind else {
+                panic!("expected an admonition, got {:?}", block.kind);
+            };
+            assert_eq!(kind, expected_kind);
+            assert_eq!(title, expected_title);
+        }
         document.validate(source).unwrap();
     }
 
