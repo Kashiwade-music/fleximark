@@ -386,6 +386,41 @@ export function suite(): void {
     enhancer.dispose();
   });
 
+  test("keeps inline math output inline", async () => {
+    assert.equal(
+      preview.apply(
+        frame(1, [
+          {
+            id: "paragraph",
+            nodeIds: ["paragraph"],
+            html: '<p data-fleximark-node-id="paragraph">before <span data-fleximark-kind="math">x^2</span> after</p>',
+          },
+        ]),
+      ),
+      true,
+    );
+    let displayMode: boolean | undefined;
+    const runtimes = inertRuntimes();
+    runtimes.math.render = (_source, target, options) => {
+      displayMode = options.displayMode;
+      target.textContent = "rendered";
+    };
+    const enhancer = new PreviewEnhancer(runtimes);
+    await enhancer.render(root);
+
+    const math = root.querySelector<HTMLElement>("[data-fleximark-kind=math]");
+    const output = math?.querySelector<HTMLElement>(
+      ":scope > [data-fleximark-output]",
+    );
+    assert.equal(math?.tagName, "SPAN");
+    assert.equal(output?.tagName, "SPAN");
+    assert.equal(displayMode, false);
+    assert.equal(math?.querySelector("div"), null);
+    assert.equal(math?.parentElement?.firstChild?.textContent, "before ");
+    assert.equal(math?.parentElement?.lastChild?.textContent, " after");
+    enhancer.dispose();
+  });
+
   test("renders ABC notation into SVG output", async () => {
     assert.equal(preview.apply(specialFrame("abc", "X:1\nK:C\nC")), true);
     const { previewRuntimes } =
