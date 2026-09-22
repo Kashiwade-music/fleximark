@@ -15,7 +15,7 @@ export function suite(): void {
     { label: "Beta", uri: "file:///beta" },
   ];
 
-  test("uses the active document workspace without prompting", async () => {
+  test("selects the active workspace or prompts when no editor is active", async () => {
     let prompted = false;
     const selected = await selectWorkspaceUri(
       "file:///beta",
@@ -27,18 +27,15 @@ export function suite(): void {
     );
     assert.equal(selected, "file:///beta");
     assert.equal(prompted, false);
-  });
-
-  test("asks for a command workspace when no editor is active", async () => {
-    const selected = await selectWorkspaceUri(
+    const promptedSelection = await selectWorkspaceUri(
       undefined,
       workspaces,
       async (items) => items[1],
     );
-    assert.equal(selected, "file:///beta");
+    assert.equal(promptedSelection, "file:///beta");
   });
 
-  test("converts daemon source positions to VS Code UTF-16 characters", () => {
+  test("converts valid positions and rejects encoding bounds", () => {
     const line = "A😀éZ";
     assert.equal(
       sourcePositionToCharacter(line, {
@@ -64,10 +61,6 @@ export function suite(): void {
       }),
       4,
     );
-  });
-
-  test("rejects source characters outside their contextual encoding bounds", () => {
-    const line = "A😀éZ";
     assert.equal(
       sourcePositionWithinLine(line, {
         line: 0,
@@ -94,7 +87,7 @@ export function suite(): void {
     );
   });
 
-  test("reuses the source editor in its original column", () => {
+  test("reuses only a matching source editor in its original column", () => {
     const sourceUri = "file:///notes/example.md";
     const otherColumn = {
       document: { uri: { toString: () => sourceUri } },
@@ -109,9 +102,6 @@ export function suite(): void {
       findVisibleSourceEditor([otherColumn, originalColumn], sourceUri, 1),
       originalColumn,
     );
-  });
-
-  test("does not reuse an editor for a different document", () => {
     const editor = {
       document: { uri: { toString: () => "file:///notes/other.md" } },
       viewColumn: 1,

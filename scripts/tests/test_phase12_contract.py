@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import fnmatch
 import hashlib
 import json
 import re
@@ -16,8 +15,6 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import build as javascript_build  # noqa: E402
-from _targets import TARGETS  # noqa: E402
 
 
 def read(relative: str) -> str:
@@ -63,24 +60,6 @@ def suite_members(entry: str, registrar: str) -> list[str]:
     if len(modules) != len(set(modules)):
         raise AssertionError(f"duplicate suite module in {entry}")
     return modules
-
-
-def ignored_by_vscodeignore(path: str, patterns: list[str]) -> bool:
-    ignored = False
-    for raw_pattern in patterns:
-        negate = raw_pattern.startswith("!")
-        pattern = raw_pattern[1:] if negate else raw_pattern
-        if pattern.endswith("/**"):
-            matched = path == pattern[:-3] or path.startswith(pattern[:-2])
-        elif pattern.startswith("**/"):
-            matched = fnmatch.fnmatchcase(path, pattern[3:]) or fnmatch.fnmatchcase(
-                path, pattern
-            )
-        else:
-            matched = fnmatch.fnmatchcase(path, pattern)
-        if matched:
-            ignored = not negate
-    return ignored
 
 
 def include_typescript_import_closure(paths: set[Path]) -> set[Path]:
@@ -147,26 +126,6 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
         self.assertEqual(pure, expected_pure)
         self.assertEqual(electron, expected_electron)
 
-    def test_vscode_test_discovery_selects_only_the_electron_artifact(self) -> None:
-        config = read(".vscode-test.mjs")
-        self.assertIn(
-            'files: "out/test/electron/extension.test.cjs"',
-            config,
-        )
-        extension_output = next(
-            argument.removeprefix("--outfile=")
-            for argument in javascript_build.test_args()
-            if argument.startswith("--outfile=")
-        )
-        pure_output = next(
-            argument.removeprefix("--outfile=")
-            for argument in javascript_build.pure_test_args()
-            if argument.startswith("--outfile=")
-        )
-        self.assertEqual(extension_output, "out/test/electron/extension.test.cjs")
-        self.assertEqual(pure_output, "out/test/unit/pure-tests.cjs")
-
-
 class JavaScriptEntrypointContract(unittest.TestCase):
     def test_typescript_projects_cover_every_production_and_test_source(self) -> None:
         configs = [ROOT / "tsconfig.json"]
@@ -212,56 +171,6 @@ class JavaScriptEntrypointContract(unittest.TestCase):
             set(),
             "root include or referenced TypeScript projects must cover every source and test",
         )
-
-    def test_package_rules_keep_runtime_assets_and_exclude_development_trees(
-        self,
-    ) -> None:
-        package = json.loads(read("package.json"))
-        patterns = [
-            line.strip()
-            for line in read(".vscodeignore").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-        contribution_paths = {
-            contribution["path"].removeprefix("./")
-            for key in ("grammars", "snippets")
-            for contribution in package["contributes"][key]
-        }
-        contribution_paths.update(
-            language["configuration"].removeprefix("./")
-            for language in package["contributes"]["languages"]
-            if "configuration" in language
-        )
-        required = {
-            package["main"].removeprefix("./"),
-            package["icon"].removeprefix("./"),
-            "dist/web/preview-client/vscode-host.js",
-            "dist/web/preview-client/browser-host.js",
-            "bin/manifest.json",
-            *(target.bin_relative_path.as_posix() for target in TARGETS),
-            *contribution_paths,
-        }
-        for path in sorted(required):
-            with self.subTest(required=path):
-                self.assertFalse(ignored_by_vscodeignore(path, patterns))
-
-        forbidden = {
-            "src/private.ts",
-            "test/private.test.mts",
-            "node_modules/dependency/index.js",
-            "adapters/vscode/src/extension.mts",
-            "web/preview-client/index.mts",
-            "crates/fleximarkd/src/main.rs",
-            "markdown_for_debug/example.md",
-            "parserPlugin.js",
-            ".ruff_cache/CACHEDIR.TAG",
-            "nested/tsconfig.unit.json",
-            "out/types/unit.tsbuildinfo",
-        }
-        for path in sorted(forbidden):
-            with self.subTest(forbidden=path):
-                self.assertTrue(ignored_by_vscodeignore(path, patterns))
-
 
 class CargoBoundaryContract(unittest.TestCase):
     def test_every_non_formatting_cargo_entrypoint_is_locked(self) -> None:

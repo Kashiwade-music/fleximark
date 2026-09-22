@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn escapes_raw_html_and_rejects_javascript_urls() {
+    fn sanitizes_raw_html_links_and_image_resources() {
         let raw = parse(
             DocumentUri("file:///raw.md".into()),
             1,
@@ -545,10 +545,6 @@ mod tests {
             HtmlRenderer.render(&link, &RenderContext::default()),
             Err(RenderError::ResourceRejected(_))
         ));
-    }
-
-    #[test]
-    fn rejects_protocol_relative_and_limits_data_urls_to_images() {
         let permissive = RenderContext {
             allow_remote_resources: true,
             allow_data_resources: true,

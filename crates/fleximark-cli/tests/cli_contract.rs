@@ -15,27 +15,23 @@ fn text(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn no_arguments_preserves_usage_stderr_and_failure_exit() {
-    let output = run(&[]);
-    assert!(!output.status.success());
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        text(&output.stderr),
-        "fleximark: usage: fleximark <render|benchmark|init|edit-theme|create-note|collect-admonitions|export|ack-export> [path] [destination]\n"
-    );
-}
-
-#[test]
-fn unknown_command_preserves_stderr_and_failure_exit() {
-    let output = run(&["unknown-command"]);
-    assert!(!output.status.success());
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        text(&output.stderr),
-        "fleximark: unknown command: unknown-command\n"
-    );
+fn invalid_invocations_preserve_stderr_and_failure_exit() {
+    for (arguments, expected) in [
+        (
+            &[][..],
+            "fleximark: usage: fleximark <render|benchmark|init|edit-theme|create-note|collect-admonitions|export|ack-export> [path] [destination]\n",
+        ),
+        (
+            &["unknown-command"][..],
+            "fleximark: unknown command: unknown-command\n",
+        ),
+    ] {
+        let output = run(arguments);
+        assert!(!output.status.success(), "{arguments:?}");
+        assert_eq!(output.status.code(), Some(1), "{arguments:?}");
+        assert!(output.stdout.is_empty(), "{arguments:?}");
+        assert_eq!(text(&output.stderr), expected, "{arguments:?}");
+    }
 }
 
 #[test]

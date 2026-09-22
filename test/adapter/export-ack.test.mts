@@ -13,7 +13,7 @@ export function suite(): void {
     workspaceUri: "file:///workspace",
   };
 
-  test("acknowledges only after the exported URI opens successfully", async () => {
+  test("acknowledges if and only if the exported URI opens", async () => {
     const calls: string[] = [];
     await openCommandResult(
       params,
@@ -27,9 +27,6 @@ export function suite(): void {
       },
     );
     assert.deepEqual(calls, ["open", "acknowledgeExport"]);
-  });
-
-  test("retains recovery state when opening the export fails", async () => {
     let acknowledged = false;
     await assert.rejects(
       openCommandResult(

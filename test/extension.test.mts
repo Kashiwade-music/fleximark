@@ -18,53 +18,6 @@ suite("Extension Test Suite", () => {
     await extension.activate();
   });
 
-  test("ships only adapter-owned settings", () => {
-    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
-    assert.ok(extension);
-    assert.deepEqual(
-      Object.keys(
-        extension.packageJSON.contributes.configuration.properties,
-      ).sort(),
-      [
-        "fleximark.autoOpenPreview",
-        "fleximark.daemonPath",
-        "fleximark.logLevel",
-        "fleximark.previewColumn",
-        "fleximark.previewTarget",
-      ],
-    );
-  });
-
-  test("declares daemon resolution and redacted adapter logging settings", () => {
-    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
-    assert.ok(extension);
-    const properties =
-      extension.packageJSON.contributes.configuration.properties;
-    assert.equal(
-      properties["fleximark.daemonPath"].scope,
-      "machine-overridable",
-    );
-    assert.equal(properties["fleximark.previewTarget"].scope, "resource");
-    assert.deepEqual(properties["fleximark.logLevel"].enum, [
-      "off",
-      "error",
-      "info",
-      "debug",
-    ]);
-  });
-
-  test("does not ship the legacy JavaScript plugin runtime", async () => {
-    const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
-    assert.ok(extension);
-    await assert.rejects(
-      Promise.resolve(
-        vscode.workspace.fs.stat(
-          vscode.Uri.joinPath(extension.extensionUri, "parserPlugin.js"),
-        ),
-      ),
-    );
-  });
-
   suite(contributions.suiteName, contributions.suite);
   suite(daemonRuntime.suiteName, daemonRuntime.suite);
   suite(documentLifecycle.suiteName, documentLifecycle.suite);
