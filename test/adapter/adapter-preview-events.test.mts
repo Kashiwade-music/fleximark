@@ -147,6 +147,7 @@ function testState(): TestState {
     origin: activeOrigin,
     documentUri: opened.uri.toString(),
     previewSessionId: "preview",
+    remoteSessionActive: true,
     target: "embeddedHtml",
     renderRevision: 1,
     notifiedRevision: 1,

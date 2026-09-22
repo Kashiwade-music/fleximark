@@ -74,7 +74,7 @@ export async function activate(
   );
 
   void activatedAdapter
-    .activateDocument(vscode.window.activeTextEditor?.document)
+    .activateEditor(vscode.window.activeTextEditor)
     .then(() => {
       if (adapter !== activatedAdapter) return;
       const config = vscode.workspace.getConfiguration("fleximark");

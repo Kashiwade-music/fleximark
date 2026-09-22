@@ -1,15 +1,18 @@
 import * as assert from "node:assert/strict";
+import type * as vscode from "vscode";
 
 import type { DaemonOrigin } from "../../adapters/vscode/src/document-coordinator.mjs";
 import {
   type PreviewLifecycleDependencies,
   disposePreviewLifecycle,
   embeddedPreviewShell,
+  followActiveDocumentLifecycle,
   handlePreviewChangedLifecycle,
   handlePreviewEventLifecycle,
   openPreviewLifecycle,
   previewCandidateIdentityIsCurrent,
   previewCandidateIsCurrent,
+  recreatePreviewsLifecycle,
   rerenderPreviewLifecycle,
   sameDaemonOrigin,
   synchronizePreviewLifecycle,
@@ -49,7 +52,7 @@ export function suite(): void {
     const documentState = { sessionId: "document", version: 4 };
     const runtime = {
       removed: false,
-      documents: new Map([["file:///note.md", documentState]]),
+      documents: new Map([["file:///next.md", documentState]]),
     } as unknown as WorkspaceRuntime;
     const candidate = {
       origin,
@@ -263,7 +266,7 @@ export function suite(): void {
     const documentState = { sessionId: "document", version: 1 };
     const runtime = {
       removed: false,
-      documents: new Map([["file:///note.md", documentState]]),
+      documents: new Map([["file:///next.md", documentState]]),
       previews: new Map(),
     } as unknown as WorkspaceRuntime;
     const opened: string[] = [];
@@ -371,7 +374,7 @@ export function suite(): void {
           },
         },
         [runtime],
-        assert.fail,
+        async () => assert.fail("viewport navigation must stay in the preview"),
       ),
       true,
     );
@@ -387,6 +390,212 @@ export function suite(): void {
         },
       },
     ]);
+  });
+
+  test("moves an embedded preview when its source editor activates another Markdown document", async () => {
+    const released: unknown[] = [];
+    const previousRpc = {
+      closed: false,
+      request(method: string, params: unknown) {
+        released.push({ method, params });
+        return Promise.resolve(null);
+      },
+    } as unknown as JsonRpcConnection;
+    const nextRpc = { closed: false } as JsonRpcConnection;
+    const previousOrigin = daemonOrigin(previousRpc, "daemon", 1);
+    const nextOrigin = daemonOrigin(nextRpc, "daemon", 1);
+    const preview = previewState(previousOrigin, async () => true);
+    preview.sourceViewColumn = 1;
+    preview.renderRevision = 4;
+    const previousRuntime = runtimeWithPreview(preview);
+    const workspace = { uri: { toString: () => "file:///workspace" } };
+    const documentState = { sessionId: "document-next", version: 2 };
+    const nextRuntime = {
+      workspace,
+      removed: false,
+      documents: new Map([["file:///next.md", documentState]]),
+      previews: new Map(),
+    } as unknown as WorkspaceRuntime;
+    const document = {
+      languageId: "markdown",
+      fileName: "next.md",
+      version: 2,
+      uri: { toString: () => "file:///next.md" },
+    } as vscode.TextDocument;
+    const editor = { document, viewColumn: 1 } as vscode.TextEditor;
+    const requests: unknown[] = [];
+    const synchronized: unknown[] = [];
+    const dependencies = {
+      activeEditor: () => editor,
+      workspaceFor: () => workspace,
+      start: async () => nextRuntime,
+      sync: async () => void 0,
+      request: async (
+        runtime: WorkspaceRuntime,
+        requestedDocument: vscode.TextDocument,
+      ) => {
+        requests.push({ runtime, requestedDocument });
+        return {
+          origin: nextOrigin,
+          runtime: nextRuntime,
+          documentUri: "file:///next.md",
+          documentState,
+          documentSessionId: "document-next",
+          documentVersion: 2,
+          result: { previewSessionId: "preview-next" },
+        };
+      },
+      candidateCurrent: () => true,
+      rejectCandidate: assert.fail,
+      previewCurrent: (runtime: WorkspaceRuntime, item: PreviewState) =>
+        runtime.previews.get(item.previewSessionId) === item,
+      synchronize: async (runtime: WorkspaceRuntime, item: PreviewState) =>
+        void synchronized.push({ runtime, item }),
+    } as unknown as PreviewLifecycleDependencies;
+
+    preview.sourceViewColumn = 2;
+    await followActiveDocumentLifecycle(
+      editor,
+      [previousRuntime, nextRuntime],
+      dependencies,
+    );
+    assert.equal(requests.length, 0, "another source column is independent");
+
+    preview.sourceViewColumn = 1;
+    await followActiveDocumentLifecycle(
+      {
+        ...editor,
+        document: { ...document, languageId: "plaintext" },
+      } as vscode.TextEditor,
+      [previousRuntime, nextRuntime],
+      dependencies,
+    );
+    assert.equal(requests.length, 0, "non-Markdown editors are ignored");
+
+    await followActiveDocumentLifecycle(
+      editor,
+      [previousRuntime, nextRuntime],
+      dependencies,
+    );
+
+    assert.equal(requests.length, 1);
+    assert.equal(previousRuntime.previews.size, 0);
+    assert.equal(nextRuntime.previews.get("preview-next"), preview);
+    assert.equal(preview.documentUri, "file:///next.md");
+    assert.equal(preview.remoteSessionActive, true);
+    assert.equal(preview.renderRevision, 0);
+    assert.equal(preview.panel?.title, "FlexiMark: next.md");
+    assert.equal(synchronized.length, 1);
+    assert.deepEqual(released, [
+      {
+        method: "fleximark/disposePreview",
+        params: {
+          daemonInstanceId: "daemon",
+          previewSessionId: "preview",
+        },
+      },
+    ]);
+  });
+
+  test("reattaches a disconnected panel without disposing its dead session", async () => {
+    let released = 0;
+    const previousOrigin = daemonOrigin(
+      {
+        closed: false,
+        request: () => {
+          released += 1;
+          return Promise.resolve(null);
+        },
+      } as unknown as JsonRpcConnection,
+      "daemon",
+      1,
+    );
+    const preview = previewState(previousOrigin, async () => true);
+    preview.sourceViewColumn = 1;
+    preview.remoteSessionActive = false;
+    const previousRuntime = runtimeWithPreview(preview);
+    const workspace = { uri: { toString: () => "file:///workspace" } };
+    const documentState = { sessionId: "next-document", version: 2 };
+    const nextRuntime = {
+      workspace,
+      removed: false,
+      documents: new Map([["file:///note.md", documentState]]),
+      previews: new Map(),
+    } as unknown as WorkspaceRuntime;
+    const document = {
+      languageId: "markdown",
+      fileName: "note.md",
+      version: 2,
+      uri: { toString: () => "file:///note.md" },
+    } as vscode.TextDocument;
+    const editor = { document, viewColumn: 1 } as vscode.TextEditor;
+    const dependencies = {
+      activeEditor: () => editor,
+      workspaceFor: () => workspace,
+      start: async () => nextRuntime,
+      sync: async () => void 0,
+      request: async () => ({
+        origin: daemonOrigin(
+          { closed: false } as JsonRpcConnection,
+          "daemon",
+          1,
+        ),
+        runtime: nextRuntime,
+        documentUri: "file:///note.md",
+        documentState,
+        documentSessionId: "next-document",
+        documentVersion: 2,
+        result: { previewSessionId: "preview-next" },
+      }),
+      candidateCurrent: () => true,
+      rejectCandidate: assert.fail,
+      previewCurrent: (owner: WorkspaceRuntime, item: PreviewState) =>
+        owner.previews.get(item.previewSessionId) === item,
+      synchronize: async () => void 0,
+    } as unknown as PreviewLifecycleDependencies;
+
+    await followActiveDocumentLifecycle(
+      editor,
+      [previousRuntime, nextRuntime],
+      dependencies,
+    );
+
+    assert.equal(released, 0);
+    assert.equal(previousRuntime.previews.size, 0);
+    assert.equal(nextRuntime.previews.get("preview-next"), preview);
+    assert.equal(preview.remoteSessionActive, true);
+  });
+
+  test("retains disconnected panels during daemon replay", async () => {
+    const preview = previewState(
+      daemonOrigin({ closed: false } as JsonRpcConnection, "daemon", 1),
+      async () => true,
+    );
+    const runtime = runtimeWithPreview(preview);
+    await recreatePreviewsLifecycle(runtime, {
+      document: () => undefined,
+      dispose: async () => assert.fail("the local panel must remain open"),
+    } as unknown as PreviewLifecycleDependencies);
+    assert.equal(runtime.previews.get("preview"), preview);
+    assert.equal(preview.remoteSessionActive, false);
+    assert.ok(preview.panel);
+  });
+
+  test("keeps a replay failure disconnected", async () => {
+    const preview = previewState(
+      daemonOrigin({ closed: true } as JsonRpcConnection, "old-daemon", 1),
+      async () => true,
+    );
+    preview.remoteSessionActive = false;
+    const runtime = runtimeWithPreview(preview);
+    await recreatePreviewsLifecycle(runtime, {
+      document: () => ({ languageId: "markdown" }) as vscode.TextDocument,
+      request: async () => undefined,
+      dispose: async () => assert.fail("the local panel must remain open"),
+      report: assert.fail,
+    } as unknown as PreviewLifecycleDependencies);
+    assert.equal(runtime.previews.get("preview"), preview);
+    assert.equal(preview.remoteSessionActive, false);
   });
 
   test("removes membership before awaiting daemon disposal", async () => {
@@ -411,6 +620,32 @@ export function suite(): void {
     await operation;
     assert.equal(panelDisposed, 1);
   });
+
+  test("closes a disconnected panel without disposing its dead remote session", async () => {
+    let requested = 0;
+    const preview = previewState(
+      daemonOrigin(
+        {
+          closed: false,
+          request: () => {
+            requested += 1;
+            return Promise.reject(new Error("remote preview is gone"));
+          },
+        } as unknown as JsonRpcConnection,
+        "daemon",
+        1,
+      ),
+      async () => true,
+    );
+    preview.remoteSessionActive = false;
+    let panelDisposed = 0;
+    preview.panel = { dispose: () => panelDisposed++ } as never;
+    const runtime = runtimeWithPreview(preview);
+    await disposePreviewLifecycle(runtime, preview, assert.fail);
+    assert.equal(requested, 0);
+    assert.equal(panelDisposed, 1);
+    assert.equal(runtime.previews.size, 0);
+  });
 }
 
 function daemonOrigin(
@@ -429,6 +664,7 @@ function previewState(
     origin,
     documentUri: "file:///note.md",
     previewSessionId: "preview",
+    remoteSessionActive: true,
     target: "embeddedHtml",
     renderRevision: 0,
     notifiedRevision: 0,

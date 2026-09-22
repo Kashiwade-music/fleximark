@@ -68,7 +68,7 @@ fn convert_block<'a>(
     next_id: &mut usize,
 ) -> Result<Option<Block>, ParseError> {
     let data = node.data();
-    let provenance = positions.provenance(data.sourcepos)?;
+    let sourcepos = data.sourcepos;
     let value = data.value.clone();
     drop(data);
 
@@ -243,6 +243,7 @@ fn convert_block<'a>(
         | NodeValue::EscapedTag(_) => return Ok(None),
         NodeValue::FrontMatter(_) | NodeValue::Document => return Ok(None),
     };
+    let provenance = positions.provenance_enclosing(sourcepos, &children)?;
     let id = NodeId::pending(*next_id);
     *next_id += 1;
     Ok(Some(Block {
@@ -416,42 +417,49 @@ impl<'a> SourceIndex<'a> {
     }
 
     fn provenance(&self, sourcepos: Sourcepos) -> Result<SourceProvenance, ParseError> {
-        let start_line = sourcepos
-            .start
-            .line
-            .checked_sub(1)
-            .ok_or_else(|| self.invalid(sourcepos))?;
-        let end_line = sourcepos
-            .end
-            .line
-            .checked_sub(1)
-            .ok_or_else(|| self.invalid(sourcepos))?;
-        let start_column = sourcepos
-            .start
-            .column
-            .checked_sub(1)
-            .ok_or_else(|| self.invalid(sourcepos))?;
-        let start = self
-            .line_starts
-            .get(start_line)
-            .copied()
-            .and_then(|base| base.checked_add(start_column));
-        // Comrak columns are one-based and its end is inclusive, so the numeric end column is
-        // already the zero-based exclusive byte offset within that line.
-        let end = self
-            .line_starts
-            .get(end_line)
-            .copied()
-            .and_then(|base| base.checked_add(sourcepos.end.column));
-        let (start, end) = match (start, end) {
-            (Some(start), Some(end))
-                if start <= end
-                    && end <= self.source.len()
-                    && self.source.is_char_boundary(start)
-                    && self.source.is_char_boundary(end) =>
-            {
-                (start, end)
+        self.provenance_enclosing(sourcepos, &[])
+    }
+
+    fn provenance_enclosing(
+        &self,
+        sourcepos: Sourcepos,
+        children: &[Node],
+    ) -> Result<SourceProvenance, ParseError> {
+        let start = self.sourcepos_start(sourcepos);
+        let end_line = sourcepos.end.line.checked_sub(1);
+        // Comrak can truncate the final item and paragraph end inside a block directive.
+        // Only a direct child ending on the same reported line can repair that end. Some valid
+        // list-item ranges include following blank lines and therefore extend past their list's
+        // own reported end; those must not widen or invalidate the parent list.
+        let reported_end = self.sourcepos_end_offset(sourcepos);
+        let child_end = children
+            .iter()
+            .filter_map(|child| match child {
+                Node::Block(block) => block.provenance.primary_range(),
+                Node::Inline(inline) => inline.provenance.primary_range(),
+            })
+            .filter(|range| {
+                start.is_some_and(|start| range.byte_start.get() >= start as u64)
+                    && end_line.is_some_and(|line| range.end.line.get() == line as u64)
+            })
+            .max_by_key(|range| range.byte_end)
+            .map(|range| range.byte_end.get() as usize);
+        let end = match (reported_end, child_end) {
+            (Some(reported), Some(child)) if self.source.is_char_boundary(reported) => {
+                Some(reported.max(child))
             }
+            (Some(reported), Some(child))
+                if start.is_some_and(|start| start <= reported)
+                    && reported <= child
+                    && self.source.is_char_boundary(child) =>
+            {
+                Some(child)
+            }
+            (Some(reported), None) if self.source.is_char_boundary(reported) => Some(reported),
+            _ => None,
+        };
+        let (start, end) = match (start, end) {
+            (Some(start), Some(end)) if start <= end => (start, end),
             _ => return Err(self.invalid(sourcepos)),
         };
         Ok(SourceProvenance::original(SourceRange {
@@ -460,6 +468,29 @@ impl<'a> SourceIndex<'a> {
             start: self.position(start),
             end: self.position(end),
         }))
+    }
+
+    fn sourcepos_start(&self, sourcepos: Sourcepos) -> Option<usize> {
+        let line = sourcepos
+            .start
+            .line
+            .checked_sub(1)
+            .and_then(|line| self.line_starts.get(line))?;
+        let column = sourcepos.start.column.checked_sub(1)?;
+        let offset = line.checked_add(column)?;
+        (offset <= self.source.len() && self.source.is_char_boundary(offset)).then_some(offset)
+    }
+
+    fn sourcepos_end_offset(&self, sourcepos: Sourcepos) -> Option<usize> {
+        let line = sourcepos
+            .end
+            .line
+            .checked_sub(1)
+            .and_then(|line| self.line_starts.get(line))?;
+        // Comrak columns are one-based and its end is inclusive, so the numeric end column is
+        // already the zero-based exclusive byte offset within that line.
+        let offset = line.checked_add(sourcepos.end.column)?;
+        (offset <= self.source.len()).then_some(offset)
     }
 
     fn position(&self, byte_offset: usize) -> SourcePosition {
@@ -582,5 +613,61 @@ mod tests {
             &block.kind,
             BlockKind::Media { source } if source.starts_with("https://youtu.be/")
         )));
+    }
+
+    #[test]
+    fn repairs_truncated_container_positions_from_unicode_children() {
+        let source = ":::info\n**目標**\n- 遠くの線は細く\n- 線の入り抜きを入れる\n- そんなに震えない\n:::\n";
+        let document = parse(DocumentUri("file:///directive.md".into()), 1, source).unwrap();
+        let directive = &document.blocks[0];
+        let list = match &directive.children[1] {
+            Node::Block(block) => block,
+            Node::Inline(_) => panic!("directive list must be a block"),
+        };
+        let item = match &list.children[2] {
+            Node::Block(block) => block,
+            Node::Inline(_) => panic!("list item must be a block"),
+        };
+        let range = item.provenance.primary_range().unwrap();
+        assert_eq!(
+            &source[range.byte_start.get() as usize..range.byte_end.get() as usize],
+            "- そんなに震えない"
+        );
+        let paragraph = match &item.children[0] {
+            Node::Block(block) => block,
+            Node::Inline(_) => panic!("list paragraph must be a block"),
+        };
+        let range = paragraph.provenance.primary_range().unwrap();
+        assert_eq!(
+            &source[range.byte_start.get() as usize..range.byte_end.get() as usize],
+            "そんなに震えない"
+        );
+
+        let source = ":::info\n- first\n- last\n:::\n";
+        let document = parse(DocumentUri("file:///ascii-directive.md".into()), 1, source).unwrap();
+        let list = match &document.blocks[0].children[0] {
+            Node::Block(block) => block,
+            Node::Inline(_) => panic!("directive list must be a block"),
+        };
+        let item = match &list.children[1] {
+            Node::Block(block) => block,
+            Node::Inline(_) => panic!("list item must be a block"),
+        };
+        let range = item.provenance.primary_range().unwrap();
+        assert_eq!(
+            &source[range.byte_start.get() as usize..range.byte_end.get() as usize],
+            "- last"
+        );
+    }
+
+    #[test]
+    fn accepts_list_items_that_include_blank_lines_past_the_parent_list() {
+        let source = "- 近距離\n  - ベース幅: 3.0\n- 遠距離\n  - エラー: 10.0\n\n\n:::info\n- そんなに震えない\n:::\n";
+        let document = parse(DocumentUri("file:///nested-list.md".into()), 1, source).unwrap();
+        let range = document.blocks[0].provenance.primary_range().unwrap();
+        assert_eq!(
+            &source[range.byte_start.get() as usize..range.byte_end.get() as usize],
+            "- 近距離\n  - ベース幅: 3.0\n- 遠距離\n  - エラー: 10.0"
+        );
     }
 }

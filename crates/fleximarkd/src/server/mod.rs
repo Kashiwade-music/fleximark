@@ -97,6 +97,7 @@ fn deserialize_params<P: serde::de::DeserializeOwned>(
 }
 
 pub(crate) fn session_error(id: Value, error: SessionError) -> Value {
+    let engine_rejection = matches!(error, SessionError::Engine(_));
     let code = if matches!(
         error,
         SessionError::ContentModified
@@ -108,7 +109,11 @@ pub(crate) fn session_error(id: Value, error: SessionError) -> Value {
     } else {
         -32602
     };
-    response_value(Response::error(id, code, error.to_string()))
+    let mut response = Response::error(id, code, error.to_string());
+    if engine_rejection {
+        response.error.as_mut().expect("error response").data = Some(json!({"kind":"engine"}));
+    }
+    response_value(response)
 }
 
 pub(crate) fn response_value(response: Response) -> Value {

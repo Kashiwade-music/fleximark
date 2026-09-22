@@ -2,8 +2,23 @@ import { createHash } from "node:crypto";
 import type * as vscode from "vscode";
 
 import type { RequestFullTextParams } from "./protocol.mjs";
-import type { JsonRpcConnection, JsonRpcRequest } from "./rpc.mjs";
-import type { DocumentState, WorkspaceRuntime } from "./runtime-state.mjs";
+import {
+  type JsonRpcConnection,
+  type JsonRpcRequest,
+  JsonRpcResponseError,
+} from "./rpc.mjs";
+import type {
+  DocumentState,
+  PreviewState,
+  WorkspaceRuntime,
+} from "./runtime-state.mjs";
+
+function deactivatePreviewSession(preview: PreviewState): void {
+  preview.remoteSessionActive = false;
+  preview.readInFlight = undefined;
+  preview.readAgain = false;
+  preview.forceRead = false;
+}
 
 export interface DaemonOrigin {
   readonly rpc: JsonRpcConnection;
@@ -41,14 +56,11 @@ export async function syncDocument(
   const operation = (async () => {
     const version = document.version;
     const text = document.getText();
-    origin.rpc.notifyLsp("textDocument/didOpen", {
-      textDocument: { uri, languageId: document.languageId, version, text },
-    });
-    const attached = await origin.rpc.request("fleximark/attachDocument", {
+    const attached = await origin.rpc.request("fleximark/openDocument", {
       daemonInstanceId: origin.daemonInstanceId,
       uri,
-      expectedDocumentVersion: version,
-      contentHash: createHash("sha256").update(text).digest("hex"),
+      documentVersion: version,
+      text,
     });
     if (!attached) return;
     if (!isCurrent(runtime, document, state, origin)) return;
@@ -69,13 +81,18 @@ export function changeDocument(
   runtime: WorkspaceRuntime | undefined,
   document: vscode.TextDocument,
   rpc: JsonRpcConnection | undefined,
+  synchronize: () => Promise<void>,
   checkpoint: () => Promise<void>,
   report: (error: unknown) => void,
   clock: DocumentClock = systemDocumentClock,
 ): void {
   if (document.languageId !== "markdown") return;
   const state = runtime?.documents.get(document.uri.toString());
-  if (!state?.sessionId || !runtime || !rpc) return;
+  if (!state?.sessionId || !runtime || !rpc) {
+    if (state && runtime && rpc && !state.syncing)
+      void synchronize().catch(report);
+    return;
+  }
   state.version = document.version;
   rpc.notifyLsp("textDocument/didChange", {
     textDocument: { uri: document.uri.toString(), version: document.version },
@@ -91,16 +108,17 @@ export function closeDocument(
   runtime: WorkspaceRuntime | undefined,
   document: vscode.TextDocument,
   rpc: JsonRpcConnection | undefined,
-  disposePreview: (runtime: WorkspaceRuntime, previewSessionId: string) => void,
 ): void {
   if (!runtime) return;
   const uri = document.uri.toString();
   const state = runtime.documents.get(uri);
   if (state?.checkpoint) clearTimeout(state.checkpoint);
   rpc?.notifyLsp("textDocument/didClose", { textDocument: { uri } });
-  for (const preview of [...runtime.previews.values()])
-    if (preview.documentUri === uri)
-      disposePreview(runtime, preview.previewSessionId);
+  for (const preview of runtime.previews.values())
+    if (preview.documentUri === uri) {
+      deactivatePreviewSession(preview);
+      if (!preview.panel) runtime.previews.delete(preview.previewSessionId);
+    }
   runtime.documents.delete(uri);
 }
 
@@ -121,8 +139,39 @@ export async function checkpointDocument(
 export function resetDocumentSessions(
   runtimes: Iterable<WorkspaceRuntime>,
 ): void {
-  for (const runtime of runtimes)
+  for (const runtime of runtimes) {
     for (const state of runtime.documents.values()) state.sessionId = undefined;
+    for (const preview of runtime.previews.values())
+      deactivatePreviewSession(preview);
+  }
+}
+
+export async function replayDocumentSessions(
+  documents: Iterable<vscode.TextDocument>,
+  sync: (document: vscode.TextDocument) => Promise<void>,
+  reject: (document: vscode.TextDocument, error: JsonRpcResponseError) => void,
+): Promise<void> {
+  for (const document of documents) {
+    try {
+      await sync(document);
+    } catch (error) {
+      if (!isEngineDocumentRejection(error)) throw error;
+      reject(document, error);
+    }
+  }
+}
+
+function isEngineDocumentRejection(
+  error: unknown,
+): error is JsonRpcResponseError {
+  return (
+    error instanceof JsonRpcResponseError &&
+    error.code === -32602 &&
+    error.data !== null &&
+    typeof error.data === "object" &&
+    !Array.isArray(error.data) &&
+    error.data.kind === "engine"
+  );
 }
 
 export function handleRequestFullText(

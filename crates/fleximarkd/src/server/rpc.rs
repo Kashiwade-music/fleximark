@@ -318,11 +318,16 @@ impl Server {
             match self
                 .registry
                 .open_rpc_with_cancellation(params, &self.work_cancellation)
-                .and_then(|result| {
-                    self.refresh_assets(&uri)?;
-                    Ok(result)
-                }) {
-                Ok(result) => response_value(Response::success(id, result)),
+            {
+                Ok(result) => {
+                    if self.refresh_assets(&uri).is_err() {
+                        log_operational_event("document-assets-failed", Some(&uri), None, None);
+                    }
+                    if self.lsp_mode {
+                        self.publish_lsp_diagnostics(&uri);
+                    }
+                    response_value(Response::success(id, result))
+                }
                 Err(error) => session_error(id, error),
             },
         )

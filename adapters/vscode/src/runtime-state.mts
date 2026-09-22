@@ -15,6 +15,7 @@ export interface PreviewState {
   documentUri: string;
   sourceViewColumn?: vscode.ViewColumn;
   previewSessionId: string;
+  remoteSessionActive: boolean;
   target: PreviewTarget;
   renderRevision: number;
   notifiedRevision: number;

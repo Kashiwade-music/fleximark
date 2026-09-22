@@ -266,14 +266,16 @@ fn session_errors_preserve_their_wire_codes_and_messages() {
     ];
 
     for (error, code, message) in cases {
-        assert_eq!(
-            session_error(json!("request-7"), error),
-            json!({
-                "jsonrpc":"2.0",
-                "id":"request-7",
-                "error":{"code":code,"message":message}
-            })
-        );
+        let engine_rejection = matches!(error, SessionError::Engine(_));
+        let mut expected = json!({
+            "jsonrpc":"2.0",
+            "id":"request-7",
+            "error":{"code":code,"message":message}
+        });
+        if engine_rejection {
+            expected["error"]["data"] = json!({"kind":"engine"});
+        }
+        assert_eq!(session_error(json!("request-7"), error), expected);
     }
 }
 
@@ -365,11 +367,14 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         );
     }
 
-    for method_name in [
-        method::OPEN_DOCUMENT,
-        method::CHANGE_DOCUMENT,
-        method::CLOSE_DOCUMENT,
-    ] {
+    let lsp_open = Server::new(true).request(95, method::OPEN_DOCUMENT, json!({}));
+    assert_eq!(lsp_open.len(), 1);
+    assert_ne!(
+        lsp_open[0]["error"]["code"], -32601,
+        "LSP connection must accept the acknowledged document-open request"
+    );
+
+    for method_name in [method::CHANGE_DOCUMENT, method::CLOSE_DOCUMENT] {
         let rpc_result = Server::new(false).request(95, method_name, json!({}));
         assert_eq!(
             rpc_result.len(),

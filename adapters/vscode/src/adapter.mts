@@ -20,6 +20,7 @@ import {
   closeDocument as coordinateDocumentClose,
   syncDocument as coordinateDocumentSync,
   handleRequestFullText,
+  replayDocumentSessions,
   resetDocumentSessions,
 } from "./document-coordinator.mjs";
 import { errorMessage, redactSensitiveText } from "./error-policy.mjs";
@@ -33,6 +34,7 @@ import {
   type PreviewLifecycleDependencies,
   disposePreviewCandidate,
   disposePreviewLifecycle,
+  followActiveDocumentLifecycle,
   handlePreviewChangedLifecycle,
   handlePreviewEventLifecycle,
   openPreviewLifecycle,
@@ -161,6 +163,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     log: (message) => this.#log(message),
     previewCurrent: (runtime, preview) =>
       this.#previewIsActive(runtime, preview),
+    owner: (preview) => this.#previewOwner(preview),
     report: (error) => this.#report(error),
     dispose: (runtime, preview) => this.#disposePreview(runtime, preview),
     notifyNavigation: (event) => {
@@ -294,6 +297,16 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (document?.languageId === "markdown") await this.syncDocument(document);
   }
 
+  async activateEditor(editor?: vscode.TextEditor): Promise<void> {
+    await this.activateDocument(editor?.document);
+    if (this.#disposed) return;
+    await followActiveDocumentLifecycle(
+      editor,
+      this.#runtimes.values(),
+      this.#previewLifecycleContext,
+    );
+  }
+
   async executeMigrationCommand(
     workspace: vscode.WorkspaceFolder,
     command: "inspectLegacyWorkspace" | "migrateWorkspace",
@@ -387,6 +400,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       runtime,
       document,
       origin?.rpc,
+      () => this.syncDocument(document),
       () =>
         runtime && state
           ? this.#checkpoint(document, state, origin)
@@ -397,15 +411,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   closeDocument(document: vscode.TextDocument): void {
     const runtime = this.#runtimeForDocument(document);
-    coordinateDocumentClose(
-      runtime,
-      document,
-      this.#supervisor.rpc,
-      (owner, previewSessionId) => {
-        const preview = owner.previews.get(previewSessionId);
-        if (preview) void this.#disposePreview(owner, preview);
-      },
-    );
+    coordinateDocumentClose(runtime, document, this.#supervisor.rpc);
   }
 
   selectionChanged(event: vscode.TextEditorSelectionChangeEvent): void {
@@ -637,6 +643,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     return workspace && this.#runtimes.get(workspace.uri.toString());
   }
 
+  #previewOwner(preview: PreviewState): WorkspaceRuntime | undefined {
+    return [...this.#runtimes.values()].find(
+      (runtime) => runtime.previews.get(preview.previewSessionId) === preview,
+    );
+  }
+
   #daemonOrigin(): DaemonOrigin | undefined {
     const rpc = this.#supervisor.rpc;
     const daemonInstanceId = this.#supervisor.daemonInstanceId;
@@ -755,12 +767,21 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   async #replayDocuments(): Promise<void> {
     for (const runtime of this.#runtimes.values())
-      for (const document of vscode.workspace.textDocuments)
-        if (
-          vscode.workspace.getWorkspaceFolder(document.uri)?.uri.toString() ===
-          runtime.workspace.uri.toString()
-        )
-          await this.#syncDocument(runtime, document);
+      await replayDocumentSessions(
+        vscode.workspace.textDocuments.filter(
+          (document) =>
+            vscode.workspace
+              .getWorkspaceFolder(document.uri)
+              ?.uri.toString() === runtime.workspace.uri.toString(),
+        ),
+        (document) => this.#syncDocument(runtime, document),
+        (document, error) => {
+          for (const preview of [...runtime.previews.values()])
+            if (preview.documentUri === document.uri.toString())
+              void this.#disposePreview(runtime, preview);
+          this.#report(error);
+        },
+      );
   }
 
   async #replayPreviews(): Promise<{ documents: number; previews: number }> {

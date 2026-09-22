@@ -167,6 +167,7 @@ export function previewIsCurrent(
 ): boolean {
   return (
     !runtime.removed &&
+    preview.remoteSessionActive &&
     preview.previewSessionId === expectedSessionId &&
     runtime.previews.get(expectedSessionId) === preview
   );
@@ -291,6 +292,7 @@ function createPreviewState(
     sourceViewColumn,
     previewSessionId: candidate.result.previewSessionId,
     target,
+    remoteSessionActive: true,
     renderRevision: 0,
     notifiedRevision: 0,
   };
@@ -327,6 +329,7 @@ export interface PreviewLifecycleDependencies {
   css: string;
   log(message: string): void;
   previewCurrent(runtime: WorkspaceRuntime, preview: PreviewState): boolean;
+  owner(preview: PreviewState): WorkspaceRuntime | undefined;
   report(error: unknown): void;
   dispose(
     runtime: WorkspaceRuntime,
@@ -418,14 +421,15 @@ export async function openPreviewLifecycle(
     dependencies.log("embedded preview created");
     panel.webview.onDidReceiveMessage((event: unknown) => {
       if (!isWebviewInboundMessage(event) || !preview) return;
-      if (!dependencies.previewCurrent(runtime, preview)) return;
+      const owner = dependencies.owner(preview);
+      if (!owner || !dependencies.previewCurrent(owner, preview)) return;
       if (event.type === "ready") {
         preview.webviewReady = true;
-        void dependencies.synchronize(runtime, preview, true);
+        void dependencies.synchronize(owner, preview, true);
         return;
       }
       if (event.type === "requestFrame") {
-        void dependencies.synchronize(runtime, preview, true);
+        void dependencies.synchronize(owner, preview, true);
         return;
       }
       if (
@@ -442,7 +446,9 @@ export async function openPreviewLifecycle(
         });
     });
     panel.onDidDispose(() => {
-      if (preview) dependencies.dispose(runtime, preview);
+      if (!preview) return;
+      const owner = dependencies.owner(preview);
+      if (owner) dependencies.dispose(owner, preview);
     });
     panel.webview.html = shell;
   } catch (error) {
@@ -452,6 +458,92 @@ export async function openPreviewLifecycle(
     await dependencies.rejectCandidate(candidate);
     throw error;
   }
+}
+
+export async function followActiveDocumentLifecycle(
+  editor: vscode.TextEditor | undefined,
+  runtimes: Iterable<WorkspaceRuntime>,
+  dependencies: PreviewLifecycleDependencies,
+): Promise<void> {
+  const document = editor?.document;
+  const sourceViewColumn = editor?.viewColumn;
+  if (
+    !document ||
+    document.languageId !== "markdown" ||
+    sourceViewColumn === undefined
+  )
+    return;
+  const workspace = dependencies.workspaceFor(document);
+  if (!workspace) return;
+  const owners = [...runtimes];
+  const followers = owners.flatMap((runtime) =>
+    [...runtime.previews.values()]
+      .filter(
+        (preview) =>
+          preview.panel &&
+          preview.target === "embeddedHtml" &&
+          preview.sourceViewColumn === sourceViewColumn &&
+          (preview.documentUri !== document.uri.toString() ||
+            !preview.remoteSessionActive),
+      )
+      .map((preview) => ({ runtime, preview })),
+  );
+  if (followers.length === 0) return;
+  const targetRuntime = await dependencies.start(workspace);
+  if (!targetRuntime) return;
+  await dependencies.sync(document);
+
+  await Promise.all(
+    followers.map(async ({ runtime: previousRuntime, preview }) => {
+      const previousId = preview.previewSessionId;
+      const previousOrigin = preview.origin;
+      const candidate = await dependencies.request(
+        targetRuntime,
+        document,
+        "embeddedHtml",
+      );
+      if (!candidate) return;
+      const activeEditor = dependencies.activeEditor();
+      const stillActive =
+        activeEditor?.document.uri.toString() === document.uri.toString() &&
+        activeEditor.viewColumn === sourceViewColumn;
+      if (
+        !stillActive ||
+        !dependencies.candidateCurrent(candidate) ||
+        previousRuntime.previews.get(previousId) !== preview
+      ) {
+        await dependencies.rejectCandidate(candidate);
+        return;
+      }
+
+      const previousRemoteSessionActive = preview.remoteSessionActive;
+      previousRuntime.previews.delete(previousId);
+      preview.origin = candidate.origin;
+      preview.documentUri = candidate.documentUri;
+      preview.sourceViewColumn = sourceViewColumn;
+      preview.previewSessionId = candidate.result.previewSessionId;
+      preview.remoteSessionActive = true;
+      preview.renderRevision = 0;
+      preview.notifiedRevision = 0;
+      preview.readAgain = false;
+      preview.forceRead = true;
+      preview.readInFlight = undefined;
+      targetRuntime.previews.set(preview.previewSessionId, preview);
+      if (preview.panel)
+        preview.panel.title = `FlexiMark: ${path.basename(document.fileName)}`;
+      if (previousRemoteSessionActive)
+        try {
+          await previousOrigin.rpc.request("fleximark/disposePreview", {
+            daemonInstanceId: previousOrigin.daemonInstanceId,
+            previewSessionId: previousId,
+          });
+        } catch {
+          // The old connection may already have been replaced.
+        }
+      if (dependencies.previewCurrent(targetRuntime, preview))
+        await dependencies.synchronize(targetRuntime, preview, true);
+    }),
+  );
 }
 
 export async function disposePreviewLifecycle(
@@ -465,14 +557,15 @@ export async function disposePreviewLifecycle(
     !runtime.previews.delete(previewSessionId)
   )
     return;
-  try {
-    await preview.origin.rpc.request("fleximark/disposePreview", {
-      daemonInstanceId: preview.origin.daemonInstanceId,
-      previewSessionId,
-    });
-  } catch (error) {
-    reportFailure(`preview disposal failed: ${String(error)}`);
-  }
+  if (preview.remoteSessionActive)
+    try {
+      await preview.origin.rpc.request("fleximark/disposePreview", {
+        daemonInstanceId: preview.origin.daemonInstanceId,
+        previewSessionId,
+      });
+    } catch (error) {
+      reportFailure(`preview disposal failed: ${String(error)}`);
+    }
   preview.panel?.dispose();
 }
 
@@ -483,7 +576,8 @@ export async function recreatePreviewsLifecycle(
   for (const [previousId, preview] of [...runtime.previews]) {
     const document = dependencies.document(preview.documentUri);
     if (!document) {
-      await dependencies.dispose(runtime, preview);
+      preview.remoteSessionActive = false;
+      if (!preview.panel) await dependencies.dispose(runtime, preview);
       continue;
     }
     try {
@@ -507,6 +601,7 @@ export async function recreatePreviewsLifecycle(
       runtime.previews.delete(previousId);
       preview.origin = candidate.origin;
       preview.previewSessionId = candidate.result.previewSessionId;
+      preview.remoteSessionActive = true;
       preview.renderRevision = 0;
       preview.notifiedRevision = 0;
       preview.readAgain = false;
@@ -536,7 +631,12 @@ export async function handlePreviewEventLifecycle(
     candidate.previews.has(event.previewSessionId),
   );
   const preview = runtime?.previews.get(event.previewSessionId);
-  if (!runtime || !preview || !sameDaemonOrigin(preview.origin, origin))
+  if (
+    !runtime ||
+    !preview ||
+    !preview.remoteSessionActive ||
+    !sameDaemonOrigin(preview.origin, origin)
+  )
     return false;
   if (event.renderRevision !== preview.renderRevision) return true;
   if (
@@ -565,7 +665,12 @@ export function handlePreviewChangedLifecycle(
     candidate.previews.has(changed.previewSessionId),
   );
   const preview = runtime?.previews.get(changed.previewSessionId);
-  if (!runtime || !preview || !sameDaemonOrigin(preview.origin, origin))
+  if (
+    !runtime ||
+    !preview ||
+    !preview.remoteSessionActive ||
+    !sameDaemonOrigin(preview.origin, origin)
+  )
     return false;
   preview.notifiedRevision = Math.max(
     preview.notifiedRevision,

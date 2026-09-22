@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 interface EventAdapter {
+  activateEditor(editor?: vscode.TextEditor): Promise<void>;
   activateDocument(document?: vscode.TextDocument): Promise<void>;
   changeDocument(document: vscode.TextDocument): void;
   closeDocument(document: vscode.TextDocument): void;
@@ -44,11 +45,9 @@ export function registerEditorEvents(
     }),
     registrar.window.onDidChangeActiveTextEditor((editor) => {
       if (!isActive()) return;
-      void adapter
-        .activateDocument(editor?.document)
-        .catch((error: unknown) => {
-          if (isActive()) adapter.report(error);
-        });
+      void adapter.activateEditor(editor).catch((error: unknown) => {
+        if (isActive()) adapter.report(error);
+      });
     }),
     registrar.workspace.onDidChangeTextDocument(({ document }) => {
       if (isActive()) adapter.changeDocument(document);
