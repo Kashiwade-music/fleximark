@@ -542,6 +542,121 @@ body {
     stroke-width: 2;
   }
 
+  & .fleximark-audio-player {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.2rem 0;
+    margin: 0.2rem 0 0.75rem;
+  }
+
+  & .fleximark-audio-toggle {
+    display: inline-grid;
+    flex: 0 0 1.6rem;
+    place-items: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    color: #0969da;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 0.2rem;
+  }
+
+  & .fleximark-audio-toggle::before {
+    width: 0;
+    height: 0;
+    border-top: 0.3rem solid transparent;
+    border-bottom: 0.3rem solid transparent;
+    border-left: 0.48rem solid currentColor;
+    content: "";
+    transform: translateX(0.04rem);
+  }
+
+  & .fleximark-audio-toggle[data-fleximark-audio-state="pause"]::before {
+    width: 0.48rem;
+    height: 0.6rem;
+    background: linear-gradient(
+      to right,
+      currentColor 0 30%,
+      transparent 30% 70%,
+      currentColor 70% 100%
+    );
+    border: 0;
+    transform: none;
+  }
+
+  & .fleximark-audio-toggle:hover {
+    color: #0550ae;
+    background: #f3f4f6;
+  }
+
+  & .fleximark-audio-toggle:focus-visible,
+  & .fleximark-audio-progress:focus-visible {
+    outline: 2px solid #0969da;
+    outline-offset: 2px;
+  }
+
+  & .fleximark-audio-toggle:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+
+  & .fleximark-audio-progress {
+    --fleximark-audio-progress: 0%;
+
+    flex: 1 1 auto;
+    min-width: 4rem;
+    height: 0.2rem;
+    margin: 0;
+    cursor: pointer;
+    appearance: none;
+    background: linear-gradient(
+      to right,
+      #0969da var(--fleximark-audio-progress),
+      #afb8c1 var(--fleximark-audio-progress)
+    );
+    border-radius: 999px;
+  }
+
+  & .fleximark-audio-progress::-webkit-slider-thumb {
+    width: 0.7rem;
+    height: 0.7rem;
+    appearance: none;
+    background: #0969da;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #0969da;
+  }
+
+  & .fleximark-audio-progress::-moz-range-thumb {
+    width: 0.5rem;
+    height: 0.5rem;
+    background: #0969da;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #0969da;
+  }
+
+  & .fleximark-audio-progress:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  & .fleximark-audio-time {
+    flex: 0 0 auto;
+    color: #57606a;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
   /* Editor/preview navigation state */
   & [data-fleximark-selected="true"] {
     outline: 2px solid #0969da;

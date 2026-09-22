@@ -15,19 +15,24 @@ export interface PreviewRuntimes {
         beat(
           currentBeat: number,
           totalBeats: number,
+          totalTime: number,
           position: { left: number; top: number; height: number },
         ): void;
         event(elements: Element[][] | null): void;
       },
     ): {
-      start(): void;
+      start(position?: number): void;
+      pause(): void;
       stop(): void;
       reset(): void;
+      setProgress(position: number): void;
+      currentMillisecond(): number;
+      duration(): number;
     };
     createSynth(): {
       init(options: { visualObj: unknown }): Promise<unknown>;
       prime(): Promise<unknown>;
-      start(): void;
+      start(position?: number): void;
       stop(): unknown;
     };
   };

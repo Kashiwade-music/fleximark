@@ -583,6 +583,50 @@ export function suite(): void {
     enhancer.dispose();
   });
 
+  test("renders ABC audio as an accessible playback bar", async () => {
+    assert.equal(preview.apply(specialFrame("abc", "X:1\nK:C\nC")), true);
+    const runtimes = inertRuntimes();
+    runtimes.abc.render = (target) => {
+      target.innerHTML = "<svg></svg>";
+      return [{}];
+    };
+    runtimes.abc.supportsAudio = () => true;
+    runtimes.abc.createTiming = () => ({
+      start: () => undefined,
+      pause: () => undefined,
+      stop: () => undefined,
+      reset: () => undefined,
+      setProgress: () => undefined,
+      currentMillisecond: () => 0,
+      duration: () => 65_000,
+    });
+    const enhancer = new PreviewEnhancer(runtimes);
+    await enhancer.render(root);
+
+    const player = root.querySelector<HTMLElement>(
+      "[data-fleximark-audio=player]",
+    );
+    const toggle = player?.querySelector<HTMLButtonElement>("button");
+    const progress = player?.querySelector<HTMLInputElement>(
+      'input[type="range"]',
+    );
+    assert.equal(player?.getAttribute("aria-label"), "ABC playback");
+    assert.equal(
+      player?.previousElementSibling?.getAttribute("data-fleximark-output"),
+      "true",
+    );
+    assert.equal(toggle?.getAttribute("aria-label"), "Play");
+    assert.equal(toggle?.textContent, "");
+    assert.equal(toggle?.dataset.fleximarkAudioState, "play");
+    assert.equal(progress?.max, "65");
+    assert.equal(progress?.getAttribute("aria-label"), "Playback position");
+    assert.equal(
+      player?.querySelector(".fleximark-audio-time")?.textContent,
+      "0:00 / 1:05",
+    );
+    enhancer.dispose();
+  });
+
   test("keeps typed tabs accessible across an unrelated reused block", async () => {
     const tabs = {
       id: "tabs",
@@ -770,8 +814,12 @@ function inertRuntimes(): PreviewRuntimes {
       supportsAudio: () => false,
       createTiming: () => ({
         start: () => undefined,
+        pause: () => undefined,
         stop: () => undefined,
         reset: () => undefined,
+        setProgress: () => undefined,
+        currentMillisecond: () => 0,
+        duration: () => 0,
       }),
       createSynth: () => ({
         init: async () => undefined,

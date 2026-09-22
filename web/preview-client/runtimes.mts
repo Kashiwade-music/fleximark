@@ -22,7 +22,7 @@ class OscillatorSynth {
     return Promise.resolve();
   }
 
-  start(): void {
+  start(position = 0): void {
     if (!this.#visual) throw new Error("ABC audio is not initialized");
     void this.stop().catch(() => undefined);
     const context = new AudioContext();
@@ -36,8 +36,12 @@ class OscillatorSynth {
       const now = context.currentTime + 0.02;
       for (const event of audio.tracks.flat()) {
         if (event.cmd !== "note") continue;
-        const start = now + event.start * timeScale;
-        const end = start + Math.max(0.02, event.duration * timeScale);
+        const eventStart = event.start * timeScale;
+        const eventEnd =
+          eventStart + Math.max(0.02, event.duration * timeScale);
+        if (eventEnd <= position) continue;
+        const start = now + Math.max(0, eventStart - position);
+        const end = now + eventEnd - position;
         const oscillator = context.createOscillator();
         this.#oscillators.push(oscillator);
         const gain = context.createGain();
@@ -107,17 +111,25 @@ export const previewRuntimes: PreviewRuntimes = {
     supportsAudio: () => typeof AudioContext !== "undefined",
     createTiming: (visual, callbacks) => {
       const timing = new abcjs.TimingCallbacks(visual as abcjs.TuneObject, {
-        beatCallback: (currentBeat, totalBeats, _totalTime, position) =>
-          callbacks.beat(currentBeat, totalBeats, position),
+        beatCallback: (currentBeat, totalBeats, totalTime, position) =>
+          callbacks.beat(currentBeat, totalBeats, totalTime, position),
         eventCallback: (event) => {
           callbacks.event(event?.elements ?? null);
           return event ? "continue" : undefined;
         },
       });
+      const duration = Math.max(
+        0,
+        ...timing.noteTimings.map((event) => event.milliseconds),
+      );
       return {
-        start: () => timing.start(),
+        start: (position) => timing.start(position),
+        pause: () => timing.pause(),
         stop: () => timing.stop(),
         reset: () => timing.reset(),
+        setProgress: (position) => timing.setProgress(position),
+        currentMillisecond: () => timing.currentMillisecond(),
+        duration: () => duration,
       };
     },
     createSynth: () => new OscillatorSynth(),

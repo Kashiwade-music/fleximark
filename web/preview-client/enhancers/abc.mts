@@ -34,6 +34,13 @@ export interface AbcEnhancerDependencies {
   report(error: unknown): void;
 }
 
+function formatPlaybackTime(seconds: number): string {
+  const wholeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(wholeSeconds / 60);
+  const remainder = wholeSeconds % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
 export function renderAbc(
   block: HTMLElement,
   runtime: PreviewRuntimes["abc"],
@@ -63,95 +70,166 @@ export function renderAbc(
     highlighted = [];
     for (const name of ["x1", "x2", "y1", "y2"]) cursor.setAttribute(name, "0");
   };
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = "Play";
-  button.dataset.fleximarkAudio = "play";
-  button.setAttribute("aria-pressed", "false");
-  let active:
-    | {
-        handle: TrackedAudio;
-        timing: ReturnType<PreviewRuntimes["abc"]["createTiming"]>;
-      }
-    | undefined;
-  const finish = () => {
-    const playback = active;
-    if (!playback) return;
-    active = undefined;
-    clearPlaybackDisplay();
-    button.textContent = "Play";
-    button.dataset.fleximarkAudio = "play";
-    button.setAttribute("aria-pressed", "false");
-    dependencies.release(playback.handle);
-  };
-  button.addEventListener("click", async () => {
-    if (!dependencies.current()) return;
-    if (active) {
-      const playback = active;
-      active = undefined;
-      playback.timing.stop();
-      clearPlaybackDisplay();
-      button.textContent = "Play";
-      button.dataset.fleximarkAudio = "play";
-      button.setAttribute("aria-pressed", "false");
-      dependencies.release(playback.handle);
-      return;
-    }
-    button.disabled = true;
-    let handle: TrackedAudio | undefined;
-    let timing: ReturnType<PreviewRuntimes["abc"]["createTiming"]> | undefined;
-    try {
-      handle = dependencies.track(runtime.createSynth());
-      timing = runtime.createTiming(visual, {
-        beat: (currentBeat, totalBeats, position) => {
-          if (!active || currentBeat === totalBeats) {
-            if (currentBeat === totalBeats) finish();
-            return;
-          }
-          const x = position.left - 2;
-          cursor.setAttribute("x1", String(x));
-          cursor.setAttribute("x2", String(x));
-          cursor.setAttribute("y1", String(position.top));
-          cursor.setAttribute("y2", String(position.top + position.height));
-        },
-        event: (elements) => {
-          if (!active) return;
-          if (elements === null) {
-            finish();
-            return;
-          }
-          for (const group of highlighted)
-            for (const element of group) element.classList.remove("color");
-          highlighted = elements;
-          for (const group of highlighted)
-            for (const element of group) element.classList.add("color");
-        },
-      });
-      await handle.synth.init({ visualObj: visual });
-      await handle.synth.prime();
-      if (!dependencies.current()) {
-        timing.stop();
-        dependencies.release(handle);
+  const timing = runtime.createTiming(visual, {
+    beat: (_currentBeat, _totalBeats, _totalTime, position) => {
+      if (!playing || !Number.isFinite(position.left)) return;
+      const x = position.left - 2;
+      cursor.setAttribute("x1", String(x));
+      cursor.setAttribute("x2", String(x));
+      cursor.setAttribute("y1", String(position.top));
+      cursor.setAttribute("y2", String(position.top + position.height));
+    },
+    event: (elements) => {
+      if (elements === null) {
+        if (playing) finish();
         return;
       }
-      active = { handle, timing };
-      button.textContent = "Stop";
-      button.dataset.fleximarkAudio = "stop";
-      button.setAttribute("aria-pressed", "true");
-      handle.synth.start();
-      timing.start();
+      for (const group of highlighted)
+        for (const element of group) element.classList.remove("color");
+      highlighted = elements;
+      for (const group of highlighted)
+        for (const element of group) element.classList.add("color");
+    },
+  });
+  const duration = timing.duration() / 1000;
+
+  const controls = document.createElement("div");
+  controls.className = "fleximark-audio-player";
+  controls.dataset.fleximarkAudio = "player";
+  controls.setAttribute("role", "group");
+  controls.setAttribute("aria-label", "ABC playback");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "fleximark-audio-toggle";
+  button.dataset.fleximarkAudioState = "play";
+  button.setAttribute("aria-label", "Play");
+  button.title = "Play";
+  button.setAttribute("aria-pressed", "false");
+
+  const progress = document.createElement("input");
+  progress.className = "fleximark-audio-progress";
+  progress.type = "range";
+  progress.min = "0";
+  progress.max = String(duration);
+  progress.step = "0.01";
+  progress.value = "0";
+  progress.setAttribute("aria-label", "Playback position");
+  progress.disabled = duration <= 0;
+
+  const time = document.createElement("span");
+  time.className = "fleximark-audio-time";
+  time.setAttribute("aria-live", "off");
+  time.textContent = `${formatPlaybackTime(0)} / ${formatPlaybackTime(duration)}`;
+
+  let handle: TrackedAudio | undefined;
+  let playing = false;
+  let resumeAfterSeek = false;
+  let animationFrame: number | undefined;
+  let operation = 0;
+
+  const setProgress = (seconds: number) => {
+    const bounded = Math.min(duration, Math.max(0, seconds));
+    progress.value = String(bounded);
+    progress.style.setProperty(
+      "--fleximark-audio-progress",
+      duration > 0 ? `${(bounded / duration) * 100}%` : "0%",
+    );
+    time.textContent = `${formatPlaybackTime(bounded)} / ${formatPlaybackTime(duration)}`;
+  };
+  const setPlaying = (value: boolean) => {
+    playing = value;
+    button.dataset.fleximarkAudioState = value ? "pause" : "play";
+    button.setAttribute("aria-label", value ? "Pause" : "Play");
+    button.title = value ? "Pause" : "Play";
+    button.setAttribute("aria-pressed", String(value));
+  };
+  const releaseAudio = () => {
+    const currentHandle = handle;
+    handle = undefined;
+    if (currentHandle) dependencies.release(currentHandle);
+  };
+  const stopAnimation = () => {
+    if (animationFrame === undefined) return;
+    cancelAnimationFrame(animationFrame);
+    animationFrame = undefined;
+  };
+  const updateProgress = () => {
+    if (!playing) return;
+    if (!dependencies.current()) {
+      timing.stop();
+      releaseAudio();
+      setPlaying(false);
+      return;
+    }
+    setProgress(timing.currentMillisecond() / 1000);
+    animationFrame = requestAnimationFrame(updateProgress);
+  };
+  const finish = () => {
+    operation++;
+    timing.stop();
+    stopAnimation();
+    releaseAudio();
+    clearPlaybackDisplay();
+    setPlaying(false);
+    setProgress(0);
+  };
+  const pause = () => {
+    operation++;
+    if (playing) {
+      timing.pause();
+      setProgress(timing.currentMillisecond() / 1000);
+    }
+    stopAnimation();
+    releaseAudio();
+    setPlaying(false);
+  };
+  const play = async () => {
+    if (!dependencies.current() || duration <= 0) return;
+    const currentOperation = ++operation;
+    button.disabled = true;
+    let nextHandle: TrackedAudio | undefined;
+    try {
+      nextHandle = dependencies.track(runtime.createSynth());
+      await nextHandle.synth.init({ visualObj: visual });
+      await nextHandle.synth.prime();
+      if (!dependencies.current() || currentOperation !== operation) {
+        dependencies.release(nextHandle);
+        return;
+      }
+      const position = Number(progress.value);
+      handle = nextHandle;
+      setPlaying(true);
+      handle.synth.start(position);
+      timing.start(position / duration);
+      updateProgress();
     } catch (error) {
-      timing?.stop();
-      if (active?.handle === handle) active = undefined;
+      timing.stop();
+      stopAnimation();
+      if (handle === nextHandle) handle = undefined;
       clearPlaybackDisplay();
-      button.textContent = "Play";
-      button.dataset.fleximarkAudio = "play";
-      button.setAttribute("aria-pressed", "false");
-      if (handle) dependencies.release(handle);
+      setPlaying(false);
+      if (nextHandle) dependencies.release(nextHandle);
       if (dependencies.current()) dependencies.report(error);
     } finally {
       if (dependencies.current()) button.disabled = false;
     }
+  };
+  button.addEventListener("click", () => {
+    if (playing) pause();
+    else void play();
   });
-  block.append(button);
+  progress.addEventListener("input", () => {
+    resumeAfterSeek ||= playing;
+    if (playing) pause();
+    const position = Number(progress.value);
+    timing.setProgress(duration > 0 ? position / duration : 0);
+    setProgress(position);
+  });
+  progress.addEventListener("change", () => {
+    if (!resumeAfterSeek) return;
+    resumeAfterSeek = false;
+    void play();
+  });
+  controls.append(button, progress, time);
+  output.insertAdjacentElement("afterend", controls);
 }
