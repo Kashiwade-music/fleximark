@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "notifications": [
     {
       "method": "fleximark/previewEvent",
@@ -8,16 +8,11 @@
         "previewSessionId": "preview",
         "renderRevision": 1,
         "event": {
-          "type": "full",
+          "type": "selection",
           "previewSessionId": "preview",
-          "documentVersion": 3,
-          "resultRenderRevision": 1,
-          "rendererFingerprint": "sha256:renderer",
+          "renderRevision": 1,
           "nodeIds": ["document-root"],
-          "navigation": [],
-          "style": null,
-          "assets": [],
-          "html": "<main data-fleximark-node-id=\"document-root\"></main>"
+          "activePosition": null
         }
       }
     }

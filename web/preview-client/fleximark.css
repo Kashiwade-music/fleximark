@@ -128,6 +128,14 @@ body {
     margin-bottom: 0.3rem;
   }
 
+  & [data-fleximark-tight="true"] > li {
+    margin-bottom: 0;
+  }
+
+  & [data-fleximark-tight="true"] > li > p {
+    margin: 0;
+  }
+
   & blockquote {
     padding: 0.1rem 1rem;
     margin: 0.5rem 0;

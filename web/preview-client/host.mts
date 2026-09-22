@@ -1,14 +1,16 @@
 import { AsyncTaskObserver } from "./async-tasks.mjs";
 import { PreviewEnhancer } from "./enhance.mjs";
-import { PreviewDocument, type RenderPublication } from "./index.mjs";
+import { PreviewDocument, type RenderFrame } from "./index.mjs";
 import {
   type EditorNavigationEvent,
   PreviewNavigation,
 } from "./navigation.mjs";
 import {
   type PreviewHostEvent,
+  type PreviewNavigationEvent,
   isPreviewHostEvent,
-  isRenderPublication,
+  isPreviewNavigationEvent,
+  isRenderFrame,
 } from "./protocol.mjs";
 import { previewRuntimes } from "./runtimes.mjs";
 
@@ -16,9 +18,9 @@ export type { PreviewHostEvent } from "./protocol.mjs";
 
 export type PreviewHostMessage =
   | {
-      type: "initializePreview";
+      type: "previewFrame";
       messageToken: string;
-      publication: RenderPublication;
+      frame: RenderFrame;
     }
   | { type: "previewEvent"; messageToken: string; event: PreviewHostEvent };
 
@@ -36,11 +38,11 @@ export function isPreviewHostMessage(
   value: unknown,
 ): value is PreviewHostMessage {
   if (!object(value) || typeof value.messageToken !== "string") return false;
-  if (value.type === "initializePreview")
+  if (value.type === "previewFrame")
     return (
       Object.keys(value).every((key) =>
-        ["type", "messageToken", "publication"].includes(key),
-      ) && isRenderPublication(value.publication)
+        ["type", "messageToken", "frame"].includes(key),
+      ) && isRenderFrame(value.frame)
     );
   return (
     value.type === "previewEvent" &&
@@ -51,7 +53,7 @@ export function isPreviewHostMessage(
   );
 }
 
-export function isInvalidAuthenticatedPublicationMessage(
+export function isInvalidAuthenticatedFrameMessage(
   value: unknown,
   messageToken: string,
 ): boolean {
@@ -64,16 +66,7 @@ export function isInvalidAuthenticatedPublicationMessage(
     return false;
   const message = value as Record<string, unknown>;
   if (message.messageToken !== messageToken) return false;
-  if (message.type === "initializePreview") return true;
-  const payload = message.type === "previewEvent" ? message.event : undefined;
-  return (
-    payload !== null &&
-    typeof payload === "object" &&
-    !Array.isArray(payload) &&
-    ["full", "patch"].includes(
-      (payload as Record<string, unknown>).type as string,
-    )
-  );
+  return message.type === "previewFrame";
 }
 
 export class PreviewFailureGuard {
@@ -108,11 +101,11 @@ export class PreviewHost {
 
   constructor(
     root: HTMLElement,
-    requestSnapshot: () => void,
+    requestFrame: () => void,
     sendNavigation: (event: EditorNavigationEvent) => void,
   ) {
     this.#root = root;
-    this.#preview = new PreviewDocument(root, requestSnapshot);
+    this.#preview = new PreviewDocument(root, requestFrame);
     this.#navigation = new PreviewNavigation(root, (event) => {
       const previewSessionId = this.#preview.previewSessionId;
       if (!previewSessionId || this.#preview.renderRevision < 1) return;
@@ -132,20 +125,25 @@ export class PreviewHost {
     return this.#preview.renderRevision;
   }
 
-  apply(events: readonly PreviewHostEvent[]): void {
-    if (this.#disposed) return;
+  apply(events: readonly PreviewHostEvent[]): boolean {
+    if (this.#disposed) return false;
     let changed = false;
+    let accepted = true;
     for (const event of events) {
-      if (event.type === "selection" || event.type === "viewport") {
+      if (isPreviewNavigationEvent(event)) {
+        const navigation = event as PreviewNavigationEvent;
         if (
-          event.previewSessionId !== this.#preview.previewSessionId ||
-          event.renderRevision !== this.#preview.renderRevision
+          navigation.previewSessionId !== this.#preview.previewSessionId ||
+          navigation.renderRevision !== this.#preview.renderRevision
         )
           continue;
-        this.#navigation.receive(event);
+        this.#navigation.receive(navigation);
         continue;
       }
-      if (!this.#preview.apply(event)) break;
+      if (!isRenderFrame(event) || !this.#preview.apply(event as RenderFrame)) {
+        accepted = false;
+        break;
+      }
       this.#navigation.setKnownIds(
         this.#preview.navigation.map(({ nodeId }) => nodeId),
         this.#preview.navigation,
@@ -154,6 +152,7 @@ export class PreviewHost {
     }
     if (changed && !this.#disposed)
       this.#tasks.observe(this.#enhancer.render(this.#root));
+    return accepted;
   }
 
   dispose(): void {

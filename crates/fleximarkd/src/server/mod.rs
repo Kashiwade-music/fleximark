@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use fleximark_engine::RenderPublication;
 use fleximark_lsp::{
     DidChangeParams, DidCloseParams, DidOpenParams, SessionError, SessionRegistry,
 };
@@ -20,20 +19,21 @@ use fleximark_protocol::{
     AttachDocumentParams, CONTENT_MODIFIED, CheckpointDocumentParams, CreatePreviewParams,
     CreatePreviewResult, DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams,
     IncomingMessage, InitializeParams, InitializeResult, JsSafeU64, Notification, PROTOCOL_VERSION,
-    PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
-    ReloadPreviewParams, RenderNavigationEvent, RenderParams, Response, RpcChangeDocumentParams,
-    RpcCloseDocumentParams, RpcOpenDocumentParams, ServerCapabilities, ServerPreviewEvent,
-    ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
-    WorkspaceStatus, method,
+    PreviewChangedParams, PreviewEventParams, PreviewNavigationEvent, PreviewTarget,
+    ReadPreviewParams, ReadPreviewResult, ReconfigureWorkspaceParams, RenderNavigationEvent,
+    RerenderPreviewParams, Response, RpcChangeDocumentParams, RpcCloseDocumentParams,
+    RpcOpenDocumentParams, ServerCapabilities, ServerPreviewEvent, ServerPreviewEventParams,
+    SetSelectionParams, SetViewportParams, SourceNavigationEvent, WorkspaceStatus, method,
 };
 use fleximark_service::{
     acknowledge_export, collect_admonitions, create_note_with_options, default_export_destination,
-    edit_theme, export_html_with_safety, get_note_options, initialize_workspace,
+    edit_theme, export_document, get_note_options, initialize_workspace, inspect_legacy_workspace,
+    migrate_legacy_workspace,
 };
 use serde_json::{Value, json};
 
 use crate::cancellation::CancellationCoordinator;
-use crate::preview_http::{PREVIEW_CLIENT, PreviewServer, random_token};
+use crate::preview_http::{PreviewServer, random_token};
 use crate::telemetry::{OperationalTrace, log_operational_event};
 
 use diagnostics::{collect_heading_symbols, find_block};
@@ -65,6 +65,22 @@ pub(crate) struct PreviewState {
     delivered_revision: JsSafeU64,
 }
 
+impl Server {
+    fn mark_preview_document_version(
+        &self,
+        document_session_id: &str,
+        document_version: JsSafeU64,
+    ) {
+        for state in self.preview_states.values() {
+            if state.document_session_id == document_session_id {
+                if let Some(token) = &state.token {
+                    self.previews.mark_document_version(token, document_version);
+                }
+            }
+        }
+    }
+}
+
 fn invalid_params(id: Value, error: impl std::fmt::Display) -> Value {
     response_value(Response::error(
         id,
@@ -81,6 +97,7 @@ fn deserialize_params<P: serde::de::DeserializeOwned>(
 }
 
 pub(crate) fn session_error(id: Value, error: SessionError) -> Value {
+    let engine_rejection = matches!(error, SessionError::Engine(_));
     let code = if matches!(
         error,
         SessionError::ContentModified
@@ -92,20 +109,31 @@ pub(crate) fn session_error(id: Value, error: SessionError) -> Value {
     } else {
         -32602
     };
-    response_value(Response::error(id, code, error.to_string()))
+    let mut response = Response::error(id, code, error.to_string());
+    if engine_rejection {
+        response.error.as_mut().expect("error response").data = Some(json!({"kind":"engine"}));
+    }
+    response_value(response)
 }
 
 pub(crate) fn response_value(response: Response) -> Value {
     serde_json::to_value(response).expect("response is serializable")
 }
 
-pub(crate) fn preview_event_notification(
-    params: ServerPreviewEventParams<RenderPublication>,
-) -> Value {
+pub(crate) fn preview_event_notification(params: ServerPreviewEventParams) -> Value {
     serde_json::to_value(Notification {
         jsonrpc: "2.0",
         method: method::PREVIEW_EVENT,
         params,
     })
     .expect("preview event notification is serializable")
+}
+
+pub(crate) fn preview_changed_notification(params: PreviewChangedParams) -> Value {
+    serde_json::to_value(Notification {
+        jsonrpc: "2.0",
+        method: method::PREVIEW_CHANGED,
+        params,
+    })
+    .expect("preview changed notification is serializable")
 }

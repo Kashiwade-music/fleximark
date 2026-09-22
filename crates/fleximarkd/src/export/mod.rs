@@ -10,12 +10,14 @@ use std::path::Path;
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
+use fleximark_engine::DocumentSession;
+use fleximark_plugin_host::CancellationToken;
 use fleximark_plugin_sdk::RawHtmlRenderPolicy;
 use fleximark_protocol::{CommandMessage, CommandResult};
 use fleximark_render_html::{HtmlTarget, RawHtmlPolicy, RenderContext};
 
 use crate::ServiceError;
-use crate::assets::ExportAsset;
+use crate::assets::{ExportAsset, compose_portable_html, resolve_export_assets};
 use crate::uri::{file_uri_path, path_to_file_uri, path_to_file_uri_unchecked, workspace_path};
 use crate::workspace::{reject_link, validate_config};
 pub(crate) use filesystem::sha256;
@@ -33,6 +35,8 @@ use model::{
 };
 use recovery::{recover_export, verify_installed};
 
+const EXPORT_CLIENT: &str = include_str!("../../../../web/preview-client/browser-host.js");
+
 pub fn default_export_destination(document_uri: &str) -> Result<String, ServiceError> {
     let source = workspace_path(document_uri)?;
     let stem = source
@@ -46,7 +50,7 @@ pub fn default_export_destination(document_uri: &str) -> Result<String, ServiceE
     path_to_file_uri_unchecked(&destination)
 }
 
-pub fn export_render_context(workspace_uri: &str) -> Result<RenderContext, ServiceError> {
+pub(crate) fn export_render_context(workspace_uri: &str) -> Result<RenderContext, ServiceError> {
     let workspace = workspace_path(workspace_uri)?;
     let config = validate_config(&workspace.join(".fleximark/config.toml"))?;
     Ok(RenderContext {
@@ -61,20 +65,35 @@ pub fn export_render_context(workspace_uri: &str) -> Result<RenderContext, Servi
     })
 }
 
-pub fn export_html(
+pub fn export_document(
+    session: &DocumentSession,
     source_uri: &str,
     workspace_uri: &str,
     destination_uri: &str,
-    html: &str,
-    assets: &[ExportAsset],
+    cancellation: &CancellationToken,
 ) -> Result<CommandResult, ServiceError> {
+    preflight_export(source_uri, workspace_uri, destination_uri)?;
+    let mut context = export_render_context(workspace_uri)?;
+    context.resolved_resources = session.render_config().context.resolved_resources.clone();
+    let prepared = session.prepare_safe_export(&context)?;
+    let mut assets = Vec::new();
+    let resolved =
+        prepared.compose_portable(EXPORT_CLIENT, |safe_html, style, render_assets, runtime| {
+            let resolved =
+                resolve_export_assets(source_uri, workspace_uri, safe_html, render_assets)?;
+            assets = resolved.assets;
+            compose_portable_html(&resolved.html, style, runtime)
+        })?;
+    let output = session
+        .apply_unsafe_export_html(resolved, cancellation)?
+        .value;
     export_html_with_safety(
         source_uri,
         workspace_uri,
         destination_uri,
-        html,
-        assets,
-        false,
+        &output.html,
+        &assets,
+        output.unsafe_output_used,
     )
 }
 
@@ -394,6 +413,7 @@ fn export_html_transaction(
             text: format!("Exported generation {generation}"),
         }),
         open_uri: Some(path_to_file_uri(&index_for_destination(&destination))?),
+        data: None,
     })
 }
 
@@ -779,12 +799,13 @@ mod tests {
         let destination = root.join("public");
         let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
         preflight_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             &resolved.html,
             &resolved.assets,
+            false,
         )
         .unwrap();
         let marker: OwnershipMarker =
@@ -821,12 +842,13 @@ mod tests {
         fs::write(destination.join("user.txt"), "keep").unwrap();
         let destination_uri = path_to_file_uri(&destination).unwrap();
         assert!(matches!(
-            export_html(
+            export_html_with_safety(
                 &source_uri,
                 &workspace_uri,
                 &destination_uri,
                 "<p>first</p>",
-                &[]
+                &[],
+                false,
             ),
             Err(ServiceError::UnmanagedExport)
         ));
@@ -834,22 +856,24 @@ mod tests {
         fs::remove_file(destination.join("user.txt")).unwrap();
         fs::remove_dir(&destination).unwrap();
 
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>first</p>",
             &[],
+            false,
         )
         .unwrap();
         acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
         fs::write(destination.join("user.txt"), "keep").unwrap();
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>second</p>",
             &[],
+            false,
         )
         .unwrap();
         let journal = root.join(".public.fleximark-export-journal.json");
@@ -891,12 +915,13 @@ mod tests {
 
         fs::write(destination.join("index.html"), "tampered").unwrap();
         assert!(matches!(
-            export_html(
+            export_html_with_safety(
                 &source_uri,
                 &workspace_uri,
                 &destination_uri,
                 "<p>third</p>",
-                &[]
+                &[],
+                false,
             ),
             Err(ServiceError::ExportContentConflict)
         ));
@@ -920,14 +945,23 @@ mod tests {
         let first_uri = path_to_file_uri_unchecked(&first).unwrap();
         let second_uri = path_to_file_uri_unchecked(&second).unwrap();
 
-        export_html(&source_uri, &workspace_uri, &first_uri, "<p>first</p>", &[]).unwrap();
+        export_html_with_safety(
+            &source_uri,
+            &workspace_uri,
+            &first_uri,
+            "<p>first</p>",
+            &[],
+            false,
+        )
+        .unwrap();
         acknowledge_export(&source_uri, &workspace_uri, &first_uri).unwrap();
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &second_uri,
             "<p>second</p>",
             &[],
+            false,
         )
         .unwrap();
         acknowledge_export(&source_uri, &workspace_uri, &second_uri).unwrap();
@@ -999,12 +1033,13 @@ mod tests {
         let source_uri = path_to_file_uri(&source).unwrap();
         let destination = root.join("public");
         let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>original</p>",
             &[],
+            false,
         )
         .unwrap();
         acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
@@ -1309,12 +1344,13 @@ mod tests {
             let source_uri = path_to_file_uri(&source).unwrap();
             let destination = root.join("public");
             let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-            export_html(
+            export_html_with_safety(
                 &source_uri,
                 &workspace_uri,
                 &destination_uri,
                 "<p>old</p>",
                 &[],
+                false,
             )
             .unwrap();
             acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
@@ -1368,21 +1404,23 @@ mod tests {
         let source_uri = path_to_file_uri(&source).unwrap();
         let destination = root.join("public");
         let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>old</p>",
             &[],
+            false,
         )
         .unwrap();
         acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
-        export_html(
+        export_html_with_safety(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>new</p>",
             &[],
+            false,
         )
         .unwrap();
         let backup = fs::read_dir(&root)

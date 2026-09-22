@@ -8,12 +8,29 @@ import {
   customRequestResultValidators,
   isJsonRpcMessageEnvelope,
   isJsonRpcResponseEnvelope,
+  isRenderFrame,
   serverNotificationValidators,
 } from "../web/preview-client/protocol.mjs";
 
 export const suiteName = "TypeScript protocol contract";
 
 export function suite(): void {
+  test("accepts the frame serialized by the Rust renderer", () => {
+    const frame = JSON.parse(
+      readFileSync(
+        path.join(
+          process.cwd(),
+          "test",
+          "fixtures",
+          "rust-render-frame-v2.json",
+        ),
+        "utf8",
+      ),
+    ) as unknown;
+
+    assert.equal(isRenderFrame(frame), true);
+  });
+
   test("custom request validator registries match the shared fixture method set", () => {
     const fixture = JSON.parse(
       readFileSync(
@@ -21,7 +38,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v1-contract.json",
+          "protocol-v2-contract.json",
         ),
         "utf8",
       ),
@@ -146,30 +163,6 @@ export function suite(): void {
   });
 
   test("directional previewEvent validators accept only their wire direction", () => {
-    const snapshot = {
-      type: "full",
-      previewSessionId: "preview",
-      documentVersion: 1,
-      resultRenderRevision: 1,
-      rendererFingerprint: "sha256:renderer",
-      nodeIds: ["document-root"],
-      navigation: [],
-      style: null,
-      assets: [],
-      html: '<main data-fleximark-node-id="document-root"></main>',
-    };
-    const patch = {
-      type: "patch",
-      previewSessionId: "preview",
-      documentVersion: 2,
-      baseRenderRevision: 1,
-      resultRenderRevision: 2,
-      baseRendererFingerprint: "sha256:renderer",
-      resultRendererFingerprint: "sha256:renderer",
-      navigation: [],
-      style: null,
-      operations: [],
-    };
     const source = {
       type: "selectSource",
       sourceRange: {
@@ -198,20 +191,13 @@ export function suite(): void {
       renderRevision: 1,
       nodeId: "document-root",
     };
-    const serverEvents = [
-      snapshot,
-      patch,
-      source,
-      selectionWithNullActive,
-      viewport,
-    ];
+    const serverEvents = [source, selectionWithNullActive, viewport];
 
     for (const event of serverEvents) {
-      const revision = event.type === "patch" ? 2 : 1;
       const params = {
         daemonInstanceId: "daemon",
         previewSessionId: "preview",
-        renderRevision: revision,
+        renderRevision: 1,
         event,
       };
       assert.equal(
@@ -246,7 +232,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v1-bidirectional-server.json",
+          "protocol-v2-bidirectional-server.json",
         ),
         "utf8",
       ),
@@ -267,7 +253,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v1-optional-present.json",
+          "protocol-v2-optional-present.json",
         ),
         "utf8",
       ),

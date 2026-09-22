@@ -29,6 +29,8 @@ pub enum ServiceError {
     #[error("the previous export must be acknowledged after opening and validation")]
     ExportAwaitingAcknowledgement,
     #[error(transparent)]
+    Engine(#[from] fleximark_engine::EngineError),
+    #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),

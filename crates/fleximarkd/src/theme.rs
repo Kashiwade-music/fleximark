@@ -23,6 +23,7 @@ pub fn edit_theme(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
     Ok(CommandResult {
         message: None,
         open_uri: Some(path_to_file_uri(&theme)?),
+        data: None,
     })
 }
 
@@ -162,9 +163,10 @@ fn normalize_css(css: &str) -> Result<String, ServiceError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::export::export_render_context;
     use crate::export::sha256;
     use crate::test_support::test_workspace;
-    use crate::{export_render_context, initialize_workspace, load_plugin_host};
+    use crate::{initialize_workspace, load_plugin_host};
     #[test]
     fn trusted_theme_is_typed_and_css_url_bypasses_are_rejected() {
         let root = test_workspace("theme-policy-test");

@@ -122,6 +122,7 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
 
         expected_pure = [
             "./adapter/rpc.test.mjs",
+            "./adapter/adapter-preview-events.test.mjs",
             "./adapter/workspace-migration.test.mjs",
             "./adapter/daemon-supervisor.test.mjs",
             "./adapter/document-coordinator.test.mjs",

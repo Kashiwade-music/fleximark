@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_service::{
-    ServiceError, acknowledge_export, export_html, initialize_workspace, path_to_file_uri,
+    ServiceError, acknowledge_export, export_html_with_safety, initialize_workspace,
+    path_to_file_uri,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -175,12 +176,13 @@ impl ExportFixture {
     }
 
     fn export(&self, html: &str) -> Result<fleximark_protocol::CommandResult, ServiceError> {
-        export_html(
+        export_html_with_safety(
             &self.source_uri,
             &self.workspace_uri,
             &self.destination_uri,
             html,
             &[],
+            false,
         )
     }
 

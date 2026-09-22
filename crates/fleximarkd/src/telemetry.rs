@@ -28,14 +28,11 @@ impl OperationalTrace {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn event(
         &self,
         stage: &str,
         stage_duration: Duration,
         render_revision: Option<u64>,
-        patch_bytes: usize,
-        fallback_reason: Option<&str>,
         plugin_failure: bool,
         recovery: bool,
     ) -> Value {
@@ -49,8 +46,6 @@ impl OperationalTrace {
             "renderRevision":render_revision,
             "elapsedMs":self.started.elapsed().as_secs_f64() * 1_000.0,
             "stageDurationMs":stage_duration.as_secs_f64() * 1_000.0,
-            "patchBytes":patch_bytes,
-            "fallbackReason":fallback_reason,
             "pluginFailure":plugin_failure,
             "restart":false,
             "recovery":recovery
@@ -58,10 +53,7 @@ impl OperationalTrace {
     }
 
     pub(crate) fn log(&self, stage: &str) {
-        eprintln!(
-            "{}",
-            self.event(stage, Duration::ZERO, None, 0, None, false, false)
-        );
+        eprintln!("{}", self.event(stage, Duration::ZERO, None, false, false));
     }
 }
 

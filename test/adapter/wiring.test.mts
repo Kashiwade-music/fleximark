@@ -481,6 +481,9 @@ export function suite(): void {
     const adapter = {
       async activateDocument(document?: vscode.TextDocument) {
         record("activate", document);
+      },
+      async activateEditor(editor?: vscode.TextEditor) {
+        record("activateEditor", editor);
         await pendingActivation.value?.promise;
         if (failures.activation) throw failures.activation;
       },
@@ -564,11 +567,8 @@ export function suite(): void {
     handlers.get("window.visibleRanges")?.(viewportEvent);
     await flushMicrotasks(2);
 
-    assert.deepEqual(calls.get("activate"), [
-      openedDocument,
-      undefined,
-      openedDocument,
-    ]);
+    assert.deepEqual(calls.get("activate"), [openedDocument]);
+    assert.deepEqual(calls.get("activateEditor"), [undefined, openedEditor]);
     assert.deepEqual(calls.get("change"), [otherDocument]);
     assert.deepEqual(calls.get("close"), [otherDocument]);
     assert.deepEqual(calls.get("remove"), [folder]);

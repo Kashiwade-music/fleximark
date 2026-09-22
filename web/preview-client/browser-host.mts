@@ -1,11 +1,11 @@
 import { BrowserNavigationTransport } from "./browser-navigation.mjs";
+import { PreviewFailureGuard, PreviewHost } from "./host.mjs";
+import type { RenderFrame } from "./index.mjs";
 import {
-  PreviewFailureGuard,
-  PreviewHost,
-  type PreviewHostEvent,
-} from "./host.mjs";
-import type { RenderPublication } from "./index.mjs";
-import { isPreviewHostEvent, isRenderPublication } from "./protocol.mjs";
+  isPreviewChangedParams,
+  isPreviewNavigationEvent,
+  isRenderFrame,
+} from "./protocol.mjs";
 
 interface PreviewHandle {
   dispose(): void;
@@ -14,7 +14,7 @@ interface PreviewHandle {
 declare global {
   interface Window {
     FlexiMarkPreview: {
-      boot(publications: readonly RenderPublication[]): PreviewHandle;
+      boot(frames: readonly RenderFrame[]): PreviewHandle;
     };
   }
 }
@@ -23,13 +23,16 @@ const root = document.querySelector<HTMLElement>("#preview");
 if (!root) throw new Error("preview root is missing");
 
 window.FlexiMarkPreview = {
-  boot(publications) {
+  boot(frames) {
     const preview = new PreviewHost(
       root,
       () => undefined,
       () => undefined,
     );
-    if (publications.every(isRenderPublication)) preview.apply(publications);
+    for (const frame of frames) {
+      if (!isRenderFrame(frame)) break;
+      preview.apply([frame]);
+    }
     return preview;
   },
 };
@@ -39,7 +42,11 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   const navigation = new BrowserNavigationTransport(
     `${location.pathname}/navigation`,
   );
-  const state: { preview?: PreviewHost } = {};
+  const state: {
+    preview?: PreviewHost;
+    reading: boolean;
+    pendingRevision: number;
+  } = { reading: false, pendingRevision: 0 };
   const failure = new PreviewFailureGuard(
     () => events.close(),
     () => {
@@ -47,22 +54,70 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
       state.preview?.dispose();
       state.preview = undefined;
     },
-    () => location.reload(),
+    () => {
+      root.replaceChildren("Preview unavailable. Reopen it to retry.");
+    },
   );
   state.preview = new PreviewHost(
     root,
-    () => failure.fail(),
+    () => void readFrame(),
     (event) => navigation.send(event),
   );
+
+  async function readFrame(): Promise<void> {
+    if (failure.failed || state.reading) return;
+    state.reading = true;
+    try {
+      do {
+        const requestedRevision = state.pendingRevision;
+        const response = await fetch(`${location.pathname}/frame`, {
+          headers: { accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok)
+          throw new Error(`frame request failed: ${response.status}`);
+        const value = (await response.json()) as unknown;
+        if (
+          value === null ||
+          typeof value !== "object" ||
+          Array.isArray(value) ||
+          !isRenderFrame((value as { frame?: unknown }).frame)
+        )
+          throw new Error("invalid preview frame");
+        const frame = (value as { frame: RenderFrame }).frame;
+        state.preview?.apply([frame]);
+        if (state.preview?.renderRevision !== frame.renderRevision)
+          throw new Error("preview frame was rejected");
+        if (requestedRevision === state.pendingRevision) break;
+      } while (!failure.failed);
+    } catch {
+      failure.fail();
+    } finally {
+      state.reading = false;
+    }
+  }
+
   events.addEventListener("message", (event) => {
     if (failure.failed) return;
     try {
-      const value = JSON.parse((event as MessageEvent<string>).data) as unknown;
-      if (!Array.isArray(value) || !value.every(isPreviewHostEvent)) {
-        failure.fail();
-        return;
+      const changed = JSON.parse(
+        (event as MessageEvent<string>).data,
+      ) as unknown;
+      if (isPreviewChangedParams(changed)) {
+        const notification =
+          changed as import("./protocol.mjs").PreviewChangedParams;
+        state.pendingRevision = Math.max(
+          state.pendingRevision,
+          notification.renderRevision,
+        );
+        void readFrame();
+      } else if (isPreviewNavigationEvent(changed)) {
+        state.preview?.apply([
+          changed as import("./protocol.mjs").PreviewNavigationEvent,
+        ]);
+      } else {
+        throw new Error("invalid preview event");
       }
-      state.preview?.apply(value as PreviewHostEvent[]);
     } catch {
       failure.fail();
     }
@@ -74,4 +129,5 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
       state.preview?.dispose();
     }
   });
+  void readFrame();
 }

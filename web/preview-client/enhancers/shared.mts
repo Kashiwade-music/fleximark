@@ -11,7 +11,9 @@ export function previewPayload(block: HTMLElement): string {
 export function replaceOutput(block: HTMLElement): HTMLElement {
   block.querySelector(":scope > [data-fleximark-output]")?.remove();
   block.querySelector(":scope > [data-fleximark-audio]")?.remove();
-  const output = document.createElement("div");
+  const output = document.createElement(
+    block.tagName === "SPAN" ? "span" : "div",
+  );
   output.dataset.fleximarkOutput = "true";
   block.append(output);
   return output;

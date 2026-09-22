@@ -9,12 +9,12 @@ from test_protocol_contract import Draft202012FixtureValidator, SchemaViolation
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "schemas" / "protocol.schema.json"
-INVALID_FIXTURE = ROOT / "test" / "fixtures" / "protocol-v1-invalid.json"
+INVALID_FIXTURE = ROOT / "test" / "fixtures" / "protocol-v2-invalid.json"
 RENDER_NAVIGATION_FIXTURE = (
-    ROOT / "test" / "fixtures" / "protocol-v1-render-navigation.json"
+    ROOT / "test" / "fixtures" / "protocol-v2-render-navigation.json"
 )
 OPTIONAL_PRESENT_FIXTURE = (
-    ROOT / "test" / "fixtures" / "protocol-v1-optional-present.json"
+    ROOT / "test" / "fixtures" / "protocol-v2-optional-present.json"
 )
 
 
@@ -32,7 +32,7 @@ class ProtocolBoundaryTests(unittest.TestCase):
         cls.validator = Draft202012FixtureValidator(cls.schema)
 
     def test_nested_and_envelope_boundary_fixture_is_rejected(self) -> None:
-        self.assertEqual(self.fixture["schemaVersion"], 1)
+        self.assertEqual(self.fixture["schemaVersion"], 2)
         self.assertGreaterEqual(len(self.fixture["cases"]), 6)
         names = [case["name"] for case in self.fixture["cases"]]
         self.assertEqual(len(names), len(set(names)))
@@ -46,7 +46,7 @@ class ProtocolBoundaryTests(unittest.TestCase):
 
     def test_rust_selection_wire_matches_render_navigation_schema(self) -> None:
         """Phase 1 red test: Rust valid wire must also be valid schema input."""
-        self.assertEqual(self.render_navigation_fixture["schemaVersion"], 1)
+        self.assertEqual(self.render_navigation_fixture["schemaVersion"], 2)
         for event in self.render_navigation_fixture["events"]:
             with self.subTest(activePosition=event.get("activePosition", "omitted")):
                 self.validator.validate(
@@ -54,7 +54,7 @@ class ProtocolBoundaryTests(unittest.TestCase):
                 )
 
     def test_valid_optional_present_dtos_remain_accepted(self) -> None:
-        self.assertEqual(self.optional_present_fixture["schemaVersion"], 1)
+        self.assertEqual(self.optional_present_fixture["schemaVersion"], 2)
         for case in self.optional_present_fixture["cases"]:
             with self.subTest(case=case["name"]):
                 self.validator.validate(

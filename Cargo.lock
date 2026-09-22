@@ -760,7 +760,9 @@ name = "fleximark-protocol-codegen"
 version = "0.1.0"
 dependencies = [
  "fleximark-engine",
+ "fleximark-model",
  "fleximark-protocol",
+ "fleximark-render-html",
  "schemars",
  "serde",
  "serde_json",
@@ -804,6 +806,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "toml",
  "windows-sys 0.59.0",
 ]
 

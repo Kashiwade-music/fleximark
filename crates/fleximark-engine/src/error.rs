@@ -12,8 +12,6 @@ pub enum EngineError {
     StaleVersion { current: u64, received: u64 },
     #[error("the document session is out of sync and requires full text")]
     ContentModified,
-    #[error("checkpoint hash does not match the authoritative source")]
-    CheckpointMismatch,
     #[error("plugin pipeline failed: {0}")]
     Plugin(String),
     #[error("unsafe plugin HTML is available only after a safe portable render")]

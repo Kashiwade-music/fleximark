@@ -24,11 +24,15 @@ def clean(_: Sequence[str]) -> None:
     javascript_build.clean()
 
 
-def build_product() -> None:
-    javascript_build.build_browser_client()
+def build_daemon() -> None:
     run("cargo", "build", "--release", "-p", "fleximarkd", "--locked")
     stage_daemon()
     create_manifest()
+
+
+def build_product() -> None:
+    javascript_build.build_browser_client()
+    build_daemon()
     javascript_build.build_extension(production=True)
 
 
@@ -93,6 +97,7 @@ def start_watch_process(
 
 def dev(_: Sequence[str]) -> None:
     check_protocol_contract()
+    build_daemon()
     javascript_build.clean()
     commands = [
         (command, "[watch] build finished")

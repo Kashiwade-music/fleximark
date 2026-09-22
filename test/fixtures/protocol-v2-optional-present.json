@@ -1,11 +1,11 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "cases": [
     {
       "name": "initialize params with all optional fields",
       "definition": "initializeParams",
       "value": {
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "client": { "name": "contract-test", "version": "1" },
         "capabilities": {
           "embeddedHtml": true,
@@ -23,7 +23,7 @@
       "name": "initialize result with workspace error",
       "definition": "initializeResult",
       "value": {
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "daemonInstanceId": "daemon",
         "workspaceStatuses": [
           {
@@ -46,19 +46,7 @@
       "definition": "createPreviewResult",
       "value": {
         "previewSessionId": "preview",
-        "url": "http://127.0.0.1:3000/preview",
-        "initialPublication": {
-          "type": "full",
-          "previewSessionId": "preview",
-          "documentVersion": 3,
-          "resultRenderRevision": 1,
-          "rendererFingerprint": "sha256:renderer",
-          "nodeIds": ["document-root"],
-          "navigation": [],
-          "style": null,
-          "assets": [],
-          "html": "<main data-fleximark-node-id=\"document-root\"></main>"
-        }
+        "url": "http://127.0.0.1:3000/preview"
       }
     },
     {

@@ -7,7 +7,7 @@
     "render10kMs": 3000,
     "render100kMs": 12000,
     "editBurstMs": 8000,
-    "patchBytes": 2097152,
+    "frameBytes": 2097152,
     "peakMemoryBytes": 268435456,
     "specialRenderMs": 5000
   },

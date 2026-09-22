@@ -3,15 +3,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fleximark_model::{Document, DocumentUri, NavigationEntry, NodeId, PositionEncoding};
-use fleximark_parser::{ParseError, parse};
+use fleximark_model::{Document, DocumentUri, NavigationEntry, PositionEncoding};
 use fleximark_plugin_host::{CancellationToken, PluginDiagnostic, PluginHost};
-use fleximark_render_html::RenderedBlock;
 use serde::{Deserialize, Serialize};
 
 use crate::assets::{AssetDiagnostic, RenderConfig};
 use crate::error::EngineError;
-use crate::identity::{content_hash, reconcile_node_ids};
+use crate::identity::content_hash;
+use crate::pipeline::{CandidateHooks, SourceCandidateInput, prepare_source_candidate};
+use crate::render::RenderFrame;
 
 static SESSION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -26,9 +26,7 @@ pub struct PreviewSessionId(pub String);
 
 #[derive(Clone)]
 pub(super) struct PreviewCache {
-    pub(super) revision: u64,
-    pub(super) fingerprint: String,
-    pub(super) blocks: Vec<RenderedBlock>,
+    pub(super) frame: RenderFrame,
 }
 
 pub struct DocumentSession {
@@ -50,20 +48,19 @@ impl DocumentSession {
         source: String,
         position_encoding: PositionEncoding,
     ) -> Result<Self, EngineError> {
-        let mut document = parse(uri, version, &source)?;
-        reconcile_node_ids(None, &mut document);
-        document.validate(&source).map_err(ParseError::from)?;
-        Ok(Self {
-            id: new_session_id(&document.uri),
+        let candidate = prepare_source_candidate(SourceCandidateInput {
+            uri,
+            previous: None,
+            version,
             source,
+            hooks: CandidateHooks::Empty,
+        })?;
+        Ok(Self::from_candidate(
+            candidate,
             position_encoding,
-            document,
-            out_of_sync: false,
-            render_config: RenderConfig::default(),
-            plugins: None,
-            plugin_diagnostics: Vec::new(),
-            previews: HashMap::new(),
-        })
+            RenderConfig::default(),
+            None,
+        ))
     }
 
     pub fn open_configured(
@@ -76,18 +73,22 @@ impl DocumentSession {
         cancellation: &CancellationToken,
     ) -> Result<Self, EngineError> {
         render_config.validate_for(&plugins)?;
-        let (mut session, diagnostics) = Self::open_with_plugins(
+        let candidate = prepare_source_candidate(SourceCandidateInput {
             uri,
+            previous: None,
             version,
             source,
+            hooks: CandidateHooks::Plugins {
+                host: &plugins,
+                cancellation,
+            },
+        })?;
+        Ok(Self::from_candidate(
+            candidate,
             position_encoding,
-            Arc::clone(&plugins),
-            cancellation,
-        )?;
-        session.render_config = render_config;
-        session.plugins = Some(plugins);
-        session.plugin_diagnostics = diagnostics;
-        Ok(session)
+            render_config,
+            Some(plugins),
+        ))
     }
 
     pub fn id(&self) -> &DocumentSessionId {
@@ -144,13 +145,6 @@ impl DocumentSession {
             })
     }
 
-    pub fn source_range_for_node(&self, node_id: &NodeId) -> Option<NavigationEntry> {
-        self.document
-            .navigation()
-            .into_iter()
-            .find(|entry| &entry.node_id == node_id)
-    }
-
     pub fn reconfigure(
         &mut self,
         render_config: RenderConfig,
@@ -158,11 +152,13 @@ impl DocumentSession {
         cancellation: &CancellationToken,
     ) -> Result<(), EngineError> {
         render_config.validate_for(&plugins)?;
-        let diagnostics = self.install_source_with_plugins(
+        let diagnostics = self.install_source(
             self.document.document_version,
             self.source.clone(),
-            &plugins,
-            cancellation,
+            CandidateHooks::Plugins {
+                host: &plugins,
+                cancellation,
+            },
         )?;
         self.render_config = render_config;
         self.plugins = Some(plugins);
@@ -200,10 +196,6 @@ impl DocumentSession {
         Ok(())
     }
 
-    pub fn change_full_text(&mut self, version: u64, source: String) -> Result<(), EngineError> {
-        self.change_full_text_with_cancellation(version, source, &CancellationToken::default())
-    }
-
     pub fn change_full_text_with_cancellation(
         &mut self,
         version: u64,
@@ -218,17 +210,7 @@ impl DocumentSession {
             });
         }
         self.require_in_sync()?;
-        if let Some(plugins) = self.plugins.clone() {
-            self.plugin_diagnostics =
-                self.install_source_with_plugins(version, source, &plugins, cancellation)?;
-            Ok(())
-        } else {
-            self.install_source(version, source)
-        }
-    }
-
-    pub fn resynchronize(&mut self, version: u64, source: String) -> Result<(), EngineError> {
-        self.resynchronize_with_cancellation(version, source, &CancellationToken::default())
+        self.install_current_source(version, source, cancellation)
     }
 
     pub fn resynchronize_with_cancellation(
@@ -245,21 +227,26 @@ impl DocumentSession {
                 received: version,
             });
         }
-        if let Some(plugins) = self.plugins.clone() {
-            self.plugin_diagnostics =
-                self.install_source_with_plugins(version, source, &plugins, cancellation)?;
-        } else {
-            self.install_source(version, source)?;
-        }
+        self.install_current_source(version, source, cancellation)?;
         self.mark_in_sync();
         Ok(())
     }
 
-    pub fn checkpoint(&mut self, version: u64, expected_hash: &str) -> Result<(), EngineError> {
-        if version != self.document.document_version || expected_hash != self.content_hash() {
-            self.mark_out_of_sync();
-            return Err(EngineError::CheckpointMismatch);
-        }
+    fn install_current_source(
+        &mut self,
+        version: u64,
+        source: String,
+        cancellation: &CancellationToken,
+    ) -> Result<(), EngineError> {
+        let plugins = self.plugins.clone();
+        let hooks =
+            plugins
+                .as_deref()
+                .map_or(CandidateHooks::Empty, |host| CandidateHooks::Plugins {
+                    host,
+                    cancellation,
+                });
+        self.plugin_diagnostics = self.install_source(version, source, hooks)?;
         Ok(())
     }
 
@@ -270,7 +257,7 @@ impl DocumentSession {
         Ok(())
     }
 
-    fn mark_out_of_sync(&mut self) {
+    pub fn mark_out_of_sync(&mut self) {
         self.out_of_sync = true;
     }
 

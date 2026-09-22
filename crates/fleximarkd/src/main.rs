@@ -8,9 +8,9 @@ use std::env;
 use std::fs;
 use std::thread;
 
-use fleximark_engine::RenderPublication;
 use fleximark_lsp::{DidOpenParams, SessionRegistry, TextDocumentItem};
 use fleximark_model::PositionEncoding;
+use fleximark_plugin_host::CancellationToken;
 
 use preview_http::{PreviewServer, random_token};
 use telemetry::log_operational_event;
@@ -46,31 +46,32 @@ fn serve_document(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let source = fs::read_to_string(path)?;
     let uri = fleximark_service::path_to_file_uri(std::path::Path::new(path))?;
     let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
-    registry.open(DidOpenParams {
-        text_document: TextDocumentItem {
-            uri: uri.clone(),
-            version: 1,
-            text: source,
+    registry.open_with_cancellation(
+        DidOpenParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                version: 1,
+                text: source,
+            },
         },
-    })?;
+        &CancellationToken::default(),
+    )?;
     let session_id = registry
         .session_id_for_uri(&uri)
         .expect("opened document")
         .to_owned();
     let daemon_id = registry.daemon_instance_id().to_owned();
-    let publication = registry.render(&daemon_id, &session_id, 1, "serve-preview")?;
-    let RenderPublication::Full(snapshot) = publication else {
-        unreachable!("first render is full")
-    };
+    let frame = registry.render_with_cancellation(
+        &daemon_id,
+        &session_id,
+        1,
+        "serve-preview",
+        &CancellationToken::default(),
+    )?;
     let previews = PreviewServer::start(None)?;
     println!(
         "{}",
-        previews.publish(
-            &random_token()?,
-            &daemon_id,
-            "serve-preview",
-            &RenderPublication::Full(snapshot)
-        )
+        previews.publish(&random_token()?, &daemon_id, "serve-preview", &frame)
     );
     loop {
         thread::park();

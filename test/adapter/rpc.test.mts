@@ -243,7 +243,7 @@ export function suite(): void {
   test("rejects and closes on a malformed typed method result", async () => {
     const { connection, daemonOutput } = rpcHarness();
     const pending = connection.request("fleximark/initialize", {
-      protocolVersion: 1,
+      protocolVersion: 2,
       client: { name: "boundary-test", version: "1" },
     });
 
@@ -252,7 +252,7 @@ export function suite(): void {
         jsonrpc: "2.0",
         id: 1,
         result: {
-          protocolVersion: 1,
+          protocolVersion: 2,
           daemonInstanceId: "daemon",
           workspaceStatuses: [{ uri: "file:///workspace", enabled: "yes" }],
           capabilities: {},
@@ -280,7 +280,7 @@ export function suite(): void {
     );
   });
 
-  test("rejects createPreview results whose nested session does not match", async () => {
+  test("rejects createPreview results containing unknown fields", async () => {
     const { connection, daemonOutput, messages } = rpcHarness();
     const pending = connection.request("fleximark/createPreview", {
       daemonInstanceId: "daemon",
@@ -294,19 +294,8 @@ export function suite(): void {
           jsonrpc: "2.0",
           id: 1,
           result: {
-            previewSessionId: "outer",
-            initialPublication: {
-              type: "full",
-              previewSessionId: "inner",
-              documentVersion: 1,
-              resultRenderRevision: 1,
-              rendererFingerprint: "sha256:renderer",
-              nodeIds: ["document-root"],
-              navigation: [],
-              style: null,
-              assets: [],
-              html: '<main data-fleximark-node-id="document-root"></main>',
-            },
+            previewSessionId: "preview",
+            unexpectedField: true,
           },
         }),
         frame(EMPTY_DIAGNOSTICS),

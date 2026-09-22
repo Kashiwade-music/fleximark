@@ -7,7 +7,7 @@ use thiserror::Error;
 pub use fleximark_model::{NavigationEntry, NodeId, SourcePosition, SourceRange};
 pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const CONTENT_MODIFIED: i64 = -32801;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -25,58 +25,89 @@ pub enum MethodKind {
     Notification,
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! for_each_contract_type {
+    ($consumer:ident) => {
+        $consumer! {
+            (Id, "RpcId", "id", "RpcId", RpcId, Deserialize),
+            (Position, "TextPosition", "position", "TextPosition", TextPosition, Deserialize),
+            (Range, "TextRange", "range", "TextRange", TextRange, Deserialize),
+            (Selection, "TextSelection", "selection", "TextSelection", TextSelection, Deserialize),
+            (NodeId, "NodeId", "nodeId", "NodeId", NodeId, Serialize),
+            (PreviewSessionId, "PreviewSessionId", "previewSessionId", "PreviewSessionId", PreviewSessionId, Serialize),
+            (SourcePosition, "SourcePosition", "sourcePosition", "SourcePosition", SourcePosition, Serialize),
+            (SourceRange, "SourceRange", "sourceRange", "SourceRange", SourceRange, Serialize),
+            (NavigationEntry, "NavigationEntry", "navigationEntry", "NavigationEntry", NavigationEntry, Serialize),
+            (RenderStyle, "RenderStyle", "renderStyle", "RenderStyle", RenderStyle, Serialize),
+            (RenderAsset, "RenderAsset", "renderAsset", "RenderAsset", RenderAsset, Serialize),
+            (RenderBlock, "RenderBlock", "renderBlock", "RenderBlock", RenderBlock, Serialize),
+            (RenderFrame, "RenderFrame", "renderFrame", "RenderFrame", RenderFrame, Serialize),
+            (PreviewNavigationEvent, "PreviewNavigationEvent", "previewNavigationEvent", "PreviewNavigationEvent", PreviewNavigationEvent, Deserialize),
+            (SourceNavigationEvent, "SourceNavigationEvent", "sourceNavigationEvent", "SourceNavigationEvent", SourceNavigationEvent, Serialize),
+            (RenderNavigationEvent, "RenderNavigationEvent", "renderNavigationEvent", "RenderNavigationEvent", RenderNavigationEvent, Serialize),
+            (WorkspaceGrant, "WorkspaceGrant", "workspaceGrant", "WorkspaceGrant", WorkspaceGrant, Deserialize),
+            (ClientInfo, "ClientInfo", "clientInfo", "ClientInfo", ClientInfo, Deserialize),
+            (ClientCapabilities, "ClientCapabilities", "clientCapabilities", "ClientCapabilities", ClientCapabilities, Deserialize),
+            (WorkspaceStatus, "WorkspaceStatus", "workspaceStatus", "WorkspaceStatus", WorkspaceStatus, Serialize),
+            (ServerCapabilities, "ServerCapabilities", "serverCapabilities", "ServerCapabilities", ServerCapabilities, Serialize),
+            (InitializeParams, "InitializeParams", "initializeParams", "InitializeParams", InitializeParams, Deserialize),
+            (InitializeResult, "InitializeResult", "initializeResult", "InitializeResult", InitializeResult, Serialize),
+            (AttachDocumentParams, "AttachDocumentParams", "attachDocumentParams", "AttachDocumentParams", AttachDocumentParams, Deserialize),
+            (AttachDocumentResult, "AttachDocumentResult", "attachDocumentResult", "AttachDocumentResult", AttachDocumentResult, Serialize),
+            (CheckpointDocumentParams, "CheckpointDocumentParams", "checkpointDocumentParams", "CheckpointDocumentParams", CheckpointDocumentParams, Deserialize),
+            (CheckpointDocumentResult, "CheckpointDocumentResult", "checkpointDocumentResult", "CheckpointDocumentResult", CheckpointDocumentResult, Serialize),
+            (RequestFullTextParams, "RequestFullTextParams", "requestFullTextParams", "RequestFullTextParams", RequestFullTextParams, Serialize),
+            (CreatePreviewParams, "CreatePreviewParams", "createPreviewParams", "CreatePreviewParams", CreatePreviewParams, Deserialize),
+            (PreviewTarget, "PreviewTarget", "previewTarget", "PreviewTarget", PreviewTarget, Deserialize),
+            (CreatePreviewResult, "CreatePreviewResult", "createPreviewResult", "CreatePreviewResult", CreatePreviewResult, Serialize),
+            (ReadPreviewParams, "ReadPreviewParams", "readPreviewParams", "ReadPreviewParams", ReadPreviewParams, Deserialize),
+            (ReadPreviewResult, "ReadPreviewResult", "readPreviewResult", "ReadPreviewResult", ReadPreviewResult<RenderFrame>, Serialize),
+            (PreviewChangedParams, "PreviewChangedParams", "previewChangedParams", "PreviewChangedParams", PreviewChangedParams, Serialize),
+            (RerenderPreviewParams, "RerenderPreviewParams", "rerenderPreviewParams", "RerenderPreviewParams", RerenderPreviewParams, Deserialize),
+            (DisposePreviewParams, "DisposePreviewParams", "disposePreviewParams", "DisposePreviewParams", DisposePreviewParams, Deserialize),
+            (SetSelectionParams, "SetSelectionParams", "setSelectionParams", "SetSelectionParams", SetSelectionParams, Deserialize),
+            (SetViewportParams, "SetViewportParams", "setViewportParams", "SetViewportParams", SetViewportParams, Deserialize),
+            (PreviewEventParams, "PreviewEventParams", "previewEventParams", "PreviewEventParams", PreviewEventParams, Deserialize),
+            (ServerPreviewEventParams, "ServerPreviewEventParams", "serverPreviewEventParams", "ServerPreviewEventParams", ServerPreviewEventParams, Serialize),
+            (ExecuteCommandParams, "ExecuteCommandParams", "executeCommandParams", "ExecuteCommandParams", ExecuteCommandParams, Deserialize),
+            (CommandMessage, "CommandMessage", "commandMessage", "CommandMessage", CommandMessage, Serialize),
+            (CommandResult, "CommandResult", "commandResult", "CommandResult", CommandResult, Serialize),
+            (GetNoteOptionsParams, "GetNoteOptionsParams", "getNoteOptionsParams", "GetNoteOptionsParams", GetNoteOptionsParams, Deserialize),
+            (GetNoteOptionsResult, "GetNoteOptionsResult", "getNoteOptionsResult", "GetNoteOptionsResult", GetNoteOptionsResult, Serialize),
+            (ReconfigureWorkspaceParams, "ReconfigureWorkspaceParams", "reconfigureWorkspaceParams", "ReconfigureWorkspaceParams", ReconfigureWorkspaceParams, Deserialize),
+            (RpcOpenDocumentParams, "RpcOpenDocumentParams", "openDocumentParams", "RpcOpenDocumentParams", RpcOpenDocumentParams, Deserialize),
+            (RpcChangeDocumentParams, "RpcChangeDocumentParams", "changeDocumentParams", "RpcChangeDocumentParams", RpcChangeDocumentParams, Deserialize),
+            (RpcCloseDocumentParams, "RpcCloseDocumentParams", "closeDocumentParams", "RpcCloseDocumentParams", RpcCloseDocumentParams, Deserialize),
+        }
+    };
+}
+
 macro_rules! declare_wire_types {
-    ($(($variant:ident, $wire_name:literal, $schema_name:literal, $ts_name:literal)),+ $(,)?) => {
+    ($(($variant:ident, $wire_name:literal, $schema_name:literal, $ts_name:literal, $type:ty, $contract:ident)),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
         #[serde(rename_all = "camelCase")]
-        pub enum WireType { $($variant),+ }
+        pub enum WireType { Unit, $($variant),+ }
 
         impl WireType {
-            pub const ALL: &[Self] = &[$(Self::$variant),+];
+            pub const ALL: &[Self] = &[Self::Unit, $(Self::$variant),+];
 
             pub const fn wire_name(self) -> &'static str {
-                match self { $(Self::$variant => $wire_name),+ }
+                match self { Self::Unit => "Unit", $(Self::$variant => $wire_name),+ }
             }
 
             pub const fn schema_name(self) -> &'static str {
-                match self { $(Self::$variant => $schema_name),+ }
+                match self { Self::Unit => "unit", $(Self::$variant => $schema_name),+ }
             }
 
             pub const fn typescript_name(self) -> &'static str {
-                match self { $(Self::$variant => $ts_name),+ }
+                match self { Self::Unit => "null", $(Self::$variant => $ts_name),+ }
             }
         }
     };
 }
 
-declare_wire_types! {
-    (Unit, "Unit", "unit", "null"),
-    (InitializeParams, "InitializeParams", "initializeParams", "InitializeParams"),
-    (InitializeResult, "InitializeResult", "initializeResult", "InitializeResult"),
-    (AttachDocumentParams, "AttachDocumentParams", "attachDocumentParams", "AttachDocumentParams"),
-    (AttachDocumentResult, "AttachDocumentResult", "attachDocumentResult", "AttachDocumentResult"),
-    (CheckpointDocumentParams, "CheckpointDocumentParams", "checkpointDocumentParams", "CheckpointDocumentParams"),
-    (CheckpointDocumentResult, "CheckpointDocumentResult", "checkpointDocumentResult", "CheckpointDocumentResult"),
-    (RequestFullTextParams, "RequestFullTextParams", "requestFullTextParams", "RequestFullTextParams"),
-    (RenderParams, "RenderParams", "renderParams", "RenderParams"),
-    (RenderPublication, "RenderPublication", "renderPublication", "RenderPublication"),
-    (CreatePreviewParams, "CreatePreviewParams", "createPreviewParams", "CreatePreviewParams"),
-    (CreatePreviewResult, "CreatePreviewResult", "createPreviewResult", "CreatePreviewResult"),
-    (DisposePreviewParams, "DisposePreviewParams", "disposePreviewParams", "DisposePreviewParams"),
-    (SetSelectionParams, "SetSelectionParams", "setSelectionParams", "SetSelectionParams"),
-    (SetViewportParams, "SetViewportParams", "setViewportParams", "SetViewportParams"),
-    (PreviewEventParams, "PreviewEventParams", "previewEventParams", "PreviewEventParams"),
-    (ServerPreviewEventParams, "ServerPreviewEventParams", "serverPreviewEventParams", "ServerPreviewEventParams"),
-    (ReloadPreviewParams, "ReloadPreviewParams", "reloadPreviewParams", "ReloadPreviewParams"),
-    (ExecuteCommandParams, "ExecuteCommandParams", "executeCommandParams", "ExecuteCommandParams"),
-    (CommandResult, "CommandResult", "commandResult", "CommandResult"),
-    (GetNoteOptionsParams, "GetNoteOptionsParams", "getNoteOptionsParams", "GetNoteOptionsParams"),
-    (GetNoteOptionsResult, "GetNoteOptionsResult", "getNoteOptionsResult", "GetNoteOptionsResult"),
-    (ReconfigureWorkspaceParams, "ReconfigureWorkspaceParams", "reconfigureWorkspaceParams", "ReconfigureWorkspaceParams"),
-    (RpcOpenDocumentParams, "RpcOpenDocumentParams", "openDocumentParams", "RpcOpenDocumentParams"),
-    (RpcChangeDocumentParams, "RpcChangeDocumentParams", "changeDocumentParams", "RpcChangeDocumentParams"),
-    (RpcCloseDocumentParams, "RpcCloseDocumentParams", "closeDocumentParams", "RpcCloseDocumentParams")
-}
+for_each_contract_type!(declare_wire_types);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MethodSpec {
@@ -114,13 +145,14 @@ declare_methods! {
     (ATTACH_DOCUMENT, "fleximark/attachDocument", ClientToServer, Request, Some(WireType::AttachDocumentParams), None, Some(WireType::AttachDocumentResult)),
     (CHECKPOINT_DOCUMENT, "fleximark/checkpointDocument", ClientToServer, Request, Some(WireType::CheckpointDocumentParams), None, Some(WireType::CheckpointDocumentResult)),
     (REQUEST_FULL_TEXT, "fleximark/requestFullText", ServerToClient, Notification, None, Some(WireType::RequestFullTextParams), None),
-    (RENDER, "fleximark/render", ClientToServer, Request, Some(WireType::RenderParams), None, Some(WireType::RenderPublication)),
     (CREATE_PREVIEW, "fleximark/createPreview", ClientToServer, Request, Some(WireType::CreatePreviewParams), None, Some(WireType::CreatePreviewResult)),
+    (READ_PREVIEW, "fleximark/readPreview", ClientToServer, Request, Some(WireType::ReadPreviewParams), None, Some(WireType::ReadPreviewResult)),
+    (PREVIEW_CHANGED, "fleximark/previewChanged", ServerToClient, Notification, None, Some(WireType::PreviewChangedParams), None),
+    (RERENDER_PREVIEW, "fleximark/rerenderPreview", ClientToServer, Request, Some(WireType::RerenderPreviewParams), None, Some(WireType::Unit)),
     (DISPOSE_PREVIEW, "fleximark/disposePreview", ClientToServer, Request, Some(WireType::DisposePreviewParams), None, Some(WireType::Unit)),
     (SET_SELECTION, "fleximark/setSelection", ClientToServer, Notification, Some(WireType::SetSelectionParams), None, None),
     (SET_VIEWPORT, "fleximark/setViewport", ClientToServer, Notification, Some(WireType::SetViewportParams), None, None),
     (PREVIEW_EVENT, "fleximark/previewEvent", Bidirectional, Notification, Some(WireType::PreviewEventParams), Some(WireType::ServerPreviewEventParams), None),
-    (RELOAD_PREVIEW, "fleximark/reloadPreview", ClientToServer, Request, Some(WireType::ReloadPreviewParams), None, Some(WireType::Unit)),
     (EXECUTE_COMMAND, "fleximark/executeCommand", ClientToServer, Request, Some(WireType::ExecuteCommandParams), None, Some(WireType::CommandResult)),
     (GET_NOTE_OPTIONS, "fleximark/getNoteOptions", ClientToServer, Request, Some(WireType::GetNoteOptionsParams), None, Some(WireType::GetNoteOptionsResult)),
     (RECONFIGURE_WORKSPACE, "fleximark/reconfigureWorkspace", ClientToServer, Request, Some(WireType::ReconfigureWorkspaceParams), None, Some(WireType::Unit)),
@@ -411,15 +443,6 @@ pub struct RequestFullTextParams {
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RenderParams {
-    pub daemon_instance_id: String,
-    pub document_session_id: String,
-    pub document_version: JsSafeI64,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreatePreviewParams {
     pub daemon_instance_id: String,
     pub document_session_id: String,
@@ -438,11 +461,44 @@ pub enum PreviewTarget {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct CreatePreviewResult<T> {
+pub struct CreatePreviewResult {
     pub preview_session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    pub initial_publication: T,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadPreviewParams {
+    pub daemon_instance_id: String,
+    pub preview_session_id: String,
+    #[serde(default)]
+    pub after_revision: Option<JsSafeU64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ReadPreviewResult<T> {
+    pub frame: Option<T>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewChangedParams {
+    pub daemon_instance_id: String,
+    pub preview_session_id: String,
+    pub render_revision: JsSafeU64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RerenderPreviewParams {
+    pub daemon_instance_id: String,
+    pub preview_session_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -564,8 +620,7 @@ pub struct PreviewEventParams {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
-pub enum ServerPreviewEvent<P> {
-    Publication(P),
+pub enum ServerPreviewEvent {
     RenderNavigation(RenderNavigationEvent),
     SourceNavigation(SourceNavigationEvent),
 }
@@ -573,19 +628,11 @@ pub enum ServerPreviewEvent<P> {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct ServerPreviewEventParams<P> {
+pub struct ServerPreviewEventParams {
     pub daemon_instance_id: String,
     pub preview_session_id: String,
     pub render_revision: JsSafeU64,
-    pub event: ServerPreviewEvent<P>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReloadPreviewParams {
-    pub daemon_instance_id: String,
-    pub preview_session_id: String,
+    pub event: ServerPreviewEvent,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -606,6 +653,8 @@ pub struct ExecuteCommandParams {
     pub note_category: Option<String>,
     #[serde(default)]
     pub note_template: Option<String>,
+    #[serde(default)]
+    pub arguments: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -631,6 +680,8 @@ pub struct CommandResult {
     pub message: Option<CommandMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub open_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -832,7 +883,7 @@ mod tests {
 
     fn contract_fixture() -> ContractFixture {
         serde_json::from_str(include_str!(
-            "../../../test/fixtures/protocol-v1-contract.json"
+            "../../../test/fixtures/protocol-v2-contract.json"
         ))
         .unwrap()
     }
@@ -865,16 +916,27 @@ mod tests {
                 };
                 assert_eq!(serde_json::to_value(params).unwrap(), case.params);
             }
-            WireType::RenderParams => drop(accept!(RenderParams)),
             WireType::CreatePreviewParams => {
                 let params = accept!(CreatePreviewParams);
                 assert_eq!(params.target, PreviewTarget::ExternalBrowser);
+            }
+            WireType::ReadPreviewParams => drop(accept!(ReadPreviewParams)),
+            WireType::RerenderPreviewParams => drop(accept!(RerenderPreviewParams)),
+            WireType::PreviewChangedParams => {
+                let params = PreviewChangedParams {
+                    daemon_instance_id: case.params["daemonInstanceId"].as_str().unwrap().into(),
+                    preview_session_id: case.params["previewSessionId"].as_str().unwrap().into(),
+                    render_revision: JsSafeU64::new(
+                        case.params["renderRevision"].as_u64().unwrap(),
+                    )
+                    .unwrap(),
+                };
+                assert_eq!(serde_json::to_value(params).unwrap(), case.params);
             }
             WireType::DisposePreviewParams => drop(accept!(DisposePreviewParams)),
             WireType::SetSelectionParams => drop(accept!(SetSelectionParams)),
             WireType::SetViewportParams => drop(accept!(SetViewportParams)),
             WireType::PreviewEventParams => drop(accept!(PreviewEventParams)),
-            WireType::ReloadPreviewParams => drop(accept!(ReloadPreviewParams)),
             WireType::ExecuteCommandParams => {
                 let params = accept!(ExecuteCommandParams);
                 assert!(params.document_session_id.is_none());
@@ -937,9 +999,9 @@ mod tests {
                     .get("url")
                     .and_then(Value::as_str)
                     .map(str::to_owned),
-                initial_publication: case.result["initialPublication"].clone(),
             })
             .unwrap(),
+            Some(WireType::ReadPreviewResult | WireType::RenderFrame) => case.result.clone(),
             Some(WireType::GetNoteOptionsResult) => serde_json::to_value(GetNoteOptionsResult {
                 categories: case.result["categories"]
                     .as_array()
@@ -958,16 +1020,9 @@ mod tests {
             Some(WireType::CommandResult) => serde_json::to_value(CommandResult {
                 message: None,
                 open_uri: None,
+                data: None,
             })
             .unwrap(),
-            Some(WireType::RenderPublication) => {
-                assert!(
-                    matches!(case.result["type"].as_str(), Some("full" | "patch")),
-                    "{} result is not a render publication",
-                    case.method
-                );
-                case.result.clone()
-            }
             None => case.result.clone(),
             Some(WireType::Unit) => {
                 assert!(
@@ -1086,8 +1141,8 @@ mod tests {
             Some(WireType::ServerPreviewEventParams)
         );
         assert_eq!(
-            serde_json::to_value(WireType::RenderPublication).unwrap(),
-            "renderPublication"
+            serde_json::to_value(WireType::RenderFrame).unwrap(),
+            "renderFrame"
         );
     }
 
@@ -1144,13 +1199,11 @@ mod tests {
                 daemon_instance_id: "daemon".into(),
                 preview_session_id: "preview".into(),
                 render_revision: 4.into(),
-                event: ServerPreviewEvent::<Value>::RenderNavigation(
-                    RenderNavigationEvent::Viewport {
-                        preview_session_id: "preview".into(),
-                        render_revision: 4.into(),
-                        node_id: NodeId("block-a".into()),
-                    },
-                ),
+                event: ServerPreviewEvent::RenderNavigation(RenderNavigationEvent::Viewport {
+                    preview_session_id: "preview".into(),
+                    render_revision: 4.into(),
+                    node_id: NodeId("block-a".into()),
+                },),
             })
             .unwrap(),
             json!({"daemonInstanceId":"daemon","previewSessionId":"preview","renderRevision":4,
@@ -1162,7 +1215,7 @@ mod tests {
     fn inbound_dtos_reject_fields_not_declared_by_the_wire_schema() {
         assert!(
             serde_json::from_value::<InitializeParams>(json!({
-                "protocolVersion":1,
+                "protocolVersion":2,
                 "client":{"name":"test","version":"1"},
                 "unexpected":true
             }))

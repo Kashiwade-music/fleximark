@@ -1,5 +1,6 @@
+use std::collections::VecDeque;
 use std::io::{self, BufReader, BufWriter};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread;
 
 use fleximark_protocol::{IncomingMessage, Response, read_frame, write_frame};
@@ -10,15 +11,24 @@ use crate::server::{Server, response_value};
 use crate::telemetry::log_operational_event;
 
 pub(crate) fn run(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let (outgoing, incoming) = mpsc::channel::<Value>();
+    let output = CoalescingOutput::default();
+    let writer_output = output.clone();
     thread::spawn(move || {
         let mut writer = BufWriter::new(io::stdout());
-        for message in incoming {
+        loop {
+            let message = writer_output.pop();
             if let Err(error) = write_frame(&mut writer, &message) {
                 let _ = error;
                 log_operational_event("stdout-write-failed", None, None, None);
                 break;
             }
+        }
+    });
+    let (browser_outgoing, browser_incoming) = mpsc::channel::<Value>();
+    let browser_output = output.clone();
+    thread::spawn(move || {
+        for message in browser_incoming {
+            browser_output.push(message);
         }
     });
     let coordinator = Arc::new(CancellationCoordinator::default());
@@ -58,23 +68,23 @@ pub(crate) fn run(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
-    let mut server = Server::with_sender(mode == "lsp", outgoing.clone());
+    let mut server = Server::with_sender(mode == "lsp", browser_outgoing);
 
     loop {
         let (message, permit) = match input_receiver.recv()? {
             InputEvent::Message { message, permit } => (message, permit),
             InputEvent::Invalid => {
-                outgoing.send(response_value(Response::error(
+                output.push(response_value(Response::error(
                     Value::Null,
                     -32700,
                     "invalid JSON-RPC message",
-                )))?;
+                )));
                 continue;
             }
             InputEvent::Closed => break,
             InputEvent::Failed(error) => return Err(error.into()),
         };
-        process_message(&mut server, &coordinator, &outgoing, message, permit)?;
+        process_message(&mut server, &coordinator, &output, message, permit)?;
         if server.exit {
             break;
         }
@@ -82,10 +92,82 @@ pub(crate) fn run(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[derive(Clone, Default)]
+struct CoalescingOutput {
+    state: Arc<(Mutex<VecDeque<Value>>, Condvar)>,
+}
+
+impl CoalescingOutput {
+    fn push(&self, message: Value) {
+        let (queue, ready) = &*self.state;
+        let mut queue = queue.lock().expect("output queue lock");
+        if let Some(preview_id) = preview_changed_key(&message).map(str::to_owned) {
+            if let Some(pending) = queue
+                .iter_mut()
+                .find(|pending| preview_changed_key(pending) == Some(preview_id.as_str()))
+            {
+                *pending = message;
+                ready.notify_one();
+                return;
+            }
+        }
+        queue.push_back(message);
+        ready.notify_one();
+    }
+
+    fn pop(&self) -> Value {
+        let (queue, ready) = &*self.state;
+        let mut queue = queue.lock().expect("output queue lock");
+        loop {
+            if let Some(message) = queue.pop_front() {
+                return message;
+            }
+            queue = ready.wait(queue).expect("output queue wait");
+        }
+    }
+
+    #[cfg(test)]
+    fn drain(&self) -> Vec<Value> {
+        self.state
+            .0
+            .lock()
+            .expect("output queue lock")
+            .drain(..)
+            .collect()
+    }
+}
+
+fn preview_changed_key(message: &Value) -> Option<&str> {
+    (message.get("method")?.as_str()? == fleximark_protocol::method::PREVIEW_CHANGED)
+        .then(|| {
+            message
+                .pointer("/params/previewSessionId")
+                .and_then(Value::as_str)
+        })
+        .flatten()
+}
+
+trait OutputSink {
+    fn send_output(&self, message: Value) -> Result<(), mpsc::SendError<Value>>;
+}
+
+impl OutputSink for CoalescingOutput {
+    fn send_output(&self, message: Value) -> Result<(), mpsc::SendError<Value>> {
+        self.push(message);
+        Ok(())
+    }
+}
+
+impl OutputSink for mpsc::Sender<Value> {
+    fn send_output(&self, message: Value) -> Result<(), mpsc::SendError<Value>> {
+        self.send(message)
+    }
+}
+
 fn process_message(
     server: &mut Server,
     coordinator: &CancellationCoordinator,
-    outgoing: &mpsc::Sender<Value>,
+    outgoing: &impl OutputSink,
     message: IncomingMessage,
     permit: Option<WorkPermit>,
 ) -> Result<(), mpsc::SendError<Value>> {
@@ -95,7 +177,7 @@ fn process_message(
 fn process_message_with_observer(
     server: &mut Server,
     coordinator: &CancellationCoordinator,
-    outgoing: &mpsc::Sender<Value>,
+    outgoing: &impl OutputSink,
     message: IncomingMessage,
     permit: Option<WorkPermit>,
     mut observer: impl FnMut(&'static str),
@@ -135,7 +217,7 @@ fn process_message_with_observer(
         observer("finished");
     }
     for outgoing_message in messages {
-        outgoing.send(outgoing_message)?;
+        outgoing.send_output(outgoing_message)?;
         observer("sent");
     }
     Ok(())
@@ -165,6 +247,41 @@ mod tests {
             method: method.into(),
             params,
         }
+    }
+
+    #[test]
+    fn slow_output_coalesces_preview_changes_without_reordering_other_messages() {
+        let output = CoalescingOutput::default();
+        output.push(json!({"jsonrpc":"2.0","id":1,"result":null}));
+        for revision in 1..=1_000 {
+            output.push(json!({
+                "jsonrpc":"2.0",
+                "method":method::PREVIEW_CHANGED,
+                "params":{
+                    "daemonInstanceId":"daemon",
+                    "previewSessionId":"preview-a",
+                    "renderRevision":revision
+                }
+            }));
+        }
+        output.push(json!({"jsonrpc":"2.0","id":2,"result":null}));
+        output.push(json!({
+            "jsonrpc":"2.0",
+            "method":method::PREVIEW_CHANGED,
+            "params":{
+                "daemonInstanceId":"daemon",
+                "previewSessionId":"preview-b",
+                "renderRevision":4
+            }
+        }));
+
+        let queued = output.drain();
+        assert_eq!(queued.len(), 4);
+        assert_eq!(queued[0]["id"], 1);
+        assert_eq!(queued[1]["params"]["previewSessionId"], "preview-a");
+        assert_eq!(queued[1]["params"]["renderRevision"], 1_000);
+        assert_eq!(queued[2]["id"], 2);
+        assert_eq!(queued[3]["params"]["previewSessionId"], "preview-b");
     }
 
     #[test]
@@ -250,7 +367,7 @@ mod tests {
             Some(1),
             method::INITIALIZE,
             json!({
-                "protocolVersion":1,
+                "protocolVersion":2,
                 "client":{"name":"test","version":"1"},
                 "capabilities":{}
             }),
@@ -347,7 +464,7 @@ mod tests {
             Some(11),
             method::INITIALIZE,
             json!({
-                "protocolVersion":1,
+                "protocolVersion":2,
                 "client":{"name":"test","version":"1"},
                 "capabilities":{}
             }),
@@ -381,9 +498,9 @@ mod tests {
             .as_deref()
             .unwrap()
             .to_owned();
-        let initial_publications = server.previews.pages.lock().unwrap()[&token]
-            .publications
-            .len();
+        let initial_revision = server.previews.pages.lock().unwrap()[&token]
+            .frame
+            .render_revision;
 
         let change_two = message(
             None,
@@ -426,10 +543,10 @@ mod tests {
         assert_eq!(document.source(), "two\n");
         assert_eq!(
             server.previews.pages.lock().unwrap()[&token]
-                .publications
-                .len(),
-            initial_publications,
-            "cancelled LSP publication must not append HTTP preview history"
+                .frame
+                .render_revision,
+            initial_revision,
+            "cancelled LSP publication must not replace the latest HTTP frame"
         );
         assert!(
             matches!(incoming.try_recv(), Err(mpsc::TryRecvError::Empty)),

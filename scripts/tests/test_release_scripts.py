@@ -179,7 +179,7 @@ class ReleaseManifestTests(TemporaryReleaseRootTests):
             json.loads(output.read_text(encoding="utf-8")),
             {
                 "schemaVersion": 1,
-                "protocolVersion": 1,
+                "protocolVersion": 2,
                 "artifacts": [
                     {
                         "platform": "linux",
@@ -527,6 +527,7 @@ class WatchCleanupTests(unittest.TestCase):
             events.append(message)
 
         with (
+            patch.object(tasks, "build_daemon") as build_daemon,
             patch.object(tasks.javascript_build, "clean"),
             patch.object(
                 tasks.javascript_build,
@@ -565,6 +566,7 @@ class WatchCleanupTests(unittest.TestCase):
             ],
         )
         stop.assert_called_once_with(children)
+        build_daemon.assert_called_once_with()
 
     def test_stop_processes_terminates_then_waits_for_live_children(self) -> None:
         first = MagicMock()
@@ -604,6 +606,7 @@ class WatchCleanupTests(unittest.TestCase):
         child.poll.side_effect = [None, None]
         with (
             patch.object(tasks, "check_protocol_contract"),
+            patch.object(tasks, "build_daemon"),
             patch.object(tasks.javascript_build, "clean"),
             patch.object(
                 tasks.javascript_build,

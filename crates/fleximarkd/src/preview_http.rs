@@ -7,11 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use fleximark_engine::RenderPublication;
-use fleximark_model::NavigationEntry;
+use fleximark_engine::RenderFrame;
 use fleximark_protocol::{
-    JsSafeU64, PreviewNavigationEvent, RenderNavigationEvent, ServerPreviewEvent,
-    ServerPreviewEventParams, SourceNavigationEvent,
+    JsSafeU64, PreviewChangedParams, PreviewNavigationEvent, RenderNavigationEvent,
+    ServerPreviewEvent, ServerPreviewEventParams, SourceNavigationEvent,
 };
 use serde_json::Value;
 
@@ -28,22 +27,19 @@ pub(crate) struct PreviewPage {
     pub(crate) shell: String,
     pub(crate) daemon_instance_id: String,
     pub(crate) preview_session_id: String,
-    pub(crate) publications: Vec<StoredPublication>,
-    pub(crate) publication_bytes: usize,
+    pub(crate) frame: RenderFrame,
+    pub(crate) change_event: StoredEvent,
+    pub(crate) navigation_event: Option<StoredEvent>,
     pub(crate) next_sequence: u64,
-    pub(crate) current_revision: JsSafeU64,
+    pub(crate) document_version: JsSafeU64,
     pub(crate) last_browser_event: Option<Instant>,
 }
 
 #[derive(Clone)]
-pub(crate) struct StoredPublication {
-    pub(crate) value: Value,
+pub(crate) struct StoredEvent {
     pub(crate) encoded: String,
     pub(crate) sequence: u64,
 }
-
-pub(crate) const MAX_PREVIEW_PUBLICATIONS: usize = 32;
-pub(crate) const MAX_PREVIEW_HISTORY_BYTES: usize = 8 * 1024 * 1024;
 
 impl PreviewServer {
     pub(crate) fn start(sender: Option<Sender<Value>>) -> io::Result<Self> {
@@ -91,16 +87,13 @@ impl PreviewServer {
         token: &str,
         daemon_instance_id: &str,
         preview_session_id: &str,
-        publication: &RenderPublication,
+        frame: &RenderFrame,
     ) -> String {
         let shell = preview_shell(token);
-        let value = serde_json::to_value(publication).expect("publication is serializable");
-        let encoded = serde_json::to_string(std::slice::from_ref(&value))
-            .expect("preview publication is serializable");
-        let publication_bytes = encoded.len();
-        let current_revision = match publication {
-            RenderPublication::Full(snapshot) => snapshot.result_render_revision,
-            RenderPublication::Patch(patch) => patch.result_render_revision,
+        let changed = PreviewChangedParams {
+            daemon_instance_id: daemon_instance_id.to_owned(),
+            preview_session_id: preview_session_id.to_owned(),
+            render_revision: frame.render_revision,
         };
         self.pages.lock().expect("preview map lock").insert(
             token.to_owned(),
@@ -108,14 +101,15 @@ impl PreviewServer {
                 shell,
                 daemon_instance_id: daemon_instance_id.to_owned(),
                 preview_session_id: preview_session_id.to_owned(),
-                publications: vec![StoredPublication {
-                    value,
-                    encoded,
+                frame: frame.clone(),
+                change_event: StoredEvent {
+                    encoded: serde_json::to_string(&changed)
+                        .expect("preview change is serializable"),
                     sequence: 1,
-                }],
-                publication_bytes,
+                },
+                navigation_event: None,
                 next_sequence: 2,
-                current_revision,
+                document_version: frame.document_version,
                 last_browser_event: None,
             },
         );
@@ -126,68 +120,45 @@ impl PreviewServer {
         self.pages.lock().expect("preview map lock").remove(token);
     }
 
-    pub(crate) fn update(&self, token: &str, publication: &RenderPublication) -> bool {
+    pub(crate) fn update(&self, token: &str, frame: &RenderFrame) -> bool {
         if let Some(page) = self.pages.lock().expect("preview map lock").get_mut(token) {
-            let value = serde_json::to_value(publication).expect("publication is serializable");
-            let encoded = serde_json::to_string(std::slice::from_ref(&value))
-                .expect("preview publication is serializable");
-            if matches!(publication, RenderPublication::Full(_)) {
-                page.publications.clear();
-                page.publication_bytes = 0;
-            } else if page.publications.len() >= MAX_PREVIEW_PUBLICATIONS
-                || page.publication_bytes.saturating_add(encoded.len()) > MAX_PREVIEW_HISTORY_BYTES
-            {
-                return false;
-            }
-            page.publication_bytes = page.publication_bytes.saturating_add(encoded.len());
-            page.current_revision = match publication {
-                RenderPublication::Full(snapshot) => snapshot.result_render_revision,
-                RenderPublication::Patch(patch) => patch.result_render_revision,
-            };
-            page.publications.push(StoredPublication {
-                value,
-                encoded,
+            page.frame = frame.clone();
+            page.document_version = frame.document_version;
+            page.change_event = StoredEvent {
+                encoded: serde_json::to_string(&PreviewChangedParams {
+                    daemon_instance_id: page.daemon_instance_id.clone(),
+                    preview_session_id: page.preview_session_id.clone(),
+                    render_revision: frame.render_revision,
+                })
+                .expect("preview change is serializable"),
                 sequence: page.next_sequence,
-            });
+            };
             page.next_sequence += 1;
-            debug_assert!(page.publications.len() <= MAX_PREVIEW_PUBLICATIONS);
             return true;
         }
         false
     }
 
-    pub(crate) fn navigate(&self, token: &str, event: &RenderNavigationEvent) -> bool {
-        let value = serde_json::to_value(event).expect("navigation event is serializable");
-        let encoded = serde_json::to_string(std::slice::from_ref(&value))
-            .expect("navigation event is serializable");
+    pub(crate) fn mark_document_version(&self, token: &str, version: JsSafeU64) -> bool {
         let mut pages = self.pages.lock().expect("preview map lock");
         let Some(page) = pages.get_mut(token) else {
             return false;
         };
-        if page.publications.len() >= MAX_PREVIEW_PUBLICATIONS
-            || page.publication_bytes.saturating_add(encoded.len()) > MAX_PREVIEW_HISTORY_BYTES
-        {
+        page.document_version = version;
+        true
+    }
+
+    pub(crate) fn navigate(&self, token: &str, event: &RenderNavigationEvent) -> bool {
+        let mut pages = self.pages.lock().expect("preview map lock");
+        let Some(page) = pages.get_mut(token) else {
             return false;
-        }
-        page.publication_bytes += encoded.len();
-        page.publications.push(StoredPublication {
-            value,
-            encoded,
+        };
+        page.navigation_event = Some(StoredEvent {
+            encoded: serde_json::to_string(event).expect("navigation event is serializable"),
             sequence: page.next_sequence,
         });
         page.next_sequence += 1;
         true
-    }
-
-    pub(crate) fn needs_full(&self, token: &str) -> bool {
-        self.pages
-            .lock()
-            .expect("preview map lock")
-            .get(token)
-            .is_some_and(|page| {
-                page.publications.len() >= MAX_PREVIEW_PUBLICATIONS
-                    || page.publication_bytes >= MAX_PREVIEW_HISTORY_BYTES
-            })
     }
 }
 
@@ -408,7 +379,23 @@ pub(crate) fn serve_preview_request(
             write_empty_response(&mut stream, FORBIDDEN_RESPONSE);
             return;
         };
-        if event_preview_id != &page.preview_session_id || page.current_revision != event_revision {
+        let entry = match page.frame.navigation_for(
+            &fleximark_engine::PreviewSessionId(event_preview_id.clone()),
+            event_revision,
+            page.document_version.get(),
+            node_id,
+        ) {
+            Ok(Some(entry)) => entry,
+            Ok(None) => {
+                write_empty_response(&mut stream, BAD_REQUEST_RESPONSE);
+                return;
+            }
+            Err(_) => {
+                write_empty_response(&mut stream, CONFLICT_RESPONSE);
+                return;
+            }
+        };
+        if event_preview_id != &page.preview_session_id {
             write_empty_response(&mut stream, CONFLICT_RESPONSE);
             return;
         }
@@ -420,22 +407,6 @@ pub(crate) fn serve_preview_request(
             write_empty_response(&mut stream, TOO_MANY_REQUESTS_RESPONSE);
             return;
         }
-        let entry = page
-            .publications
-            .iter()
-            .rev()
-            .find_map(|publication| publication.value.get("navigation"))
-            .cloned()
-            .and_then(|navigation| serde_json::from_value::<Vec<NavigationEntry>>(navigation).ok())
-            .and_then(|navigation| {
-                navigation
-                    .into_iter()
-                    .find(|entry| &entry.node_id == node_id)
-            });
-        let Some(entry) = entry else {
-            write_empty_response(&mut stream, BAD_REQUEST_RESPONSE);
-            return;
-        };
         let event = match navigation {
             PreviewNavigationEvent::SelectNode { .. } => SourceNavigationEvent::SelectSource {
                 source_range: entry.source_range,
@@ -466,13 +437,13 @@ pub(crate) fn serve_preview_request(
     if endpoint == Some("events") {
         let events = pages.lock().ok().and_then(|pages| {
             pages.get(token).map(|page| {
-                page.publications
-                    .iter()
-                    .filter(|publication| {
-                        last_event_id.is_none_or(|last| publication.sequence > last)
-                    })
-                    .map(|publication| (publication.sequence, publication.encoded.clone()))
-                    .collect::<Vec<_>>()
+                let mut events = std::iter::once(&page.change_event)
+                    .chain(page.navigation_event.iter())
+                    .filter(|event| last_event_id.is_none_or(|last| event.sequence > last))
+                    .map(|event| (event.sequence, event.encoded.clone()))
+                    .collect::<Vec<_>>();
+                events.sort_unstable_by_key(|(sequence, _)| *sequence);
+                events
             })
         });
         if let Some(events) = events {
@@ -497,6 +468,20 @@ pub(crate) fn serve_preview_request(
             );
             write_preview_response(&mut stream, response.as_bytes());
         }
+        return;
+    }
+    if endpoint == Some("frame") {
+        let body = pages.lock().ok().and_then(|pages| {
+            pages.get(token).and_then(|page| {
+                serde_json::to_string(&serde_json::json!({ "frame": &page.frame })).ok()
+            })
+        });
+        let (status, body) = body.map_or(("403 Forbidden", String::new()), |body| ("200 OK", body));
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        write_preview_response(&mut stream, response.as_bytes());
         return;
     }
     let body = if endpoint.is_none() {

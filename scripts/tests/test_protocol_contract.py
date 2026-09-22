@@ -8,9 +8,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "test" / "fixtures" / "protocol-v1-contract.json"
+FIXTURE = ROOT / "test" / "fixtures" / "protocol-v2-contract.json"
 BIDIRECTIONAL_SERVER_FIXTURE = (
-    ROOT / "test" / "fixtures" / "protocol-v1-bidirectional-server.json"
+    ROOT / "test" / "fixtures" / "protocol-v2-bidirectional-server.json"
 )
 SCHEMA = ROOT / "schemas" / "protocol.schema.json"
 
@@ -321,8 +321,12 @@ class ProtocolContractTests(unittest.TestCase):
 
         with self.assertRaises(SchemaViolation):
             self.validator.validate(
-                {"nodeExists": 1, "currentParentId": "document-root"},
-                self.schema["$defs"]["precondition"],
+                {
+                    "daemonInstanceId": "daemon",
+                    "previewSessionId": "preview",
+                    "renderRevision": True,
+                },
+                self.schema["$defs"]["previewChangedParams"],
             )
 
         with self.assertRaises(SchemaViolation):

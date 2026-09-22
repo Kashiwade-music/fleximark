@@ -1,20 +1,14 @@
 import {
+  PreviewFailureGuard,
   PreviewHost,
-  isInvalidAuthenticatedPublicationMessage,
+  isInvalidAuthenticatedFrameMessage,
   isPreviewHostMessageEvent,
 } from "./host.mjs";
 import type { EditorNavigationEvent } from "./navigation.mjs";
 
 declare const acquireVsCodeApi: () => {
   postMessage(
-    message:
-      | { type: "ready" | "requestSnapshot" }
-      | {
-          type: "rendered";
-          previewSessionId: string;
-          renderRevision: number;
-        }
-      | EditorNavigationEvent,
+    message: { type: "ready" | "requestFrame" } | EditorNavigationEvent,
   ): void;
 };
 
@@ -25,34 +19,46 @@ const messageToken = document.querySelector<HTMLMetaElement>(
   'meta[name="fleximark-message-token"]',
 )?.content;
 if (!messageToken) throw new Error("preview message token is missing");
-const preview = new PreviewHost(
-  root,
-  () => vscode.postMessage({ type: "requestSnapshot" }),
-  (event) => vscode.postMessage(event),
+let recoveryRequested = false;
+const state: { preview?: PreviewHost } = {};
+const failure = new PreviewFailureGuard(
+  () => undefined,
+  () => state.preview?.dispose(),
+  () => root.replaceChildren("Preview unavailable. Reopen it to retry."),
 );
+const requestRecovery = () => {
+  if (failure.failed) return;
+  if (recoveryRequested) {
+    failure.fail();
+    return;
+  }
+  recoveryRequested = true;
+  vscode.postMessage({ type: "requestFrame" });
+};
+const preview = new PreviewHost(root, requestRecovery, (event) =>
+  vscode.postMessage(event),
+);
+state.preview = preview;
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
+  if (failure.failed) return;
   if (!isPreviewHostMessageEvent(event.data, messageToken)) {
-    if (isInvalidAuthenticatedPublicationMessage(event.data, messageToken))
-      vscode.postMessage({ type: "requestSnapshot" });
+    if (isInvalidAuthenticatedFrameMessage(event.data, messageToken))
+      requestRecovery();
     return;
   }
   const value =
-    event.data.type === "initializePreview"
-      ? event.data.publication
-      : event.data.event;
-  preview.apply([value]);
-  if (
-    (value.type === "full" || value.type === "patch") &&
-    preview.previewSessionId === value.previewSessionId &&
-    preview.renderRevision === value.resultRenderRevision
-  ) {
-    vscode.postMessage({
-      type: "rendered",
-      previewSessionId: preview.previewSessionId,
-      renderRevision: preview.renderRevision,
-    });
+    event.data.type === "previewFrame" ? event.data.frame : event.data.event;
+  if (event.data.type !== "previewFrame") {
+    preview.apply([value]);
+    return;
   }
+  const stale =
+    value.previewSessionId === preview.previewSessionId &&
+    value.renderRevision <= preview.renderRevision;
+  const recoveryWasRequested = recoveryRequested;
+  if (preview.apply([value])) recoveryRequested = false;
+  else if (recoveryWasRequested && !stale) failure.fail();
 });
 
 window.addEventListener("unload", () => preview.dispose());

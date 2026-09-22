@@ -4,7 +4,7 @@
 
 ## 1. 全体構成と責務
 
-FlexiMark は、Rust の文書処理基盤、VS Code 用 TypeScript アダプター、ブラウザで動く共通プレビュークライアントで構成される。Markdown の解析、文書モデル、レンダリング、ワークスペース操作は Rust 側が担う。VS Code は編集内容と操作をサービスへ伝え、プレビュークライアントは受信した HTML と差分を表示する。
+FlexiMark は、Rust の文書処理基盤、VS Code 用 TypeScript アダプター、ブラウザで動く共通プレビュークライアントで構成される。Markdown の解析、文書モデル、レンダリング、ワークスペース操作は Rust 側が担う。VS Code は編集内容と操作をサービスへ伝え、プレビュークライアントは Rust が保持する最新の自己完結 frame を取得して表示する。
 
 ```mermaid
 flowchart TB
@@ -51,7 +51,7 @@ flowchart TB
 | `crates/fleximark-model/`            | `Document`、ブロック・インライン、NodeId、ソース位置と生成元情報、モデル検証             |
 | `crates/fleximark-parser/`           | comrak の解析結果を FlexiMark の文書モデルへ変換                                         |
 | `crates/fleximark-render-html/`      | 文書モデルからポリシーに従う HTML、ノード一覧、ナビゲーション情報を生成                  |
-| `crates/fleximark-engine/`           | 文書セッション、解析・変換パイプライン、NodeId の維持、描画キャッシュと差分              |
+| `crates/fleximark-engine/`           | 文書セッション、解析・変換パイプライン、NodeId の維持、最新描画 frame                   |
 | `crates/fleximark-lsp/`              | セッション登録、文書同期、位置変換・検索、ワークスペースとの対応管理                     |
 | `crates/fleximark-protocol/`         | JSON-RPC フレーム、メソッドと要求・応答・通知の契約                                      |
 | `crates/fleximark-protocol-codegen/` | Rust の通信契約から JSON Schema と TypeScript を生成                                     |
@@ -67,7 +67,7 @@ VS Code のエントリーポイントは `adapters/vscode/src/extension.mts`、
 
 標準入出力では `Content-Length` フレームの JSON-RPC 2.0 を使う。LSP の `initialize` / `initialized` に続けて `fleximark/initialize` を呼び、プロトコルバージョン、クライアント能力、ワークスペース URI と信頼状態を交換する。VS Code は位置の符号化に UTF-16 を指定する。サービス側には UTF-8・UTF-16・UTF-32 の位置処理がある。
 
-LSP は文書の開閉・更新、補完、ホバー、文書シンボル、診断、コードアクションを受け持つ。FlexiMark 独自メソッドは文書への接続確認、プレビュー作成・再読込、選択・スクロール連携、ワークスペース再設定、ノート作成やエクスポートなどを受け持つ。`fleximarkd rpc` は LSP の文書通知を使わず、独自の open/change/close メソッドを提供する別の起動モードである。
+LSP は文書の開閉・更新、補完、ホバー、文書シンボル、診断、コードアクションを受け持つ。FlexiMark 独自メソッドは文書への接続確認、プレビューの作成・読取り・明示的な再描画、選択・スクロール連携、ワークスペース再設定、ノート作成やエクスポートなどを受け持つ。`fleximarkd rpc` は LSP の文書通知を使わず、独自の open/change/close メソッドを提供する別の起動モードである。
 
 `transport/stdio.rs` は入力読取と出力書込を別スレッドに置き、サーバーの要求処理をキューで直列化する。入力側でキャンセル情報を更新できるため、処理中のプラグイン実行や古い結果の公開を取り消せる。ログは標準エラーへ出力し、標準出力の RPC フレームと分離する。
 
@@ -87,9 +87,9 @@ LSP は文書の開閉・更新、補完、ホバー、文書シンボル、診�
 4. プラグインのブロック変換、文書変換を順に適用し、結果を検証してセッションへ反映する。
 5. 描画時にプラグインの描画モデル拡張を実行し、HTML と位置対応を生成する。
 
-現在の実装は、更新後の全文を再解析したうえで描画結果の差分を生成する。差分配信と構文解析の増分処理は区別する必要がある。VS Code アダプターの `didChange` も、各編集で現在の全文を送信する。
+現在の実装は、更新後の全文を再解析したうえで最新の描画 frame を生成する。VS Code アダプターの `didChange` も、各編集で現在の全文を送信する。
 
-エンジンはプレビューごとに描画済みブロック、描画 revision、renderer fingerprint を保存する。初回または fingerprint が変わった場合は `RenderPublication::Full`、同じ描画条件で更新する場合は `Patch` を返す。差分の契約には insert / remove / replace / move / setAttributes があり、各操作はノードと親などの前提条件を持つ。
+エンジンはプレビューごとに最新の `RenderFrame` を一つ保存する。frame は revision、document version、順序付きブロック、renderer fingerprint、style、assets、annotations、navigation を含み、それ単体で表示を再構成できる。`readPreview` は保存済み frame を読むだけで revision を進めず、プラグインも再実行しない。文書更新または明示的な `rerenderPreview` が成功した時だけ新しい frame を採用する。
 
 | 識別子・値            | 意味                                               |
 | --------------------- | -------------------------------------------------- |
@@ -98,10 +98,10 @@ LSP は文書の開閉・更新、補完、ホバー、文書シンボル、診�
 | `documentVersion`     | 編集内容の世代を示す                               |
 | `previewSessionId`    | 同じ文書に対する個々のプレビューを識別する         |
 | `renderRevision`      | プレビューごとの描画世代を示す                     |
-| `rendererFingerprint` | 描画条件の一致を判定し、差分を適用できるか決める   |
+| `rendererFingerprint` | 描画条件の一致を判定し、DOM を再利用できるか決める |
 | `NodeId`              | 文書モデルと描画されたブロックを対応付ける         |
 
-文書の version と描画 revision は別物である。同じ文書でも複数のプレビューがあり、それぞれが独立した描画履歴を持つ。
+文書の version と描画 revision は別物である。同じ文書でも複数のプレビューがあり、それぞれが独立した最新 frame を持つ。過去の frame 履歴は保持しない。
 
 ## 4. 編集からプレビュー更新まで
 
@@ -122,26 +122,35 @@ sequenceDiagram
     D-->>A: documentSessionId
     A->>D: fleximark/createPreview
     D->>R: 初回描画
-    D-->>A: プレビュー情報と Full
-    A->>P: ハンドシェイク後に初期表示
+    D-->>A: プレビュー handle
+    A->>P: ハンドシェイク
+    P->>A: readPreview
+    A->>D: fleximark/readPreview
+    D-->>A: 最新 frame
+    A-->>P: 最新 frame
+    P->>P: frame 全体を検証して原子的に反映
     E->>A: 文書を編集
     A->>D: textDocument/didChange（更新後の全文）
     D->>R: 再解析・変換・アセット更新・描画
-    D-->>A: fleximark/previewEvent（Full または Patch）
-    A->>P: previewEvent
-    P->>P: 契約と前提条件を検証して反映
+    D-->>A: fleximark/previewChanged（revision のみ）
+    A-->>P: changed
+    P->>A: readPreview（afterRevision）
+    A->>D: fleximark/readPreview（afterRevision）
+    D-->>A: 最新 frame または変更なし
+    A-->>P: 応答
+    P->>P: 最新 frame を検証して反映
     A->>D: fleximark/checkpointDocument（編集停止後にハッシュ照合）
-    alt 差分を適用できない
-        P->>A: スナップショット再取得を要求
-        A->>D: fleximark/reloadPreview
-        D-->>A: Full
-        A->>P: 全体を再同期
+    alt 表示の再同期が必要
+        P->>A: readPreview（revision を省略）
+        A->>D: fleximark/readPreview
+        D-->>A: 最新 frame
+        A-->>P: 最新 frame
     end
 ```
 
 `document-coordinator.mts` は初回接続時とチェックポイントで本文の SHA-256 を送信する。チェックポイントは編集通知の後、150 ms の遅延でまとめる。version やハッシュが一致しない文書は同期不良として扱われ、`fleximark/requestFullText` により全文を再送できる。
 
-プレビューの準備完了前に届いたイベントは `preview-coordinator.mts` が一時保持する。接続世代、デーモン ID、プレビューの生存状態を確認し、キューの上限超過や履歴不一致時は全体再取得へ切り替える。
+プレビューは通知の受信口を設定してから最初の read を行う。クライアントは適用済み revision、通知で知った最大 revision、取得中かどうかだけを追跡し、一度に一件だけ frame を取得する。取得中に新しい通知が届けば、応答適用後にもう一度読む。アダプターは接続世代、デーモン ID、プレビューの生存状態を確認し、旧接続や破棄済み表示面の応答を捨てる。
 
 デーモンが終了すると `DaemonSupervisor` が再起動を管理する。再接続後はプロトコルとワークスペースを初期化し、VS Code が保持する文書を再送し、プレビューを再作成する。旧セッション ID を無効化し、古い接続から遅れて届いた結果が新しい表示へ混入しないようにする。繰り返し失敗した場合は再試行やログ表示の UI を提示する。
 
@@ -149,7 +158,7 @@ sequenceDiagram
 
 `PreviewHost` は `PreviewDocument`、`PreviewEnhancer`、`PreviewNavigation` を組み合わせる。VS Code 用の `vscode-host.mts` と外部ブラウザ用の `browser-host.mts` は通信方法を分担し、共通の表示処理を使う。
 
-`PreviewDocument` は HTML、ノード ID、アセット、位置対応、スタイルを検証する。Patch はセッション、base revision、fingerprint を照合し、`patch-transaction.mts` で複製した DOM 上の操作を検証してから反映する。古い revision は無視し、不整合は再取得を要求する。アセットは検証済みデータから表示用 URL を作り、不要になった URL を解放する。
+`PreviewDocument` は frame 全体の HTML、ノード ID、アセット、位置対応、annotations、スタイルを検証してから原子的に反映する。renderer fingerprint、ブロック ID、以前受信した素の HTML が同じブロックは既存 DOM を再利用し、変更ブロックだけを置き換える。同じアセットには既存の object URL を再利用し、不要になった URL だけを解放する。同じ不正 frame を繰り返し受信した場合は自動再試行を止める。
 
 `PreviewEnhancer` は Mermaid、abcjs、KaTeX による表示、YouTube、タブ、コード強調などを担当する。Rust が生成する構造と、ブラウザ内で実行する図・音楽・数式の描画を分けている。非同期描画の世代を確認し、更新・破棄時には音声などの資源を停止する。
 
@@ -162,22 +171,26 @@ sequenceDiagram
     participant H as PreviewServer
     participant B as 外部ブラウザ
     A->>D: createPreview（externalBrowser）
-    D->>H: 初期 Full とトークンを登録
+    D->>H: preview とトークンを登録
     D-->>A: プレビュー URL
     A->>B: URL を開く
     B->>H: GET /preview/{token}
     H-->>B: HTML シェルと共通クライアント
+    B->>H: GET /preview/{token}/frame
+    H-->>B: 最新 frame
     B->>H: GET /preview/{token}/events
-    H-->>B: SSE で描画・ナビゲーションイベントを配信
+    H-->>B: SSE で最新 revision を通知
     A->>D: didChange
     D->>H: 描画結果を更新
-    H-->>B: SSE で更新を配信
+    H-->>B: SSE で更新 revision を通知
+    B->>H: GET /preview/{token}/frame?afterRevision=...
+    H-->>B: 最新 frame または変更なし
     B->>H: POST /preview/{token}/navigation
     H-->>A: stdio の previewEvent（ソース位置への移動）
     A->>A: エディターの選択・表示位置を変更
 ```
 
-ブラウザの更新受信は EventSource/SSE、逆方向の操作は HTTP POST である。配信履歴と revision を使って再接続を扱う。Host / Origin、トークン、入力サイズなどを検査し、CSP を設定する。Webview 側はメッセージトークンとハンドシェイクを使う。
+ブラウザの更新通知は EventSource/SSE、frame の取得は HTTP GET、逆方向の操作は HTTP POST である。再接続時は履歴を再生せず最新 frame を読む。SSE は未送信の通知を最新 revision へまとめ、sequence 順を維持する。Host / Origin、トークン、入力サイズなどを検査し、CSP を設定する。Webview 側はメッセージトークンとハンドシェイクを使う。
 
 選択・スクロール連携ではソース範囲と NodeId の対応を利用する。エディターからは `setSelection` / `setViewport`、プレビューからはソース移動イベントを送る。アダプター側には、連携によって発生したエディターイベントをそのまま送り返すループを抑制する処理がある。
 
@@ -185,7 +198,7 @@ sequenceDiagram
 
 `.fleximark/config.toml` は Rust サービスが読むワークスペース設定であり、ノートの命名・カテゴリ・テンプレート、アセットのルート、生 HTML の扱い、プラグイン設定を保持する。型は `fleximark-plugin-sdk`、スキーマは `schemas/config.schema.json` にある。テーマは `.fleximark/theme.css` を使う。
 
-VS Code 設定はデーモンの場所、表示先、表示列、自動プレビュー、ログレベルなど、エディター統合に関わるものを担当する。旧 `.fleximark/fleximark.json` の移行処理は `workspace-migration*.mts` に隔離されている。
+VS Code 設定はデーモンの場所、表示先、表示列、自動プレビュー、ログレベルなど、エディター統合に関わるものを担当する。旧 workspace migration は維持している。TypeScript は旧 VS Code 設定の読取り、確認 UI、表示先設定の更新を担当し、旧ファイルの検査、TOML 生成、テーマコピー、config を最後に書く処理は Rust サービスが担当する。既存ファイル保護とシンボリックリンク検査も Rust 側で行う。
 
 ノート作成、admonition の収集、テーマ編集、初期化、エクスポートは `fleximark_service` がファイル操作を実施する。アダプターは対象ワークスペースや選択肢を決め、サービスの結果に含まれるメッセージや URI を UI へ反映する。設定の不備はワークスペースの状態として返され、複数ルートの各設定を個別に扱える。
 
@@ -244,10 +257,10 @@ VS Code は出力 URI を開く処理が成功した後に `acknowledgeExport` �
 
 | 検証対象                                         | 実装・テストの所在                                                                       |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| モデル、解析、差分、プラグイン、サービス         | 各 Rust crate のテストと `crates/*/tests/`                                               |
+| モデル、解析、latest frame、プラグイン、サービス | 各 Rust crate のテストと `crates/*/tests/`                                               |
 | 通信契約と生成物の一致                           | `scripts/protocol_codegen.py`、`test/protocol-contract.test.mts`、独立した JSON fixtures |
 | 接続復旧、複数ルート、文書・プレビューの生存期間 | `test/adapter/`                                                                          |
-| DOM 差分適用とホスト間の連携                     | `test/preview-client.test.mts`、`browser-host.test.mts`、`vscode-host.test.mts`          |
+| frame 検証・DOM 再利用とホスト間の連携           | `test/preview-client.test.mts`、`browser-host.test.mts`、`vscode-host.test.mts`          |
 | VS Code 統合                                     | `test/extension.test.mts` と Electron 実行環境                                           |
 | 配布物・構成境界・性能                           | `scripts/verify_architecture.py`、リリース関連スクリプト、`check_performance_budgets.py` |
 

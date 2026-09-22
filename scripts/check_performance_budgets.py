@@ -76,8 +76,6 @@ def check_performance_budgets() -> None:
     for document in documents:
         if document.get("editCount") != 20:
             raise RuntimeError("each benchmark document must run 20 edits")
-        if document.get("fullFallbacks") != 0:
-            raise RuntimeError("benchmark edits must not use full fallbacks")
 
     metrics = {
         "coldStartMs": cold_start_ms,
@@ -85,7 +83,7 @@ def check_performance_budgets() -> None:
         "render10kMs": documents[1]["initialRenderMs"],
         "render100kMs": documents[2]["initialRenderMs"],
         "editBurstMs": max(document["editBurstMs"] for document in documents),
-        "patchBytes": max(document["maxPatchBytes"] for document in documents),
+        "frameBytes": max(document["maxFrameBytes"] for document in documents),
         "peakMemoryBytes": report["peakMemoryBytes"],
         "specialRenderMs": report["specialRenderMs"],
     }

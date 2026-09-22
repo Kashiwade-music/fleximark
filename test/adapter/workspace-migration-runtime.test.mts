@@ -2,6 +2,7 @@ import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 
 import {
+  type ExecuteMigrationCommand,
   detectLegacyWorkspace,
   migrateWorkspace,
 } from "../../adapters/vscode/src/workspace-migration.mjs";
@@ -9,66 +10,41 @@ import {
 export const suiteName = "Legacy workspace migration runtime";
 
 export function suite(): void {
-  test("detects a legacy marker and migrates without removing legacy files", async () => {
-    const parent = vscode.workspace.workspaceFolders?.[0];
-    assert.ok(parent);
-    const root = vscode.Uri.joinPath(
-      parent.uri,
-      `.migration-test-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    );
-    const control = vscode.Uri.joinPath(root, ".fleximark");
-    const marker = vscode.Uri.joinPath(control, "fleximark.json");
-    const oldTheme = vscode.Uri.joinPath(control, "fleximark.css");
-    const oldPlugin = vscode.Uri.joinPath(control, "parserPlugin.js");
-    const themeContents = Buffer.from("body { color: rebeccapurple; }\n");
-    const workspace: vscode.WorkspaceFolder = {
-      index: parent.index,
-      name: "Legacy migration test",
-      uri: root,
+  test("uses daemon inspection and migration commands without editor filesystem writes", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(workspace);
+    const calls: { command: string; args?: readonly string[] }[] = [];
+    const execute: ExecuteMigrationCommand = async (
+      _workspace,
+      command,
+      args,
+    ) => {
+      calls.push({ command, args });
+      return command === "inspectLegacyWorkspace"
+        ? { data: "legacy-plugin" }
+        : {};
     };
 
-    await vscode.workspace.fs.createDirectory(control);
-    await vscode.workspace.fs.createDirectory(
-      vscode.Uri.joinPath(root, "attachments"),
-    );
-    await vscode.workspace.fs.writeFile(marker, Buffer.from('{"meta":"old"}'));
-    await vscode.workspace.fs.writeFile(oldTheme, themeContents);
-    await vscode.workspace.fs.writeFile(
-      oldPlugin,
-      Buffer.from("module.exports = {};"),
-    );
-    try {
-      const state = await detectLegacyWorkspace(workspace);
-      assert.ok(state);
-      assert.equal(state.hasLegacyTheme, true);
-      assert.equal(state.hasLegacyPlugin, true);
-      assert.equal(state.hasAttachments, true);
+    const state = await detectLegacyWorkspace(workspace, execute);
+    assert.ok(state);
+    assert.equal(state.hasLegacyPlugin, true);
+    await migrateWorkspace(workspace, state, execute);
 
-      assert.deepEqual(await migrateWorkspace(workspace, state), {
-        legacyPluginRetained: true,
-      });
-      const config = Buffer.from(
-        await vscode.workspace.fs.readFile(
-          vscode.Uri.joinPath(control, "config.toml"),
-        ),
-      ).toString();
-      assert.match(config, /^schema_version = 1$/m);
-      assert.match(config, /roots = \["attachments"\]/);
-      assert.deepEqual(
-        await vscode.workspace.fs.readFile(
-          vscode.Uri.joinPath(control, "theme.css"),
-        ),
-        themeContents,
-      );
-      await vscode.workspace.fs.stat(marker);
-      await vscode.workspace.fs.stat(oldTheme);
-      await vscode.workspace.fs.stat(oldPlugin);
-      assert.equal(await detectLegacyWorkspace(workspace), undefined);
-    } finally {
-      await vscode.workspace.fs.delete(root, {
-        recursive: true,
-        useTrash: false,
-      });
-    }
+    assert.equal(calls[0]?.command, "inspectLegacyWorkspace");
+    assert.equal(calls[1]?.command, "migrateWorkspace");
+    const [settings] = calls[1]?.args ?? [];
+    assert.deepEqual(
+      JSON.parse(settings ?? ""),
+      JSON.parse(JSON.stringify(state.settings)),
+    );
+  });
+
+  test("rejects an unknown daemon inspection result", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(workspace);
+    await assert.rejects(
+      detectLegacyWorkspace(workspace, async () => ({ data: "unknown" })),
+      { message: "Invalid legacy workspace inspection result" },
+    );
   });
 }

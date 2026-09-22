@@ -365,13 +365,26 @@ impl Server {
                     "document-sync-failed",
                     transform_started.elapsed(),
                     None,
-                    0,
-                    None,
                     true,
                     false,
                 )
             );
             return None;
+        }
+        if let Some(session_id) = self.registry.session_id_for_uri(&uri).map(str::to_owned) {
+            if let Ok(version) = self
+                .registry
+                .current_version(self.registry.daemon_instance_id(), &session_id)
+                .and_then(|version| {
+                    u64::try_from(version)
+                        .map_err(|_| SessionError::VersionMismatch)
+                        .and_then(|version| {
+                            JsSafeU64::new(version).map_err(|_| SessionError::VersionMismatch)
+                        })
+                })
+            {
+                self.mark_preview_document_version(&session_id, version);
+            }
         }
         if self.publication_cancellation.is_cancelled() {
             return None;
@@ -381,8 +394,6 @@ impl Server {
             trace.event(
                 "transform-complete",
                 transform_started.elapsed(),
-                None,
-                0,
                 None,
                 false,
                 false,
@@ -410,8 +421,6 @@ impl Server {
                     "asset-refresh-failed",
                     asset_started.elapsed(),
                     None,
-                    0,
-                    None,
                     false,
                     false,
                 )
@@ -438,32 +447,14 @@ impl Server {
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         for preview_id in preview_ids {
-            let force_full = self
-                .preview_states
-                .get(&preview_id)
-                .and_then(|state| state.token.as_deref())
-                .is_some_and(|token| self.previews.needs_full(token));
-            let publication = if force_full {
-                self.registry
-                    .render_full_with_cancellation(
-                        &daemon_id,
-                        &session_id,
-                        version,
-                        &preview_id,
-                        &self.work_cancellation,
-                    )
-                    .map(RenderPublication::Full)
-            } else {
-                self.registry.render_with_cancellation(
-                    &daemon_id,
-                    &session_id,
-                    version,
-                    &preview_id,
-                    &self.work_cancellation,
-                )
-            };
-            let publication = match publication {
-                Ok(publication) => publication,
+            let frame = match self.registry.render_with_cancellation(
+                &daemon_id,
+                &session_id,
+                version,
+                &preview_id,
+                &self.work_cancellation,
+            ) {
+                Ok(frame) => frame,
                 Err(error) => {
                     let _ = error;
                     log_operational_event(
@@ -475,10 +466,6 @@ impl Server {
                     continue;
                 }
             };
-            let revision = match &publication {
-                RenderPublication::Full(snapshot) => snapshot.result_render_revision,
-                RenderPublication::Patch(patch) => patch.result_render_revision,
-            };
             if self.publication_cancellation.is_cancelled() {
                 return;
             }
@@ -487,55 +474,16 @@ impl Server {
                 .get(&preview_id)
                 .and_then(|state| state.token.as_deref())
             {
-                if !self.previews.update(token, &publication) {
-                    let full = match self.registry.render_full_with_cancellation(
-                        &daemon_id,
-                        &session_id,
-                        version,
-                        &preview_id,
-                        &self.work_cancellation,
-                    ) {
-                        Ok(snapshot) => RenderPublication::Full(snapshot),
-                        Err(error) => {
-                            let _ = error;
-                            log_operational_event(
-                                "preview-collapse-failed",
-                                Some(uri),
-                                Some(&session_id),
-                                Some(version),
-                            );
-                            continue;
-                        }
-                    };
-                    self.previews.update(token, &full);
-                    let RenderPublication::Full(snapshot) = full else {
-                        unreachable!()
-                    };
-                    if let Some(state) = self.preview_states.get_mut(&preview_id) {
-                        state.delivered_revision = snapshot.result_render_revision;
-                    }
-                    self.outgoing_events.push(preview_event_notification(
-                        ServerPreviewEventParams {
-                            daemon_instance_id: daemon_id.clone(),
-                            preview_session_id: preview_id.clone(),
-                            render_revision: snapshot.result_render_revision,
-                            event: ServerPreviewEvent::Publication(RenderPublication::Full(
-                                snapshot,
-                            )),
-                        },
-                    ));
-                    continue;
-                }
+                self.previews.update(token, &frame);
             }
             if let Some(state) = self.preview_states.get_mut(&preview_id) {
-                state.delivered_revision = revision;
+                state.delivered_revision = frame.render_revision;
             }
             self.outgoing_events
-                .push(preview_event_notification(ServerPreviewEventParams {
+                .push(preview_changed_notification(PreviewChangedParams {
                     daemon_instance_id: daemon_id.clone(),
                     preview_session_id: preview_id,
-                    render_revision: revision,
-                    event: ServerPreviewEvent::Publication(publication),
+                    render_revision: frame.render_revision,
                 }));
         }
     }

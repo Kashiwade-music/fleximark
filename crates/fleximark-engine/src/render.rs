@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use fleximark_model::{Document, NavigationEntry, NodeId};
+use fleximark_model::{NavigationEntry, NodeId};
 use fleximark_plugin_host::{
     CancellationToken, PluginDiagnostic, PluginHost, PluginRun, UnsafeExportOutput,
 };
@@ -12,37 +12,93 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::assets::{RenderAsset, RenderConfig, RenderStyle};
-use crate::diff::{ROOT_NODE_ID, RenderPatch, diff_blocks};
 use crate::error::EngineError;
 use crate::session::{DocumentSession, PreviewCache, PreviewSessionId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct RenderSnapshot {
+pub struct RenderBlock {
+    pub id: NodeId,
+    pub html: String,
+    pub node_ids: Vec<NodeId>,
+}
+
+impl From<RenderedBlock> for RenderBlock {
+    fn from(block: RenderedBlock) -> Self {
+        Self {
+            id: block.id,
+            html: block.html,
+            node_ids: block.node_ids,
+        }
+    }
+}
+
+/// The complete, independently applicable state of a preview.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RenderFrame {
     pub preview_session_id: PreviewSessionId,
     pub document_version: JsSafeU64,
-    pub result_render_revision: JsSafeU64,
+    pub render_revision: JsSafeU64,
     pub renderer_fingerprint: String,
     pub style: Option<RenderStyle>,
     pub assets: Vec<RenderAsset>,
-    pub node_ids: Vec<NodeId>,
+    pub blocks: Vec<RenderBlock>,
     pub navigation: Vec<NavigationEntry>,
-    pub html: String,
+    pub annotations: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum RenderPublication {
-    Full(RenderSnapshot),
-    Patch(RenderPatch),
+impl RenderFrame {
+    pub fn html(&self) -> String {
+        let annotations = if self.annotations.is_empty() {
+            String::new()
+        } else {
+            let json = serde_json::to_string(&self.annotations)
+                .expect("render annotations are serializable")
+                .replace('&', "\\u0026")
+                .replace('<', "\\u003c")
+                .replace('>', "\\u003e")
+                .replace('\u{2028}', "\\u2028")
+                .replace('\u{2029}', "\\u2029");
+            format!(
+                "<script type=\"application/json\" data-fleximark-render-annotations>{json}</script>"
+            )
+        };
+        format!(
+            "<main data-fleximark-node-id=\"document-root\">{annotations}{}</main>",
+            self.blocks
+                .iter()
+                .map(|block| block.html.as_str())
+                .collect::<String>()
+        )
+    }
+
+    pub fn navigation_for(
+        &self,
+        preview_session_id: &PreviewSessionId,
+        render_revision: JsSafeU64,
+        current_document_version: u64,
+        node_id: &NodeId,
+    ) -> Result<Option<NavigationEntry>, EngineError> {
+        if &self.preview_session_id != preview_session_id
+            || self.render_revision != render_revision
+            || self.document_version.get() != current_document_version
+        {
+            return Err(EngineError::ContentModified);
+        }
+        Ok(self
+            .navigation
+            .iter()
+            .find(|entry| &entry.node_id == node_id)
+            .cloned())
+    }
 }
 
 #[derive(Debug)]
-pub struct PluginRenderPublication {
-    pub publication: RenderPublication,
-    pub annotations: BTreeMap<String, String>,
+pub struct PluginRenderFrame {
+    pub frame: RenderFrame,
     pub diagnostics: Vec<PluginDiagnostic>,
 }
 
@@ -84,77 +140,59 @@ impl PreparedExport {
     }
 }
 
-struct RenderPreparation {
-    revision: u64,
-    fingerprint: String,
-    blocks: Vec<RenderedBlock>,
-}
-
 impl DocumentSession {
+    /// Generates and atomically adopts the next preview frame.
     pub fn render(
         &mut self,
         preview_session_id: PreviewSessionId,
         context: &RenderContext,
-    ) -> Result<RenderPublication, EngineError> {
-        self.render_internal(preview_session_id, context, &BTreeMap::new())
+    ) -> Result<RenderFrame, EngineError> {
+        self.generate_frame(preview_session_id, context, BTreeMap::new())
     }
 
-    fn render_internal(
+    fn generate_frame(
         &mut self,
         preview_session_id: PreviewSessionId,
         context: &RenderContext,
-        annotations: &BTreeMap<String, String>,
-    ) -> Result<RenderPublication, EngineError> {
+        annotations: BTreeMap<String, String>,
+    ) -> Result<RenderFrame, EngineError> {
         if self.out_of_sync {
             return Err(EngineError::ContentModified);
         }
-        let RenderPreparation {
-            revision,
-            fingerprint,
-            blocks,
-        } = self.prepare_render(&preview_session_id, context, annotations)?;
-        let previous = self.previews.get(&preview_session_id).cloned();
-        let publication = match previous {
-            None => RenderPublication::Full(build_render_snapshot(
-                &preview_session_id,
-                &self.document,
-                revision,
-                &fingerprint,
-                &self.render_config,
-                &blocks,
-                annotations,
-            )),
-            Some(cache) if cache.fingerprint != fingerprint => {
-                RenderPublication::Full(build_render_snapshot(
-                    &preview_session_id,
-                    &self.document,
-                    revision,
-                    &fingerprint,
-                    &self.render_config,
-                    &blocks,
-                    annotations,
-                ))
-            }
-            Some(cache) => RenderPublication::Patch(RenderPatch {
-                preview_session_id: preview_session_id.clone(),
-                document_version: JsSafeU64::new(self.document.document_version)
-                    .expect("document version is JavaScript-safe"),
-                base_render_revision: JsSafeU64::new(cache.revision)
-                    .expect("render revision is JavaScript-safe"),
-                result_render_revision: JsSafeU64::new(revision)
-                    .expect("render revision is JavaScript-safe"),
-                base_renderer_fingerprint: fingerprint.clone(),
-                result_renderer_fingerprint: fingerprint.clone(),
-                style: self.render_config.style.clone(),
-                navigation: blocks
-                    .iter()
-                    .flat_map(|block| block.navigation.iter().cloned())
-                    .collect(),
-                operations: diff_blocks(&cache.blocks, &blocks),
-            }),
+        let revision = self
+            .previews
+            .get(&preview_session_id)
+            .map_or(1, |cache| cache.frame.render_revision.get() + 1);
+        let fingerprint = renderer_fingerprint(context, &self.render_config, &annotations);
+        let rendered = HtmlRenderer.render_blocks(&self.document, context)?;
+        let navigation = rendered
+            .iter()
+            .flat_map(|block| block.navigation.iter().cloned())
+            .collect();
+        let frame = RenderFrame {
+            preview_session_id: preview_session_id.clone(),
+            document_version: JsSafeU64::new(self.document.document_version)
+                .expect("document version is JavaScript-safe"),
+            render_revision: JsSafeU64::new(revision).expect("render revision is JavaScript-safe"),
+            renderer_fingerprint: fingerprint,
+            style: self.render_config.style.clone(),
+            assets: self
+                .render_config
+                .assets
+                .iter()
+                .map(|asset| asset.published.clone())
+                .collect(),
+            blocks: rendered.into_iter().map(RenderBlock::from).collect(),
+            navigation,
+            annotations,
         };
-        self.commit_render(preview_session_id, revision, fingerprint, blocks);
-        Ok(publication)
+        self.previews.insert(
+            preview_session_id,
+            PreviewCache {
+                frame: frame.clone(),
+            },
+        );
+        Ok(frame)
     }
 
     #[cfg(test)]
@@ -163,16 +201,39 @@ impl DocumentSession {
         preview_session_id: PreviewSessionId,
         context: &RenderContext,
         annotations: &BTreeMap<String, String>,
-    ) -> Result<RenderPublication, EngineError> {
-        self.render_internal(preview_session_id, context, annotations)
+    ) -> Result<RenderFrame, EngineError> {
+        self.generate_frame(preview_session_id, context, annotations.clone())
     }
 
-    pub fn render_full(
-        &mut self,
-        preview_session_id: PreviewSessionId,
-        context: &RenderContext,
-    ) -> Result<RenderSnapshot, EngineError> {
-        self.render_full_internal(preview_session_id, context, &BTreeMap::new())
+    /// Reads the adopted frame without rendering or advancing its revision.
+    pub fn read_preview_frame(
+        &self,
+        preview_session_id: &PreviewSessionId,
+        after_revision: Option<JsSafeU64>,
+    ) -> Option<RenderFrame> {
+        let frame = &self.previews.get(preview_session_id)?.frame;
+        (after_revision != Some(frame.render_revision)).then(|| frame.clone())
+    }
+
+    pub fn navigate_preview(
+        &self,
+        preview_session_id: &PreviewSessionId,
+        render_revision: JsSafeU64,
+        node_id: &NodeId,
+    ) -> Result<Option<NavigationEntry>, EngineError> {
+        if self.out_of_sync {
+            return Err(EngineError::ContentModified);
+        }
+        let frame = self
+            .previews
+            .get(preview_session_id)
+            .ok_or(EngineError::ContentModified)?;
+        frame.frame.navigation_for(
+            preview_session_id,
+            render_revision,
+            self.document.document_version,
+            node_id,
+        )
     }
 
     pub fn dispose_preview(&mut self, preview_session_id: &PreviewSessionId) -> bool {
@@ -184,76 +245,13 @@ impl DocumentSession {
         self.previews.len()
     }
 
-    fn render_full_internal(
-        &mut self,
-        preview_session_id: PreviewSessionId,
-        context: &RenderContext,
-        annotations: &BTreeMap<String, String>,
-    ) -> Result<RenderSnapshot, EngineError> {
-        if self.out_of_sync {
-            return Err(EngineError::ContentModified);
-        }
-        let RenderPreparation {
-            revision,
-            fingerprint,
-            blocks,
-        } = self.prepare_render(&preview_session_id, context, annotations)?;
-        let snapshot = build_render_snapshot(
-            &preview_session_id,
-            &self.document,
-            revision,
-            &fingerprint,
-            &self.render_config,
-            &blocks,
-            annotations,
-        );
-        self.commit_render(preview_session_id, revision, fingerprint, blocks);
-        Ok(snapshot)
-    }
-
-    fn prepare_render(
-        &self,
-        preview_session_id: &PreviewSessionId,
-        context: &RenderContext,
-        annotations: &BTreeMap<String, String>,
-    ) -> Result<RenderPreparation, EngineError> {
-        let fingerprint = renderer_fingerprint(context, &self.render_config, annotations);
-        let blocks = HtmlRenderer.render_blocks(&self.document, context)?;
-        let revision = self
-            .previews
-            .get(preview_session_id)
-            .map_or(1, |cache| cache.revision + 1);
-        Ok(RenderPreparation {
-            revision,
-            fingerprint,
-            blocks,
-        })
-    }
-
-    fn commit_render(
-        &mut self,
-        preview_session_id: PreviewSessionId,
-        revision: u64,
-        fingerprint: String,
-        blocks: Vec<RenderedBlock>,
-    ) {
-        self.previews.insert(
-            preview_session_id,
-            PreviewCache {
-                revision,
-                fingerprint,
-                blocks,
-            },
-        );
-    }
-
     fn render_with_plugins(
         &mut self,
         preview_session_id: PreviewSessionId,
         context: &RenderContext,
         host: &PluginHost,
         cancellation: &CancellationToken,
-    ) -> Result<PluginRenderPublication, EngineError> {
+    ) -> Result<PluginRenderFrame, EngineError> {
         let target = match context.target {
             HtmlTarget::Preview => "preview",
             HtmlTarget::Portable => "portable",
@@ -264,10 +262,8 @@ impl DocumentSession {
         if cancellation.is_cancelled() {
             return Err(EngineError::Plugin("operation cancelled".to_owned()));
         }
-        let publication = self.render_internal(preview_session_id, context, &extension.value)?;
-        Ok(PluginRenderPublication {
-            publication,
-            annotations: extension.value,
+        Ok(PluginRenderFrame {
+            frame: self.generate_frame(preview_session_id, context, extension.value)?,
             diagnostics: extension.diagnostics,
         })
     }
@@ -276,59 +272,20 @@ impl DocumentSession {
         &mut self,
         preview_session_id: PreviewSessionId,
         cancellation: &CancellationToken,
-    ) -> Result<PluginRenderPublication, EngineError> {
+    ) -> Result<PluginRenderFrame, EngineError> {
         if cancellation.is_cancelled() {
             return Err(EngineError::Plugin("operation cancelled".to_owned()));
         }
         let context = self.render_config.context.clone();
-        let Some(host) = self.plugins.clone() else {
-            return Ok(PluginRenderPublication {
-                publication: self.render_internal(
-                    preview_session_id,
-                    &context,
-                    &BTreeMap::new(),
-                )?,
-                annotations: BTreeMap::new(),
+        match self.plugins.clone() {
+            Some(host) => {
+                self.render_with_plugins(preview_session_id, &context, &host, cancellation)
+            }
+            None => Ok(PluginRenderFrame {
+                frame: self.generate_frame(preview_session_id, &context, BTreeMap::new())?,
                 diagnostics: Vec::new(),
-            });
-        };
-        self.render_with_plugins(preview_session_id, &context, &host, cancellation)
-    }
-
-    pub fn render_full_configured(
-        &mut self,
-        preview_session_id: PreviewSessionId,
-        cancellation: &CancellationToken,
-    ) -> Result<PluginRenderPublication, EngineError> {
-        if cancellation.is_cancelled() {
-            return Err(EngineError::Plugin("operation cancelled".to_owned()));
+            }),
         }
-        let context = self.render_config.context.clone();
-        let extension = match self.plugins.clone() {
-            Some(host) => host
-                .extend_render_model(
-                    &self.document,
-                    match context.target {
-                        HtmlTarget::Preview => "preview",
-                        HtmlTarget::Portable => "portable",
-                    },
-                    cancellation,
-                )
-                .map_err(|error| EngineError::Plugin(error.to_string()))?,
-            None => PluginRun {
-                value: BTreeMap::new(),
-                diagnostics: Vec::new(),
-            },
-        };
-        if cancellation.is_cancelled() {
-            return Err(EngineError::Plugin("operation cancelled".to_owned()));
-        }
-        let snapshot = self.render_full_internal(preview_session_id, &context, &extension.value)?;
-        Ok(PluginRenderPublication {
-            publication: RenderPublication::Full(snapshot),
-            annotations: extension.value,
-            diagnostics: extension.diagnostics,
-        })
     }
 
     pub fn prepare_safe_export(
@@ -362,63 +319,6 @@ impl DocumentSession {
                 diagnostics: Vec::new(),
             }),
         }
-    }
-}
-
-fn build_render_snapshot(
-    preview: &PreviewSessionId,
-    document: &Document,
-    revision: u64,
-    fingerprint: &str,
-    config: &RenderConfig,
-    blocks: &[RenderedBlock],
-    annotations: &BTreeMap<String, String>,
-) -> RenderSnapshot {
-    let annotation_html = if annotations.is_empty() {
-        String::new()
-    } else {
-        let json = serde_json::to_string(annotations)
-            .expect("render annotations are serializable")
-            .replace('&', "\\u0026")
-            .replace('<', "\\u003c")
-            .replace('>', "\\u003e")
-            .replace('\u{2028}', "\\u2028")
-            .replace('\u{2029}', "\\u2029");
-        format!(
-            "<script type=\"application/json\" data-fleximark-render-annotations>{json}</script>"
-        )
-    };
-    RenderSnapshot {
-        preview_session_id: preview.clone(),
-        document_version: JsSafeU64::new(document.document_version)
-            .expect("document version is JavaScript-safe"),
-        result_render_revision: JsSafeU64::new(revision)
-            .expect("render revision is JavaScript-safe"),
-        renderer_fingerprint: fingerprint.to_owned(),
-        style: config.style.clone(),
-        assets: config
-            .assets
-            .iter()
-            .map(|asset| asset.published.clone())
-            .collect(),
-        node_ids: std::iter::once(NodeId(ROOT_NODE_ID.to_owned()))
-            .chain(
-                blocks
-                    .iter()
-                    .flat_map(|block| block.node_ids.iter().cloned()),
-            )
-            .collect(),
-        navigation: blocks
-            .iter()
-            .flat_map(|block| block.navigation.iter().cloned())
-            .collect(),
-        html: format!(
-            "<main data-fleximark-node-id=\"{ROOT_NODE_ID}\">{annotation_html}{}</main>",
-            blocks
-                .iter()
-                .map(|block| block.html.as_str())
-                .collect::<String>()
-        ),
     }
 }
 
@@ -462,5 +362,5 @@ fn renderer_fingerprint(
         config.plugin_set_hash,
         config.plugin_generation,
     );
-    format!("sha256:{:x}", Sha256::digest(value.as_bytes()))
+    format!("{:x}", Sha256::digest(value.as_bytes()))
 }

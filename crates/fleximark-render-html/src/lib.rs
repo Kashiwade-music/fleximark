@@ -136,14 +136,26 @@ fn render_block(block: &Block, context: &RenderContext) -> Result<String, Render
             "<blockquote data-fleximark-node-id=\"{id}\">{}</blockquote>\n",
             children()?
         ),
-        BlockKind::List { ordered, start, .. } => {
+        BlockKind::List {
+            ordered,
+            start,
+            tight,
+        } => {
+            let tight = if *tight {
+                " data-fleximark-tight=\"true\""
+            } else {
+                ""
+            };
             if *ordered {
                 format!(
-                    "<ol data-fleximark-node-id=\"{id}\" start=\"{start}\">{}</ol>\n",
+                    "<ol data-fleximark-node-id=\"{id}\" start=\"{start}\"{tight}>{}</ol>\n",
                     children()?
                 )
             } else {
-                format!("<ul data-fleximark-node-id=\"{id}\">{}</ul>\n", children()?)
+                format!(
+                    "<ul data-fleximark-node-id=\"{id}\"{tight}>{}</ul>\n",
+                    children()?
+                )
             }
         }
         BlockKind::ListItem { checked } => {
@@ -473,6 +485,26 @@ mod tests {
         assert!(html.contains("data-fleximark-kind=\"mermaid\""));
         assert!(html.contains("<th data-fleximark-node-id="));
         assert!(html.contains(r#"type="application/json">"graph TD; A--\u003eB\n""#));
+    }
+
+    #[test]
+    fn marks_only_tight_lists_for_compact_preview_spacing() {
+        let tight = parse(DocumentUri("file:///tight.md".into()), 1, "- one\n- two\n").unwrap();
+        let loose = parse(
+            DocumentUri("file:///loose.md".into()),
+            1,
+            "- one\n\n- two\n",
+        )
+        .unwrap();
+
+        let tight_html = HtmlRenderer
+            .render(&tight, &RenderContext::default())
+            .unwrap();
+        let loose_html = HtmlRenderer
+            .render(&loose, &RenderContext::default())
+            .unwrap();
+        assert!(tight_html.contains("data-fleximark-tight=\"true\""));
+        assert!(!loose_html.contains("data-fleximark-tight"));
     }
 
     #[test]

@@ -9,19 +9,17 @@ use std::thread;
 use std::time::Duration;
 
 use fleximark_lsp::content_hash;
+use fleximark_plugin_host::CancellationToken;
 use fleximark_protocol::{IncomingMessage, RpcId};
 use serde_json::json;
 
-use fleximark_engine::RenderPublication;
+use fleximark_engine::RenderFrame;
 use fleximark_lsp::SessionError;
 use fleximark_protocol::{CONTENT_MODIFIED, method};
 use serde_json::Value;
 
 use crate::cancellation::CancellationCoordinator;
-use crate::preview_http::{
-    MAX_PREVIEW_HISTORY_BYTES, MAX_PREVIEW_PUBLICATIONS, PreviewPage, StoredPublication,
-    preview_shell, serve_preview_request,
-};
+use crate::preview_http::{PreviewPage, StoredEvent, preview_shell, serve_preview_request};
 use crate::server::{Server, session_error};
 use crate::telemetry::OperationalTrace;
 
@@ -50,7 +48,7 @@ fn initialize_daemon(server: &mut Server, params: Value) -> String {
 
 fn initialize_params(capabilities: Value, workspaces: Option<Value>) -> Value {
     let mut params = json!({
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "client": {"name": "test", "version": "1"},
         "capabilities": capabilities,
     });
@@ -121,9 +119,14 @@ fn test_directory(label: &str) -> TestDirectory {
 }
 
 fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
-    let navigation = json!({
-        "type":"full",
-        "resultRenderRevision":7,
+    let frame: RenderFrame = serde_json::from_value(json!({
+        "previewSessionId":"preview-1",
+        "documentVersion":1,
+        "renderRevision":7,
+        "rendererFingerprint":"0000000000000000000000000000000000000000000000000000000000000000",
+        "style":null,
+        "assets":[],
+        "blocks":[{"id":"node-1","html":"<p data-fleximark-node-id=\"node-1\">hello</p>","nodeIds":["node-1"]}],
         "navigation":[{
             "nodeId":"node-1",
             "sourceRange":{
@@ -133,33 +136,29 @@ fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
                 "end":{"line":2,"character":6,"encoding":"utf8"}
             },
             "depth":1
-        }]
-    });
-    let patch = json!({"type":"patch","resultRenderRevision":7,"operations":[]});
-    let publications = vec![navigation, patch]
-        .into_iter()
-        .enumerate()
-        .map(|(index, value)| StoredPublication {
-            encoded: serde_json::to_string(std::slice::from_ref(&value))
-                .expect("encode preview fixture"),
-            value,
-            sequence: index as u64 + 1,
-        })
-        .collect::<Vec<_>>();
-    let publication_bytes = publications
-        .iter()
-        .map(|publication| publication.encoded.len())
-        .sum();
+        }],
+        "annotations":{}
+    }))
+    .unwrap();
     Arc::new(Mutex::new(HashMap::from([(
         token.to_owned(),
         PreviewPage {
             shell: preview_shell(token),
             daemon_instance_id: "daemon-1".into(),
             preview_session_id: "preview-1".into(),
-            publications,
-            publication_bytes,
-            next_sequence: 3,
-            current_revision: 7.into(),
+            frame,
+            change_event: StoredEvent {
+                encoded: serde_json::to_string(&json!({
+                    "daemonInstanceId":"daemon-1",
+                    "previewSessionId":"preview-1",
+                    "renderRevision":7
+                }))
+                .unwrap(),
+                sequence: 1,
+            },
+            navigation_event: None,
+            next_sequence: 2,
+            document_version: 1.into(),
             last_browser_event: None,
         },
     )])))
@@ -267,14 +266,16 @@ fn session_errors_preserve_their_wire_codes_and_messages() {
     ];
 
     for (error, code, message) in cases {
-        assert_eq!(
-            session_error(json!("request-7"), error),
-            json!({
-                "jsonrpc":"2.0",
-                "id":"request-7",
-                "error":{"code":code,"message":message}
-            })
-        );
+        let engine_rejection = matches!(error, SessionError::Engine(_));
+        let mut expected = json!({
+            "jsonrpc":"2.0",
+            "id":"request-7",
+            "error":{"code":code,"message":message}
+        });
+        if engine_rejection {
+            expected["error"]["data"] = json!({"kind":"engine"});
+        }
+        assert_eq!(session_error(json!("request-7"), error), expected);
     }
 }
 
@@ -366,11 +367,14 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         );
     }
 
-    for method_name in [
-        method::OPEN_DOCUMENT,
-        method::CHANGE_DOCUMENT,
-        method::CLOSE_DOCUMENT,
-    ] {
+    let lsp_open = Server::new(true).request(95, method::OPEN_DOCUMENT, json!({}));
+    assert_eq!(lsp_open.len(), 1);
+    assert_ne!(
+        lsp_open[0]["error"]["code"], -32601,
+        "LSP connection must accept the acknowledged document-open request"
+    );
+
+    for method_name in [method::CHANGE_DOCUMENT, method::CLOSE_DOCUMENT] {
         let rpc_result = Server::new(false).request(95, method_name, json!({}));
         assert_eq!(
             rpc_result.len(),
@@ -598,31 +602,62 @@ fn every_workspace_command_preserves_its_success_dispatch() {
 }
 
 #[test]
-fn render_results_in_the_shared_contract_match_engine_serde() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../test/fixtures/protocol-v1-contract.json"
-    ))
-    .unwrap();
-    let cases = fixture["methods"].as_array().unwrap();
-    let result = |method_name: &str| {
-        cases
-            .iter()
-            .find(|case| case["method"] == method_name)
-            .unwrap()["result"]
-            .clone()
-    };
-
-    let render = result(method::RENDER);
-    let publication: RenderPublication = serde_json::from_value(render.clone()).unwrap();
-    assert_eq!(serde_json::to_value(publication).unwrap(), render);
-
-    let create_preview = result(method::CREATE_PREVIEW);
-    let snapshot: RenderPublication =
-        serde_json::from_value(create_preview["initialPublication"].clone()).unwrap();
-    assert_eq!(
-        serde_json::to_value(snapshot).unwrap(),
-        create_preview["initialPublication"]
+fn legacy_workspace_commands_inspect_then_migrate_without_a_second_transport() {
+    let workspace = test_directory("legacy-workspace-command");
+    let control = workspace.join(".fleximark");
+    std::fs::create_dir(&control).unwrap();
+    std::fs::write(control.join("fleximark.json"), "{}").unwrap();
+    std::fs::write(control.join("parserPlugin.js"), "module.exports = {};").unwrap();
+    let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
+    let mut server = Server::new(false);
+    let initialized = server.request(
+        1,
+        method::INITIALIZE,
+        initialize_params(
+            json!({}),
+            Some(json!([{"uri":workspace_uri.clone(),"trusted":true}])),
+        ),
     );
+    let daemon = result_string(&initialized, "daemonInstanceId");
+
+    let inspected = server.request(
+        2,
+        method::EXECUTE_COMMAND,
+        json!({"daemonInstanceId":daemon,"command":"inspectLegacyWorkspace",
+            "workspaceUri":workspace_uri}),
+    );
+    assert_eq!(inspected[0]["result"]["data"], "legacy-plugin");
+
+    let rejected = server.request(
+        3,
+        method::EXECUTE_COMMAND,
+        json!({"daemonInstanceId":daemon,"command":"migrateWorkspace",
+            "workspaceUri":workspace_uri,"arguments":[]}),
+    );
+    assert_eq!(
+        rejected[0]["error"]["message"],
+        "migrateWorkspace requires exactly one settings object"
+    );
+
+    let migrated = server.request(
+        4,
+        method::EXECUTE_COMMAND,
+        json!({"daemonInstanceId":daemon,"command":"migrateWorkspace",
+            "workspaceUri":workspace_uri,
+            "arguments":["{\"noteFileNamePrefix\":\"note-\"}"]}),
+    );
+    assert!(migrated[0]["result"].is_object(), "{migrated:?}");
+    assert!(control.join("config.toml").is_file());
+    assert!(control.join("theme.css").is_file());
+    assert!(control.join("fleximark.json").is_file());
+
+    let reinspected = server.request(
+        5,
+        method::EXECUTE_COMMAND,
+        json!({"daemonInstanceId":daemon,"command":"inspectLegacyWorkspace",
+            "workspaceUri":workspace_uri}),
+    );
+    assert!(reinspected[0]["result"].get("data").is_none());
 }
 
 #[test]
@@ -630,7 +665,7 @@ fn cancellation_intake_stops_requests_and_obsolete_document_work() {
     let coordinator = CancellationCoordinator::default();
     let render = message(
         Some(7),
-        method::RENDER,
+        method::CREATE_PREVIEW,
         json!({"documentSessionId":"session-1"}),
     );
     let render_permit = coordinator.prepare(&render).unwrap();
@@ -672,8 +707,6 @@ fn operational_trace_is_correlated_and_redacts_document_data() {
         "transform-complete",
         Duration::from_millis(2),
         None,
-        0,
-        None,
         false,
         false,
     );
@@ -681,15 +714,11 @@ fn operational_trace_is_correlated_and_redacts_document_data() {
         "render-complete",
         Duration::from_millis(3),
         Some(9),
-        321,
-        Some("history-lag"),
         false,
         false,
     );
     assert_eq!(first["correlationId"], second["correlationId"]);
     assert_eq!(second["renderRevision"], 9);
-    assert_eq!(second["patchBytes"], 321);
-    assert_eq!(second["fallbackReason"], "history-lag");
     assert_eq!(first["uriHash"].as_str().unwrap().len(), 64);
     assert!(first["stageDurationMs"].as_f64().unwrap() >= 2.0);
     let encoded = serde_json::to_string(&(first, second)).unwrap();
@@ -717,7 +746,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         2,
         method::INITIALIZE,
         json!({
-            "protocolVersion": 1, "client":{"name":"test","version":"1"},
+            "protocolVersion": 2, "client":{"name":"test","version":"1"},
             "capabilities":{"selectionEvents":true,"viewportEvents":true},
             "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
         }),
@@ -750,22 +779,6 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         }),
     );
     assert_eq!(checkpoint[0]["result"]["documentVersion"], 1);
-    let rendered = server.request(
-        5,
-        method::RENDER,
-        json!({
-            "daemonInstanceId":server.registry.daemon_instance_id(),
-            "documentSessionId":session_id.clone(),
-            "documentVersion":1
-        }),
-    );
-    assert!(
-        rendered[0]["result"]["html"]
-            .as_str()
-            .unwrap()
-            .contains("Hello")
-    );
-
     let preview = server.request(
         6,
         method::CREATE_PREVIEW,
@@ -776,7 +789,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
             "target":"externalBrowser"
         }),
     );
-    assert_eq!(preview[0]["result"]["initialPublication"]["type"], "full");
+    assert_eq!(preview[0]["result"].as_object().unwrap().len(), 2);
     assert!(
         preview[0]["result"]["url"]
             .as_str()
@@ -797,8 +810,8 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         format!("GET /{path}/events HTTP/1.1\r\nHost: {address}\r\n\r\n"),
     );
     assert!(event_response.contains("Content-Type: text/event-stream"));
-    assert!(event_response.contains("Hello"));
-    assert!(event_response.contains("resultRenderRevision"));
+    assert!(event_response.contains("renderRevision"));
+    assert!(!event_response.contains("Hello"));
     let client_response = preview_server_request(
         address,
         format!("GET /{path}/client.js HTTP/1.1\r\nHost: {address}\r\n\r\n"),
@@ -828,6 +841,25 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         .as_str()
         .unwrap()
         .to_owned();
+    let rendered = server.request(
+        7,
+        method::READ_PREVIEW,
+        json!({
+            "daemonInstanceId":server.registry.daemon_instance_id(),
+            "previewSessionId":preview_id.clone()
+        }),
+    );
+    assert!(
+        rendered[0]["result"]["frame"]["blocks"][0]["html"]
+            .as_str()
+            .unwrap()
+            .contains("Hello")
+    );
+    let frame_response = preview_server_request(
+        address,
+        format!("GET /{path}/frame HTTP/1.1\r\nHost: {address}\r\n\r\n"),
+    );
+    assert!(frame_response.contains("Hello"));
     let selection = server.notify(
         method::SET_SELECTION,
         json!({
@@ -897,11 +929,23 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         "{repeated_response}"
     );
 
-    let reload = server.notify(
-            method::RELOAD_PREVIEW,
-            json!({"daemonInstanceId":server.registry.daemon_instance_id(),"previewSessionId":preview_id.clone()}),
-        );
-    assert_eq!(reload[0]["params"]["renderRevision"], 2);
+    let unchanged = server.request(
+        10,
+        method::READ_PREVIEW,
+        json!({"daemonInstanceId":server.registry.daemon_instance_id(),
+            "previewSessionId":preview_id.clone(),"afterRevision":1}),
+    );
+    assert!(unchanged[0]["result"]["frame"].is_null());
+    let rerendered = server.request(
+        12,
+        method::RERENDER_PREVIEW,
+        json!({"daemonInstanceId":server.registry.daemon_instance_id(),
+            "previewSessionId":preview_id.clone()}),
+    );
+    assert!(rerendered.iter().any(|message| message["result"].is_null()));
+    assert!(rerendered.iter().any(|message| {
+        message["method"] == method::PREVIEW_CHANGED && message["params"]["renderRevision"] == 2
+    }));
 
     let exported = server.request(
         9,
@@ -940,9 +984,21 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
     );
     let preview_update = update
         .iter()
-        .find(|item| item["method"] == method::PREVIEW_EVENT)
+        .find(|item| item["method"] == method::PREVIEW_CHANGED)
         .expect("document changes publish a preview event");
-    assert_eq!(preview_update["params"]["event"]["type"], "patch");
+    assert_eq!(preview_update["params"]["renderRevision"], 3);
+    let updated = server.request(
+        11,
+        method::READ_PREVIEW,
+        json!({"daemonInstanceId":server.registry.daemon_instance_id(),
+            "previewSessionId":preview_id.clone(),"afterRevision":2}),
+    );
+    assert!(
+        updated[0]["result"]["frame"]["blocks"][0]["html"]
+            .as_str()
+            .unwrap()
+            .contains("Updated")
+    );
 
     for version in 3..103 {
         server.notify(
@@ -959,11 +1015,8 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         .expect("external preview has a token");
     let pages = server.previews.pages.lock().unwrap();
     let page = &pages[token];
-    assert!(page.publications.len() <= MAX_PREVIEW_PUBLICATIONS);
-    assert!(
-        page.publication_bytes <= MAX_PREVIEW_HISTORY_BYTES || page.publications.len() == 1,
-        "one oversized full snapshot may exceed the history budget"
-    );
+    assert_eq!(page.frame.render_revision, 103);
+    assert_eq!(page.change_event.sequence, page.next_sequence - 1);
     drop(pages);
 
     server.notify(
@@ -1047,6 +1100,7 @@ fn workspace_command_authority_policy_is_checked_before_command_parameters() {
 
     for command in [
         "initializeWorkspace",
+        "migrateWorkspace",
         "createNote",
         "collectAdmonitions",
         "exportHtml",
@@ -1153,11 +1207,27 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
         json!({"daemonInstanceId":daemon,"documentSessionId":untrusted_session,
                 "expectedDocumentVersion":1,"target":"embeddedHtml"}),
     );
+    let trusted_preview_id = trusted_preview[0]["result"]["previewSessionId"]
+        .as_str()
+        .unwrap();
+    let untrusted_preview_id = untrusted_preview[0]["result"]["previewSessionId"]
+        .as_str()
+        .unwrap();
+    let trusted_frame = server.request(
+        40,
+        method::READ_PREVIEW,
+        json!({"daemonInstanceId":daemon,"previewSessionId":trusted_preview_id}),
+    );
+    let untrusted_frame = server.request(
+        41,
+        method::READ_PREVIEW,
+        json!({"daemonInstanceId":daemon,"previewSessionId":untrusted_preview_id}),
+    );
     assert_eq!(
-        trusted_preview[0]["result"]["initialPublication"]["style"]["css"],
+        trusted_frame[0]["result"]["frame"]["style"]["css"],
         ":root { color: red; }"
     );
-    assert!(untrusted_preview[0]["result"]["initialPublication"]["style"].is_null());
+    assert!(untrusted_frame[0]["result"]["frame"]["style"].is_null());
     assert!(trusted_preview[0]["result"].get("url").is_none());
     assert!(untrusted_preview[0]["result"].get("url").is_none());
     assert!(server.previews.pages.lock().unwrap().is_empty());
@@ -1187,12 +1257,16 @@ fn one_daemon_keeps_distinct_multi_root_trust_and_render_configuration() {
     assert!(reconfigured[0]["result"].is_null(), "{reconfigured:?}");
     let publication = reconfigured
         .iter()
-        .find(|message| message["method"] == method::PREVIEW_EVENT)
-        .expect("active trusted preview receives a full reconfiguration publication");
-    assert_eq!(publication["params"]["event"]["type"], "full");
-    assert_eq!(publication["params"]["event"]["documentVersion"], 1);
+        .find(|message| message["method"] == method::PREVIEW_CHANGED)
+        .expect("active trusted preview receives a reconfiguration notification");
+    assert_eq!(publication["params"]["renderRevision"], 2);
+    let reconfigured_frame = server.request(
+        42,
+        method::READ_PREVIEW,
+        json!({"daemonInstanceId":daemon,"previewSessionId":trusted_preview_id}),
+    );
     assert_eq!(
-        publication["params"]["event"]["style"]["css"],
+        reconfigured_frame[0]["result"]["frame"]["style"]["css"],
         ":root { color: green; }"
     );
 }
@@ -1577,22 +1651,64 @@ fn preview_http_enforces_individual_and_total_header_byte_limits() {
 }
 
 #[test]
-fn preview_sse_replays_only_sequences_after_last_event_id() {
+fn preview_sse_reports_only_the_latest_change_after_last_event_id() {
     let token = "fixture-token";
     let pages = preview_pages(token);
-    let expected_event = pages.lock().unwrap()[token].publications[1].encoded.clone();
+    let expected_event = pages.lock().unwrap()[token].change_event.encoded.clone();
     let response = preview_http_request(&pages, None, |port| {
         format!(
-                "GET /preview/{token}/events HTTP/1.1\r\nHost: localhost:{port}\r\nLast-Event-ID: 1\r\n\r\n"
+                "GET /preview/{token}/events HTTP/1.1\r\nHost: localhost:{port}\r\nLast-Event-ID: 0\r\n\r\n"
             )
             .into_bytes()
     });
-    let body = format!("retry: 250\nid: 2\ndata: {expected_event}\n\n");
+    let body = format!("retry: 250\nid: 1\ndata: {expected_event}\n\n");
     let expected = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     assert_eq!(response, expected.as_bytes());
+}
+
+#[test]
+fn preview_sse_orders_retained_events_and_never_replays_acknowledged_sequences() {
+    let token = "fixture-token";
+    let pages = preview_pages(token);
+    {
+        let mut pages = pages.lock().unwrap();
+        let page = pages.get_mut(token).unwrap();
+        page.navigation_event = Some(StoredEvent {
+            encoded: "navigation-2".to_owned(),
+            sequence: 2,
+        });
+        page.change_event = StoredEvent {
+            encoded: "change-3".to_owned(),
+            sequence: 3,
+        };
+        page.next_sequence = 4;
+    }
+
+    let response = |last_event_id: u64| {
+        String::from_utf8(preview_http_request(&pages, None, |port| {
+            format!(
+                "GET /preview/{token}/events HTTP/1.1\r\nHost: localhost:{port}\r\nLast-Event-ID: {last_event_id}\r\n\r\n"
+            )
+            .into_bytes()
+        }))
+        .unwrap()
+    };
+
+    let from_start = response(0);
+    let navigation = from_start.find("id: 2\ndata: navigation-2").unwrap();
+    let change = from_start.find("id: 3\ndata: change-3").unwrap();
+    assert!(navigation < change);
+
+    let after_navigation = response(2);
+    assert!(!after_navigation.contains("id: 2\n"));
+    assert!(after_navigation.contains("id: 3\ndata: change-3"));
+
+    let after_change = response(3);
+    assert!(!after_change.contains("id: 2\n"));
+    assert!(!after_change.contains("id: 3\n"));
 }
 
 #[test]
@@ -1662,4 +1778,94 @@ fn standalone_rpc_uses_explicit_base_version_and_hash() {
         }),
     );
     assert_eq!(changed[0]["result"]["documentVersion"], 4);
+}
+
+#[test]
+fn stale_frame_navigation_is_rejected_after_a_failed_rerender() {
+    let mut server = Server::new(false);
+    let daemon = initialize_daemon(&mut server, initialize_params(json!({}), None));
+    let opened = open_rpc_document(
+        &mut server,
+        2,
+        &daemon,
+        "file:///stale-navigation.md",
+        "# Old\n",
+    );
+    let session = result_string(&opened, "documentSessionId");
+    let preview = server.request(
+        3,
+        method::CREATE_PREVIEW,
+        json!({
+            "daemonInstanceId":daemon,
+            "documentSessionId":session,
+            "expectedDocumentVersion":1,
+            "target":"externalBrowser"
+        }),
+    );
+    let preview_id = result_string(&preview, "previewSessionId");
+    let url = preview[0]["result"]["url"].as_str().unwrap().to_owned();
+    let frame = server.request(
+        4,
+        method::READ_PREVIEW,
+        json!({"daemonInstanceId":daemon,"previewSessionId":preview_id}),
+    );
+    let node_id = frame[0]["result"]["frame"]["navigation"][0]["nodeId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let changed = server.request(
+        5,
+        method::CHANGE_DOCUMENT,
+        json!({
+            "daemonInstanceId":daemon,"documentSessionId":session,
+            "baseDocumentVersion":1,"baseContentHash":content_hash("# Old\n"),
+            "documentVersion":2,"text":"# New\n"
+        }),
+    );
+    assert_eq!(changed[0]["result"]["documentVersion"], 2);
+
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    let failed = server.handle_cancellable(
+        message(
+            Some(6),
+            method::RERENDER_PREVIEW,
+            json!({"daemonInstanceId":daemon,"previewSessionId":preview_id}),
+        ),
+        Some(cancelled),
+        None,
+    );
+    assert!(failed[0].get("error").is_some(), "{failed:?}");
+
+    let stale_rpc = server.request(
+        7,
+        method::PREVIEW_EVENT,
+        json!({
+            "daemonInstanceId":daemon,
+            "previewSessionId":preview_id,
+            "renderRevision":1,
+            "event":{"type":"selectNode","previewSessionId":preview_id,
+                "renderRevision":1,"nodeId":node_id}
+        }),
+    );
+    assert_eq!(stale_rpc[0]["error"]["code"], CONTENT_MODIFIED);
+
+    let address_and_path = url.strip_prefix("http://").unwrap();
+    let (address, path) = address_and_path.split_once('/').unwrap();
+    let body = serde_json::to_string(&json!({
+        "type":"selectNode","previewSessionId":preview_id,
+        "renderRevision":1,"nodeId":node_id
+    }))
+    .unwrap();
+    let stale_http = preview_server_request(
+        address,
+        format!(
+            "POST /{path}/navigation HTTP/1.1\r\nHost: {address}\r\nOrigin: http://{address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        ),
+    );
+    assert!(
+        stale_http.starts_with("HTTP/1.1 409 Conflict"),
+        "{stale_http}"
+    );
 }

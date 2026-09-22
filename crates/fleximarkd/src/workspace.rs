@@ -1,11 +1,13 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
-use fleximark_plugin_sdk::FlexiMarkConfig;
+use fleximark_plugin_sdk::{AssetsConfig, FlexiMarkConfig, NotesConfig, SecurityConfig};
 use fleximark_protocol::{CommandMessage, CommandResult};
+use serde_json::Value;
 
 use crate::{ServiceError, path_to_file_uri, workspace_path};
 
@@ -25,7 +27,149 @@ pub fn initialize_workspace(workspace_uri: &str) -> Result<CommandResult, Servic
             text: "Initialized .fleximark/config.toml and .fleximark/theme.css".into(),
         }),
         open_uri: Some(path_to_file_uri(&config)?),
+        data: None,
     })
+}
+
+pub fn inspect_legacy_workspace(workspace_uri: &str) -> Result<Option<bool>, ServiceError> {
+    let root = workspace_path(workspace_uri)?;
+    let Some(control) = open_control_directory(&root, false)? else {
+        return Ok(None);
+    };
+    if path_exists(&control, "config.toml")? || !regular_file_exists(&control, "fleximark.json")? {
+        return Ok(None);
+    }
+    Ok(Some(regular_file_exists(&control, "parserPlugin.js")?))
+}
+
+pub fn migrate_legacy_workspace(
+    workspace_uri: &str,
+    settings: &Value,
+) -> Result<CommandResult, ServiceError> {
+    let settings = settings.as_object().ok_or(ServiceError::InvalidConfig)?;
+    let root = workspace_path(workspace_uri)?;
+    let control = open_control_directory(&root, false)?.ok_or(ServiceError::NotInitialized)?;
+    if path_exists(&control, "config.toml")? {
+        return Ok(empty_command_result());
+    }
+    if !regular_file_exists(&control, "fleximark.json")? {
+        return Err(ServiceError::NotInitialized);
+    }
+
+    let config = FlexiMarkConfig {
+        schema_version: 1,
+        notes: NotesConfig {
+            file_name_prefix: legacy_string(settings.get("noteFileNamePrefix")),
+            file_name_suffix: legacy_string(settings.get("noteFileNameSuffix")),
+            categories: legacy_categories(settings.get("noteCategories")),
+            templates: legacy_templates(settings.get("noteTemplates")),
+        },
+        assets: AssetsConfig {
+            roots: root
+                .join("attachments")
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+                .then(|| "attachments".to_owned())
+                .into_iter()
+                .collect(),
+        },
+        security: SecurityConfig::default(),
+        plugins: Vec::new(),
+    };
+    let config = format!(
+        "# FlexiMark workspace configuration\n# Migrated from the legacy VS Code workspace format.\n{}",
+        toml::to_string_pretty(&config).map_err(|_| ServiceError::InvalidConfig)?
+    );
+
+    if !path_exists(&control, "theme.css")? {
+        if regular_file_exists(&control, "fleximark.css")? {
+            let mut theme = Vec::new();
+            open_regular_nofollow(&control, Path::new("fleximark.css"))?.read_to_end(&mut theme)?;
+            write_new_bytes_at(&control, "theme.css", &theme)?;
+        } else {
+            write_new_at(&control, "theme.css", THEME)?;
+        }
+    }
+    write_new_at(&control, "config.toml", &config)?;
+    Ok(empty_command_result())
+}
+
+fn empty_command_result() -> CommandResult {
+    CommandResult {
+        message: None,
+        open_uri: None,
+        data: None,
+    }
+}
+
+fn legacy_string(value: Option<&Value>) -> String {
+    value.and_then(Value::as_str).unwrap_or_default().to_owned()
+}
+
+fn legacy_categories(value: Option<&Value>) -> BTreeMap<String, String> {
+    let mut categories = BTreeMap::new();
+    let mut pending = value
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|entries| {
+            entries
+                .iter()
+                .map(|(name, child)| (vec![name.as_str()], child))
+        })
+        .collect::<Vec<_>>();
+    while let Some((parts, child)) = pending.pop() {
+        let Some(name) = parts.last() else { continue };
+        if name.is_empty()
+            || matches!(*name, "." | "..")
+            || name
+                .chars()
+                .any(|character| "\\/:*?\"<>|\0".contains(character))
+        {
+            continue;
+        }
+        categories.insert(parts.join(" / "), parts.join("/"));
+        if let Some(children) = child.as_object() {
+            pending.extend(children.iter().map(|(name, child)| {
+                let mut nested = parts.clone();
+                nested.push(name);
+                (nested, child)
+            }));
+        }
+    }
+    categories
+}
+
+fn legacy_templates(value: Option<&Value>) -> BTreeMap<String, Vec<String>> {
+    value
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|templates| templates.iter())
+        .filter_map(|(name, lines)| {
+            (!name.is_empty()).then_some(())?;
+            let lines = lines
+                .as_array()?
+                .iter()
+                .map(Value::as_str)
+                .collect::<Option<Vec<_>>>()?;
+            Some((name.clone(), lines.into_iter().map(str::to_owned).collect()))
+        })
+        .collect()
+}
+
+fn path_exists(directory: &Dir, path: &str) -> Result<bool, ServiceError> {
+    match directory.symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn regular_file_exists(directory: &Dir, path: &str) -> Result<bool, ServiceError> {
+    match directory.symlink_metadata(path) {
+        Ok(metadata) => Ok(metadata.is_file() && !metadata.file_type().is_symlink()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(crate) fn safe_workspace_relative_path(value: &str) -> bool {
@@ -55,6 +199,10 @@ pub(crate) fn open_control_directory(
 }
 
 fn write_new_at(directory: &Dir, path: &str, contents: &str) -> Result<(), ServiceError> {
+    write_new_bytes_at(directory, path, contents.as_bytes())
+}
+
+fn write_new_bytes_at(directory: &Dir, path: &str, contents: &[u8]) -> Result<(), ServiceError> {
     let mut options = cap_std::fs::OpenOptions::new();
     options
         .write(true)
@@ -62,7 +210,7 @@ fn write_new_at(directory: &Dir, path: &str, contents: &str) -> Result<(), Servi
         .follow(FollowSymlinks::No);
     match directory.open_with(path, &options) {
         Ok(mut file) => {
-            file.write_all(contents.as_bytes())?;
+            file.write_all(contents)?;
             file.sync_all()?;
             Ok(())
         }
@@ -192,6 +340,61 @@ mod tests {
             fs::read_to_string(control.join("parserPlugin.js")).unwrap(),
             "throw new Error('executed')"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_migration_is_rust_owned_idempotent_and_preserves_legacy_files() {
+        let root = test_workspace("legacy-migration");
+        let control = root.join(".fleximark");
+        fs::create_dir(&control).unwrap();
+        fs::create_dir(root.join("attachments")).unwrap();
+        fs::write(control.join("fleximark.json"), "{}").unwrap();
+        fs::write(control.join("fleximark.css"), "body { color: purple; }").unwrap();
+        fs::write(control.join("parserPlugin.js"), "module.exports = {};").unwrap();
+        let uri = path_to_file_uri(&root).unwrap();
+
+        assert_eq!(inspect_legacy_workspace(&uri).unwrap(), Some(true));
+        migrate_legacy_workspace(
+            &uri,
+            &serde_json::json!({
+                "noteFileNamePrefix": "${CURRENT_YEAR}_",
+                "noteFileNameSuffix": 42,
+                "noteCategories": {
+                    "General": { "Reports": { "Weekly": {} } },
+                    "Unsafe": { "..": {} },
+                    "a/b": {}
+                },
+                "noteTemplates": {
+                    "default": ["# ${1:Title}", "Created ${CURRENT_DATE}"],
+                    "invalid": "not an array"
+                },
+                "unknown": true
+            }),
+        )
+        .unwrap();
+
+        let config = validate_config(&control.join("config.toml")).unwrap();
+        assert_eq!(config.notes.file_name_prefix, "${CURRENT_YEAR}_");
+        assert_eq!(config.notes.file_name_suffix, "");
+        assert_eq!(
+            config.notes.categories.get("General / Reports / Weekly"),
+            Some(&"General/Reports/Weekly".to_owned())
+        );
+        assert!(!config.notes.categories.keys().any(|key| key.contains("..")));
+        assert_eq!(config.assets.roots, ["attachments"]);
+        assert_eq!(
+            fs::read_to_string(control.join("theme.css")).unwrap(),
+            "body { color: purple; }"
+        );
+        assert!(control.join("fleximark.json").is_file());
+        assert!(control.join("parserPlugin.js").is_file());
+        assert_eq!(inspect_legacy_workspace(&uri).unwrap(), None);
+
+        let first_config = fs::read(control.join("config.toml")).unwrap();
+        migrate_legacy_workspace(&uri, &serde_json::json!({"noteFileNamePrefix":"changed"}))
+            .unwrap();
+        assert_eq!(fs::read(control.join("config.toml")).unwrap(), first_config);
         fs::remove_dir_all(root).unwrap();
     }
 

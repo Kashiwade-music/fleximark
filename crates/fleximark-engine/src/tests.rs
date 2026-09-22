@@ -7,8 +7,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use ed25519_dalek::{Signer, SigningKey};
 use fleximark_model::{
-    AnchorAffinity, DocumentUri, GeneratedAnchor, JsSafeU64, NodeId, PositionEncoding,
-    SourcePosition, SourceProvenance, TransformId,
+    AnchorAffinity, DocumentUri, GeneratedAnchor, JsSafeU64, PositionEncoding, SourcePosition,
+    SourceProvenance, TransformId,
 };
 use fleximark_plugin_host::{
     CancellationToken, ExecutionLimits, HostPolicy, PluginFailureKind, PluginHost,
@@ -21,8 +21,8 @@ use crate::assets::MAX_RENDER_ASSET_BYTES;
 use crate::identity::{content_hash, content_hash_bytes};
 use crate::provenance::remap_provenance_for_test;
 use crate::{
-    DocumentSession, EngineError, PatchOperation, PreviewSessionId, RenderConfig, RenderPatch,
-    RenderPublication, RenderSnapshot, RenderStyle, ResolvedRenderAsset,
+    DocumentSession, EngineError, PreviewSessionId, RenderConfig, RenderFrame, RenderStyle,
+    ResolvedRenderAsset,
 };
 
 fn utf8_range(source: &str, byte_start: usize, byte_end: usize) -> fleximark_model::SourceRange {
@@ -54,21 +54,7 @@ fn open(source: &str) -> DocumentSession {
     .unwrap()
 }
 
-fn full(publication: RenderPublication, message: &str) -> RenderSnapshot {
-    let RenderPublication::Full(snapshot) = publication else {
-        panic!("{message}")
-    };
-    snapshot
-}
-
-fn patch(publication: RenderPublication, message: &str) -> RenderPatch {
-    let RenderPublication::Patch(patch) = publication else {
-        panic!("{message}")
-    };
-    patch
-}
-
-fn render_default(session: &mut DocumentSession, id: &str) -> RenderPublication {
+fn render_default(session: &mut DocumentSession, id: &str) -> RenderFrame {
     session
         .render(PreviewSessionId(id.into()), &RenderContext::default())
         .unwrap()
@@ -152,7 +138,11 @@ fn reconciles_moved_unique_nodes_but_not_ambiguous_duplicates() {
         .map(|block| block.id.clone())
         .collect::<Vec<_>>();
     session
-        .change_full_text(2, "# Intro\n\n# A\n\n# B\n".into())
+        .change_full_text_with_cancellation(
+            2,
+            "# Intro\n\n# A\n\n# B\n".into(),
+            &CancellationToken::default(),
+        )
         .unwrap();
     assert_eq!(session.document.blocks[1].id, old[0]);
     assert_eq!(session.document.blocks[2].id, old[1]);
@@ -160,7 +150,11 @@ fn reconciles_moved_unique_nodes_but_not_ambiguous_duplicates() {
     let mut duplicates = open("same\n");
     let old_id = duplicates.document.blocks[0].id.clone();
     duplicates
-        .change_full_text(2, "# lead\n\nsame\n\nsame\n".into())
+        .change_full_text_with_cancellation(
+            2,
+            "# lead\n\nsame\n\nsame\n".into(),
+            &CancellationToken::default(),
+        )
         .unwrap();
     assert!(
         duplicates.document.blocks[1..]
@@ -177,7 +171,11 @@ fn reconciles_moved_unique_nodes_but_not_ambiguous_duplicates() {
 fn rejects_stale_changes_until_full_text_resynchronization() {
     let mut session = open("old\n");
     assert!(matches!(
-        session.change_full_text(1, "stale\n".into()),
+        session.change_full_text_with_cancellation(
+            1,
+            "stale\n".into(),
+            &CancellationToken::default(),
+        ),
         Err(EngineError::StaleVersion { .. })
     ));
     assert!(session.is_out_of_sync());
@@ -185,7 +183,9 @@ fn rejects_stale_changes_until_full_text_resynchronization() {
         session.render(PreviewSessionId("p".into()), &RenderContext::default()),
         Err(EngineError::ContentModified)
     ));
-    session.resynchronize(1, "fresh\n".into()).unwrap();
+    session
+        .resynchronize_with_cancellation(1, "fresh\n".into(), &CancellationToken::default())
+        .unwrap();
     assert!(!session.is_out_of_sync());
     assert_eq!(session.document().document_version, 1);
     assert_eq!(session.source(), "fresh\n");
@@ -247,7 +247,9 @@ fn configured_open_change_and_resync_preserve_pipeline_state_and_diagnostic_orde
     configured
         .change_full_text_with_cancellation(2, "# two\n".to_owned(), &cancelled)
         .unwrap();
-    plain.change_full_text(2, "# two\n".to_owned()).unwrap();
+    plain
+        .change_full_text_with_cancellation(2, "# two\n".to_owned(), &CancellationToken::default())
+        .unwrap();
     assert_eq!(configured.source(), "# two\n");
     assert_eq!(configured.document().document_version, 2);
     assert_eq!(configured.content_hash(), content_hash("# two\n"));
@@ -276,11 +278,19 @@ fn configured_open_change_and_resync_preserve_pipeline_state_and_diagnostic_orde
     );
 
     assert!(matches!(
-        configured.change_full_text(2, "stale\n".to_owned()),
+        configured.change_full_text_with_cancellation(
+            2,
+            "stale\n".to_owned(),
+            &CancellationToken::default(),
+        ),
         Err(EngineError::StaleVersion { .. })
     ));
     assert!(matches!(
-        plain.change_full_text(2, "stale\n".to_owned()),
+        plain.change_full_text_with_cancellation(
+            2,
+            "stale\n".to_owned(),
+            &CancellationToken::default(),
+        ),
         Err(EngineError::StaleVersion { .. })
     ));
     assert!(configured.is_out_of_sync());
@@ -288,7 +298,13 @@ fn configured_open_change_and_resync_preserve_pipeline_state_and_diagnostic_orde
     configured
         .resynchronize_with_cancellation(2, "# resynced\n".to_owned(), &cancelled)
         .unwrap();
-    plain.resynchronize(2, "# resynced\n".to_owned()).unwrap();
+    plain
+        .resynchronize_with_cancellation(
+            2,
+            "# resynced\n".to_owned(),
+            &CancellationToken::default(),
+        )
+        .unwrap();
     assert_eq!(configured.source(), "# resynced\n");
     assert_eq!(configured.document().document_version, 2);
     assert!(!configured.is_out_of_sync());
@@ -310,9 +326,6 @@ fn configured_open_change_and_resync_preserve_pipeline_state_and_diagnostic_orde
             &Hook::TransformDocument
         ]
     );
-    configured
-        .checkpoint(2, &content_hash("# resynced\n"))
-        .unwrap();
 }
 
 #[test]
@@ -330,14 +343,11 @@ fn required_plugin_cancellation_rolls_back_authoritative_state_and_render_cache(
     )
     .unwrap();
     let preview = PreviewSessionId("cancelled-preview".into());
-    let RenderPublication::Full(initial) = session
+    let initial = session
         .render_configured(preview.clone(), &CancellationToken::default())
         .unwrap()
-        .publication
-    else {
-        panic!("the first configured render must be full")
-    };
-    assert_eq!(initial.result_render_revision, 1);
+        .frame;
+    assert_eq!(initial.render_revision, 1);
     assert_eq!(session.preview_count(), 1);
     let original_document = session.document().clone();
     let original_hash = session.content_hash();
@@ -358,16 +368,12 @@ fn required_plugin_cancellation_rolls_back_authoritative_state_and_render_cache(
     assert_eq!(session.plugin_diagnostics(), original_diagnostics);
     assert!(!session.is_out_of_sync());
 
-    let RenderPublication::Patch(unchanged) = session
+    let unchanged = session
         .render_configured(preview.clone(), &CancellationToken::default())
         .unwrap()
-        .publication
-    else {
-        panic!("the unchanged document must retain its preview cache")
-    };
-    assert_eq!(unchanged.base_render_revision, 1);
-    assert_eq!(unchanged.result_render_revision, 2);
-    assert!(unchanged.operations.is_empty());
+        .frame;
+    assert_eq!(unchanged.render_revision, 2);
+    assert_eq!(unchanged.blocks, initial.blocks);
     assert_eq!(session.preview_count(), 1);
 
     assert_eq!(
@@ -378,70 +384,81 @@ fn required_plugin_cancellation_rolls_back_authoritative_state_and_render_cache(
         "plugin pipeline failed: operation cancelled"
     );
     assert_eq!(session.preview_count(), 1);
-    let RenderPublication::Patch(after_cancelled_render) = session
+    let after_cancelled_render = session
         .render_configured(preview, &CancellationToken::default())
         .unwrap()
-        .publication
-    else {
-        panic!("a cancelled render must leave the existing preview cache unchanged")
-    };
-    assert_eq!(after_cancelled_render.base_render_revision, 2);
-    assert_eq!(after_cancelled_render.result_render_revision, 3);
-    assert!(after_cancelled_render.operations.is_empty());
+        .frame;
+    assert_eq!(after_cancelled_render.render_revision, 3);
+    assert_eq!(after_cancelled_render.blocks, initial.blocks);
 }
 
 #[test]
-fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
+fn publishes_self_contained_frames_and_advances_only_when_rendering() {
     let mut session = open("# A\n");
     session.render_config.style = Some(RenderStyle::from_validated_css(
         "main { color: canvastext; }".to_owned(),
     ));
-    let first = render_default(&mut session, "preview-1");
-    let snapshot = full(first, "first render must be full");
+    let snapshot = render_default(&mut session, "preview-1");
     let original_id = session.document.blocks[0].id.clone();
+    assert_eq!(snapshot.blocks[0].id, session.document.blocks[0].id);
+    assert!(
+        snapshot.blocks[0]
+            .node_ids
+            .contains(&session.document.blocks[0].id)
+    );
+    assert_eq!(snapshot.style, session.render_config.style);
+    assert_eq!(snapshot.renderer_fingerprint.len(), 64);
     assert!(
         snapshot
-            .html
+            .renderer_fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    );
+    assert!(
+        snapshot
+            .html()
             .starts_with("<main data-fleximark-node-id=\"document-root\">")
     );
-    assert_eq!(snapshot.node_ids[0], NodeId("document-root".into()));
-    assert_eq!(snapshot.node_ids[1], session.document.blocks[0].id);
-    assert_eq!(snapshot.style, session.render_config.style);
-    assert!(!snapshot.html.contains("color: canvastext"));
+    assert!(!snapshot.html().contains("color: canvastext"));
     assert_eq!(
         snapshot.navigation[0].node_id,
         session.document.blocks[0].id
     );
-    session.change_full_text(2, "# A changed\n".into()).unwrap();
-    let second = render_default(&mut session, "preview-1");
-    let patch = patch(second, "expected patch");
-    assert_eq!(session.document.blocks[0].id, original_id);
-    assert!(
-        matches!(patch.operations.as_slice(), [PatchOperation::Replace { node_id, .. }] if node_id == &original_id)
-    );
-    assert_eq!(
-        patch.base_renderer_fingerprint,
-        patch.result_renderer_fingerprint
-    );
-    assert_eq!(patch.style, session.render_config.style);
-    assert_eq!(
-        (
-            patch.base_render_revision.get(),
-            patch.result_render_revision.get()
+    session
+        .change_full_text_with_cancellation(
+            2,
+            "# A changed\n".into(),
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    assert!(matches!(
+        session.navigate_preview(
+            &PreviewSessionId("preview-1".into()),
+            snapshot.render_revision,
+            &snapshot.navigation[0].node_id,
         ),
-        (1, 2)
-    );
-    assert!(!patch.operations.is_empty());
-    let wire = serde_json::to_value(&patch).unwrap();
-    assert_eq!(wire["baseRenderRevision"], 1);
+        Err(EngineError::ContentModified)
+    ));
+    let second = render_default(&mut session, "preview-1");
+    assert_eq!(session.document.blocks[0].id, original_id);
+    assert_eq!(second.renderer_fingerprint, snapshot.renderer_fingerprint);
+    assert_eq!(second.style, session.render_config.style);
+    assert_eq!(second.render_revision.get(), 2);
+    assert_ne!(second.blocks, snapshot.blocks);
+    let wire = serde_json::to_value(&second).unwrap();
+    assert_eq!(wire["renderRevision"], 2);
     assert!(wire["navigation"][0]["sourceRange"]["byteStart"].is_number());
-    assert!(wire["operations"][0].get("nodeId").is_some());
+    assert!(wire["blocks"][0].get("nodeIds").is_some());
     assert!(
-        wire["operations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|operation| operation.get("contentNodeIds").is_some())
+        session
+            .read_preview_frame(&PreviewSessionId("preview-1".into()), Some(2.into()))
+            .is_none()
+    );
+    assert_eq!(
+        session
+            .read_preview_frame(&PreviewSessionId("preview-1".into()), Some(1.into()))
+            .unwrap(),
+        second
     );
 
     let strict = RenderContext {
@@ -451,31 +468,31 @@ fn publishes_patch_only_with_equal_fingerprints_and_full_on_policy_change() {
     let third = session
         .render(PreviewSessionId("preview-1".into()), &strict)
         .unwrap();
-    let snapshot = full(third, "fingerprint change must be full");
-    assert_eq!(snapshot.result_render_revision, 3);
+    assert_eq!(third.render_revision, 3);
+    assert_ne!(third.renderer_fingerprint, second.renderer_fingerprint);
 }
 
 #[test]
-fn emits_allowlisted_attribute_delta_and_serializes_it_in_camel_case() {
+fn frame_carries_updated_block_html() {
     let mut session = open(":::info[Note]\nbody\n:::\n");
     render_default(&mut session, "attributes");
     let original_id = session.document.blocks[0].id.clone();
     session
-        .change_full_text(2, ":::tip[Note]\nbody\n:::\n".to_owned())
+        .change_full_text_with_cancellation(
+            2,
+            ":::tip[Note]\nbody\n:::\n".to_owned(),
+            &CancellationToken::default(),
+        )
         .unwrap();
     assert_eq!(session.document.blocks[0].id, original_id);
-    let patch = patch(
-        render_default(&mut session, "attributes"),
-        "presentation-only change should patch",
+    let frame = render_default(&mut session, "attributes");
+    assert!(
+        frame.blocks[0]
+            .html
+            .contains("data-admonition-kind=\"tip\"")
     );
-    assert!(matches!(
-        patch.operations.as_slice(),
-        [PatchOperation::SetAttributes { attributes, .. }]
-            if attributes.get("data-admonition-kind") == Some(&Some("tip".to_owned()))
-    ));
-    let wire = serde_json::to_value(&patch.operations[0]).unwrap();
-    assert_eq!(wire["type"], "setAttributes");
-    assert_eq!(wire["attributes"]["data-admonition-kind"], "tip");
+    let wire = serde_json::to_value(&frame.blocks[0]).unwrap();
+    assert_eq!(wire["id"], original_id.0);
 }
 
 #[test]
@@ -492,30 +509,23 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
         .unwrap();
     let preview = PreviewSessionId("asset-preview".into());
     let context = session.render_config.context.clone();
-    let first = full(
-        session.render(preview.clone(), &context).unwrap(),
-        "first asset publication must be full",
-    );
+    let first = session.render(preview.clone(), &context).unwrap();
     assert_eq!(first.assets.len(), 1);
     assert_eq!(first.assets[0].data, BASE64.encode(b"png-one"));
-    assert!(first.html.contains(&first.assets[0].reference));
+    assert!(first.html().contains(&first.assets[0].reference));
     let wire = serde_json::to_string(&first).unwrap();
     assert!(!wire.contains("private/diagram.png"));
 
     session
-        .change_full_text(2, "![changed](private/diagram.png)\n".to_owned())
+        .change_full_text_with_cancellation(
+            2,
+            "![changed](private/diagram.png)\n".to_owned(),
+            &CancellationToken::default(),
+        )
         .unwrap();
     let context = session.render_config.context.clone();
-    let patch = patch(
-        session.render(preview.clone(), &context).unwrap(),
-        "unchanged asset set may patch",
-    );
-    assert!(
-        serde_json::to_value(&patch)
-            .unwrap()
-            .get("assets")
-            .is_none()
-    );
+    let updated = session.render(preview.clone(), &context).unwrap();
+    assert_eq!(updated.assets, first.assets);
 
     session.render_config = RenderConfig::default()
         .with_resolved_assets(vec![
@@ -528,10 +538,7 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
         ])
         .unwrap();
     let context = session.render_config.context.clone();
-    let second = full(
-        session.render(preview, &context).unwrap(),
-        "asset content change must force full publication",
-    );
+    let second = session.render(preview, &context).unwrap();
     assert_ne!(first.renderer_fingerprint, second.renderer_fingerprint);
     assert_ne!(first.assets[0].content_hash, second.assets[0].content_hash);
 
@@ -600,39 +607,19 @@ fn staged_reconfiguration_preserves_preview_revision_and_forces_full() {
         "p { color: green; }".to_owned(),
     ));
     session.adopt_reconfiguration(configured).unwrap();
-    let snapshot = full(
-        render_default(&mut session, "reconfigure"),
-        "configuration fingerprint change must be full",
-    );
-    assert_eq!(snapshot.result_render_revision, 2);
-}
-
-#[test]
-fn checkpoint_is_bound_to_version_and_utf8_content() {
-    let mut session = open("🦀\n");
-    let hash = session.content_hash();
-    assert_eq!(
-        hash,
-        "5d40fbf44301a6d80c06a5a5fb6aa8cdbb0c987d3aa07740e2bb941df3d7b862"
-    );
-    session.checkpoint(1, &hash).unwrap();
-    assert!(matches!(
-        session.checkpoint(1, "wrong"),
-        Err(EngineError::CheckpointMismatch)
-    ));
+    let frame = render_default(&mut session, "reconfigure");
+    assert_eq!(frame.render_revision, 2);
 }
 
 #[test]
 fn render_metadata_and_annotations_are_part_of_the_publication() {
     let mut session = open("# A\n");
     let first = render_default(&mut session, "configured");
-    let first = full(first, "first publication must be full");
 
     session.render_config.style = Some(RenderStyle::from_validated_css(
         "main { color: rebeccapurple; }".to_owned(),
     ));
     let second = render_default(&mut session, "configured");
-    let second = full(second, "metadata changes must force a full publication");
     assert_ne!(first.renderer_fingerprint, second.renderer_fingerprint);
     assert_eq!(second.style, session.render_config.style);
     let wire = serde_json::to_value(&second).unwrap();
@@ -647,10 +634,13 @@ fn render_metadata_and_annotations_are_part_of_the_publication() {
             &annotations,
         )
         .unwrap();
-    let annotated = full(annotated, "first annotated publication must be full");
-    assert!(annotated.html.contains("data-fleximark-render-annotations"));
-    assert!(annotated.html.contains("\\u003c/script\\u003e"));
-    assert!(!annotated.html.contains("</script><img"));
+    assert!(
+        annotated
+            .html()
+            .contains("data-fleximark-render-annotations")
+    );
+    assert!(annotated.html().contains("\\u003c/script\\u003e"));
+    assert!(!annotated.html().contains("</script><img"));
 }
 
 #[test]
@@ -829,17 +819,13 @@ fn identity_edit_mapping_preserves_every_unicode_half_open_slice() {
 }
 
 #[test]
-fn navigation_selects_the_smallest_deepest_unicode_block_and_round_trips() {
+fn navigation_selects_the_smallest_deepest_unicode_block() {
     let session = open("- Héllo\n");
     let selected = session.node_at_source_offset(3).unwrap();
     assert!(session.node_at_source_offset(4).is_none());
     assert!(selected.depth >= 2);
     assert_eq!(selected.source_range.start.encoding, PositionEncoding::Utf8);
     assert!(selected.source_range.byte_start <= 3 && selected.source_range.byte_end >= 5);
-    assert_eq!(
-        session.source_range_for_node(&selected.node_id),
-        Some(selected.clone())
-    );
     assert_eq!(
         serde_json::to_value(&selected).unwrap()["sourceRange"]["byteStart"],
         selected.source_range.byte_start.get()
@@ -851,7 +837,7 @@ fn disposing_previews_evicts_their_authoritative_caches() {
     let mut session = open("# preview\n");
     for preview in ["first", "second"] {
         session
-            .render_full(PreviewSessionId(preview.into()), &RenderContext::default())
+            .render(PreviewSessionId(preview.into()), &RenderContext::default())
             .unwrap();
     }
     assert_eq!(session.preview_count(), 2);

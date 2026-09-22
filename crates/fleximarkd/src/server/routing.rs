@@ -97,17 +97,17 @@ impl Server {
                 message.params,
                 |registry, params: CheckpointDocumentParams| registry.checkpoint(&params),
             ),
-            method::RENDER => self.render(id, message.params),
             method::CREATE_PREVIEW => self.create_preview(id, message.params),
+            method::READ_PREVIEW => self.read_preview(id, message.params),
+            method::RERENDER_PREVIEW => self.rerender_preview(id, message.params),
             method::DISPOSE_PREVIEW => self.dispose_preview(id, message.params),
             method::SET_SELECTION => self.set_selection(id, message.params),
             method::SET_VIEWPORT => self.set_viewport(id, message.params),
             method::PREVIEW_EVENT => self.preview_event(id, message.params),
-            method::RELOAD_PREVIEW => self.reload_preview(id, message.params),
             method::EXECUTE_COMMAND => self.execute_command(id, message.params),
             method::GET_NOTE_OPTIONS => self.get_note_options(id, message.params),
             method::RECONFIGURE_WORKSPACE => self.reconfigure_workspace(id, message.params),
-            method::OPEN_DOCUMENT if !self.lsp_mode => self.open_rpc_document(id, message.params),
+            method::OPEN_DOCUMENT => self.open_rpc_document(id, message.params),
             method::CHANGE_DOCUMENT if !self.lsp_mode => {
                 self.change_rpc_document(id, message.params)
             }

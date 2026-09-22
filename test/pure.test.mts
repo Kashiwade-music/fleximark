@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 
+import * as adapterPreviewEvents from "./adapter/adapter-preview-events.test.mjs";
 import * as daemonSupervisor from "./adapter/daemon-supervisor.test.mjs";
 import * as documentCoordinator from "./adapter/document-coordinator.test.mjs";
 import * as previewCoordinator from "./adapter/preview-coordinator.test.mjs";
@@ -20,6 +21,7 @@ Object.assign(globalThis, {
 });
 
 describe(rpc.suiteName, rpc.suite);
+describe(adapterPreviewEvents.suiteName, adapterPreviewEvents.suite);
 describe(workspaceMigration.suiteName, workspaceMigration.suite);
 describe(daemonSupervisor.suiteName, daemonSupervisor.suite);
 describe(documentCoordinator.suiteName, documentCoordinator.suite);

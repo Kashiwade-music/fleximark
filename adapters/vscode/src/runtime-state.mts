@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import type { DaemonOrigin } from "./document-coordinator.mjs";
-import type { PreviewTarget, RenderPublication } from "./protocol.mjs";
+import type { PreviewTarget } from "./protocol.mjs";
 
 export interface DocumentState {
   sessionId?: string;
@@ -15,15 +15,14 @@ export interface PreviewState {
   documentUri: string;
   sourceViewColumn?: vscode.ViewColumn;
   previewSessionId: string;
+  remoteSessionActive: boolean;
   target: PreviewTarget;
-  initialPublication: RenderPublication;
   renderRevision: number;
-  renderedRevision?: number;
-  ready?: boolean;
-  handshakeEpoch?: number;
-  handshakeInFlight?: Promise<void>;
-  handshakePending?: boolean;
-  reloadPending?: boolean;
+  notifiedRevision: number;
+  webviewReady?: boolean;
+  readInFlight?: Promise<void>;
+  readAgain?: boolean;
+  forceRead?: boolean;
   messageToken?: string;
   panel?: vscode.WebviewPanel;
 }
