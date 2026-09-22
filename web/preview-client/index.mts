@@ -28,6 +28,11 @@ interface DisplayedBlock {
   readonly assetReferences: readonly string[];
 }
 
+interface DisplayedAnnotations {
+  readonly json: string;
+  readonly element: HTMLScriptElement;
+}
+
 /** Applies complete frames while preserving unchanged top-level block DOM. */
 export class PreviewDocument {
   readonly #root: HTMLElement;
@@ -43,6 +48,7 @@ export class PreviewDocument {
   #navigation: NavigationEntry[] = [];
   #assetUrls = new Map<string, string>();
   #blocks = new Map<string, DisplayedBlock>();
+  #annotations?: DisplayedAnnotations;
   #rejectedFrame?: string;
 
   constructor(root: HTMLElement, requestFrame: () => void) {
@@ -158,20 +164,30 @@ export class PreviewDocument {
       )
         return reject(addedAssetUrls);
 
-      const annotationScript = annotationElement(frame.annotations);
+      const annotationJson = annotationJsonFor(frame.annotations);
+      const previousAnnotations = this.#annotations;
+      const annotationScript =
+        previousAnnotations && annotationJson === previousAnnotations.json
+          ? previousAnnotations.element
+          : annotationElement(annotationJson);
       this.#clearHighlights();
-      this.#root.replaceChildren(
+      replaceChangedChildren(this.#root, [
         ...(annotationScript ? [annotationScript] : []),
         ...nextElements,
-      );
+      ]);
       for (const element of highlighted) this.#highlight(element);
       this.#sessionId = frame.previewSessionId;
       this.#revision = frame.renderRevision;
       this.#rendererFingerprint = frame.rendererFingerprint;
       this.#navigation = frame.navigation;
       this.#blocks = nextBlocks;
+      this.#annotations =
+        annotationJson && annotationScript
+          ? { json: annotationJson, element: annotationScript }
+          : undefined;
       this.#rejectedFrame = undefined;
-      this.#style.textContent = frame.style?.css ?? "";
+      const css = frame.style?.css ?? "";
+      if (this.#style.textContent !== css) this.#style.textContent = css;
 
       const retainedReferences = new Set(
         frame.assets.map(({ reference }) => reference),
@@ -198,6 +214,7 @@ export class PreviewDocument {
     revokeAssetUrls(this.#assetUrls.values());
     this.#assetUrls.clear();
     this.#blocks.clear();
+    this.#annotations = undefined;
   }
 
   #highlight(element: HTMLElement): void {
@@ -227,15 +244,66 @@ export class PreviewDocument {
   }
 }
 
-function annotationElement(
+function annotationJsonFor(
   annotations: Readonly<Record<string, string>>,
-): HTMLScriptElement | undefined {
+): string | undefined {
   if (Object.keys(annotations).length === 0) return;
+  return JSON.stringify(annotations);
+}
+
+function annotationElement(
+  json: string | undefined,
+): HTMLScriptElement | undefined {
+  if (!json) return;
   const script = document.createElement("script");
   script.type = "application/json";
   script.dataset.fleximarkRenderAnnotations = "";
-  script.textContent = JSON.stringify(annotations);
+  script.textContent = json;
   return script;
+}
+
+/** Replaces only the continuous range between unchanged child prefixes/suffixes. */
+function replaceChangedChildren(
+  root: HTMLElement,
+  nextChildren: readonly HTMLElement[],
+): void {
+  const currentChildren = [...root.children] as HTMLElement[];
+  const sharedLength = Math.min(currentChildren.length, nextChildren.length);
+  let prefixLength = 0;
+  while (
+    prefixLength < sharedLength &&
+    currentChildren[prefixLength] === nextChildren[prefixLength]
+  )
+    prefixLength++;
+
+  let suffixLength = 0;
+  while (
+    suffixLength < sharedLength - prefixLength &&
+    currentChildren[currentChildren.length - 1 - suffixLength] ===
+      nextChildren[nextChildren.length - 1 - suffixLength]
+  )
+    suffixLength++;
+
+  if (
+    prefixLength === currentChildren.length &&
+    prefixLength === nextChildren.length
+  )
+    return;
+
+  const currentEnd = currentChildren.length - suffixLength;
+  const nextEnd = nextChildren.length - suffixLength;
+  const anchor = currentChildren[currentEnd] ?? null;
+
+  if (prefixLength < currentEnd) {
+    const range = document.createRange();
+    range.setStartBefore(currentChildren[prefixLength]);
+    range.setEndAfter(currentChildren[currentEnd - 1]);
+    range.extractContents();
+  }
+
+  const replacement = document.createDocumentFragment();
+  replacement.append(...nextChildren.slice(prefixLength, nextEnd));
+  root.insertBefore(replacement, anchor);
 }
 
 function referencedAssets(root: HTMLElement): string[] {

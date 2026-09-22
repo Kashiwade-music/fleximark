@@ -84,6 +84,151 @@ export function suite(): void {
     assert.equal(preview.renderRevision, 2);
   });
 
+  test("does not mutate the child list for an unchanged complete frame", () => {
+    const unchanged = {
+      ...frame(1, [block("a", "one"), block("b", "two")]),
+      annotations: { source: "stable" },
+    };
+    assert.equal(preview.apply(unchanged), true);
+    const originalChildren = [...root.children];
+    const observer = new window.MutationObserver(() => undefined);
+    observer.observe(root, { childList: true });
+
+    assert.equal(
+      preview.apply({ ...unchanged, documentVersion: 2, renderRevision: 2 }),
+      true,
+    );
+    assert.deepEqual(observer.takeRecords(), []);
+    assert.deepEqual([...root.children], originalChildren);
+    observer.disconnect();
+  });
+
+  test("splices one changed block without detaching 589 unchanged blocks", () => {
+    const blocks = Array.from({ length: 590 }, (_, index) =>
+      block(`block-${index}`, `value-${index}`),
+    );
+    assert.equal(preview.apply(frame(1, blocks)), true);
+    const originals = [...root.children];
+    const observer = new window.MutationObserver(() => undefined);
+    observer.observe(root, { childList: true });
+
+    const changed = [...blocks];
+    changed[295] = block("block-295", "changed");
+    assert.equal(preview.apply(frame(2, changed)), true);
+
+    const records = observer.takeRecords();
+    assert.equal(
+      records.reduce((count, record) => count + record.removedNodes.length, 0),
+      1,
+    );
+    assert.equal(
+      records.reduce((count, record) => count + record.addedNodes.length, 0),
+      1,
+    );
+    for (let index = 0; index < originals.length; index++) {
+      if (index === 295)
+        assert.notEqual(root.children[index], originals[index]);
+      else assert.equal(root.children[index], originals[index]);
+    }
+    observer.disconnect();
+  });
+
+  test("splices local insertion, deletion, and reorder while retaining identities", () => {
+    assert.equal(
+      preview.apply(
+        frame(1, [
+          block("a", "one"),
+          block("b", "two"),
+          block("c", "three"),
+          block("d", "four"),
+        ]),
+      ),
+      true,
+    );
+    const identities = new Map(
+      [...root.children].map((element) => [
+        (element as HTMLElement).dataset.fleximarkNodeId,
+        element,
+      ]),
+    );
+
+    assert.equal(
+      preview.apply(
+        frame(2, [
+          block("a", "one"),
+          block("x", "inserted"),
+          block("b", "two"),
+          block("c", "three"),
+          block("d", "four"),
+        ]),
+      ),
+      true,
+    );
+    assert.deepEqual(
+      [...root.children].map(
+        (element) => (element as HTMLElement).dataset.fleximarkNodeId,
+      ),
+      ["a", "x", "b", "c", "d"],
+    );
+    assert.equal(root.children[0], identities.get("a"));
+    assert.equal(root.children[2], identities.get("b"));
+
+    assert.equal(
+      preview.apply(
+        frame(3, [
+          block("a", "one"),
+          block("x", "inserted"),
+          block("c", "three"),
+          block("d", "four"),
+        ]),
+      ),
+      true,
+    );
+    assert.equal(root.children[2], identities.get("c"));
+    assert.equal(root.children[3], identities.get("d"));
+
+    const x = root.children[1];
+    assert.equal(
+      preview.apply(
+        frame(4, [
+          block("a", "one"),
+          block("d", "four"),
+          block("c", "three"),
+          block("x", "inserted"),
+        ]),
+      ),
+      true,
+    );
+    assert.equal(root.children[0], identities.get("a"));
+    assert.equal(root.children[1], identities.get("d"));
+    assert.equal(root.children[2], identities.get("c"));
+    assert.equal(root.children[3], x);
+  });
+
+  test("accepts a new session revision and rebuilds on a renderer change", () => {
+    assert.equal(preview.apply(frame(7, [block("a", "one")])), true);
+    const original = root.firstElementChild;
+    assert.equal(
+      preview.apply({
+        ...frame(1, [block("a", "one")]),
+        previewSessionId: "new-preview",
+      }),
+      true,
+    );
+    assert.equal(root.firstElementChild, original);
+    assert.equal(preview.renderRevision, 1);
+
+    assert.equal(
+      preview.apply({
+        ...frame(2, [block("a", "one")]),
+        previewSessionId: "new-preview",
+        rendererFingerprint: "b".repeat(64),
+      }),
+      true,
+    );
+    assert.notEqual(root.firstElementChild, original);
+  });
+
   test("invalidates DOM reuse when renderer fingerprint changes", () => {
     assert.equal(preview.apply(frame(1, [block("a", "one")])), true);
     const original = root.firstElementChild;
