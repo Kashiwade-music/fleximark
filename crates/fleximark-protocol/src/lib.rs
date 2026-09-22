@@ -774,7 +774,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rpc_ids_accept_exact_javascript_boundaries_and_strings() {
+    fn rpc_id_domain_accepts_safe_values_and_rejects_invalid_values() {
         for id in [-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER] {
             let message: IncomingMessage = serde_json::from_value(json!({
                 "jsonrpc": "2.0",
@@ -791,10 +791,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(message.id, Some(RpcId::from("request-id")));
-    }
-
-    #[test]
-    fn rpc_ids_reject_unsafe_integers_and_explicit_null() {
         for id in [-MAX_SAFE_INTEGER - 1, MAX_SAFE_INTEGER + 1] {
             assert!(
                 serde_json::from_value::<IncomingMessage>(json!({
@@ -834,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn framed_messages_round_trip_back_to_back() {
+    fn framing_handles_back_to_back_messages_and_length_errors() {
         let mut bytes = Vec::new();
         write_frame(&mut bytes, &json!({"jsonrpc":"2.0","id":1})).unwrap();
         write_frame(&mut bytes, &json!({"jsonrpc":"2.0","id":2})).unwrap();
@@ -848,10 +844,6 @@ mod tests {
             2
         );
         assert!(read_frame(&mut reader).unwrap().is_none());
-    }
-
-    #[test]
-    fn rejects_missing_and_duplicate_lengths() {
         let mut missing = Cursor::new(b"Other: x\r\n\r\n".as_slice());
         assert!(matches!(
             read_frame(&mut missing),

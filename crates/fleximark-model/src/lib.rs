@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_and_non_utf8_provenance() {
+    fn rejects_invalid_provenance_and_accepts_adjacent_ranges() {
         let empty = SourceProvenance::Original {
             ranges: vec![],
             primary_range_index: 0,
@@ -507,24 +507,6 @@ mod tests {
             split.validate("é"),
             Err(ValidationError::InvalidUtf8Boundary)
         );
-    }
-
-    #[test]
-    fn provenance_round_trips_without_collapsing_ranges() {
-        let value = SourceProvenance::Derived {
-            ranges: vec![range(0, 1), range(3, 4)],
-            primary_range_index: 1,
-            transform: TransformId("merge".into()),
-        };
-        let json = serde_json::to_string(&value).unwrap();
-        assert_eq!(
-            serde_json::from_str::<SourceProvenance>(&json).unwrap(),
-            value
-        );
-    }
-
-    #[test]
-    fn provenance_ranges_must_be_ordered_and_non_overlapping() {
         let unordered = SourceProvenance::Derived {
             ranges: vec![range(3, 4), range(0, 1)],
             primary_range_index: 0,
@@ -549,6 +531,20 @@ mod tests {
             transform: TransformId("merge".into()),
         };
         assert_eq!(adjacent.validate("abcd"), Ok(()));
+    }
+
+    #[test]
+    fn provenance_round_trips_without_collapsing_ranges() {
+        let value = SourceProvenance::Derived {
+            ranges: vec![range(0, 1), range(3, 4)],
+            primary_range_index: 1,
+            transform: TransformId("merge".into()),
+        };
+        let json = serde_json::to_string(&value).unwrap();
+        assert_eq!(
+            serde_json::from_str::<SourceProvenance>(&json).unwrap(),
+            value
+        );
     }
 
     #[test]

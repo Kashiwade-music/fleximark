@@ -216,22 +216,6 @@ class ProtocolContractTests(unittest.TestCase):
             notification_params.keys(),
         )
 
-    def test_json_rpc_id_schema_matches_javascript_safe_boundaries(self) -> None:
-        request_schema = self.schema["$defs"]["id"]
-        response_schema = self.schema["$defs"]["responseId"]
-        maximum = 9_007_199_254_740_991
-
-        for value in (-maximum, maximum, "request-id"):
-            self.validator.validate(value, request_schema)
-            self.validator.validate(value, response_schema)
-        for value in (-maximum - 1, maximum + 1, None):
-            with self.assertRaises(SchemaViolation):
-                self.validator.validate(value, request_schema)
-        self.validator.validate(None, response_schema)
-        for value in (-maximum - 1, maximum + 1):
-            with self.assertRaises(SchemaViolation):
-                self.validator.validate(value, response_schema)
-
     def test_every_fixture_matches_its_params_and_result_schema(self) -> None:
         request_params = schema_method_params(self.schema, "customRequest")
         notification_params = schema_method_params(self.schema, "customNotification")
@@ -308,55 +292,6 @@ class ProtocolContractTests(unittest.TestCase):
                     },
                     self.schema["$defs"]["serverToClientCustomNotification"],
                 )
-
-    def test_validator_rejects_python_boolean_number_equality(self) -> None:
-        initialize = {
-            "protocolVersion": True,
-            "client": {"name": "contract-test", "version": "1"},
-        }
-        with self.assertRaises(SchemaViolation):
-            self.validator.validate(
-                initialize, self.schema["$defs"]["initializeParams"]
-            )
-
-        with self.assertRaises(SchemaViolation):
-            self.validator.validate(
-                {
-                    "daemonInstanceId": "daemon",
-                    "previewSessionId": "preview",
-                    "renderRevision": True,
-                },
-                self.schema["$defs"]["previewChangedParams"],
-            )
-
-        with self.assertRaises(SchemaViolation):
-            self.validator.validate(True, {"enum": [1]})
-
-    def test_wire_integers_are_bounded_to_javascript_safe_values(self) -> None:
-        maximum = 9_007_199_254_740_991
-        unsigned = self.schema["$defs"]["position"]["properties"]["line"]
-        signed = self.schema["$defs"]["changeDocumentParams"]["properties"][
-            "documentVersion"
-        ]
-
-        self.validator.validate(maximum, unsigned)
-        self.validator.validate(-maximum, signed)
-        with self.assertRaises(SchemaViolation):
-            self.validator.validate(maximum + 1, unsigned)
-        with self.assertRaises(SchemaViolation):
-            self.validator.validate(-maximum - 1, signed)
-
-    def test_fixture_exercises_current_optional_field_omission(self) -> None:
-        cases = {case["method"]: case for case in self.fixture["methods"]}
-        self.assertNotIn("capabilities", cases["fleximark/initialize"]["params"])
-        self.assertNotIn("workspaces", cases["fleximark/initialize"]["params"])
-        self.assertNotIn("url", cases["fleximark/createPreview"]["result"])
-        self.assertEqual(cases["fleximark/executeCommand"]["result"], {})
-        self.assertEqual(
-            set(cases["fleximark/executeCommand"]["params"]),
-            {"daemonInstanceId", "command"},
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

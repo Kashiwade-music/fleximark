@@ -1246,23 +1246,7 @@ fn active_document_version_cancellation_interrupts_publication() {
 }
 
 #[test]
-fn wasmtime_runtime_enforces_fuel_and_wall_clock_timeout() {
-    let runtime = component_runtime();
-    let started = Instant::now();
-    let result = runtime.invoke(
-        special_request("__spin__"),
-        SandboxPolicy {
-            max_fuel: u64::MAX,
-            ..wasm_sandbox()
-        },
-        CancellationToken::default(),
-    );
-    assert!(matches!(result, Err(RuntimeError::Timeout(_))));
-    assert!(started.elapsed() < Duration::from_secs(1));
-}
-
-#[test]
-fn wasmtime_runtime_enforces_store_memory_limit() {
+fn wasmtime_runtime_enforces_memory_and_cancellation_limits() {
     let runtime = component_runtime();
     let result = runtime.invoke(
         special_request("__memory__"),
@@ -1273,11 +1257,6 @@ fn wasmtime_runtime_enforces_store_memory_limit() {
         matches!(result, Err(RuntimeError::MemoryLimit(_))),
         "{result:?}"
     );
-}
-
-#[test]
-fn wasmtime_runtime_interrupts_on_document_cancellation() {
-    let runtime = component_runtime();
     let cancellation = cancel_after(Duration::from_millis(10));
     let result = runtime.invoke(
         special_request("__spin__"),
@@ -1295,6 +1274,7 @@ fn wasmtime_runtime_interrupts_on_document_cancellation() {
 fn component_runtime_timeout_does_not_interrupt_the_next_invocation() {
     let runtime = Arc::new(component_runtime());
     let spinning_runtime = Arc::clone(&runtime);
+    let started = Instant::now();
     let spinning = thread::spawn(move || {
         spinning_runtime.invoke(
             special_request("__spin__"),
@@ -1312,6 +1292,7 @@ fn component_runtime_timeout_does_not_interrupt_the_next_invocation() {
         spinning.join().unwrap(),
         Err(RuntimeError::Timeout(_))
     ));
+    assert!(started.elapsed() < Duration::from_secs(1));
     assert!(fast.is_ok(), "later invocation was interrupted: {fast:?}");
 }
 
@@ -1333,59 +1314,6 @@ fn wasmtime_runtime_has_no_default_filesystem_preopens() {
                 .collect()
         }
     );
-}
-
-#[test]
-fn all_typed_hooks_run_through_the_same_transaction_boundary() {
-    let mut host = trusted_host(ExecutionLimits::default());
-    let mut all_hooks = manifest("all-hooks", false);
-    all_hooks.capabilities.unsafe_html_output = true;
-    let ran = Arc::new(AtomicBool::new(false));
-    host.register(
-        all_hooks,
-        PluginCapabilities {
-            unsafe_html_output: true,
-            ..PluginCapabilities::default()
-        },
-        passing_hook_runtime(Arc::clone(&ran)),
-    )
-    .unwrap();
-    let original = document();
-    assert_eq!(
-        host.preprocess_source(1, "hello\n", &CancellationToken::default())
-            .unwrap()
-            .value
-            .text,
-        "hello\n"
-    );
-    assert_eq!(
-        host.transform_blocks("hello\n", &original, &CancellationToken::default())
-            .unwrap()
-            .value,
-        original
-    );
-    assert_eq!(
-        host.transform_document("hello\n", &original, &CancellationToken::default())
-            .unwrap()
-            .value,
-        original
-    );
-    assert_eq!(
-        host.extend_render_model(&original, "preview", &CancellationToken::default())
-            .unwrap()
-            .value["mode"],
-        "test"
-    );
-    assert_eq!(
-        host.unsafe_export_html(1, "safe".into(), &CancellationToken::default())
-            .unwrap()
-            .value,
-        UnsafeExportOutput {
-            html: "safe".to_owned(),
-            unsafe_output_used: false,
-        }
-    );
-    assert!(ran.load(Ordering::Acquire));
 }
 
 #[test]

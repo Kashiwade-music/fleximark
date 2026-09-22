@@ -1178,7 +1178,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn schema_is_registry_driven_and_directional() {
+    fn schema_preserves_registry_frame_and_scalar_contracts() {
         let schema: Value =
             serde_json::from_str(&generate_protocol_schema(&named_schemas()).unwrap()).unwrap();
         assert_eq!(schema["$comment"], GENERATED_COMMENT);
@@ -1197,12 +1197,6 @@ mod tests {
         for spec in METHOD_SPECS {
             assert!(encoded.contains(spec.name), "{}", spec.name);
         }
-    }
-
-    #[test]
-    fn self_contained_frame_and_explicit_read_are_preserved() {
-        let schema: Value =
-            serde_json::from_str(&generate_protocol_schema(&named_schemas()).unwrap()).unwrap();
         assert!(schema["$defs"]["renderFrame"]["properties"]["blocks"].is_object());
         assert_eq!(
             schema["$defs"]["createPreviewResult"]["required"],
@@ -1212,12 +1206,6 @@ mod tests {
             schema["$defs"]["readPreviewResult"]["properties"]["frame"]["anyOf"][0]["$ref"],
             "#/$defs/RenderFrame"
         );
-    }
-
-    #[test]
-    fn scalar_constraints_match_the_javascript_wire_contract() {
-        let schema: Value =
-            serde_json::from_str(&generate_protocol_schema(&named_schemas()).unwrap()).unwrap();
         assert_safe_integer_bounds(&schema);
 
         assert_eq!(

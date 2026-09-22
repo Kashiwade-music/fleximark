@@ -50,7 +50,13 @@
         "documentVersion": 3,
         "renderRevision": 1,
         "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
-        "blocks": [{"id":"document-root","html":"<p></p>","nodeIds":["document-root"]}],
+        "blocks": [
+          {
+            "id": "document-root",
+            "html": "<p></p>",
+            "nodeIds": ["document-root"]
+          }
+        ],
         "navigation": [
           {
             "nodeId": "document-root",
@@ -79,7 +85,7 @@
         "navigation": [],
         "style": null,
         "assets": [],
-        "blocks": [{"id":"document-root","html":"<p></p>","nodeIds":[]}],
+        "blocks": [{ "id": "document-root", "html": "<p></p>", "nodeIds": [] }],
         "annotations": {}
       }
     },
@@ -103,6 +109,14 @@
             }
           }
         }
+      }
+    },
+    {
+      "name": "boolean is not an integer",
+      "definition": "initializeParams",
+      "value": {
+        "protocolVersion": true,
+        "client": { "name": "contract-test", "version": "1" }
       }
     }
   ]

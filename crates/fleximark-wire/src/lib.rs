@@ -157,7 +157,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn signed_boundaries_round_trip_and_overflow_is_rejected() {
+    fn javascript_safe_integer_boundaries_round_trip_and_reject_overflow() {
         for value in [-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER] {
             let safe: JsSafeI64 = serde_json::from_str(&value.to_string()).unwrap();
             assert_eq!(safe, value);
@@ -167,10 +167,6 @@ mod tests {
             assert!(serde_json::from_str::<JsSafeI64>(&value.to_string()).is_err());
             assert!(JsSafeI64::new(value).is_err());
         }
-    }
-
-    #[test]
-    fn unsigned_boundaries_round_trip_and_overflow_is_rejected() {
         let maximum = MAX_SAFE_INTEGER as u64;
         for value in [0, maximum] {
             let safe: JsSafeU64 = serde_json::from_str(&value.to_string()).unwrap();

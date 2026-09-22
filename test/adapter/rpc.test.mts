@@ -29,12 +29,16 @@ function rpcHarness() {
   return { connection, daemonInput, daemonOutput, messages, outgoing };
 }
 
-async function assertInboundState(message: unknown, closed: boolean) {
+async function assertInboundState(
+  message: unknown,
+  closed: boolean,
+  description?: string,
+) {
   const { connection, daemonOutput, messages } = rpcHarness();
   daemonOutput.write(frame(message));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.equal(connection.closed, closed);
-  assert.deepEqual(messages, []);
+  assert.equal(connection.closed, closed, description);
+  assert.deepEqual(messages, [], description);
   connection.close();
 }
 
@@ -204,107 +208,96 @@ export function suite(): void {
     assert.ok(closeReason instanceof SyntaxError);
   });
 
-  test("ignores a late or unknown response id and keeps the connection open", async () => {
-    await assertInboundState(
-      { jsonrpc: "2.0", id: 999, result: { ignored: true } },
-      false,
-    );
-  });
-
-  test("closes on a malformed JSON-RPC envelope without dispatch", async () => {
-    await assertInboundState(
+  test("applies the close and dispatch policy to invalid inbound messages", async () => {
+    const cases = [
       {
-        jsonrpc: "1.0",
-        method: "fleximark/requestFullText",
-        params: {},
+        description: "late response",
+        message: { jsonrpc: "2.0", id: 999, result: { ignored: true } },
+        closed: false,
       },
-      true,
-    );
-  });
-
-  test("ignores unknown notifications with array params and stays open", async () => {
-    await assertInboundState(
-      { jsonrpc: "2.0", method: "unknown/notification", params: [] },
-      false,
-    );
-  });
-
-  test("closes on an envelope with primitive params", async () => {
-    await assertInboundState(
       {
-        jsonrpc: "2.0",
-        method: "unknown/notification",
-        params: "not structured",
+        description: "malformed envelope",
+        message: {
+          jsonrpc: "1.0",
+          method: "fleximark/requestFullText",
+          params: {},
+        },
+        closed: true,
       },
-      true,
-    );
+      {
+        description: "unknown notification",
+        message: { jsonrpc: "2.0", method: "unknown/notification", params: [] },
+        closed: false,
+      },
+      {
+        description: "primitive params",
+        message: {
+          jsonrpc: "2.0",
+          method: "unknown/notification",
+          params: "not structured",
+        },
+        closed: true,
+      },
+      {
+        description: "malformed known notification",
+        message: {
+          jsonrpc: "2.0",
+          method: "fleximark/requestFullText",
+          params: {
+            daemonInstanceId: "daemon",
+            uri: "file:///document.md",
+            documentSessionId: "document",
+            reason: 7,
+          },
+        },
+        closed: false,
+      },
+    ];
+    for (const item of cases)
+      await assertInboundState(item.message, item.closed, item.description);
   });
 
-  test("rejects and closes on a malformed typed method result", async () => {
-    const { connection, daemonOutput } = rpcHarness();
-    const pending = connection.request("fleximark/initialize", {
-      protocolVersion: 2,
-      client: { name: "boundary-test", version: "1" },
-    });
-
-    daemonOutput.write(
-      frame({
-        jsonrpc: "2.0",
-        id: 1,
+  test("rejects invalid typed method results and closes", async () => {
+    const cases = [
+      {
+        request: (connection: JsonRpcConnection) =>
+          connection.request("fleximark/initialize", {
+            protocolVersion: 2,
+            client: { name: "boundary-test", version: "1" },
+          }),
         result: {
           protocolVersion: 2,
           daemonInstanceId: "daemon",
           workspaceStatuses: [{ uri: "file:///workspace", enabled: "yes" }],
           capabilities: {},
         },
-      }),
-    );
-
-    await assert.rejects(pending, /invalid|malformed|protocol/i);
-    assert.equal(connection.closed, true);
-  });
-
-  test("ignores malformed known notifications while keeping the connection open", async () => {
-    await assertInboundState(
-      {
-        jsonrpc: "2.0",
-        method: "fleximark/requestFullText",
-        params: {
-          daemonInstanceId: "daemon",
-          uri: "file:///document.md",
-          documentSessionId: "document",
-          reason: 7,
-        },
+        error: /invalid|malformed|protocol/i,
       },
-      false,
-    );
-  });
-
-  test("rejects createPreview results containing unknown fields", async () => {
-    const { connection, daemonOutput, messages } = rpcHarness();
-    const pending = connection.request("fleximark/createPreview", {
-      daemonInstanceId: "daemon",
-      documentSessionId: "document",
-      expectedDocumentVersion: 1,
-      target: "embeddedHtml",
-    });
-    daemonOutput.write(
-      Buffer.concat([
-        frame({
-          jsonrpc: "2.0",
-          id: 1,
-          result: {
-            previewSessionId: "preview",
-            unexpectedField: true,
-          },
-        }),
-        frame(EMPTY_DIAGNOSTICS),
-      ]),
-    );
-
-    await assert.rejects(pending, /invalid protocol result/i);
-    assert.equal(connection.closed, true);
-    assert.deepEqual(messages, []);
+      {
+        request: (connection: JsonRpcConnection) =>
+          connection.request("fleximark/createPreview", {
+            daemonInstanceId: "daemon",
+            documentSessionId: "document",
+            expectedDocumentVersion: 1,
+            target: "embeddedHtml",
+          }),
+        result: { previewSessionId: "preview", unexpectedField: true },
+        error: /invalid protocol result/i,
+      },
+    ];
+    for (const item of cases) {
+      const { connection, daemonOutput, messages } = rpcHarness();
+      const pending = item.request(connection);
+      daemonOutput.write(
+        Buffer.concat([
+          frame({ jsonrpc: "2.0", id: 1, result: item.result }),
+          frame(EMPTY_DIAGNOSTICS),
+        ]),
+      );
+      await assert.rejects(pending, item.error);
+      assert.equal(connection.closed, true);
+      assert.deepEqual(messages, []);
+    }
   });
 
   test("a closed connection discards buffered and later input permanently", async () => {

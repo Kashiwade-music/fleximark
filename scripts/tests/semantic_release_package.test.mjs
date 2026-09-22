@@ -84,16 +84,15 @@ test("rejects stale outputs without invoking a process", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("does not create identity after package failure", async () => {
-  const { calls, prepare } = harness({ failureAt: 1 });
-  await assert.rejects(prepare({}, release), /failure 1/);
-  assert.equal(calls.length, 1);
-});
-
-test("propagates identity creation failure", async () => {
-  const { calls, prepare } = harness({ failureAt: 2 });
-  await assert.rejects(prepare({}, release), /failure 2/);
-  assert.equal(calls.length, 2);
+test("propagates package and identity creation failures", async () => {
+  for (const failureAt of [1, 2]) {
+    const { calls, prepare } = harness({ failureAt });
+    await assert.rejects(
+      prepare({}, release),
+      new RegExp(`failure ${failureAt}`),
+    );
+    assert.equal(calls.length, failureAt, `failure at call ${failureAt}`);
+  }
 });
 
 test("uses Windows command names without changing arguments", async () => {

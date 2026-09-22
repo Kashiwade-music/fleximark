@@ -6,8 +6,28 @@ export const suiteName = "Editor contributions";
 export function suite(): void {
   const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
 
-  test("declares and registers the stable FlexiMark command IDs", async () => {
+  test("declares the stable package contributions and registers commands", async () => {
     assert.ok(extension);
+    const properties =
+      extension.packageJSON.contributes.configuration.properties;
+    assert.deepEqual(Object.keys(properties).sort(), [
+      "fleximark.autoOpenPreview",
+      "fleximark.daemonPath",
+      "fleximark.logLevel",
+      "fleximark.previewColumn",
+      "fleximark.previewTarget",
+    ]);
+    assert.equal(
+      properties["fleximark.daemonPath"].scope,
+      "machine-overridable",
+    );
+    assert.equal(properties["fleximark.previewTarget"].scope, "resource");
+    assert.deepEqual(properties["fleximark.logLevel"].enum, [
+      "off",
+      "error",
+      "info",
+      "debug",
+    ]);
     const expected = [
       "fleximark.collectAdmonitions",
       "fleximark.createNote",

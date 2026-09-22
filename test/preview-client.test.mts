@@ -224,33 +224,33 @@ export function suite(): void {
     }
   });
 
-  test("validates a whole frame before changing the current display", () => {
-    assert.equal(preview.apply(frame(1, [block("a", "safe")])), true);
-    const html = root.innerHTML;
-    const invalid = frame(2, [
-      block("b", "valid"),
-      {
-        id: "c",
-        nodeIds: ["c"],
-        html: '<script data-fleximark-node-id="c">alert(1)</script>',
-      },
-    ]);
-    assert.equal(preview.apply(invalid), false);
-    assert.equal(preview.apply(invalid), false);
-    assert.equal(root.innerHTML, html);
-    assert.equal(preview.renderRevision, 1);
-    assert.equal(requested, 1);
-  });
-
-  test("rejects duplicate block and nested NodeIds atomically", () => {
-    assert.equal(preview.apply(frame(1, [block("a", "safe")])), true);
-    const html = root.innerHTML;
-    assert.equal(
-      preview.apply(frame(2, [block("same", "one"), block("same", "two")])),
-      false,
-    );
-    assert.equal(root.innerHTML, html);
-    assert.equal(requested, 1);
+  test("rejects invalid frames atomically", () => {
+    const invalidFrames = [
+      frame(2, [
+        block("b", "valid"),
+        {
+          id: "c",
+          nodeIds: ["c"],
+          html: '<script data-fleximark-node-id="c">alert(1)</script>',
+        },
+      ]),
+      frame(2, [block("same", "one"), block("same", "two")]),
+    ];
+    for (const [index, invalid] of invalidFrames.entries()) {
+      assert.equal(preview.apply(frame(1, [block("a", "safe")])), true);
+      const html = root.innerHTML;
+      assert.equal(preview.apply(invalid), false);
+      assert.equal(root.innerHTML, html);
+      assert.equal(preview.renderRevision, 1);
+      if (index === 0) assert.equal(preview.apply(invalid), false);
+      assert.equal(requested, 1);
+      if (index + 1 < invalidFrames.length) {
+        preview.dispose();
+        root.replaceChildren();
+        requested = 0;
+        preview = new PreviewDocument(root, () => requested++);
+      }
+    }
   });
 
   test("ignores stale same-session frames without requesting another frame", () => {

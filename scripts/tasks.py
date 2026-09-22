@@ -168,6 +168,7 @@ def python_test() -> None:
         "-p",
         "test_*.py",
     )
+    run("node", "--test", "scripts/tests/semantic_release_package.test.mjs")
 
 
 def localization(_: Sequence[str]) -> None:

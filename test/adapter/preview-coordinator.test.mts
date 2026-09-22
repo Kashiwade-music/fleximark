@@ -566,36 +566,38 @@ export function suite(): void {
     assert.equal(preview.remoteSessionActive, true);
   });
 
-  test("retains disconnected panels during daemon replay", async () => {
-    const preview = previewState(
-      daemonOrigin({ closed: false } as JsonRpcConnection, "daemon", 1),
-      async () => true,
-    );
-    const runtime = runtimeWithPreview(preview);
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => undefined,
-      dispose: async () => assert.fail("the local panel must remain open"),
-    } as unknown as PreviewLifecycleDependencies);
-    assert.equal(runtime.previews.get("preview"), preview);
-    assert.equal(preview.remoteSessionActive, false);
-    assert.ok(preview.panel);
-  });
-
-  test("keeps a replay failure disconnected", async () => {
-    const preview = previewState(
-      daemonOrigin({ closed: true } as JsonRpcConnection, "old-daemon", 1),
-      async () => true,
-    );
-    preview.remoteSessionActive = false;
-    const runtime = runtimeWithPreview(preview);
-    await recreatePreviewsLifecycle(runtime, {
-      document: () => ({ languageId: "markdown" }) as vscode.TextDocument,
-      request: async () => undefined,
-      dispose: async () => assert.fail("the local panel must remain open"),
-      report: assert.fail,
-    } as unknown as PreviewLifecycleDependencies);
-    assert.equal(runtime.previews.get("preview"), preview);
-    assert.equal(preview.remoteSessionActive, false);
+  test("retains disconnected panels when replay is unavailable", async () => {
+    const cases = [
+      {
+        connection: { closed: false } as JsonRpcConnection,
+        daemon: "daemon",
+        document: () => undefined,
+        request: undefined,
+      },
+      {
+        connection: { closed: true } as JsonRpcConnection,
+        daemon: "old-daemon",
+        document: () => ({ languageId: "markdown" }) as vscode.TextDocument,
+        request: async () => undefined,
+      },
+    ];
+    for (const item of cases) {
+      const preview = previewState(
+        daemonOrigin(item.connection, item.daemon, 1),
+        async () => true,
+      );
+      if (item.connection.closed) preview.remoteSessionActive = false;
+      const runtime = runtimeWithPreview(preview);
+      await recreatePreviewsLifecycle(runtime, {
+        document: item.document,
+        request: item.request,
+        dispose: async () => assert.fail("the local panel must remain open"),
+        report: assert.fail,
+      } as unknown as PreviewLifecycleDependencies);
+      assert.equal(runtime.previews.get("preview"), preview, item.daemon);
+      assert.equal(preview.remoteSessionActive, false, item.daemon);
+      assert.ok(preview.panel, item.daemon);
+    }
   });
 
   test("removes membership before awaiting daemon disposal", async () => {

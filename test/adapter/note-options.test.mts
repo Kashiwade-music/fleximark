@@ -9,7 +9,7 @@ import type {
 export const suiteName = "Note option adapter";
 
 export function suite(): void {
-  test("puts the selected service options on the executeCommand wire DTO", async () => {
+  test("executes selected note options and stops after cancellation", async () => {
     const base: ExecuteCommandParams = {
       daemonInstanceId: "daemon-1",
       command: "createNote",
@@ -42,24 +42,17 @@ export function suite(): void {
       noteCategory: "work/project",
       noteTemplate: "meeting",
     });
-  });
-
-  test("does not send createNote when option selection is cancelled", async () => {
-    let executed = false;
+    let executedAfterCancellation = false;
     const result = await executeCreateNote(
-      {
-        daemonInstanceId: "daemon-1",
-        command: "createNote",
-        workspaceUri: "file:///workspace",
-      },
+      base,
       async () => ({ categories: ["work"], templates: ["blank"] }),
       async () => undefined,
       async () => {
-        executed = true;
+        executedAfterCancellation = true;
         return {};
       },
     );
     assert.equal(result, undefined);
-    assert.equal(executed, false);
+    assert.equal(executedAfterCancellation, false);
   });
 }

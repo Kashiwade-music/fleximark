@@ -1548,7 +1548,7 @@ fn preview_http_shell_preserves_exact_security_headers_and_rejections() {
 }
 
 #[test]
-fn preview_http_rejects_duplicate_headers_and_enforces_body_boundaries() {
+fn preview_http_enforces_header_and_body_parser_boundaries() {
     let token = "fixture-token";
     let forbidden = b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
     let bad_request = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
@@ -1608,11 +1608,6 @@ fn preview_http_rejects_duplicate_headers_and_enforces_body_boundaries() {
         });
         assert_eq!(response, expected, "content length {content_length}");
     }
-}
-
-#[test]
-fn preview_http_enforces_individual_and_total_header_byte_limits() {
-    let token = "fixture-token";
     let request_with_header_lengths = |port: u16, lengths: &[usize]| {
         let mut request = format!("GET /preview/{token} HTTP/1.1\r\nHost: localhost:{port}\r\n");
         for (index, length) in lengths.iter().copied().enumerate() {
@@ -1651,7 +1646,7 @@ fn preview_http_enforces_individual_and_total_header_byte_limits() {
 }
 
 #[test]
-fn preview_sse_reports_only_the_latest_change_after_last_event_id() {
+fn preview_sse_preserves_wire_format_order_and_acknowledged_sequences() {
     let token = "fixture-token";
     let pages = preview_pages(token);
     let expected_event = pages.lock().unwrap()[token].change_event.encoded.clone();
@@ -1667,12 +1662,6 @@ fn preview_sse_reports_only_the_latest_change_after_last_event_id() {
         body.len()
     );
     assert_eq!(response, expected.as_bytes());
-}
-
-#[test]
-fn preview_sse_orders_retained_events_and_never_replays_acknowledged_sequences() {
-    let token = "fixture-token";
-    let pages = preview_pages(token);
     {
         let mut pages = pages.lock().unwrap();
         let page = pages.get_mut(token).unwrap();

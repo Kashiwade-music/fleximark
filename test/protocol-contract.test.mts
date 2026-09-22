@@ -163,6 +163,19 @@ export function suite(): void {
   });
 
   test("directional previewEvent validators accept only their wire direction", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        path.join(
+          process.cwd(),
+          "test",
+          "fixtures",
+          "protocol-v2-bidirectional-server.json",
+        ),
+        "utf8",
+      ),
+    ) as {
+      notifications: { method: "fleximark/previewEvent"; params: unknown }[];
+    };
     const source = {
       type: "selectSource",
       sourceRange: {
@@ -223,23 +236,6 @@ export function suite(): void {
       serverNotificationValidators["fleximark/previewEvent"](clientParams),
       false,
     );
-  });
-
-  test("accepts the independent server side of a bidirectional method", () => {
-    const fixture = JSON.parse(
-      readFileSync(
-        path.join(
-          process.cwd(),
-          "test",
-          "fixtures",
-          "protocol-v2-bidirectional-server.json",
-        ),
-        "utf8",
-      ),
-    ) as {
-      notifications: { method: "fleximark/previewEvent"; params: unknown }[];
-    };
-
     for (const { method, params } of fixture.notifications) {
       assert.equal(serverNotificationValidators[method](params), true, method);
       assert.equal(clientNotificationValidators[method](params), false, method);

@@ -10,7 +10,7 @@ import {
 export const suiteName = "Legacy workspace migration runtime";
 
 export function suite(): void {
-  test("uses daemon inspection and migration commands without editor filesystem writes", async () => {
+  test("accepts known daemon inspection results and rejects unknown ones", async () => {
     const workspace = vscode.workspace.workspaceFolders?.[0];
     assert.ok(workspace);
     const calls: { command: string; args?: readonly string[] }[] = [];
@@ -37,11 +37,6 @@ export function suite(): void {
       JSON.parse(settings ?? ""),
       JSON.parse(JSON.stringify(state.settings)),
     );
-  });
-
-  test("rejects an unknown daemon inspection result", async () => {
-    const workspace = vscode.workspace.workspaceFolders?.[0];
-    assert.ok(workspace);
     await assert.rejects(
       detectLegacyWorkspace(workspace, async () => ({ data: "unknown" })),
       { message: "Invalid legacy workspace inspection result" },
