@@ -103,7 +103,7 @@ export function suite(): void {
     observer.disconnect();
   });
 
-  test("splices one changed block without detaching 589 unchanged blocks", () => {
+  test("reconciles one changed block without detaching 589 unchanged blocks", () => {
     const blocks = Array.from({ length: 590 }, (_, index) =>
       block(`block-${index}`, `value-${index}`),
     );
@@ -133,7 +133,7 @@ export function suite(): void {
     observer.disconnect();
   });
 
-  test("splices local insertion, deletion, and reorder while retaining identities", () => {
+  test("reconciles insertion, deletion, and reorder while retaining identities", () => {
     assert.equal(
       preview.apply(
         frame(1, [
@@ -205,7 +205,7 @@ export function suite(): void {
     assert.equal(root.children[3], x);
   });
 
-  test("accepts a new session revision and rebuilds on a renderer change", () => {
+  test("starts a new session with fresh DOM and rebuilds on a renderer change", () => {
     assert.equal(preview.apply(frame(7, [block("a", "one")])), true);
     const original = root.firstElementChild;
     assert.equal(
@@ -215,8 +215,10 @@ export function suite(): void {
       }),
       true,
     );
-    assert.equal(root.firstElementChild, original);
+    assert.notEqual(root.firstElementChild, original);
     assert.equal(preview.renderRevision, 1);
+
+    const nextSession = root.firstElementChild;
 
     assert.equal(
       preview.apply({
@@ -226,7 +228,7 @@ export function suite(): void {
       }),
       true,
     );
-    assert.notEqual(root.firstElementChild, original);
+    assert.notEqual(root.firstElementChild, nextSession);
   });
 
   test("invalidates DOM reuse when renderer fingerprint changes", () => {

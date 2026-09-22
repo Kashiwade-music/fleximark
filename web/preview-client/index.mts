@@ -83,6 +83,7 @@ export class PreviewDocument {
       this.#reject(createdUrls, frameKey);
     if (!validStyle(frame.style) || !validAssets(frame.assets)) return reject();
 
+    const sameRenderSession = frame.previewSessionId === this.#sessionId;
     const blockIds = new Set<string>();
     const nodeIds = new Set<string>();
     const nextBlocks = new Map<string, DisplayedBlock>();
@@ -113,6 +114,7 @@ export class PreviewDocument {
         let element: HTMLElement;
         let assetReferences: readonly string[];
         if (
+          sameRenderSession &&
           frame.rendererFingerprint === this.#rendererFingerprint &&
           previous?.html === block.html
         ) {
@@ -171,7 +173,7 @@ export class PreviewDocument {
           ? previousAnnotations.element
           : annotationElement(annotationJson);
       this.#clearHighlights();
-      replaceChangedChildren(this.#root, [
+      reconcileChildren(this.#root, [
         ...(annotationScript ? [annotationScript] : []),
         ...nextElements,
       ]);
@@ -262,48 +264,38 @@ function annotationElement(
   return script;
 }
 
-/** Replaces only the continuous range between unchanged child prefixes/suffixes. */
-function replaceChangedChildren(
-  root: HTMLElement,
-  nextChildren: readonly HTMLElement[],
-): void {
-  const currentChildren = [...root.children] as HTMLElement[];
-  const sharedLength = Math.min(currentChildren.length, nextChildren.length);
-  let prefixLength = 0;
-  while (
-    prefixLength < sharedLength &&
-    currentChildren[prefixLength] === nextChildren[prefixLength]
-  )
-    prefixLength++;
+/** Makes direct children match a complete frame without detaching retained nodes. */
+function reconcileChildren(root: HTMLElement, desired: readonly Node[]): void {
+  const retained = new Set(desired);
+  let current = root.firstChild;
 
-  let suffixLength = 0;
-  while (
-    suffixLength < sharedLength - prefixLength &&
-    currentChildren[currentChildren.length - 1 - suffixLength] ===
-      nextChildren[nextChildren.length - 1 - suffixLength]
-  )
-    suffixLength++;
+  for (const node of desired) {
+    while (
+      current !== null &&
+      node.parentNode === root &&
+      !retained.has(current)
+    ) {
+      const next = current.nextSibling;
+      root.removeChild(current);
+      current = next;
+    }
 
-  if (
-    prefixLength === currentChildren.length &&
-    prefixLength === nextChildren.length
-  )
-    return;
-
-  const currentEnd = currentChildren.length - suffixLength;
-  const nextEnd = nextChildren.length - suffixLength;
-  const anchor = currentChildren[currentEnd] ?? null;
-
-  if (prefixLength < currentEnd) {
-    const range = document.createRange();
-    range.setStartBefore(currentChildren[prefixLength]);
-    range.setEndAfter(currentChildren[currentEnd - 1]);
-    range.extractContents();
+    if (current === node) {
+      current = current.nextSibling;
+    } else if (current !== null && !retained.has(current)) {
+      const next = current.nextSibling;
+      root.replaceChild(node, current);
+      current = next;
+    } else {
+      root.insertBefore(node, current);
+    }
   }
 
-  const replacement = document.createDocumentFragment();
-  replacement.append(...nextChildren.slice(prefixLength, nextEnd));
-  root.insertBefore(replacement, anchor);
+  while (current !== null) {
+    const next = current.nextSibling;
+    root.removeChild(current);
+    current = next;
+  }
 }
 
 function referencedAssets(root: HTMLElement): string[] {
