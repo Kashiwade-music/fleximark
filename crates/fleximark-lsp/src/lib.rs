@@ -9,8 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_engine::{
-    DocumentSession as EngineSession, PreviewSessionId, RenderConfig, RenderFrame,
-    ResolvedRenderAsset,
+    DocumentSession as EngineSession, PreviewSessionId, RenderConfig, RenderFrame, ResolvedAssets,
 };
 use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
 use fleximark_plugin_host::{CancellationToken, PluginHost};
@@ -181,7 +180,7 @@ impl SessionRegistry {
     pub fn reconfigure_document_assets(
         &mut self,
         uri: &str,
-        assets: Vec<ResolvedRenderAsset>,
+        assets: ResolvedAssets,
     ) -> Result<(), SessionError> {
         let workspace_uri = self
             .index
@@ -227,7 +226,7 @@ impl SessionRegistry {
         workspace_uri: &str,
         host: PluginHost,
         render_config: RenderConfig,
-        mut assets: HashMap<String, Vec<ResolvedRenderAsset>>,
+        mut assets: HashMap<String, ResolvedAssets>,
         cancellation: &CancellationToken,
     ) -> Result<(), SessionError> {
         let workspace_uri = workspace_uri.trim_end_matches('/');
@@ -878,17 +877,18 @@ mod tests {
             .renderer_fingerprint
     }
 
-    fn assets_exceeding_total_limit() -> Vec<ResolvedRenderAsset> {
+    fn assets_exceeding_total_limit() -> ResolvedAssets {
         (0_u8..9)
             .map(|index| {
-                ResolvedRenderAsset::from_validated_bytes(
+                fleximark_engine::ResolvedRenderAsset::from_validated_bytes(
                     format!("file:///asset-{index}.bin"),
                     "application/octet-stream".into(),
                     &vec![index; 1024 * 1024],
                 )
                 .unwrap()
             })
-            .collect()
+            .collect::<Vec<_>>()
+            .into()
     }
 
     #[test]

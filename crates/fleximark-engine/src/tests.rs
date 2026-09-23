@@ -553,6 +553,33 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
 }
 
 #[test]
+fn resolved_assets_share_one_publication_across_source_aliases() {
+    let first = ResolvedRenderAsset::from_validated_bytes(
+        "images/first.png".to_owned(),
+        "image/png".to_owned(),
+        b"shared-image",
+    )
+    .unwrap();
+    let second = ResolvedRenderAsset::from_validated_bytes(
+        "images/second.png".to_owned(),
+        "image/png".to_owned(),
+        b"shared-image",
+    )
+    .unwrap();
+
+    let config = RenderConfig::default()
+        .with_resolved_assets(vec![first, second])
+        .unwrap();
+
+    assert_eq!(config.assets().len(), 1);
+    assert_eq!(config.context.resolved_resources.len(), 2);
+    assert_eq!(
+        config.context.resolved_resources["images/first.png"],
+        config.context.resolved_resources["images/second.png"]
+    );
+}
+
+#[test]
 fn render_only_reconfiguration_preserves_ir_and_plugin_diagnostics() {
     let host = Arc::new(
         PluginHost::configured(

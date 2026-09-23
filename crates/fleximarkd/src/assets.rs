@@ -1,12 +1,17 @@
+use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
-use fleximark_engine::{RenderAsset, RenderStyle, ResolvedRenderAsset};
-use fleximark_model::{BlockKind, Document, InlineKind, Node};
+use fleximark_engine::{
+    AssetDiagnostic, AssetDiagnosticKind, RenderAsset, RenderStyle, ResolvedAssets,
+    ResolvedRenderAsset,
+};
+use fleximark_model::{BlockKind, Document, InlineKind, Node, SourceRange};
 use fleximark_plugin_sdk::FlexiMarkConfig;
 
 use crate::export::{ObjectIdentity, sha256};
@@ -117,7 +122,7 @@ pub fn resolve_render_assets(
     source_uri: &str,
     workspace_uri: &str,
     document: &Document,
-) -> Result<Vec<ResolvedRenderAsset>, ServiceError> {
+) -> Result<ResolvedAssets, ServiceError> {
     let source = workspace_path(source_uri)?;
     let workspace = workspace_path(workspace_uri)?;
     if !source.starts_with(&workspace) {
@@ -149,12 +154,15 @@ pub fn resolve_render_assets(
         allowed_roots.push(canonical);
     }
 
-    let mut references = Vec::new();
+    let mut references: BTreeMap<String, Vec<Option<SourceRange>>> = BTreeMap::new();
     let mut blocks = document.blocks.iter().collect::<Vec<_>>();
     let mut inlines = Vec::new();
     while let Some(block) = blocks.pop() {
         if let BlockKind::Media { source } = &block.kind {
-            references.push(source.clone());
+            references
+                .entry(source.clone())
+                .or_default()
+                .push(block.provenance.navigation_range());
         }
         for child in &block.children {
             match child {
@@ -168,7 +176,10 @@ pub fn resolve_render_assets(
             InlineKind::Image {
                 source, children, ..
             } => {
-                references.push(source.clone());
+                references
+                    .entry(source.clone())
+                    .or_default()
+                    .push(inline.provenance.navigation_range());
                 children
             }
             InlineKind::Link { children, .. }
@@ -179,11 +190,10 @@ pub fn resolve_render_assets(
         };
         inlines.extend(children);
     }
-    references.sort();
-    references.dedup();
-
     let mut assets = Vec::new();
-    for reference in references {
+    let mut diagnostics = Vec::new();
+    let mut total_bytes = 0_usize;
+    for (reference, occurrences) in references {
         if reference.starts_with('#')
             || reference.starts_with('/')
             || reference.contains("://")
@@ -192,50 +202,258 @@ pub fn resolve_render_assets(
         {
             continue;
         }
-        let path_text = reference.split(['?', '#']).next().unwrap_or(&reference);
-        let decoded = percent_decode(path_text)?;
-        if Path::new(&decoded).is_absolute()
-            || Path::new(&decoded).components().any(|component| {
-                matches!(
-                    component,
-                    std::path::Component::Prefix(_) | std::path::Component::RootDir
-                )
-            })
-        {
-            return Err(ServiceError::InvalidControlPath);
+        match resolve_render_asset(
+            &reference,
+            &source,
+            &workspace,
+            &workspace_dir,
+            &allowed_roots,
+        ) {
+            Ok(asset) => {
+                let is_new_content = !assets.iter().any(|existing: &ResolvedRenderAsset| {
+                    existing.published().reference == asset.published().reference
+                });
+                let byte_length = asset.published().byte_length.get() as usize;
+                if is_new_content
+                    && total_bytes.saturating_add(byte_length) > MAX_RENDER_ASSETS_BYTES
+                {
+                    diagnostics.extend(occurrences.into_iter().map(|source_range| {
+                        asset_diagnostic(
+                            &reference,
+                            AssetDiagnosticKind::TotalLimit,
+                            "loading it would exceed the 8 MiB document asset limit",
+                            source_range,
+                        )
+                    }));
+                } else {
+                    if is_new_content {
+                        total_bytes += byte_length;
+                    }
+                    assets.push(asset);
+                }
+            }
+            Err((kind, detail)) => diagnostics.extend(
+                occurrences
+                    .into_iter()
+                    .map(|source_range| asset_diagnostic(&reference, kind, detail, source_range)),
+            ),
         }
-        let candidate = source
-            .parent()
-            .ok_or(ServiceError::InvalidWorkspaceUri)?
-            .join(decoded);
-        let canonical = candidate.canonicalize()?;
-        if !canonical.starts_with(&workspace)
-            || !allowed_roots.iter().any(|root| canonical.starts_with(root))
-        {
-            return Err(ServiceError::InvalidControlPath);
-        }
-        let relative = canonical
-            .strip_prefix(&workspace)
-            .map_err(|_| ServiceError::InvalidControlPath)?;
-        reject_linked_path(&workspace, relative, false)?;
-        let mut options = cap_std::fs::OpenOptions::new();
-        options.read(true).follow(FollowSymlinks::No);
-        let mut file = workspace_dir
-            .open_with(relative, &options)
-            .map_err(|_| ServiceError::InvalidControlPath)?;
-        let metadata = file.metadata()?;
-        if !metadata.is_file() || metadata.len() > 1024 * 1024 {
-            return Err(ServiceError::InvalidControlPath);
-        }
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        let media_type =
-            media_type_from_signature(&bytes).ok_or(ServiceError::InvalidControlPath)?;
-        let asset = ResolvedRenderAsset::from_validated_bytes(reference, media_type.into(), &bytes)
-            .map_err(|error| ServiceError::PluginConfig(error.to_string()))?;
-        assets.push(asset);
     }
-    Ok(assets)
+    diagnostics.sort_by(|left, right| {
+        let left_start = left
+            .source_range
+            .as_ref()
+            .map_or(u64::MAX, |range| range.byte_start.get());
+        let right_start = right
+            .source_range
+            .as_ref()
+            .map_or(u64::MAX, |range| range.byte_start.get());
+        left_start
+            .cmp(&right_start)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+    Ok(ResolvedAssets {
+        assets,
+        diagnostics,
+    })
+}
+
+fn asset_diagnostic(
+    reference: &str,
+    kind: AssetDiagnosticKind,
+    detail: &str,
+    source_range: Option<SourceRange>,
+) -> AssetDiagnostic {
+    AssetDiagnostic {
+        source: reference.to_owned(),
+        kind,
+        message: format!("Cannot load asset `{reference}`: {detail}"),
+        source_range,
+    }
+}
+
+const MAX_RENDER_ASSET_BYTES: u64 = 1024 * 1024;
+const MAX_RENDER_ASSETS_BYTES: usize = 8 * 1024 * 1024;
+
+fn resolve_render_asset(
+    reference: &str,
+    source: &Path,
+    workspace: &Path,
+    workspace_dir: &Dir,
+    allowed_roots: &[PathBuf],
+) -> Result<ResolvedRenderAsset, (AssetDiagnosticKind, &'static str)> {
+    let path_text = reference.split(['?', '#']).next().unwrap_or(reference);
+    let decoded = percent_decode(path_text).map_err(|_| {
+        (
+            AssetDiagnosticKind::InvalidReference,
+            "the path contains invalid percent encoding",
+        )
+    })?;
+    let decoded = Path::new(&decoded);
+    if decoded.as_os_str().is_empty()
+        || decoded.is_absolute()
+        || decoded
+            .components()
+            .any(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+    {
+        return Err((
+            AssetDiagnosticKind::InvalidReference,
+            "the path is not a relative local path",
+        ));
+    }
+    let candidate = source
+        .parent()
+        .ok_or((
+            AssetDiagnosticKind::Unreadable,
+            "the document has no parent directory",
+        ))?
+        .join(decoded);
+    let lexical_candidate = normalize_lexically(&candidate);
+    if !lexical_candidate.starts_with(workspace)
+        || !allowed_roots
+            .iter()
+            .any(|root| lexical_candidate.starts_with(root))
+    {
+        return Err((
+            AssetDiagnosticKind::OutsideRoot,
+            "the file is outside the configured asset roots",
+        ));
+    }
+    if path_contains_symlink(
+        source.parent().ok_or((
+            AssetDiagnosticKind::Unreadable,
+            "the document has no parent directory",
+        ))?,
+        decoded,
+    ) {
+        return Err((
+            AssetDiagnosticKind::Symlink,
+            "symbolic links are not allowed for preview assets",
+        ));
+    }
+    let canonical = candidate.canonicalize().map_err(|error| {
+        if error.kind() == ErrorKind::NotFound {
+            (AssetDiagnosticKind::Missing, "the file does not exist")
+        } else {
+            (
+                AssetDiagnosticKind::Unreadable,
+                "the path cannot be resolved",
+            )
+        }
+    })?;
+    if !canonical.starts_with(workspace)
+        || !allowed_roots.iter().any(|root| canonical.starts_with(root))
+    {
+        return Err((
+            AssetDiagnosticKind::OutsideRoot,
+            "the file is outside the configured asset roots",
+        ));
+    }
+    let path_metadata = std::fs::symlink_metadata(&canonical).map_err(|_| {
+        (
+            AssetDiagnosticKind::Unreadable,
+            "the file metadata cannot be read",
+        )
+    })?;
+    if !path_metadata.is_file() {
+        return Err((
+            AssetDiagnosticKind::NotAFile,
+            "the path does not name a regular file",
+        ));
+    }
+    let relative = canonical.strip_prefix(workspace).map_err(|_| {
+        (
+            AssetDiagnosticKind::OutsideRoot,
+            "the file is outside the workspace",
+        )
+    })?;
+    reject_linked_path(workspace, relative, false).map_err(|_| {
+        (
+            AssetDiagnosticKind::Symlink,
+            "symbolic links are not allowed for preview assets",
+        )
+    })?;
+    let mut options = cap_std::fs::OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let mut file = workspace_dir.open_with(relative, &options).map_err(|_| {
+        (
+            AssetDiagnosticKind::Unreadable,
+            "the file cannot be opened safely",
+        )
+    })?;
+    let metadata = file.metadata().map_err(|_| {
+        (
+            AssetDiagnosticKind::Unreadable,
+            "the file metadata cannot be read",
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err((
+            AssetDiagnosticKind::NotAFile,
+            "the path does not name a regular file",
+        ));
+    }
+    if metadata.len() > MAX_RENDER_ASSET_BYTES {
+        return Err((
+            AssetDiagnosticKind::Oversize,
+            "the file exceeds the 1 MiB per-asset limit",
+        ));
+    }
+    let byte_length = metadata.len() as usize;
+    let mut bytes = Vec::with_capacity(byte_length);
+    file.read_to_end(&mut bytes).map_err(|_| {
+        (
+            AssetDiagnosticKind::Unreadable,
+            "the file contents cannot be read",
+        )
+    })?;
+    let media_type = media_type_from_signature(&bytes).ok_or((
+        AssetDiagnosticKind::Unsupported,
+        "the file format is not supported or its signature is invalid",
+    ))?;
+    ResolvedRenderAsset::from_validated_bytes(reference.to_owned(), media_type.into(), &bytes)
+        .map_err(|_| {
+            (
+                AssetDiagnosticKind::Unreadable,
+                "the file could not be validated",
+            )
+        })
+}
+
+fn path_contains_symlink(base: &Path, relative: &Path) -> bool {
+    let mut current = base.to_path_buf();
+    for component in relative.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                current.pop();
+            }
+            Component::Normal(component) => current.push(component),
+            Component::Prefix(_) | Component::RootDir => return false,
+        }
+        if std::fs::symlink_metadata(&current)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::Normal(component) => normalized.push(component),
+        }
+    }
+    normalized
 }
 
 fn media_type_from_signature(bytes: &[u8]) -> Option<&'static str> {
@@ -308,9 +526,10 @@ mod tests {
         .unwrap();
         let assets = resolve_render_assets(&document_uri, &workspace_uri, session.document())
             .expect("ordinary links and escaped raw HTML are not asset requests");
-        assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].source(), "image.png");
-        assert_eq!(assets[0].published().media_type, "image/png");
+        assert_eq!(assets.assets.len(), 1);
+        assert!(assets.diagnostics.is_empty());
+        assert_eq!(assets.assets[0].source(), "image.png");
+        assert_eq!(assets.assets[0].published().media_type, "image/png");
 
         let traversal = fleximark_engine::DocumentSession::open(
             fleximark_model::DocumentUri(document_uri.clone()),
@@ -319,8 +538,12 @@ mod tests {
             fleximark_model::PositionEncoding::Utf8,
         )
         .unwrap();
-        assert!(
-            resolve_render_assets(&document_uri, &workspace_uri, traversal.document()).is_err()
+        let traversal =
+            resolve_render_assets(&document_uri, &workspace_uri, traversal.document()).unwrap();
+        assert!(traversal.assets.is_empty());
+        assert_eq!(
+            traversal.diagnostics[0].kind,
+            AssetDiagnosticKind::OutsideRoot
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -345,8 +568,155 @@ mod tests {
         let assets = resolve_render_assets(&document_uri, &workspace_uri, session.document())
             .expect("ordinary Markdown preview uses the default workspace configuration");
 
-        assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].source(), "image.png");
+        assert_eq!(assets.assets.len(), 1);
+        assert!(assets.diagnostics.is_empty());
+        assert_eq!(assets.assets[0].source(), "image.png");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn parsed_document(uri: &str, source: &str) -> fleximark_engine::DocumentSession {
+        fleximark_engine::DocumentSession::open(
+            fleximark_model::DocumentUri(uri.to_owned()),
+            1,
+            source.to_owned(),
+            fleximark_model::PositionEncoding::Utf8,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn asset_failures_are_diagnostics_and_do_not_discard_valid_assets() {
+        let root = test_workspace("asset-diagnostics-test");
+        let workspace_uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&workspace_uri).unwrap();
+        fs::write(root.join("valid.png"), b"\x89PNG\r\n\x1a\nvalid").unwrap();
+        fs::write(root.join("unsupported.bin"), b"not a supported file").unwrap();
+        fs::write(root.join("large.png"), vec![0_u8; 1024 * 1024 + 1]).unwrap();
+        fs::create_dir(root.join("directory.png")).unwrap();
+        let source = "![first missing](missing.png)\n\n![valid](valid.png)\n\n![second missing](missing.png)\n\n![unsupported](unsupported.bin)\n\n![large](large.png)\n\n![directory](directory.png)\n\n![valid again](valid.png)\n";
+        let document_path = root.join("doc.md");
+        fs::write(&document_path, source).unwrap();
+        let document_uri = path_to_file_uri(&document_path).unwrap();
+        let session = parsed_document(&document_uri, source);
+
+        let resolved =
+            resolve_render_assets(&document_uri, &workspace_uri, session.document()).unwrap();
+
+        assert_eq!(resolved.assets.len(), 1);
+        assert_eq!(resolved.assets[0].source(), "valid.png");
+        assert_eq!(resolved.diagnostics.len(), 5);
+        assert_eq!(
+            resolved
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.kind == AssetDiagnosticKind::Missing)
+                .count(),
+            2
+        );
+        assert!(
+            resolved
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind == AssetDiagnosticKind::Unsupported)
+        );
+        assert!(
+            resolved
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind == AssetDiagnosticKind::Oversize)
+        );
+        assert!(
+            resolved
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.kind == AssetDiagnosticKind::NotAFile)
+        );
+        let missing_lines = resolved
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.kind == AssetDiagnosticKind::Missing)
+            .map(|diagnostic| {
+                diagnostic
+                    .source_range
+                    .as_ref()
+                    .expect("parsed images carry source ranges")
+                    .start
+                    .line
+                    .get()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(missing_lines, [0, 4]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn document_asset_budget_produces_a_diagnostic_instead_of_failing_resolution() {
+        let root = test_workspace("asset-total-budget-test");
+        let workspace_uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&workspace_uri).unwrap();
+        let mut source = String::new();
+        for index in 0..9 {
+            let name = format!("asset-{index}.png");
+            let mut bytes = vec![index as u8; 1024 * 1024];
+            bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+            fs::write(root.join(&name), bytes).unwrap();
+            source.push_str(&format!("![{index}]({name})\n\n"));
+        }
+        let document_path = root.join("doc.md");
+        fs::write(&document_path, &source).unwrap();
+        let document_uri = path_to_file_uri(&document_path).unwrap();
+        let session = parsed_document(&document_uri, &source);
+
+        let resolved =
+            resolve_render_assets(&document_uri, &workspace_uri, session.document()).unwrap();
+
+        assert_eq!(resolved.assets.len(), 8);
+        assert_eq!(resolved.diagnostics.len(), 1);
+        assert_eq!(
+            resolved.diagnostics[0].kind,
+            AssetDiagnosticKind::TotalLimit
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_workspace_asset_configuration_remains_fatal() {
+        let root = test_workspace("asset-config-fatal-test");
+        let workspace_uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&workspace_uri).unwrap();
+        fs::write(
+            root.join(".fleximark/config.toml"),
+            "schema_version = 2\n[assets]\nroots = [\"missing-root\"]\n[security]\nraw_html_preview = \"sanitize\"\nraw_html_export = \"sanitize\"\n",
+        )
+        .unwrap();
+        let document_path = root.join("doc.md");
+        fs::write(&document_path, "![asset](image.png)\n").unwrap();
+        let document_uri = path_to_file_uri(&document_path).unwrap();
+        let session = parsed_document(&document_uri, "![asset](image.png)\n");
+
+        assert!(resolve_render_assets(&document_uri, &workspace_uri, session.document()).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symbolic_link_assets_are_reported_separately() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_workspace("asset-symlink-test");
+        let workspace_uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&workspace_uri).unwrap();
+        fs::write(root.join("target.png"), b"\x89PNG\r\n\x1a\ntarget").unwrap();
+        symlink(root.join("target.png"), root.join("linked.png")).unwrap();
+        let document_path = root.join("doc.md");
+        fs::write(&document_path, "![asset](linked.png)\n").unwrap();
+        let document_uri = path_to_file_uri(&document_path).unwrap();
+        let session = parsed_document(&document_uri, "![asset](linked.png)\n");
+
+        let resolved =
+            resolve_render_assets(&document_uri, &workspace_uri, session.document()).unwrap();
+        assert!(resolved.assets.is_empty());
+        assert_eq!(resolved.diagnostics[0].kind, AssetDiagnosticKind::Symlink);
         fs::remove_dir_all(root).unwrap();
     }
 }

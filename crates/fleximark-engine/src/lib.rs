@@ -7,7 +7,8 @@ mod render;
 mod session;
 
 pub use assets::{
-    AssetDiagnostic, RenderAsset, RenderConfig, RenderStyle, ResolvedAssets, ResolvedRenderAsset,
+    AssetDiagnostic, AssetDiagnosticKind, RenderAsset, RenderConfig, RenderStyle, ResolvedAssets,
+    ResolvedRenderAsset,
 };
 pub use error::EngineError;
 pub use render::{PluginRenderFrame, PreparedExport, RenderBlock, RenderFrame, ResolvedExport};

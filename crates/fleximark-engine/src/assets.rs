@@ -121,30 +121,37 @@ impl RenderConfig {
             assets,
             diagnostics,
         } = resolved;
-        let total = assets.iter().try_fold(0_usize, |total, asset| {
-            total
-                .checked_add(asset.published.byte_length.get() as usize)
-                .filter(|total| *total <= MAX_RENDER_ASSETS_BYTES)
-                .ok_or_else(|| EngineError::Asset("resolved assets exceed 8 MiB".to_owned()))
-        })?;
         let mut sources = HashSet::new();
-        let mut references = HashSet::new();
-        for asset in &assets {
+        let mut publications = BTreeMap::<String, RenderAsset>::new();
+        let mut resources = BTreeMap::new();
+        let mut unique_assets = Vec::new();
+        let mut total = 0_usize;
+        for asset in assets {
             asset.validate()?;
-            if !sources.insert(asset.source.clone())
-                || !references.insert(asset.published.reference.clone())
-            {
+            if !sources.insert(asset.source.clone()) {
                 return Err(EngineError::Asset(
-                    "resolved asset sources and references must be unique".to_owned(),
+                    "resolved asset sources must be unique".to_owned(),
                 ));
             }
+            resources.insert(asset.source.clone(), asset.published.reference.clone());
+            if let Some(existing) = publications.get(&asset.published.reference) {
+                if existing != &asset.published {
+                    return Err(EngineError::Asset(
+                        "resolved assets reuse a reference for different content".to_owned(),
+                    ));
+                }
+                continue;
+            }
+            total = total
+                .checked_add(asset.published.byte_length.get() as usize)
+                .filter(|total| *total <= MAX_RENDER_ASSETS_BYTES)
+                .ok_or_else(|| EngineError::Asset("resolved assets exceed 8 MiB".to_owned()))?;
+            publications.insert(asset.published.reference.clone(), asset.published.clone());
+            unique_assets.push(asset);
         }
         debug_assert!(total <= MAX_RENDER_ASSETS_BYTES);
-        self.context.resolved_resources = assets
-            .iter()
-            .map(|asset| (asset.source.clone(), asset.published.reference.clone()))
-            .collect();
-        self.assets = assets;
+        self.context.resolved_resources = resources;
+        self.assets = unique_assets;
         self.asset_diagnostics = diagnostics;
         Ok(self)
     }
@@ -192,14 +199,22 @@ impl RenderConfig {
                 "renderer and sanitizer versions are required".to_owned(),
             ));
         }
-        let expected_resources = self
+        let published_references = self
             .assets
             .iter()
-            .map(|asset| (asset.source.clone(), asset.published.reference.clone()))
-            .collect::<BTreeMap<_, _>>();
-        if self.context.resolved_resources != expected_resources {
+            .map(|asset| asset.published.reference.as_str())
+            .collect::<HashSet<_>>();
+        if self.context.resolved_resources.is_empty() != self.assets.is_empty()
+            || self
+                .context
+                .resolved_resources
+                .iter()
+                .any(|(source, reference)| {
+                    source.is_empty() || !published_references.contains(reference.as_str())
+                })
+        {
             return Err(EngineError::Asset(
-                "renderer resource map was not produced by resolved assets".to_owned(),
+                "renderer resource map does not match the resolved assets".to_owned(),
             ));
         }
         for asset in &self.assets {
@@ -230,8 +245,39 @@ pub struct ResolvedRenderAsset {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssetDiagnostic {
     pub source: String,
+    pub kind: AssetDiagnosticKind,
     pub message: String,
     pub source_range: Option<fleximark_model::SourceRange>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetDiagnosticKind {
+    InvalidReference,
+    Missing,
+    OutsideRoot,
+    Symlink,
+    NotAFile,
+    Unreadable,
+    Oversize,
+    Unsupported,
+    TotalLimit,
+}
+
+impl AssetDiagnosticKind {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::InvalidReference => "asset-invalid-reference",
+            Self::Missing => "asset-missing",
+            Self::OutsideRoot => "asset-outside-root",
+            Self::Symlink => "asset-symlink",
+            Self::NotAFile => "asset-not-a-file",
+            Self::Unreadable => "asset-unreadable",
+            Self::Oversize => "asset-oversize",
+            Self::Unsupported => "asset-unsupported",
+            Self::TotalLimit => "asset-total-limit",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

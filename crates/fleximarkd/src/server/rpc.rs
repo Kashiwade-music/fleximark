@@ -612,7 +612,7 @@ impl Server {
                     }
                 }
             } else {
-                Vec::new()
+                fleximark_engine::ResolvedAssets::default()
             };
             assets.insert(uri, resolved);
         }
