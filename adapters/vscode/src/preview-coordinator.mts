@@ -180,7 +180,7 @@ export function embeddedPreviewShell(
   scriptUri: string,
   css: string,
 ): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' ${cspSource}; style-src ${cspSource} 'unsafe-inline'; font-src data:; img-src ${cspSource} data: blob:; media-src ${cspSource} blob:; frame-src https://www.youtube-nocookie.com; object-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="fleximark-message-token" content="${messageToken}"><style>${css}</style></head><body><main id="preview" class="markdown-body"></main><script nonce="${nonce}" src="${scriptUri}"></script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'nonce-${nonce}' ${cspSource}; style-src ${cspSource} 'unsafe-inline'; font-src data:; img-src ${cspSource} data: blob:; media-src ${cspSource} blob:; frame-src https://www.youtube-nocookie.com; object-src 'none';"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="fleximark-message-token" content="${messageToken}"><style>${css}</style></head><body><main id="preview" class="markdown-body"></main><script nonce="${nonce}" src="${scriptUri}"></script></body></html>`;
 }
 
 /** Requests a fresh render while discarding completion from a replaced preview. */

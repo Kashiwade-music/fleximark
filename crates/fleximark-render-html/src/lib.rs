@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
 
 use fleximark_model::{
@@ -13,17 +13,9 @@ pub enum HtmlTarget {
     Portable,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RawHtmlPolicy {
-    Sanitize,
-    Escape,
-    Reject,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderContext {
     pub target: HtmlTarget,
-    pub raw_html: RawHtmlPolicy,
     pub allow_remote_resources: bool,
     pub allow_data_resources: bool,
     /// Canonical source spelling to an opaque, already-validated asset reference.
@@ -34,7 +26,6 @@ impl Default for RenderContext {
     fn default() -> Self {
         Self {
             target: HtmlTarget::Preview,
-            raw_html: RawHtmlPolicy::Sanitize,
             allow_remote_resources: false,
             allow_data_resources: false,
             resolved_resources: BTreeMap::new(),
@@ -54,8 +45,8 @@ pub struct RenderedBlock {
 pub enum RenderError {
     #[error("duplicate NodeId at render boundary: {0}")]
     DuplicateNodeId(String),
-    #[error("raw HTML is rejected by the target policy")]
-    RawHtmlRejected,
+    #[error("raw HTML sequence lost its internal boundary marker")]
+    InvalidRawHtmlBoundary,
     #[error("resource URL is rejected by the target policy: {0}")]
     ResourceRejected(String),
 }
@@ -80,11 +71,10 @@ impl HtmlRenderer {
         document: &Document,
         context: &RenderContext,
     ) -> Result<Vec<RenderedBlock>, RenderError> {
-        if context.raw_html == RawHtmlPolicy::Sanitize
-            && document
-                .blocks
-                .iter()
-                .any(|block| matches!(block.kind, BlockKind::RawHtml { .. }))
+        if document
+            .blocks
+            .iter()
+            .any(|block| matches!(block.kind, BlockKind::RawHtml { .. }))
         {
             return render_sanitized_block_sequence(&document.blocks, context);
         }
@@ -134,7 +124,7 @@ fn render_sanitized_block_sequence(
     if starts.is_empty() {
         // Every sequence begins with a protected marker. An empty set means an
         // internal invariant was violated rather than author-controlled input.
-        return Err(RenderError::RawHtmlRejected);
+        return Err(RenderError::InvalidRawHtmlBoundary);
     }
 
     let mut output = Vec::with_capacity(starts.len());
@@ -148,7 +138,7 @@ fn render_sanitized_block_sequence(
             .filter(|index| group.contains(&block_marker(*index)))
             .collect::<Vec<_>>();
         let Some(&root_index) = indices.first() else {
-            return Err(RenderError::RawHtmlRejected);
+            return Err(RenderError::InvalidRawHtmlBoundary);
         };
 
         if indices.len() == 1 && rendered[root_index].3.is_some() {
@@ -433,7 +423,7 @@ fn render_block(block: &Block, context: &RenderContext) -> Result<String, Render
         }
         BlockKind::RawHtml { html } => format!(
             "<div data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"raw-html\">{}</div>\n",
-            render_raw_html(html, context)?
+            clean_raw_html(&neutralize_internal_markers(html))
         ),
         BlockKind::Plugin { namespace, name } => format!(
             "<div data-fleximark-node-id=\"{id}\" data-plugin-namespace=\"{}\" data-plugin-name=\"{}\">{}</div>\n",
@@ -457,17 +447,15 @@ fn special_block(id: &str, kind: &str, source: &str) -> String {
 }
 
 fn render_nodes(nodes: &[Node], context: &RenderContext) -> Result<String, RenderError> {
-    if context.raw_html == RawHtmlPolicy::Sanitize
-        && nodes.iter().any(|node| {
-            matches!(
-                node,
-                Node::Block(Block {
-                    kind: BlockKind::RawHtml { .. },
-                    ..
-                })
-            )
-        })
-    {
+    if nodes.iter().any(|node| {
+        matches!(
+            node,
+            Node::Block(Block {
+                kind: BlockKind::RawHtml { .. },
+                ..
+            })
+        )
+    }) {
         return render_sanitized_nodes(nodes, context);
     }
     let mut html = String::new();
@@ -570,10 +558,9 @@ fn render_inline_sequence(
     inlines: &[&Inline],
     context: &RenderContext,
 ) -> Result<String, RenderError> {
-    if context.raw_html != RawHtmlPolicy::Sanitize
-        || !inlines
-            .iter()
-            .any(|inline| matches!(inline.kind, InlineKind::RawHtml { .. }))
+    if !inlines
+        .iter()
+        .any(|inline| matches!(inline.kind, InlineKind::RawHtml { .. }))
     {
         return inlines
             .iter()
@@ -659,7 +646,7 @@ fn render_inline(inline: &Inline, context: &RenderContext) -> Result<String, Ren
         ),
         InlineKind::SoftBreak => "\n".to_owned(),
         InlineKind::HardBreak => "<br>\n".to_owned(),
-        InlineKind::RawHtml { html } => render_raw_html(html, context)?,
+        InlineKind::RawHtml { html } => clean_raw_html(&neutralize_internal_markers(html)),
     })
 }
 
@@ -677,31 +664,20 @@ fn inline_text(inline: &Inline) -> String {
     }
 }
 
-fn render_raw_html(html: &str, context: &RenderContext) -> Result<String, RenderError> {
-    match context.raw_html {
-        RawHtmlPolicy::Sanitize => Ok(sanitize_raw_html(html).html),
-        RawHtmlPolicy::Escape => Ok(escape_text(html)),
-        RawHtmlPolicy::Reject => Err(RenderError::RawHtmlRejected),
-    }
-}
-
-/// The result of applying FlexiMark's deterministic raw-HTML allowlist.
-///
-/// `modified` is suitable for diagnostics: accepted HTML remains quiet, while
-/// content whose structure or attributes were removed can be surfaced to the
-/// author without preventing the rest of the document from rendering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SanitizedHtml {
-    pub html: String,
-    pub modified: bool,
-}
-
 static RAW_HTML_SANITIZER: LazyLock<ammonia::Builder<'static>> = LazyLock::new(|| {
     let mut builder = ammonia::Builder::default();
     builder
-        .tags(raw_html_tags())
-        .generic_attributes(raw_html_generic_attributes())
-        .tag_attributes(raw_html_tag_attributes())
+        .add_tags(&[
+            INTERNAL_FRAGMENT_TAG,
+            INTERNAL_BLOCK_MARKER_TAG,
+            INTERNAL_SAFE_BLOCK_TAG,
+        ])
+        .add_tag_attributes(INTERNAL_FRAGMENT_TAG, &["data-index"])
+        .add_tag_attributes(INTERNAL_BLOCK_MARKER_TAG, &["data-index"])
+        .add_tag_attributes(INTERNAL_SAFE_BLOCK_TAG, &["data-index"])
+        .add_tag_attributes("details", &["open"])
+        .add_generic_attributes(&["class", "id", "style", "role", "dir", "tabindex"])
+        .add_generic_attribute_prefixes(&["aria-", "data-"])
         .url_schemes(
             ["http", "https", "mailto"]
                 .into_iter()
@@ -710,17 +686,21 @@ static RAW_HTML_SANITIZER: LazyLock<ammonia::Builder<'static>> = LazyLock::new(|
         .url_relative(ammonia::UrlRelative::Custom(Box::new(
             sanitize_relative_url,
         )))
-        .clean_content_tags(
-            [
-                "iframe", "math", "noscript", "object", "script", "style", "svg", "template",
-            ]
-            .into_iter()
-            .collect::<HashSet<_>>(),
-        )
-        // `target` is not allowed, so reverse-tabnabbing is impossible and
-        // adding `rel` would create noisy diagnostics for otherwise safe links.
-        .link_rel(None)
-        .id_prefix(Some("user-content-"));
+        .add_clean_content_tags(&[
+            "embed", "form", "iframe", "noscript", "object", "script", "template",
+        ])
+        .attribute_filter(|tag, attribute, value| {
+            if attribute.starts_with("on")
+                || attribute == "srcdoc"
+                || (attribute.starts_with("data-fleximark-") && !tag.starts_with("fleximark-"))
+            {
+                None
+            } else {
+                Some(Cow::Borrowed(value))
+            }
+        })
+        // `target` is not allowed, so reverse-tabnabbing is impossible.
+        .link_rel(None);
     builder
 });
 
@@ -738,20 +718,6 @@ fn sanitize_relative_url(url: &str) -> Option<Cow<'_, str>> {
         None
     } else {
         Some(Cow::Borrowed(url))
-    }
-}
-
-/// Sanitizes author-provided HTML independently of browser CSP.
-///
-/// The allowlist intentionally contains semantic and presentational document
-/// elements only. Elements capable of executing code, embedding another
-/// browsing context, submitting data, or fetching subresources are excluded.
-/// Event handlers, inline styles, and `data-*` attributes are never accepted.
-pub fn sanitize_raw_html(source: &str) -> SanitizedHtml {
-    let html = clean_raw_html(&neutralize_internal_markers(source));
-    SanitizedHtml {
-        modified: html != source,
-        html,
     }
 }
 
@@ -797,136 +763,6 @@ fn neutralize_internal_markers(source: &str) -> Cow<'_, str> {
         output.push_str(&source[copied_until..]);
         Cow::Owned(output)
     }
-}
-
-fn raw_html_tags() -> HashSet<&'static str> {
-    [
-        "a",
-        "abbr",
-        "address",
-        "article",
-        "aside",
-        "b",
-        "bdi",
-        "bdo",
-        "blockquote",
-        "br",
-        "caption",
-        "cite",
-        "code",
-        "col",
-        "colgroup",
-        "dd",
-        "del",
-        "details",
-        "dfn",
-        "div",
-        "dl",
-        "dt",
-        "em",
-        "figcaption",
-        "figure",
-        "footer",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "header",
-        "hr",
-        "i",
-        "kbd",
-        "li",
-        "main",
-        "mark",
-        "nav",
-        "ol",
-        "p",
-        "pre",
-        "q",
-        "rp",
-        "rt",
-        "ruby",
-        "s",
-        "samp",
-        "section",
-        "small",
-        "span",
-        "strong",
-        "sub",
-        "summary",
-        "sup",
-        "table",
-        "tbody",
-        "td",
-        "tfoot",
-        "th",
-        "thead",
-        "tr",
-        "u",
-        "ul",
-        "var",
-        "wbr",
-        INTERNAL_FRAGMENT_TAG,
-        INTERNAL_BLOCK_MARKER_TAG,
-        INTERNAL_SAFE_BLOCK_TAG,
-    ]
-    .into_iter()
-    .collect()
-}
-
-fn raw_html_generic_attributes() -> HashSet<&'static str> {
-    [
-        "aria-describedby",
-        "aria-details",
-        "aria-expanded",
-        "aria-hidden",
-        "aria-label",
-        "aria-labelledby",
-        "aria-live",
-        "aria-current",
-        "class",
-        "dir",
-        "id",
-        "lang",
-        "role",
-        "title",
-    ]
-    .into_iter()
-    .collect()
-}
-
-fn raw_html_tag_attributes() -> HashMap<&'static str, HashSet<&'static str>> {
-    HashMap::from([
-        ("a", ["href", "hreflang"].into_iter().collect()),
-        ("blockquote", ["cite"].into_iter().collect()),
-        ("col", ["span"].into_iter().collect()),
-        ("colgroup", ["span"].into_iter().collect()),
-        ("del", ["cite", "datetime"].into_iter().collect()),
-        ("details", ["open"].into_iter().collect()),
-        ("ol", ["reversed", "start", "type"].into_iter().collect()),
-        ("q", ["cite"].into_iter().collect()),
-        (INTERNAL_FRAGMENT_TAG, ["data-index"].into_iter().collect()),
-        (
-            INTERNAL_BLOCK_MARKER_TAG,
-            ["data-index"].into_iter().collect(),
-        ),
-        (
-            INTERNAL_SAFE_BLOCK_TAG,
-            ["data-index"].into_iter().collect(),
-        ),
-        (
-            "td",
-            ["colspan", "rowspan", "headers"].into_iter().collect(),
-        ),
-        (
-            "th",
-            ["abbr", "colspan", "rowspan", "headers", "scope"]
-                .into_iter()
-                .collect(),
-        ),
-    ])
 }
 
 #[derive(Clone, Copy)]
@@ -1133,7 +969,8 @@ mod tests {
 
         assert!(html.contains("<kbd class=\"key\">Ctrl</kbd>"));
         assert!(html.contains("<mark>Enter</mark>"));
-        assert!(html.contains("<details open=\"\"><summary>More</summary>"));
+        assert!(html.contains("<details open"));
+        assert!(html.contains("<summary>More</summary>"));
         assert!(html.contains("<th scope=\"col\">A</th>"));
     }
 
@@ -1317,9 +1154,9 @@ mod tests {
     }
 
     #[test]
-    fn raw_html_sanitizer_removes_executable_embedded_and_resource_loading_content() {
+    fn raw_html_sanitizer_keeps_author_markup_but_removes_executable_and_embedded_content() {
         let source = concat!(
-            "<div id=\"preview\" class=\"box\" style=\"background:url(https://evil.example)\" onclick=\"steal()\">",
+            "<div id=\"preview\" class=\"box\" style=\"background:url(https://evil.example)\" data-note=\"kept\" aria-label=\"example\" onclick=\"steal()\">",
             "<script>steal()</script><style>@import 'https://evil.example/x';</style>",
             "<iframe src=\"https://evil.example\">fallback</iframe>",
             "<svg onload=\"steal()\"><script>steal()</script></svg>",
@@ -1329,57 +1166,24 @@ mod tests {
             "<a href=\"../guide\">relative</a>",
             "<a href=\"https://example.com\">good</a></div>"
         );
-        let result = sanitize_raw_html(source);
+        let html = clean_raw_html(source);
 
-        assert!(result.modified);
-        assert!(result.html.contains("id=\"user-content-preview\""));
-        assert!(result.html.contains("class=\"box\""));
-        assert!(!result.html.contains("steal"));
-        assert!(!result.html.contains("evil.example"));
-        assert!(!result.html.contains("<iframe"));
-        assert!(!result.html.contains("<svg"));
-        assert!(!result.html.contains("<img"));
-        assert!(!result.html.contains("style="));
-        assert!(!result.html.contains("data-fleximark-node-id"));
-        assert!(result.html.contains("<a>bad</a>"));
-        assert!(result.html.contains("<a>protocol-relative</a>"));
-        assert!(result.html.contains("<a href=\"../guide\">relative</a>"));
-        assert!(
-            result
-                .html
-                .contains("<a href=\"https://example.com\">good</a>")
-        );
-        assert!(!sanitize_raw_html("<a href=\"https://example.com\">good</a>").modified);
-    }
-
-    #[test]
-    fn escape_and_reject_remain_available_as_explicit_stricter_policies() {
-        let document = parse(
-            DocumentUri("file:///strict-html.md".into()),
-            1,
-            "<kbd>Ctrl</kbd>\n",
-        )
-        .unwrap();
-        let escaped = HtmlRenderer
-            .render(
-                &document,
-                &RenderContext {
-                    raw_html: RawHtmlPolicy::Escape,
-                    ..RenderContext::default()
-                },
-            )
-            .unwrap();
-        assert!(escaped.contains("&lt;kbd&gt;"));
-        assert!(matches!(
-            HtmlRenderer.render(
-                &document,
-                &RenderContext {
-                    raw_html: RawHtmlPolicy::Reject,
-                    ..RenderContext::default()
-                }
-            ),
-            Err(RenderError::RawHtmlRejected)
-        ));
+        assert!(html.contains("id=\"preview\""));
+        assert!(html.contains("class=\"box\""));
+        assert!(html.contains("style=\"background:url(https://evil.example)\""));
+        assert!(html.contains("data-note=\"kept\""));
+        assert!(html.contains("aria-label=\"example\""));
+        assert!(!html.contains("onclick"));
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("steal"));
+        assert!(!html.contains("<iframe"));
+        assert!(!html.contains("<svg"));
+        assert!(html.contains("<img src=\"https://evil.example/pixel\">"));
+        assert!(!html.contains("data-fleximark-node-id"));
+        assert!(html.contains("<a>bad</a>"));
+        assert!(html.contains("<a>protocol-relative</a>"));
+        assert!(html.contains("<a href=\"../guide\">relative</a>"));
+        assert!(html.contains("<a href=\"https://example.com\">good</a>"));
     }
 
     #[test]

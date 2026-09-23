@@ -3,9 +3,7 @@ use std::path::Path;
 
 use fleximark_engine::{RenderConfig, RenderStyle};
 use fleximark_plugin_host::PluginHost;
-use fleximark_plugin_sdk::{FlexiMarkConfig, RawHtmlRenderPolicy};
 use fleximark_protocol::CommandResult;
-use fleximark_render_html::RawHtmlPolicy;
 
 use crate::plugins::reject_linked_path;
 use crate::workspace::open_control_directory;
@@ -29,16 +27,10 @@ pub fn edit_theme(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
 
 pub(crate) fn render_config(
     workspace: &Path,
-    config: &FlexiMarkConfig,
     host: &PluginHost,
     trusted: bool,
 ) -> Result<RenderConfig, ServiceError> {
     let mut context = RenderConfig::default().context;
-    context.raw_html = match config.security.raw_html_preview {
-        RawHtmlRenderPolicy::Sanitize => RawHtmlPolicy::Sanitize,
-        RawHtmlRenderPolicy::Escape => RawHtmlPolicy::Escape,
-        RawHtmlRenderPolicy::Reject => RawHtmlPolicy::Reject,
-    };
     context.allow_remote_resources = false;
     let style = if trusted {
         load_theme_style(workspace)?
@@ -164,7 +156,6 @@ fn normalize_css(css: &str) -> Result<String, ServiceError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::export::export_render_context;
     use crate::export::sha256;
     use crate::test_support::test_workspace;
     use crate::{initialize_workspace, load_plugin_host};
@@ -194,25 +185,6 @@ mod tests {
         }
         let (_, untrusted) = load_plugin_host(&uri, false, 3).unwrap();
         assert!(untrusted.style.is_none());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn canonical_raw_html_policies_drive_preview_and_export_separately() {
-        let root = test_workspace("raw-html-policy-test");
-        let uri = path_to_file_uri(&root).unwrap();
-        initialize_workspace(&uri).unwrap();
-        fs::write(
-            root.join(".fleximark/config.toml"),
-            "schema_version = 2\n[security]\nraw_html_preview = \"reject\"\nraw_html_export = \"sanitize\"\n",
-        )
-        .unwrap();
-        let (_, preview) = load_plugin_host(&uri, true, 1).unwrap();
-        assert_eq!(preview.context.raw_html, RawHtmlPolicy::Reject);
-        assert_eq!(
-            export_render_context(&uri).unwrap().raw_html,
-            RawHtmlPolicy::Sanitize
-        );
         fs::remove_dir_all(root).unwrap();
     }
 }

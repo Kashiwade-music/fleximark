@@ -296,7 +296,6 @@ fn lsp_and_rpc_only_methods_preserve_the_mode_routing_matrix() {
         "textDocument/hover",
         "textDocument/documentSymbol",
         "textDocument/diagnostic",
-        "textDocument/codeAction",
     ];
     for method_name in lsp_requests {
         let lsp_result = Server::new(true).request(91, method_name, json!({}));
@@ -1486,7 +1485,7 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
         .find(|item| item["method"] == "textDocument/publishDiagnostics")
         .unwrap();
     assert_eq!(published["params"]["version"], 7);
-    assert_eq!(published["params"]["diagnostics"][0]["code"], "raw-html");
+    assert_eq!(published["params"]["diagnostics"], json!([]));
 
     let hover = server.request(
         3,
@@ -1524,102 +1523,18 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
         "textDocument/diagnostic",
         json!({"textDocument":{"uri":"file:///features.md"}}),
     );
-    let diagnostic = diagnostics[0]["result"]["items"][0].clone();
-    let actions = server.request(
-            7,
-            "textDocument/codeAction",
-            json!({"textDocument":{"uri":"file:///features.md"},"range":diagnostic["range"],"context":{"diagnostics":[diagnostic]}}),
-        );
-    assert_eq!(actions[0]["result"][0]["kind"], "quickfix");
-    assert_eq!(
-        actions[0]["result"][0]["edit"]["changes"]["file:///features.md"][0]["newText"],
-        "&lt;svg&gt;x&lt;/svg&gt;"
-    );
+    assert_eq!(diagnostics[0]["result"]["items"], json!([]));
 
     for method in [
         "textDocument/hover",
         "textDocument/documentSymbol",
         "textDocument/semanticTokens/full",
         "textDocument/diagnostic",
-        "textDocument/codeAction",
     ] {
         let invalid = server.request(7, method, json!({}));
         assert_eq!(invalid.len(), 1, "{method} dropped its request");
         assert_eq!(invalid[0]["error"]["code"], -32602, "{method}");
     }
-}
-
-#[test]
-fn raw_html_diagnostics_only_report_content_changed_by_the_security_policy() {
-    let mut server = Server::new(true);
-    server.request(
-        1,
-        "initialize",
-        json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
-    );
-    server.request(2, method::INITIALIZE, initialize_params(json!({}), None));
-
-    let accepted = server.notify(
-        "textDocument/didOpen",
-        json!({"textDocument":{"uri":"file:///accepted-html.md","version":1,"text":"Press <kbd>Ctrl</kbd>.\n"}}),
-    );
-    let accepted_diagnostics = accepted
-        .iter()
-        .find(|item| item["method"] == "textDocument/publishDiagnostics")
-        .unwrap();
-    assert_eq!(accepted_diagnostics["params"]["diagnostics"], json!([]));
-
-    let accepted_container = server.notify(
-        "textDocument/didOpen",
-        json!({"textDocument":{"uri":"file:///accepted-container.md","version":1,"text":"<details><summary>More</summary>\n\nMarkdown body\n\n</details>\n"}}),
-    );
-    let accepted_container_diagnostics = accepted_container
-        .iter()
-        .find(|item| item["method"] == "textDocument/publishDiagnostics")
-        .unwrap();
-    assert_eq!(
-        accepted_container_diagnostics["params"]["diagnostics"],
-        json!([])
-    );
-
-    let sanitized = server.notify(
-        "textDocument/didOpen",
-        json!({"textDocument":{"uri":"file:///sanitized-html.md","version":1,"text":"<img src=\"https://evil.example/tracker\" onerror=\"steal()\">\n"}}),
-    );
-    let sanitized_diagnostics = sanitized
-        .iter()
-        .find(|item| item["method"] == "textDocument/publishDiagnostics")
-        .unwrap();
-    assert_eq!(
-        sanitized_diagnostics["params"]["diagnostics"][0]["code"],
-        "raw-html"
-    );
-    assert_eq!(
-        sanitized_diagnostics["params"]["diagnostics"][0]["severity"],
-        2
-    );
-
-    let mixed = server.notify(
-        "textDocument/didOpen",
-        json!({"textDocument":{"uri":"file:///mixed-html.md","version":1,"text":"Safe <kbd>key</kbd> then <script>bad()</script>.\n"}}),
-    );
-    let mixed_diagnostics = mixed
-        .iter()
-        .find(|item| item["method"] == "textDocument/publishDiagnostics")
-        .unwrap();
-    let diagnostic = mixed_diagnostics["params"]["diagnostics"][0].clone();
-    let actions = server.request(
-        8,
-        "textDocument/codeAction",
-        json!({"textDocument":{"uri":"file:///mixed-html.md"},"range":diagnostic["range"],"context":{"diagnostics":[diagnostic]}}),
-    );
-    let replacement =
-        actions[0]["result"][0]["edit"]["changes"]["file:///mixed-html.md"][0]["newText"]
-            .as_str()
-            .unwrap();
-    assert!(replacement.contains("&lt;kbd&gt;key&lt;/kbd&gt;"));
-    assert!(replacement.contains("&lt;script&gt;bad()&lt;/script&gt;"));
-    assert!(!replacement.contains("<script>"));
 }
 
 #[test]
@@ -1705,7 +1620,7 @@ fn preview_http_shell_preserves_exact_security_headers_and_rejections() {
     assert!(body.contains("[data-admonition-kind=\"important\"]"));
     assert!(body.contains("[data-admonition-kind=\"caution\"]"));
     let expected = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nContent-Security-Policy: default-src 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nContent-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     assert_eq!(response, expected.as_bytes());

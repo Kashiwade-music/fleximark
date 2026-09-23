@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const DEFAULT_CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n\n[security]\nraw_html_preview = \"sanitize\"\nraw_html_export = \"sanitize\"\n";
+const DEFAULT_CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n";
 const DEFAULT_THEME: &str =
     "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
@@ -452,11 +452,7 @@ fn workspace_control_junction_is_rejected_without_touching_its_target() {
     let root = test_workspace("junction-root");
     let outside = test_workspace("junction-target");
     fs::write(outside.join("sentinel.txt"), "user bytes").expect("write target sentinel");
-    fs::write(
-        outside.join("config.toml"),
-        "schema_version = 2\n[security]\nraw_html_preview = \"sanitize\"\nraw_html_export = \"sanitize\"\n",
-    )
-    .expect("write target config");
+    fs::write(outside.join("config.toml"), "schema_version = 2\n").expect("write target config");
     let junction = root.join(".fleximark");
     let _junction_guard = create_junction(&junction, &outside);
 

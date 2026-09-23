@@ -400,6 +400,26 @@ export function suite(): void {
     }
   });
 
+  test("accepts inert author attributes in rendered HTML", () => {
+    const authored = {
+      id: "a",
+      nodeIds: ["a"],
+      html: [
+        '<details data-fleximark-node-id="a" id="note" class="fold"',
+        ' style="color: rebeccapurple" data-topic="demo" open>',
+        "<summary>Title</summary><p>Body</p></details>",
+      ].join(""),
+    };
+
+    assert.equal(preview.apply(frame(1, [authored])), true);
+    const details = root.querySelector("details");
+    assert.equal(details?.id, "note");
+    assert.equal(details?.className, "fold");
+    assert.equal(details?.getAttribute("style"), "color: rebeccapurple");
+    assert.equal(details?.dataset.topic, "demo");
+    assert.equal(details?.textContent, "TitleBody");
+  });
+
   test("ignores stale same-session frames without requesting another frame", () => {
     assert.equal(preview.apply(frame(2, [block("a", "new")])), true);
     assert.equal(preview.apply(frame(1, [block("a", "old")])), false);

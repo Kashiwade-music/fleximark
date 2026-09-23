@@ -105,7 +105,7 @@ export function suite(): void {
     }
   });
 
-  test("publishes diagnostics from the daemon", async function () {
+  test("does not diagnose raw HTML removed by the renderer", async function () {
     this.timeout(15_000);
     const extension = vscode.extensions.getExtension("Kashiwade.fleximark");
     const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -127,34 +127,7 @@ export function suite(): void {
       await adapter.start(workspace);
       await adapter.syncDocument(document);
       const diagnostics = vscode.languages.getDiagnostics(uri);
-      assert.ok(diagnostics.length >= 1);
-      for (const diagnostic of diagnostics)
-        assert.deepEqual(
-          {
-            code: diagnostic.code,
-            data: (diagnostic as vscode.Diagnostic & { data?: unknown }).data,
-            message: diagnostic.message,
-            range: [
-              diagnostic.range.start.line,
-              diagnostic.range.start.character,
-              diagnostic.range.end.line,
-              diagnostic.range.end.character,
-            ],
-            severity: diagnostic.severity,
-            source: diagnostic.source,
-          },
-          {
-            code: "raw-html",
-            data: {
-              escapedText: "&lt;script&gt;alert(1)&lt;/script&gt;",
-            },
-            message:
-              "Unsafe raw HTML content was removed or rewritten in the rendered output",
-            range: [2, 0, 2, 25],
-            severity: vscode.DiagnosticSeverity.Warning,
-            source: "fleximark",
-          },
-        );
+      assert.deepEqual(diagnostics, []);
     } finally {
       adapter.dispose();
       await closeTextTab(uri.toString());

@@ -65,7 +65,7 @@ pub fn compose_portable_html(
         .replace("</script", "<\\/script")
         .replace("</SCRIPT", "<\\/SCRIPT");
     Ok(format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'\"><style>{KATEX_CSS}.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script>{runtime}</script><script id=\"fleximark-frame\" type=\"application/json\">{frames}</script><script>window.FlexiMarkPreview.boot(JSON.parse(document.getElementById('fleximark-frame').textContent));</script></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; base-uri 'none'; form-action 'none'; font-src data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-fleximark'\"><style>{KATEX_CSS}.fleximark-token-keyword{{color:#8959a8}}.fleximark-token-string{{color:#718c00}}.fleximark-token-number{{color:#f5871f}}.fleximark-token-comment{{color:#8e908c}}</style></head><body><main id=\"preview\"></main><script nonce=\"fleximark\">{runtime}</script><script nonce=\"fleximark\" id=\"fleximark-frame\" type=\"application/json\">{frames}</script><script nonce=\"fleximark\">window.FlexiMarkPreview.boot(JSON.parse(document.getElementById('fleximark-frame').textContent));</script></body></html>"
     ))
 }
 
@@ -502,6 +502,12 @@ mod tests {
         assert!(html.contains(style.fingerprint()));
         assert!(html.contains(":root { color: red; }"));
         assert!(html.contains("default-src 'none'"));
+        assert!(html.contains("base-uri 'none'"));
+        assert!(html.contains("form-action 'none'"));
+        assert!(html.contains("script-src 'nonce-fleximark'"));
+        assert_eq!(html.matches("nonce=\"fleximark\"").count(), 3);
+        assert!(!html.contains("script-src 'unsafe-inline'"));
+        assert!(html.contains("object-src 'none'"));
         assert!(html.contains("font-src data:"));
         assert!(html.contains(".katex{font:"));
     }
@@ -686,7 +692,7 @@ mod tests {
         initialize_workspace(&workspace_uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 2\n[assets]\nroots = [\"missing-root\"]\n[security]\nraw_html_preview = \"sanitize\"\nraw_html_export = \"sanitize\"\n",
+            "schema_version = 2\n[assets]\nroots = [\"missing-root\"]\n",
         )
         .unwrap();
         let document_path = root.join("doc.md");

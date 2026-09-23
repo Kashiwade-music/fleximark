@@ -46,7 +46,7 @@ pub fn load_plugin_host(
     )
     .map_err(|error| ServiceError::PluginConfig(error.to_string()))?;
     if !trusted || config.plugins.iter().all(|plugin| !plugin.enabled) {
-        let render_config = render_config(&workspace, &config, &host, trusted)?;
+        let render_config = render_config(&workspace, &host, trusted)?;
         return Ok((host, render_config));
     }
     let plugin_root = workspace.join(".fleximark/plugins");
@@ -82,7 +82,7 @@ pub fn load_plugin_host(
         })
         .map_err(|error| ServiceError::PluginConfig(error.to_string()))?;
     }
-    let render_config = render_config(&workspace, &config, &host, trusted)?;
+    let render_config = render_config(&workspace, &host, trusted)?;
     Ok((host, render_config))
 }
 

@@ -103,12 +103,6 @@
       "unsupportedBehavior": "Legacy target names are ignored.",
       "releaseNoteId": "architecture-v1.adapter-settings"
     },
-    "clean-break.raw-html-policy": {
-      "rationale": "Raw HTML needs an explicit security boundary.",
-      "replacement": "security.raw_html_preview/export",
-      "unsupportedBehavior": "Implicit raw HTML execution is removed.",
-      "releaseNoteId": "architecture-v1.render-security"
-    },
     "clean-break.release-manifest": {
       "rationale": "Native artifacts require exact provenance.",
       "replacement": "Release manifest and attestation",

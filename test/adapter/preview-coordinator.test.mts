@@ -92,6 +92,11 @@ export function suite(): void {
       "body{}",
     );
     assert.match(shell, /default-src 'none'/);
+    assert.match(shell, /base-uri 'none'/);
+    assert.match(shell, /form-action 'none'/);
+    assert.match(shell, /script-src 'nonce-nonce' vscode-resource:/);
+    assert.doesNotMatch(shell, /script-src[^;]*'unsafe-inline'/);
+    assert.match(shell, /object-src 'none'/);
     assert.match(shell, /fleximark-message-token/);
     assert.doesNotMatch(shell, /renderRevision|rendererFingerprint|blocks/);
   });

@@ -4,9 +4,7 @@ use fleximark_model::{NavigationEntry, NodeId};
 use fleximark_plugin_host::{
     CancellationToken, PluginDiagnostic, PluginHost, PluginRun, UnsafeExportOutput,
 };
-use fleximark_render_html::{
-    HtmlRenderer, HtmlTarget, RawHtmlPolicy, RenderContext, RenderedBlock,
-};
+use fleximark_render_html::{HtmlRenderer, HtmlTarget, RenderContext, RenderedBlock};
 use fleximark_wire::JsSafeU64;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -331,11 +329,6 @@ fn renderer_fingerprint(
         HtmlTarget::Preview => "preview",
         HtmlTarget::Portable => "portable",
     };
-    let raw = match context.raw_html {
-        RawHtmlPolicy::Sanitize => "sanitize",
-        RawHtmlPolicy::Escape => "escape",
-        RawHtmlPolicy::Reject => "reject",
-    };
     let style_fingerprint = config
         .style
         .as_ref()
@@ -352,7 +345,7 @@ fn renderer_fingerprint(
     let asset_diagnostics =
         serde_json::to_string(&config.asset_diagnostics).expect("asset diagnostics serialize");
     let value = format!(
-        "{}\0{}\0{target}\0{raw}\0{}\0{}\0{}\0{}\0{}\0{}\0{}\0{annotations}\0{assets}\0{asset_diagnostics}",
+        "{}\0{}\0{target}\0{}\0{}\0{}\0{}\0{}\0{}\0{}\0{annotations}\0{assets}\0{asset_diagnostics}",
         config.renderer_version,
         config.sanitizer_version,
         context.allow_remote_resources,

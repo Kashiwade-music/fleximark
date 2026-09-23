@@ -24,13 +24,6 @@ function toWirePosition(position: vscode.Position): WirePosition {
   return { line: position.line, character: position.character };
 }
 
-function toWireRange(range: vscode.Range): WireRange {
-  return {
-    start: toWirePosition(range.start),
-    end: toWirePosition(range.end),
-  };
-}
-
 function toVscodeRange(range: WireRange): vscode.Range {
   return new vscode.Range(
     range.start.line,
@@ -162,59 +155,6 @@ export function registerProviders(
         },
       },
     ),
-    registrar.registerCodeActionsProvider(
-      { language: "markdown" },
-      {
-        async provideCodeActions(document, range, actionContext) {
-          const diagnostics = actionContext.diagnostics.map((diagnostic) => ({
-            range: toWireRange(diagnostic.range),
-            message: diagnostic.message,
-            code: diagnostic.code,
-            source: diagnostic.source,
-            data: (diagnostic as vscode.Diagnostic & { data?: unknown }).data,
-          }));
-          const result = await request(() =>
-            adapter.requestLanguageFeature<
-              {
-                title: string;
-                kind: string;
-                edit?: {
-                  changes?: Record<
-                    string,
-                    {
-                      range: WireRange;
-                      newText: string;
-                    }[]
-                  >;
-                };
-              }[]
-            >("textDocument/codeAction", document, {
-              range: toWireRange(range),
-              context: { diagnostics },
-            }),
-          );
-          return (result ?? []).map((item) => {
-            const action = new vscode.CodeAction(
-              item.title,
-              vscode.CodeActionKind.QuickFix,
-            );
-            if (item.edit?.changes) {
-              const edit = new vscode.WorkspaceEdit();
-              for (const [uri, edits] of Object.entries(item.edit.changes))
-                for (const textEdit of edits)
-                  edit.replace(
-                    vscode.Uri.parse(uri),
-                    toVscodeRange(textEdit.range),
-                    textEdit.newText,
-                  );
-              action.edit = edit;
-            }
-            return action;
-          });
-        },
-      },
-      { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
-    ),
   ];
 }
 
@@ -224,5 +164,4 @@ export type ProviderRegistrar = Pick<
   | "registerDocumentSemanticTokensProvider"
   | "registerHoverProvider"
   | "registerDocumentSymbolProvider"
-  | "registerCodeActionsProvider"
 >;

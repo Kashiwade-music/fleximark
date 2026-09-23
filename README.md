@@ -100,7 +100,7 @@ code --install-extension kashiwade.fleximark
 2. Open the **VSCode Command Palette** and run:
    `FlexiMark: Initialize Workspace as Note Taking Directory`
 
-3. Customize note categories and security policy in the generated `.fleximark/config.toml` file. Old JavaScript plugins are unsupported and are never loaded.
+3. Customize note categories in the generated `.fleximark/config.toml` file. Old JavaScript plugins are unsupported and are never loaded.
 
    Workspaces created by FlexiMark 0.16.14 or earlier are detected automatically. If you approve the migration prompt, FlexiMark creates the current configuration, carries over note settings and the workspace theme, and keeps the legacy files as a backup. A cancelled migration is offered again the next time the workspace is opened. Legacy JavaScript plugins are retained but remain disabled.
 
@@ -108,9 +108,9 @@ code --install-extension kashiwade.fleximark
    `FlexiMark: Create New Note`
 
 Optional extensions use signed WebAssembly packages whose requested capabilities
-must also be granted by the trusted workspace configuration. Raw HTML is sanitized
-through a deterministic allowlist by default; the preview and export policies can
-instead escape or reject it. Unsafe export HTML is available only through an
+must also be granted by the trusted workspace configuration. Raw HTML keeps common
+document markup and attributes while removing executable and embedded content.
+Unsafe export HTML is available only through an
 explicitly granted export hook and is marked in the generated artifact and
 ownership record.
 

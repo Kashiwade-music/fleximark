@@ -679,7 +679,7 @@ fn lsp_message_schema() -> Value {
         "type": "object", "additionalProperties": false,
         "properties": {
             "jsonrpc": { "const": "2.0" }, "id": { "$ref": "#/$defs/id" },
-            "method": { "enum": ["initialize", "initialized", "shutdown", "exit", "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose", "textDocument/completion", "textDocument/hover", "textDocument/documentSymbol", "textDocument/codeAction", "textDocument/diagnostic", "textDocument/publishDiagnostics"] },
+            "method": { "enum": ["initialize", "initialized", "shutdown", "exit", "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose", "textDocument/completion", "textDocument/hover", "textDocument/documentSymbol", "textDocument/diagnostic", "textDocument/publishDiagnostics"] },
             "params": { "$ref": "#/$defs/structuredParams" }
         }, "required": ["jsonrpc", "method"],
         "allOf": [{ "if": { "properties": { "method": { "const": "textDocument/publishDiagnostics" } }, "required": ["method"] },

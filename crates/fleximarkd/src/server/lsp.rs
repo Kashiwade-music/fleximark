@@ -45,8 +45,7 @@ impl Server {
                         },
                         "full": true
                     },
-                    "diagnosticProvider": {"interFileDependencies":false,"workspaceDiagnostics":false},
-                    "codeActionProvider": true
+                    "diagnosticProvider": {"interFileDependencies":false,"workspaceDiagnostics":false}
                 },
                 "serverInfo": { "name": "fleximarkd", "version": env!("CARGO_PKG_VERSION") }
             }),
@@ -229,49 +228,6 @@ impl Server {
         let mut symbols = Vec::new();
         collect_heading_symbols(&document.document().blocks, &mut symbols);
         Some(response_value(Response::success(id, symbols)))
-    }
-
-    pub(super) fn code_actions(&self, id: Option<Value>, params: &Value) -> Option<Value> {
-        let id = id?;
-        let Some(uri) = params.pointer("/textDocument/uri").and_then(Value::as_str) else {
-            return Some(response_value(Response::error(
-                id,
-                -32602,
-                "invalid code action parameters",
-            )));
-        };
-        let Some(context_diagnostics) = params
-            .pointer("/context/diagnostics")
-            .and_then(Value::as_array)
-        else {
-            return Some(response_value(Response::error(
-                id,
-                -32602,
-                "invalid code action parameters",
-            )));
-        };
-        let diagnostic = context_diagnostics
-            .iter()
-            .find(|item| item.get("code") == Some(&json!("raw-html")));
-        let actions = if let Some(diagnostic) = diagnostic {
-            let mut changes = serde_json::Map::new();
-            changes.insert(
-                        uri.to_owned(),
-                        json!([{
-                            "range": diagnostic.get("range").cloned().unwrap_or(Value::Null),
-                            "newText": diagnostic.pointer("/data/escapedText").and_then(Value::as_str).unwrap_or("")
-                        }]),
-                    );
-            vec![json!({
-                "title":"Escape raw HTML for safe preview",
-                "kind":"quickfix",
-                "diagnostics":[diagnostic],
-                "edit":{"changes":changes}
-            })]
-        } else {
-            Vec::new()
-        };
-        Some(response_value(Response::success(id, actions)))
     }
 
     pub(super) fn close_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {

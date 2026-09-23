@@ -89,7 +89,6 @@ impl Server {
                 self.document_symbols(id, &message.params)
             }
             "textDocument/diagnostic" if self.lsp_mode => self.diagnostics(id, &message.params),
-            "textDocument/codeAction" if self.lsp_mode => self.code_actions(id, &message.params),
             method::INITIALIZE => self.fleximark_initialize(id, message.params),
             method::ATTACH_DOCUMENT => self.request(
                 id,

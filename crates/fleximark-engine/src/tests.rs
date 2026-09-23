@@ -15,7 +15,7 @@ use fleximark_plugin_host::{
     VerifiedPluginPackage,
 };
 use fleximark_plugin_sdk::{EditOrigin, Hook, PluginCapabilities, PreprocessedSource};
-use fleximark_render_html::{HtmlTarget, RawHtmlPolicy, RenderContext, RenderError};
+use fleximark_render_html::{HtmlTarget, RenderContext};
 
 use crate::assets::MAX_RENDER_ASSET_BYTES;
 use crate::identity::{content_hash, content_hash_bytes};
@@ -460,16 +460,6 @@ fn publishes_self_contained_frames_and_advances_only_when_rendering() {
             .unwrap(),
         second
     );
-
-    let strict = RenderContext {
-        raw_html: RawHtmlPolicy::Reject,
-        ..RenderContext::default()
-    };
-    let third = session
-        .render(PreviewSessionId("preview-1".into()), &strict)
-        .unwrap();
-    assert_eq!(third.render_revision, 3);
-    assert_ne!(third.renderer_fingerprint, second.renderer_fingerprint);
 }
 
 #[test]
@@ -682,7 +672,6 @@ fn unsafe_plugin_html_is_reachable_only_from_explicit_portable_export() {
     ));
     let portable = RenderContext {
         target: HtmlTarget::Portable,
-        raw_html: RawHtmlPolicy::Reject,
         allow_remote_resources: false,
         allow_data_resources: false,
         resolved_resources: BTreeMap::new(),
@@ -714,23 +703,6 @@ fn unsafe_plugin_html_is_reachable_only_from_explicit_portable_export() {
     assert!(exported.value.html.contains("resolved"));
     assert!(!exported.value.unsafe_output_used);
     assert!(exported.diagnostics.is_empty());
-
-    let raw = open("<b>unsafe</b>\n");
-    let escaped = RenderContext {
-        target: HtmlTarget::Portable,
-        raw_html: RawHtmlPolicy::Escape,
-        ..RenderContext::default()
-    };
-    assert!(
-        raw.prepare_safe_export(&escaped)
-            .unwrap()
-            .safe_html()
-            .contains("&lt;b&gt;unsafe&lt;/b&gt;")
-    );
-    assert!(matches!(
-        raw.prepare_safe_export(&portable),
-        Err(EngineError::Render(RenderError::RawHtmlRejected))
-    ));
 }
 
 #[test]

@@ -6,15 +6,14 @@ use std::path::Path;
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
 use fleximark_plugin_sdk::{
-    AssetsConfig, FlexiMarkConfig, NoteCategoryConfig, NotesConfig, SecurityConfig,
-    note_category_filesystem_key,
+    AssetsConfig, FlexiMarkConfig, NoteCategoryConfig, NotesConfig, note_category_filesystem_key,
 };
 use fleximark_protocol::{CommandMessage, CommandResult};
 use serde_json::Value;
 
 use crate::{ServiceError, path_to_file_uri, workspace_path};
 
-pub(crate) const CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n\n[security]\nraw_html_preview = \"sanitize\"\nraw_html_export = \"sanitize\"\n";
+pub(crate) const CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n";
 const THEME: &str = "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
 pub fn initialize_workspace(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
@@ -76,7 +75,6 @@ pub fn migrate_legacy_workspace(
                 .into_iter()
                 .collect(),
         },
-        security: SecurityConfig::default(),
         plugins: Vec::new(),
     };
     config.validate().map_err(|_| ServiceError::InvalidConfig)?;

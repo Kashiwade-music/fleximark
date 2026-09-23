@@ -37,22 +37,6 @@
         }
       }
     },
-    "security": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "raw_html_preview": {
-          "description": "How raw HTML is handled in previews. 'sanitize' keeps a safe, useful subset of HTML and removes executable or resource-loading content.",
-          "enum": ["sanitize", "escape", "reject"],
-          "default": "sanitize"
-        },
-        "raw_html_export": {
-          "description": "How raw HTML is handled in exports. 'sanitize' applies the same deterministic allowlist used by previews.",
-          "enum": ["sanitize", "escape", "reject"],
-          "default": "sanitize"
-        }
-      }
-    },
     "plugins": {
       "type": "array",
       "items": {

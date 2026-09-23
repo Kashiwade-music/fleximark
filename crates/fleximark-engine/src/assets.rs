@@ -84,7 +84,7 @@ impl Default for RenderConfig {
             plugin_set_hash: empty,
             plugin_generation: 0,
             renderer_version: "html-v1".to_owned(),
-            sanitizer_version: "builtin-sanitizer-v1".to_owned(),
+            sanitizer_version: "builtin-sanitizer-v2".to_owned(),
             assets: Vec::new(),
             asset_diagnostics: Vec::new(),
         }
@@ -105,7 +105,7 @@ impl RenderConfig {
             plugin_set_hash: plugins.plugin_set_hash(),
             plugin_generation: plugins.generation(),
             renderer_version: "html-v1".to_owned(),
-            sanitizer_version: "builtin-sanitizer-v1".to_owned(),
+            sanitizer_version: "builtin-sanitizer-v2".to_owned(),
             assets: Vec::new(),
             asset_diagnostics: Vec::new(),
         }

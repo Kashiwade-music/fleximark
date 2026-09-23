@@ -114,7 +114,7 @@ export function suite(): void {
     assert.deepEqual(reported, []);
   });
 
-  test("registers the markdown providers with stable triggers and QuickFix metadata", async () => {
+  test("registers the markdown providers with stable triggers", async () => {
     const registeredDisposables: vscode.Disposable[] = [];
     const selectors: vscode.DocumentSelector[] = [];
     let completionProvider: vscode.CompletionItemProvider | undefined;
@@ -123,8 +123,6 @@ export function suite(): void {
     let semanticLegend: vscode.SemanticTokensLegend | undefined;
     let hoverProvider: vscode.HoverProvider | undefined;
     let symbolProvider: vscode.DocumentSymbolProvider | undefined;
-    let codeActionProvider: vscode.CodeActionProvider | undefined;
-    let codeActionMetadata: vscode.CodeActionProviderMetadata | undefined;
     const addRegistration = (): vscode.Disposable => {
       const registration = disposable();
       registeredDisposables.push(registration);
@@ -167,16 +165,6 @@ export function suite(): void {
         symbolProvider = provider;
         return addRegistration();
       },
-      registerCodeActionsProvider(
-        selector: vscode.DocumentSelector,
-        provider: vscode.CodeActionProvider,
-        metadata: vscode.CodeActionProviderMetadata,
-      ) {
-        selectors.push(selector);
-        codeActionProvider = provider;
-        codeActionMetadata = metadata;
-        return addRegistration();
-      },
     } as unknown as ProviderRegistrar;
     const requests: {
       method: LspMethod;
@@ -184,7 +172,6 @@ export function suite(): void {
       params: object | undefined;
     }[] = [];
     const targetUri = vscode.Uri.parse("file:///provider.md");
-    const editUri = vscode.Uri.parse("file:///fixed.md");
     const document = { uri: targetUri } as vscode.TextDocument;
     const position = new vscode.Position(2, 3);
     const range = new vscode.Range(1, 0, 1, 4);
@@ -230,22 +217,6 @@ export function suite(): void {
           },
         ],
       ],
-      [
-        "textDocument/codeAction",
-        [
-          {
-            title: "Escape HTML",
-            kind: "quickfix",
-            edit: {
-              changes: {
-                [editUri.toString()]: [
-                  { range: wireRange, newText: "&lt;tag&gt;" },
-                ],
-              },
-            },
-          },
-        ],
-      ],
     ]);
     const adapter = {
       async requestLanguageFeature<T>(
@@ -261,12 +232,9 @@ export function suite(): void {
     const registrations = registerProviders(adapter, registrar);
     assert.deepEqual(
       selectors,
-      Array.from({ length: 5 }, () => ({ language: "markdown" })),
+      Array.from({ length: 4 }, () => ({ language: "markdown" })),
     );
     assert.deepEqual(completionTriggers, [":", "`", ">"]);
-    assert.deepEqual(codeActionMetadata, {
-      providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
-    });
     assert.deepEqual(registrations, registeredDisposables);
 
     assert.ok(completionProvider);
@@ -282,7 +250,6 @@ export function suite(): void {
     ]);
     assert.ok(hoverProvider);
     assert.ok(symbolProvider);
-    assert.ok(codeActionProvider);
     const token = new vscode.CancellationTokenSource().token;
     const completionResult = await completionProvider.provideCompletionItems(
       document,
@@ -357,35 +324,6 @@ export function suite(): void {
       })),
       [{ name: "Heading", range }],
     );
-    const diagnostic = new vscode.Diagnostic(range, "unsafe HTML");
-    diagnostic.code = "raw-html";
-    diagnostic.source = "fleximark";
-    (diagnostic as vscode.Diagnostic & { data?: unknown }).data = {
-      escapedText: "&lt;tag&gt;",
-    };
-    const codeActionResult = await codeActionProvider.provideCodeActions(
-      document,
-      range,
-      {
-        diagnostics: [diagnostic],
-        only: vscode.CodeActionKind.QuickFix,
-        triggerKind: vscode.CodeActionTriggerKind.Invoke,
-      },
-      token,
-    );
-    assert.ok(Array.isArray(codeActionResult));
-    assert.equal(codeActionResult.length, 1);
-    const action = codeActionResult[0];
-    assert.ok(action instanceof vscode.CodeAction);
-    assert.equal(action.title, "Escape HTML");
-    assert.equal(action.kind, vscode.CodeActionKind.QuickFix);
-    assert.deepEqual(
-      action.edit?.get(editUri).map((edit) => ({
-        newText: edit.newText,
-        range: edit.range,
-      })),
-      [{ newText: "&lt;tag&gt;", range }],
-    );
     assert.deepEqual(
       requests.map(({ method, params }) => ({ method, params })),
       [
@@ -396,23 +334,6 @@ export function suite(): void {
         { method: "textDocument/semanticTokens/full", params: undefined },
         { method: "textDocument/hover", params: { position: wirePosition } },
         { method: "textDocument/documentSymbol", params: undefined },
-        {
-          method: "textDocument/codeAction",
-          params: {
-            context: {
-              diagnostics: [
-                {
-                  code: "raw-html",
-                  data: { escapedText: "&lt;tag&gt;" },
-                  message: "unsafe HTML",
-                  range: wireRange,
-                  source: "fleximark",
-                },
-              ],
-            },
-            range: wireRange,
-          },
-        },
       ],
     );
     assert.ok(requests.every((request) => request.document === document));

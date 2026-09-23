@@ -46,6 +46,7 @@ export function parseContent(
   const forbiddenElements = new Set([
     "BASE",
     "EMBED",
+    "FORM",
     "IFRAME",
     "LINK",
     "META",
@@ -73,7 +74,6 @@ export function parseContent(
       if (
         name.startsWith("on") ||
         name === "srcdoc" ||
-        name === "style" ||
         ((name === "href" || name === "src" || name === "xlink:href") &&
           /^\s*(?:javascript|vbscript|file):/i.test(attribute.value)) ||
         (name !== "src" && /^\s*data:/i.test(attribute.value)) ||

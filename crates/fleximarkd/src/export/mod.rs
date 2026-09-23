@@ -12,9 +12,8 @@ use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
 use fleximark_engine::DocumentSession;
 use fleximark_plugin_host::CancellationToken;
-use fleximark_plugin_sdk::RawHtmlRenderPolicy;
 use fleximark_protocol::{CommandMessage, CommandResult};
-use fleximark_render_html::{HtmlTarget, RawHtmlPolicy, RenderContext};
+use fleximark_render_html::{HtmlTarget, RenderContext};
 
 use crate::ServiceError;
 use crate::assets::{ExportAsset, compose_portable_html, resolve_export_assets};
@@ -52,14 +51,9 @@ pub fn default_export_destination(document_uri: &str) -> Result<String, ServiceE
 
 pub(crate) fn export_render_context(workspace_uri: &str) -> Result<RenderContext, ServiceError> {
     let workspace = workspace_path(workspace_uri)?;
-    let config = validate_config(&workspace.join(".fleximark/config.toml"))?;
+    validate_config(&workspace.join(".fleximark/config.toml"))?;
     Ok(RenderContext {
         target: HtmlTarget::Portable,
-        raw_html: match config.security.raw_html_export {
-            RawHtmlRenderPolicy::Sanitize => RawHtmlPolicy::Sanitize,
-            RawHtmlRenderPolicy::Escape => RawHtmlPolicy::Escape,
-            RawHtmlRenderPolicy::Reject => RawHtmlPolicy::Reject,
-        },
         allow_remote_resources: false,
         allow_data_resources: false,
         resolved_resources: Default::default(),

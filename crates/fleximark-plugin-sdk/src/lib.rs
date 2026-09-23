@@ -302,8 +302,6 @@ pub struct FlexiMarkConfig {
     #[serde(default)]
     pub assets: AssetsConfig,
     #[serde(default)]
-    pub security: SecurityConfig,
-    #[serde(default)]
     pub plugins: Vec<ConfiguredPlugin>,
 }
 
@@ -329,33 +327,6 @@ pub struct NoteCategoryConfig(pub BTreeMap<String, NoteCategoryConfig>);
 pub struct AssetsConfig {
     #[serde(default)]
     pub roots: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RawHtmlRenderPolicy {
-    #[default]
-    Sanitize,
-    Escape,
-    Reject,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SecurityConfig {
-    #[serde(default)]
-    pub raw_html_preview: RawHtmlRenderPolicy,
-    #[serde(default)]
-    pub raw_html_export: RawHtmlRenderPolicy,
-}
-
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self {
-            raw_html_preview: RawHtmlRenderPolicy::Sanitize,
-            raw_html_export: RawHtmlRenderPolicy::Sanitize,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -584,14 +555,10 @@ mod tests {
     #[test]
     fn config_defaults_are_secure_and_unknown_fields_are_rejected() {
         let config = FlexiMarkConfig::from_toml("schema_version = 2\n").unwrap();
-        assert_eq!(
-            config.security.raw_html_preview,
-            RawHtmlRenderPolicy::Sanitize
-        );
-        assert_eq!(
-            config.security.raw_html_export,
-            RawHtmlRenderPolicy::Sanitize
-        );
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.notes, NotesConfig::default());
+        assert_eq!(config.assets, AssetsConfig::default());
+        assert!(config.plugins.is_empty());
         assert!(FlexiMarkConfig::from_toml("schema_version = 2\nlegacy = true\n").is_err());
     }
 

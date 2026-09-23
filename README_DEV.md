@@ -170,8 +170,7 @@ daemon が設定読込時に semantic validation する。
 4. `index.html` をブラウザで開き、VS Code preview と主要な表示が一致することを確認する。
 5. 文書を変更して再度 export し、管理済み directory が次の generation に安全に更新されることを確認する。
 
-既定の `raw_html_export` は `reject` である。raw HTML を含む文書を export した場合の拒否は
-意図した動作である。また、同名の export directory が FlexiMark 管理外の非空 directory の場合も、
+raw HTML は preview と同じ安全化処理を経て export される。また、同名の export directory が FlexiMark 管理外の非空 directory の場合も、
 既存ファイル保護のため export は拒否される。
 
 ### 9. daemon crash recovery を確認する
