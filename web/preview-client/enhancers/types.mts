@@ -43,7 +43,7 @@ export interface PreviewRuntimes {
       options: {
         displayMode: boolean;
         output: "htmlAndMathml";
-        strict: "error";
+        strict: "warn";
         throwOnError: boolean;
         trust: false;
       },

@@ -553,6 +553,31 @@ export function suite(): void {
     enhancer.dispose();
   });
 
+  test("renders Japanese text in math without a KaTeX error", async () => {
+    assert.equal(
+      preview.apply({
+        ...specialFrame("math", ""),
+        blocks: [
+          {
+            id: "special",
+            nodeIds: ["special"],
+            html: '<div data-fleximark-node-id="special" data-fleximark-kind="math">\\scriptsize{※ 畳み込みは可換}</div>',
+          },
+        ],
+      }),
+      true,
+    );
+    const { previewRuntimes } =
+      await import("../web/preview-client/runtimes.mjs");
+    const enhancer = new PreviewEnhancer(previewRuntimes);
+    await enhancer.render(root);
+    const output = root.querySelector<HTMLElement>("[data-fleximark-output]");
+    assert.ok(output);
+    assert.equal(output.querySelector(".katex-error"), null);
+    assert.match(output.textContent ?? "", /畳み込みは可換/);
+    enhancer.dispose();
+  });
+
   test("keeps inline math output inline", async () => {
     assert.equal(
       preview.apply(

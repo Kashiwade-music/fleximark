@@ -24,7 +24,7 @@ export function renderMath(
   runtime.render(source, replaceOutput(block), {
     displayMode: block.tagName === "DIV",
     output: "htmlAndMathml",
-    strict: "error",
+    strict: "warn",
     throwOnError: false,
     trust: false,
   });
