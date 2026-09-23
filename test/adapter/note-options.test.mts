@@ -28,20 +28,17 @@ export function suite(): void {
         return {
           categories: [
             {
-              id: "work",
-              label: "Work",
-              children: [
-                { id: "work-project", label: "Project", children: [] },
-              ],
+              name: "Work",
+              children: [{ name: "Project", children: [] }],
             },
-            { id: "personal", label: "Personal", children: [] },
+            { name: "Personal", children: [] },
           ],
           templates: ["meeting", "blank"],
         };
       },
       async (items) => {
-        const id = categoryStep++ === 0 ? "work" : "work-project";
-        return items.find((item) => item.category?.id === id);
+        const name = categoryStep++ === 0 ? "Work" : "Project";
+        return items.find((item) => item.category?.name === name);
       },
       async () => "meeting",
       async (params) => {
@@ -55,14 +52,14 @@ export function suite(): void {
     });
     assert.deepEqual(executed, {
       ...base,
-      noteCategoryId: "work-project",
+      noteCategoryPath: ["Work", "Project"],
       noteTemplate: "meeting",
     });
     let executedAfterCancellation = false;
     const result = await executeCreateNote(
       base,
       async () => ({
-        categories: [{ id: "work", label: "Work", children: [] }],
+        categories: [{ name: "Work", children: [] }],
         templates: ["blank"],
       }),
       async () => undefined,
@@ -76,26 +73,42 @@ export function suite(): void {
     assert.equal(executedAfterCancellation, false);
   });
 
-  test("supports choosing a parent and disambiguates equal labels by id", async () => {
+  test("supports choosing a parent and returns breadcrumb paths", async () => {
     const categories = [
       {
-        id: "left",
-        label: "Same",
-        children: [{ id: "left-child", label: "Same", children: [] }],
+        name: "Left",
+        children: [{ name: "Same", children: [] }],
       },
-      { id: "right", label: "Same", children: [] },
+      { name: "Right", children: [{ name: "Same", children: [] }] },
     ];
     let step = 0;
     const selected = await selectNoteCategory(categories, async (items) => {
       if (step++ === 0) {
         assert.deepEqual(
           items.map((item) => item.description),
-          ["left", "right"],
+          ["Left", "Right"],
         );
-        return items.find((item) => item.category?.id === "left");
+        return items.find((item) => item.category?.name === "Left");
       }
-      return items.find((item) => item.action === "select");
+      assert.deepEqual(
+        items.map((item) => item.description),
+        ["Left", "Left / Same", undefined],
+      );
+      return items.find((item) => item.action === "useCurrent");
     });
-    assert.equal(selected, "left");
+    assert.deepEqual(selected, ["Left"]);
+
+    let rightStep = 0;
+    const duplicateName = await selectNoteCategory(
+      categories,
+      async (items) => {
+        const name = rightStep++ === 0 ? "Right" : "Same";
+        return items.find(
+          (item) =>
+            item.category?.name === name && item.action !== "useCurrent",
+        );
+      },
+    );
+    assert.deepEqual(duplicateName, ["Right", "Same"]);
   });
 }

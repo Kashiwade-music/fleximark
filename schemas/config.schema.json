@@ -13,8 +13,9 @@
         "file_name_prefix": { "type": "string", "default": "" },
         "file_name_suffix": { "type": "string", "default": "" },
         "categories": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/noteCategory" }
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/noteCategoryName" },
+          "additionalProperties": { "$ref": "#/$defs/noteCategory" }
         },
         "templates": {
           "type": "object",
@@ -98,20 +99,13 @@
   "$defs": {
     "noteCategory": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "label", "directory"],
-      "properties": {
-        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-        "label": { "type": "string", "pattern": ".*\\S.*" },
-        "directory": {
-          "type": "string",
-          "pattern": "^(?!\\.?\\.?$)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*$"
-        },
-        "children": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/noteCategory" }
-        }
-      }
+      "propertyNames": { "$ref": "#/$defs/noteCategoryName" },
+      "additionalProperties": { "$ref": "#/$defs/noteCategory" }
+    },
+    "noteCategoryName": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^(?=\\S)(?!\\.{1,2}$)(?!.*[. ]$)(?!.*[\\u0000-\\u001f\\u007f-\\u009f\\\\/:*?\"<>|])(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9¹²³]|[Ll][Pp][Tt][1-9¹²³])(?:\\..*)?$).*\\S$"
     },
     "pluginCapabilities": {
       "type": "object",

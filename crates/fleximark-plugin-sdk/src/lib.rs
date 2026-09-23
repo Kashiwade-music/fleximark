@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path};
 
+use caseless::Caseless;
 use fleximark_model::{
     Block, BlockKind, DocumentMetadata, DocumentUri, Inline, Node, NodeId, SourceProvenance,
     SourceRange,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use unicode_normalization::UnicodeNormalization;
 
 pub const PLUGIN_API_VERSION: u32 = 1;
 pub const PLUGIN_MANIFEST_SCHEMA_VERSION: u32 = 1;
@@ -313,20 +315,14 @@ pub struct NotesConfig {
     #[serde(default)]
     pub file_name_suffix: String,
     #[serde(default)]
-    pub categories: Vec<NoteCategoryConfig>,
+    pub categories: BTreeMap<String, NoteCategoryConfig>,
     #[serde(default)]
     pub templates: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NoteCategoryConfig {
-    pub id: String,
-    pub label: String,
-    pub directory: String,
-    #[serde(default)]
-    pub children: Vec<NoteCategoryConfig>,
-}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NoteCategoryConfig(pub BTreeMap<String, NoteCategoryConfig>);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -395,8 +391,7 @@ impl FlexiMarkConfig {
         if self.schema_version != CONFIG_SCHEMA_VERSION {
             return Err(ConfigError::Schema(self.schema_version));
         }
-        let mut category_ids = HashSet::new();
-        validate_note_categories(&self.notes.categories, &mut category_ids, 0)?;
+        validate_note_categories(&self.notes.categories, 0)?;
         let mut ids = HashSet::new();
         for plugin in &self.plugins {
             if !valid_plugin_id(&plugin.id) {
@@ -436,14 +431,10 @@ pub enum ConfigError {
     Syntax(String),
     #[error("configuration schema version {0} is unsupported")]
     Schema(u32),
-    #[error("note category id is invalid: {0}")]
-    NoteCategoryId(String),
-    #[error("note category id is configured more than once: {0}")]
-    DuplicateNoteCategory(String),
-    #[error("note category label must not be empty: {0}")]
-    NoteCategoryLabel(String),
-    #[error("note category directory must be relative and traversal-free: {0}")]
-    NoteCategoryDirectory(String),
+    #[error("note category name is not a safe directory segment: {0}")]
+    NoteCategoryName(String),
+    #[error("note category name collides with a sibling on common filesystems: {0}")]
+    NoteCategoryCollision(String),
     #[error("note category nesting exceeds 32 levels")]
     NoteCategoryDepth,
     #[error("plugin is configured more than once: {0}")]
@@ -460,39 +451,61 @@ pub enum ConfigError {
     SignerKey(String),
 }
 
-fn validate_note_categories<'a>(
-    categories: &'a [NoteCategoryConfig],
-    ids: &mut HashSet<&'a str>,
+fn validate_note_categories(
+    categories: &BTreeMap<String, NoteCategoryConfig>,
     depth: usize,
 ) -> Result<(), ConfigError> {
     if depth >= 32 && !categories.is_empty() {
         return Err(ConfigError::NoteCategoryDepth);
     }
-    for category in categories {
-        if !valid_plugin_id(&category.id) {
-            return Err(ConfigError::NoteCategoryId(category.id.clone()));
+    let mut filesystem_names = HashSet::new();
+    for (name, category) in categories {
+        let Some(filesystem_name) = note_category_filesystem_key(name) else {
+            return Err(ConfigError::NoteCategoryName(name.clone()));
+        };
+        if !filesystem_names.insert(filesystem_name) {
+            return Err(ConfigError::NoteCategoryCollision(name.clone()));
         }
-        if !ids.insert(&category.id) {
-            return Err(ConfigError::DuplicateNoteCategory(category.id.clone()));
-        }
-        if category.label.trim().is_empty() {
-            return Err(ConfigError::NoteCategoryLabel(category.id.clone()));
-        }
-        let directory = Path::new(&category.directory);
-        if category.directory.is_empty()
-            || directory.is_absolute()
-            || category.directory.contains(['\\', ':', '\0'])
-            || !directory
-                .components()
-                .all(|part| matches!(part, Component::Normal(_)))
-        {
-            return Err(ConfigError::NoteCategoryDirectory(
-                category.directory.clone(),
-            ));
-        }
-        validate_note_categories(&category.children, ids, depth + 1)?;
+        validate_note_categories(&category.0, depth + 1)?;
     }
     Ok(())
+}
+
+pub fn is_safe_note_category_name(name: &str) -> bool {
+    if name.trim() != name
+        || name.is_empty()
+        || name.len() > 255
+        || name.encode_utf16().count() > 255
+        || matches!(name, "." | "..")
+        || name.ends_with(['.', ' '])
+        || name
+            .chars()
+            .any(|character| character.is_control() || "\\/:*?\"<>|".contains(character))
+    {
+        return false;
+    }
+    let device_stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(['.', ' '])
+        .to_ascii_uppercase();
+    if matches!(device_stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return false;
+    }
+    let device_number = device_stem
+        .strip_prefix("COM")
+        .or_else(|| device_stem.strip_prefix("LPT"));
+    !device_number.is_some_and(|number| {
+        matches!(
+            number,
+            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+        )
+    })
+}
+
+pub fn note_category_filesystem_key(name: &str) -> Option<String> {
+    is_safe_note_category_name(name).then(|| name.chars().nfd().default_case_fold().nfd().collect())
 }
 
 fn valid_relative_path(path: &Path, text: &str, extension: &str) -> bool {
@@ -583,47 +596,125 @@ mod tests {
     }
 
     #[test]
-    fn recursive_note_categories_require_unique_stable_ids_and_safe_directories() {
+    fn recursive_note_categories_accept_inline_and_dotted_maps_and_safe_names() {
         let config = FlexiMarkConfig::from_toml(
             r#"schema_version = 2
 
-[[notes.categories]]
-id = "work"
-label = "Shared"
-directory = "work"
-
-[[notes.categories.children]]
-id = "work-project"
-label = "Shared"
-directory = "project"
+[notes.categories]
+Work = { Project = {}, Reports = { Weekly = {} } }
+Left = { Same = {} }
+Right = { Same = {} }
 "#,
         )
         .unwrap();
-        assert_eq!(config.notes.categories[0].children[0].id, "work-project");
-
-        let duplicate = r#"schema_version = 2
-[[notes.categories]]
-id = "same"
-label = "One"
-directory = "one"
-[[notes.categories.children]]
-id = "same"
-label = "Two"
-directory = "two"
-"#;
-        assert_eq!(
-            FlexiMarkConfig::from_toml(duplicate).unwrap_err(),
-            ConfigError::DuplicateNoteCategory("same".into())
+        assert!(config.notes.categories["Work"].0["Project"].0.is_empty());
+        assert!(
+            config.notes.categories["Work"].0["Reports"]
+                .0
+                .contains_key("Weekly")
         );
+        assert!(config.notes.categories["Left"].0.contains_key("Same"));
+        assert!(config.notes.categories["Right"].0.contains_key("Same"));
+
+        let dotted = FlexiMarkConfig::from_toml(
+            r#"schema_version = 2
+[notes.categories.Work.Project]
+"#,
+        )
+        .unwrap();
+        assert!(dotted.notes.categories["Work"].0.contains_key("Project"));
+
         let traversal = r#"schema_version = 2
-[[notes.categories]]
-id = "unsafe"
-label = "Unsafe"
-directory = "../outside"
+[notes.categories]
+".." = {}
 "#;
         assert_eq!(
             FlexiMarkConfig::from_toml(traversal).unwrap_err(),
-            ConfigError::NoteCategoryDirectory("../outside".into())
+            ConfigError::NoteCategoryName("..".into())
         );
+
+        for unsafe_name in [
+            "",
+            "   ",
+            " leading",
+            ".",
+            "..",
+            "trailing.",
+            "trailing ",
+            "a/b",
+            "a\\b",
+            "a:b",
+            "a\0b",
+            "a\u{001f}b",
+            "CON",
+            "con.txt",
+            "PRN.md",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM¹",
+            "COM².txt",
+            "COM³",
+            "com9.log",
+            "LPT1",
+            "LPT¹",
+            "LPT².txt",
+            "LPT³",
+            "lpt9.txt",
+        ] {
+            assert!(
+                !is_safe_note_category_name(unsafe_name),
+                "unsafe category was accepted: {unsafe_name:?}"
+            );
+        }
+        for safe_name in [
+            "Internal space",
+            "COM0",
+            "COM10",
+            "LPT0",
+            "LPT10",
+            "Console",
+            "Project.md",
+        ] {
+            assert!(is_safe_note_category_name(safe_name));
+        }
+
+        let ascii_collision = r#"schema_version = 2
+[notes.categories]
+Work = {}
+work = {}
+"#;
+        assert_eq!(
+            FlexiMarkConfig::from_toml(ascii_collision).unwrap_err(),
+            ConfigError::NoteCategoryCollision("work".into())
+        );
+        let normalization_collision =
+            "schema_version = 2\n[notes.categories]\n\"Café\" = {}\n\"Cafe\u{301}\" = {}\n";
+        assert_eq!(
+            FlexiMarkConfig::from_toml(normalization_collision).unwrap_err(),
+            ConfigError::NoteCategoryCollision("Café".into())
+        );
+        let unicode_case_collision =
+            "schema_version = 2\n[notes.categories]\n\"École\" = {}\n\"école\" = {}\n";
+        assert_eq!(
+            FlexiMarkConfig::from_toml(unicode_case_collision).unwrap_err(),
+            ConfigError::NoteCategoryCollision("école".into())
+        );
+        for collision in [
+            "schema_version = 2\n[notes.categories]\n\"Σ\" = {}\n\"ς\" = {}\n",
+            "schema_version = 2\n[notes.categories]\nS = {}\n\"ſ\" = {}\n",
+        ] {
+            assert!(matches!(
+                FlexiMarkConfig::from_toml(collision),
+                Err(ConfigError::NoteCategoryCollision(_))
+            ));
+        }
+
+        assert!(is_safe_note_category_name(&"a".repeat(255)));
+        assert!(!is_safe_note_category_name(&"a".repeat(256)));
+        assert!(is_safe_note_category_name(&"é".repeat(127)));
+        assert!(!is_safe_note_category_name(&"é".repeat(128)));
+        assert!(is_safe_note_category_name(&"😀".repeat(63)));
+        assert!(!is_safe_note_category_name(&"😀".repeat(64)));
     }
 }

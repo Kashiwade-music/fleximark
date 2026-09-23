@@ -773,11 +773,13 @@ dependencies = [
 name = "fleximark-plugin-sdk"
 version = "0.1.0"
 dependencies = [
+ "caseless",
  "fleximark-model",
  "serde",
  "serde_json",
  "thiserror",
  "toml",
+ "unicode-normalization",
  "wit-bindgen",
 ]
 

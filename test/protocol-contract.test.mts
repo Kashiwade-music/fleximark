@@ -22,7 +22,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "rust-render-frame-v3.json",
+          "rust-render-frame-v4.json",
         ),
         "utf8",
       ),
@@ -38,7 +38,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v3-contract.json",
+          "protocol-v4-contract.json",
         ),
         "utf8",
       ),
@@ -169,7 +169,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v3-bidirectional-server.json",
+          "protocol-v4-bidirectional-server.json",
         ),
         "utf8",
       ),
@@ -249,7 +249,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v3-optional-present.json",
+          "protocol-v4-optional-present.json",
         ),
         "utf8",
       ),
@@ -270,5 +270,19 @@ export function suite(): void {
     );
     for (const item of fixture.cases)
       assert.equal(validators[item.definition](item.value), true, item.name);
+  });
+
+  test("rejects invalid present note category paths", () => {
+    const validate = customRequestParamsValidators["fleximark/executeCommand"];
+    const base = { daemonInstanceId: "daemon", command: "createNote" };
+    assert.equal(validate(base), true);
+    for (const noteCategoryPath of [
+      null,
+      [],
+      Array.from({ length: 33 }, () => "x"),
+      ["Work", ""],
+    ]) {
+      assert.equal(validate({ ...base, noteCategoryPath }), false);
+    }
   });
 }

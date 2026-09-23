@@ -48,7 +48,7 @@ fn initialize_daemon(server: &mut Server, params: Value) -> String {
 
 fn initialize_params(capabilities: Value, workspaces: Option<Value>) -> Value {
     let mut params = json!({
-        "protocolVersion": 3,
+        "protocolVersion": 4,
         "client": {"name": "test", "version": "1"},
         "capabilities": capabilities,
     });
@@ -747,7 +747,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         2,
         method::INITIALIZE,
         json!({
-            "protocolVersion": 3, "client":{"name":"test","version":"1"},
+            "protocolVersion": 4, "client":{"name":"test","version":"1"},
             "capabilities":{"selectionEvents":true,"viewportEvents":true},
             "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
         }),
@@ -1338,7 +1338,7 @@ fn note_options_rpc_reads_only_the_granted_canonical_config() {
     fleximark_service::initialize_workspace(&workspace_uri).unwrap();
     std::fs::write(
             workspace.join(".fleximark/config.toml"),
-            "schema_version = 2\n[[notes.categories]]\nid = \"work\"\nlabel = \"Work\"\ndirectory = \"work\"\n[notes.templates]\ndaily = [\"# Daily\"]\n",
+            "schema_version = 2\n[notes.categories]\nWork = { Project = {} }\n[notes.templates]\ndaily = [\"# Daily\"]\n",
         )
         .unwrap();
     let mut server = Server::new(false);
@@ -1358,7 +1358,7 @@ fn note_options_rpc_reads_only_the_granted_canonical_config() {
     );
     assert_eq!(
         response[0]["result"]["categories"],
-        json!([{"id":"work","label":"Work","children":[]}])
+        json!([{"name":"Work","children":[{"name":"Project","children":[]}]}])
     );
     assert_eq!(response[0]["result"]["templates"], json!(["daily"]));
 }
@@ -1533,7 +1533,7 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     assert_eq!(actions[0]["result"][0]["kind"], "quickfix");
     assert_eq!(
         actions[0]["result"][0]["edit"]["changes"]["file:///features.md"][0]["newText"],
-        "&lt;svg&gt;"
+        "&lt;svg&gt;x&lt;/svg&gt;"
     );
 
     for method in [
@@ -1569,6 +1569,19 @@ fn raw_html_diagnostics_only_report_content_changed_by_the_security_policy() {
         .unwrap();
     assert_eq!(accepted_diagnostics["params"]["diagnostics"], json!([]));
 
+    let accepted_container = server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":"file:///accepted-container.md","version":1,"text":"<details><summary>More</summary>\n\nMarkdown body\n\n</details>\n"}}),
+    );
+    let accepted_container_diagnostics = accepted_container
+        .iter()
+        .find(|item| item["method"] == "textDocument/publishDiagnostics")
+        .unwrap();
+    assert_eq!(
+        accepted_container_diagnostics["params"]["diagnostics"],
+        json!([])
+    );
+
     let sanitized = server.notify(
         "textDocument/didOpen",
         json!({"textDocument":{"uri":"file:///sanitized-html.md","version":1,"text":"<img src=\"https://evil.example/tracker\" onerror=\"steal()\">\n"}}),
@@ -1585,6 +1598,28 @@ fn raw_html_diagnostics_only_report_content_changed_by_the_security_policy() {
         sanitized_diagnostics["params"]["diagnostics"][0]["severity"],
         2
     );
+
+    let mixed = server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":"file:///mixed-html.md","version":1,"text":"Safe <kbd>key</kbd> then <script>bad()</script>.\n"}}),
+    );
+    let mixed_diagnostics = mixed
+        .iter()
+        .find(|item| item["method"] == "textDocument/publishDiagnostics")
+        .unwrap();
+    let diagnostic = mixed_diagnostics["params"]["diagnostics"][0].clone();
+    let actions = server.request(
+        8,
+        "textDocument/codeAction",
+        json!({"textDocument":{"uri":"file:///mixed-html.md"},"range":diagnostic["range"],"context":{"diagnostics":[diagnostic]}}),
+    );
+    let replacement =
+        actions[0]["result"][0]["edit"]["changes"]["file:///mixed-html.md"][0]["newText"]
+            .as_str()
+            .unwrap();
+    assert!(replacement.contains("&lt;kbd&gt;key&lt;/kbd&gt;"));
+    assert!(replacement.contains("&lt;script&gt;bad()&lt;/script&gt;"));
+    assert!(!replacement.contains("<script>"));
 }
 
 #[test]

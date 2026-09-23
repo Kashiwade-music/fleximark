@@ -367,7 +367,7 @@ mod tests {
             Some(1),
             method::INITIALIZE,
             json!({
-                "protocolVersion":3,
+                "protocolVersion":4,
                 "client":{"name":"test","version":"1"},
                 "capabilities":{}
             }),
@@ -464,7 +464,7 @@ mod tests {
             Some(11),
             method::INITIALIZE,
             json!({
-                "protocolVersion":3,
+                "protocolVersion":4,
                 "client":{"name":"test","version":"1"},
                 "capabilities":{}
             }),

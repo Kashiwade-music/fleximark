@@ -7,10 +7,12 @@ rust-version.workspace = true
 
 [dependencies]
 fleximark-model = { path = "../fleximark-model" }
+caseless.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
+unicode-normalization.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = "0.41.0"

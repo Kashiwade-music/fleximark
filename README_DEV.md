@@ -141,22 +141,19 @@ mise exec -- uv run --frozen python scripts/stage_daemon.py
 file_name_prefix = "${CURRENT_YEAR}-"
 file_name_suffix = "-draft"
 
-[[notes.categories]]
-id = "work"
-label = "Work"
-directory = "work"
-
-[[notes.categories.children]]
-id = "reports"
-label = "Reports"
-directory = "reports"
+[notes.categories]
+Work = { Reports = {} }
 
 [notes.templates]
 daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}", "$0"]
 ```
 
 `FlexiMark: Create New Note` を実行し、category で `Work`、続いて `Reports`、template に `daily` を選ぶ。
-`notes/work/reports/` に日付展開済みの Markdown が作られ、そのファイルが editor で開くことを確認する。
+category 名は表示名と directory 名を兼ね、各階層では辞書順に表示される。
+JSON Schema は構造と単一の名前に対する基本制約を検証する。大文字小文字や Unicode 正規化による
+同階層名の衝突、filesystem 単位の byte/UTF-16 長など、Schema だけでは表現できない制約は
+daemon が設定読込時に semantic validation する。
+`notes/Work/Reports/` に日付展開済みの Markdown が作られ、そのファイルが editor で開くことを確認する。
 選択肢を設定していない場合は、`notes/` に `# New note` の note が作られる。
 
 ### 7. admonition collection を確認する

@@ -31,7 +31,7 @@ def create_manifest(*, require_all: bool = False) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(
-            {"schemaVersion": 1, "protocolVersion": 3, "artifacts": artifacts},
+            {"schemaVersion": 1, "protocolVersion": 4, "artifacts": artifacts},
             indent=2,
         )
         + "\n",

@@ -91,7 +91,7 @@ export function suite(): void {
       await vscode.workspace.fs.writeFile(binary, binaryBytes);
       const manifest = {
         schemaVersion: 1,
-        protocolVersion: 3,
+        protocolVersion: 4,
         artifacts: [
           {
             platform: process.platform,

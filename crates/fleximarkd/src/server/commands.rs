@@ -249,7 +249,7 @@ impl Server {
         self.command_workspace(params).and_then(|uri| {
             create_note_with_options(
                 uri,
-                params.note_category_id.as_deref(),
+                params.note_category_path.as_deref(),
                 params.note_template.as_deref(),
             )
             .map_err(|error| error.to_string())

@@ -20,7 +20,7 @@ struct Case {
 
 fn fixture() -> Fixture {
     serde_json::from_str(include_str!(
-        "../../../test/fixtures/protocol-v3-optional-present.json"
+        "../../../test/fixtures/protocol-v4-optional-present.json"
     ))
     .unwrap()
 }
@@ -37,7 +37,7 @@ fn case<'a>(fixture: &'a Fixture, definition: &str) -> &'a Value {
 #[test]
 fn optional_present_fixture_matches_directional_public_dtos() {
     let fixture = fixture();
-    assert_eq!(fixture.schema_version, 3);
+    assert_eq!(fixture.schema_version, 4);
     assert_eq!(fixture.cases.len(), 5);
 
     let initialize: InitializeParams =
@@ -64,11 +64,14 @@ fn optional_present_fixture_matches_directional_public_dtos() {
         execute.destination_uri.as_deref(),
         Some("file:///workspace/note.md")
     );
-    assert_eq!(execute.note_category_id.as_deref(), Some("work"));
+    assert_eq!(
+        execute.note_category_path.as_deref(),
+        Some(["Work".to_owned()].as_slice())
+    );
     assert_eq!(execute.note_template.as_deref(), Some("daily"));
 
     let initialize_result = InitializeResult {
-        protocol_version: 3,
+        protocol_version: 4,
         daemon_instance_id: "daemon".into(),
         workspace_statuses: vec![WorkspaceStatus {
             uri: "file:///workspace".into(),
@@ -113,6 +116,19 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
     assert_eq!(
         case(&fixture, "initializeParams")["protocolVersion"],
-        json!(3)
+        json!(4)
     );
+}
+
+#[test]
+fn note_category_path_rejects_present_invalid_values() {
+    let base = json!({"daemonInstanceId":"daemon","command":"createNote"});
+    let too_deep = Value::Array((0..33).map(|_| Value::String("x".into())).collect());
+    for invalid in [Value::Null, json!([]), too_deep, json!(["Work", ""])] {
+        let mut value = base.clone();
+        value["noteCategoryPath"] = invalid;
+        assert!(serde_json::from_value::<ExecuteCommandParams>(value).is_err());
+    }
+    let missing = serde_json::from_value::<ExecuteCommandParams>(base).unwrap();
+    assert!(missing.note_category_path.is_none());
 }

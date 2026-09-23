@@ -41,7 +41,7 @@ function artifact(overrides: Record<string, unknown> = {}): object {
 function manifest(artifacts: unknown[], overrides = {}): object {
   return {
     schemaVersion: 1,
-    protocolVersion: 3,
+    protocolVersion: 4,
     artifacts,
     ...overrides,
   };
@@ -59,7 +59,7 @@ export function suite(): void {
   test("rejects malformed root and artifact shapes with the stable error", async () => {
     const cases: unknown[] = [
       null,
-      { schemaVersion: 1, protocolVersion: 3, artifacts: [], unknown: true },
+      { schemaVersion: 1, protocolVersion: 4, artifacts: [], unknown: true },
       { schemaVersion: 1, artifacts: [] },
       manifest([null]),
       manifest([artifact({ arch: 1 })]),

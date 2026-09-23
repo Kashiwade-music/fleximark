@@ -28,21 +28,21 @@ export async function executeCreateNote(
     daemonInstanceId: params.daemonInstanceId,
     workspaceUri: params.workspaceUri,
   });
-  const noteCategoryId = options.categories.length
+  const noteCategoryPath = options.categories.length
     ? await selectNoteCategory(options.categories, pickCategory)
     : undefined;
-  if (options.categories.length && noteCategoryId === undefined) return;
+  if (options.categories.length && noteCategoryPath === undefined) return;
   const noteTemplate = options.templates.length
     ? await pickTemplate(options.templates, {
         placeHolder: vscode.l10n.t("Select a note template"),
       })
     : undefined;
   if (options.templates.length && noteTemplate === undefined) return;
-  return execute({ ...params, noteCategoryId, noteTemplate });
+  return execute({ ...params, noteCategoryPath, noteTemplate });
 }
 
 export interface NoteCategoryQuickPickItem extends vscode.QuickPickItem {
-  action: "open" | "select" | "back";
+  action: "open" | "select" | "useCurrent" | "back";
   category?: NoteCategoryOption;
 }
 
@@ -52,7 +52,7 @@ export async function selectNoteCategory(
     items: readonly NoteCategoryQuickPickItem[],
     options: { placeHolder: string },
   ) => Thenable<NoteCategoryQuickPickItem | undefined>,
-): Promise<string | undefined> {
+): Promise<string[] | undefined> {
   const stack: NoteCategoryOption[] = [];
   let current = categories;
   for (;;) {
@@ -61,15 +61,18 @@ export async function selectNoteCategory(
     if (parent) {
       items.push({
         label: `$(check) ${vscode.l10n.t("Use this category")}`,
-        description: parent.label,
-        action: "select",
+        description: stack.map((category) => category.name).join(" / "),
+        action: "useCurrent",
         category: parent,
       });
     }
     items.push(
       ...current.map((category) => ({
-        label: category.label,
-        description: category.id,
+        label: category.name,
+        description: [
+          ...stack.map((parent) => parent.name),
+          category.name,
+        ].join(" / "),
         action: category.children.length
           ? ("open" as const)
           : ("select" as const),
@@ -82,7 +85,7 @@ export async function selectNoteCategory(
         action: "back",
       });
     }
-    const breadcrumb = stack.map((category) => category.label).join(" / ");
+    const breadcrumb = stack.map((category) => category.name).join(" / ");
     const selected = await pick(items, {
       placeHolder: breadcrumb
         ? vscode.l10n.t("Select a note category in {0}", breadcrumb)
@@ -94,9 +97,14 @@ export async function selectNoteCategory(
       current = stack.at(-1)?.children ?? categories;
       continue;
     }
+    if (selected.action === "useCurrent") {
+      return stack.map((category) => category.name);
+    }
     const category = selected.category;
     if (!category) return undefined;
-    if (selected.action === "select") return category.id;
+    if (selected.action === "select") {
+      return [...stack.map((parent) => parent.name), category.name];
+    }
     stack.push(category);
     current = category.children;
   }

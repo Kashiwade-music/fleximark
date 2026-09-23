@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -7,6 +7,7 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
 use fleximark_plugin_sdk::{
     AssetsConfig, FlexiMarkConfig, NoteCategoryConfig, NotesConfig, SecurityConfig,
+    note_category_filesystem_key,
 };
 use fleximark_protocol::{CommandMessage, CommandResult};
 use serde_json::Value;
@@ -63,7 +64,7 @@ pub fn migrate_legacy_workspace(
         notes: NotesConfig {
             file_name_prefix: legacy_string(settings.get("noteFileNamePrefix")),
             file_name_suffix: legacy_string(settings.get("noteFileNameSuffix")),
-            categories: legacy_categories(settings.get("noteCategories")),
+            categories: legacy_categories(settings.get("noteCategories"))?,
             templates: legacy_templates(settings.get("noteTemplates")),
         },
         assets: AssetsConfig {
@@ -78,6 +79,7 @@ pub fn migrate_legacy_workspace(
         security: SecurityConfig::default(),
         plugins: Vec::new(),
     };
+    config.validate().map_err(|_| ServiceError::InvalidConfig)?;
     let config = format!(
         "# FlexiMark workspace configuration\n# Migrated from the legacy VS Code workspace format.\n{}",
         toml::to_string_pretty(&config).map_err(|_| ServiceError::InvalidConfig)?
@@ -108,45 +110,36 @@ fn legacy_string(value: Option<&Value>) -> String {
     value.and_then(Value::as_str).unwrap_or_default().to_owned()
 }
 
-fn legacy_categories(value: Option<&Value>) -> Vec<NoteCategoryConfig> {
+fn legacy_categories(
+    value: Option<&Value>,
+) -> Result<BTreeMap<String, NoteCategoryConfig>, ServiceError> {
     fn convert(
         entries: &serde_json::Map<String, Value>,
-        parent_id: &str,
-    ) -> Vec<NoteCategoryConfig> {
-        entries
-            .iter()
-            .enumerate()
-            .filter_map(|(index, (name, child))| {
-                if name.is_empty()
-                    || matches!(name.as_str(), "." | "..")
-                    || name
-                        .chars()
-                        .any(|character| "\\/:*?\"<>|\0".contains(character))
-                {
-                    return None;
-                }
-                let id = if parent_id.is_empty() {
-                    format!("legacy-{index}")
-                } else {
-                    format!("{parent_id}-{index}")
-                };
-                Some(NoteCategoryConfig {
-                    id: id.clone(),
-                    label: name.clone(),
-                    directory: name.clone(),
-                    children: child
-                        .as_object()
-                        .map(|children| convert(children, &id))
-                        .unwrap_or_default(),
-                })
-            })
-            .collect()
+    ) -> Result<BTreeMap<String, NoteCategoryConfig>, ServiceError> {
+        let mut filesystem_names = HashSet::new();
+        let mut categories = BTreeMap::new();
+        for (name, child) in entries {
+            let filesystem_name =
+                note_category_filesystem_key(name).ok_or(ServiceError::InvalidConfig)?;
+            if !filesystem_names.insert(filesystem_name) {
+                return Err(ServiceError::InvalidConfig);
+            }
+            categories.insert(
+                name.clone(),
+                NoteCategoryConfig(match child.as_object() {
+                    Some(children) => convert(children)?,
+                    None => BTreeMap::new(),
+                }),
+            );
+        }
+        Ok(categories)
     }
 
-    value
+    Ok(value
         .and_then(Value::as_object)
-        .map(|entries| convert(entries, ""))
-        .unwrap_or_default()
+        .map(convert)
+        .transpose()?
+        .unwrap_or_default())
 }
 
 fn legacy_templates(value: Option<&Value>) -> BTreeMap<String, Vec<String>> {
@@ -371,9 +364,7 @@ mod tests {
                 "noteFileNamePrefix": "${CURRENT_YEAR}_",
                 "noteFileNameSuffix": 42,
                 "noteCategories": {
-                    "General": { "Reports": { "Weekly": {} } },
-                    "Unsafe": { "..": {} },
-                    "a/b": {}
+                    "General": { "Reports": { "Weekly": {} } }
                 },
                 "noteTemplates": {
                     "default": ["# ${1:Title}", "Created ${CURRENT_DATE}"],
@@ -387,38 +378,15 @@ mod tests {
         let config = validate_config(&control.join("config.toml")).unwrap();
         assert_eq!(config.notes.file_name_prefix, "${CURRENT_YEAR}_");
         assert_eq!(config.notes.file_name_suffix, "");
-        let general = config
-            .notes
-            .categories
-            .iter()
-            .find(|category| category.label == "General")
-            .unwrap();
-        let reports = general
-            .children
-            .iter()
-            .find(|category| category.label == "Reports")
-            .unwrap();
-        let weekly = reports
-            .children
-            .iter()
-            .find(|category| category.label == "Weekly")
-            .unwrap();
-        assert_eq!(
-            [
-                general.directory.as_str(),
-                reports.directory.as_str(),
-                weekly.directory.as_str(),
-            ],
-            ["General", "Reports", "Weekly"]
-        );
-        let unsafe_category = config
-            .notes
-            .categories
-            .iter()
-            .find(|category| category.label == "Unsafe")
-            .unwrap();
-        assert!(unsafe_category.children.is_empty());
-        let migrated_note = crate::create_note_with_options(&uri, Some(&weekly.id), None).unwrap();
+        let general = &config.notes.categories["General"];
+        let reports = &general.0["Reports"];
+        assert!(reports.0["Weekly"].0.is_empty());
+        let weekly = [
+            "General".to_owned(),
+            "Reports".to_owned(),
+            "Weekly".to_owned(),
+        ];
+        let migrated_note = crate::create_note_with_options(&uri, Some(&weekly), None).unwrap();
         let migrated_note = workspace_path(migrated_note.open_uri.as_deref().unwrap()).unwrap();
         assert_eq!(
             migrated_note.parent().unwrap(),
@@ -439,6 +407,70 @@ mod tests {
         migrate_legacy_workspace(&uri, &serde_json::json!({"noteFileNamePrefix":"changed"}))
             .unwrap();
         assert_eq!(fs::read(control.join("config.toml")).unwrap(), first_config);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_migration_rejects_sibling_filesystem_collisions_atomically() {
+        let root = test_workspace("legacy-migration-collision");
+        let control = root.join(".fleximark");
+        fs::create_dir(&control).unwrap();
+        fs::write(control.join("fleximark.json"), "legacy-marker").unwrap();
+        fs::write(control.join("fleximark.css"), "body { color: purple; }").unwrap();
+        fs::write(control.join("parserPlugin.js"), "module.exports = {};").unwrap();
+        let uri = path_to_file_uri(&root).unwrap();
+
+        assert!(matches!(
+            migrate_legacy_workspace(
+                &uri,
+                &serde_json::json!({"noteCategories":{"Work":{},"work":{}}}),
+            ),
+            Err(ServiceError::InvalidConfig)
+        ));
+        assert!(!control.join("config.toml").exists());
+        assert!(!control.join("theme.css").exists());
+        assert_eq!(
+            fs::read_to_string(control.join("fleximark.json")).unwrap(),
+            "legacy-marker"
+        );
+        assert_eq!(
+            fs::read_to_string(control.join("fleximark.css")).unwrap(),
+            "body { color: purple; }"
+        );
+        assert!(control.join("parserPlugin.js").is_file());
+        assert_eq!(inspect_legacy_workspace(&uri).unwrap(), Some(true));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_migration_rejects_invalid_nested_category_names_atomically() {
+        let root = test_workspace("legacy-migration-invalid-category");
+        let control = root.join(".fleximark");
+        fs::create_dir(&control).unwrap();
+        fs::write(control.join("fleximark.json"), "legacy-marker").unwrap();
+        fs::write(control.join("fleximark.css"), "body { color: purple; }").unwrap();
+        fs::write(control.join("parserPlugin.js"), "module.exports = {};").unwrap();
+        let uri = path_to_file_uri(&root).unwrap();
+
+        assert!(matches!(
+            migrate_legacy_workspace(
+                &uri,
+                &serde_json::json!({"noteCategories":{"Valid":{"CON":{}}}}),
+            ),
+            Err(ServiceError::InvalidConfig)
+        ));
+        assert!(!control.join("config.toml").exists());
+        assert!(!control.join("theme.css").exists());
+        assert_eq!(
+            fs::read_to_string(control.join("fleximark.json")).unwrap(),
+            "legacy-marker"
+        );
+        assert_eq!(
+            fs::read_to_string(control.join("fleximark.css")).unwrap(),
+            "body { color: purple; }"
+        );
+        assert!(control.join("parserPlugin.js").is_file());
+        assert_eq!(inspect_legacy_workspace(&uri).unwrap(), Some(true));
         fs::remove_dir_all(root).unwrap();
     }
 

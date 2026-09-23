@@ -15,14 +15,14 @@ type Assert<Value extends true> = Value;
 declare const connection: JsonRpcConnection;
 
 const initialize = connection.request("fleximark/initialize", {
-  protocolVersion: 3,
+  protocolVersion: 4,
   client: { name: "type-test", version: "1" },
 });
 type InitializeIsInferred = Assert<
   Equal<typeof initialize, Promise<InitializeResult>>
 >;
 type InitializeVersionIsLiteral = Assert<
-  Equal<InitializeResult["protocolVersion"], 3>
+  Equal<InitializeResult["protocolVersion"], 4>
 >;
 
 const noteOptions = connection.request("fleximark/getNoteOptions", {
