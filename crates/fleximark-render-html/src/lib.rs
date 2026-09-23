@@ -1,0 +1,1259 @@
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::LazyLock;
+
+use fleximark_model::{
+    Block, BlockKind, Document, Inline, InlineKind, NavigationEntry, Node, NodeId,
+};
+use thiserror::Error;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HtmlTarget {
+    Preview,
+    Portable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderContext {
+    pub target: HtmlTarget,
+    pub allow_remote_resources: bool,
+    pub allow_data_resources: bool,
+    /// Canonical source spelling to an opaque, already-validated asset reference.
+    pub resolved_resources: BTreeMap<String, String>,
+}
+
+impl Default for RenderContext {
+    fn default() -> Self {
+        Self {
+            target: HtmlTarget::Preview,
+            allow_remote_resources: false,
+            allow_data_resources: false,
+            resolved_resources: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderedBlock {
+    pub id: NodeId,
+    pub node_ids: Vec<NodeId>,
+    pub navigation: Vec<NavigationEntry>,
+    pub html: String,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum RenderError {
+    #[error("duplicate NodeId at render boundary: {0}")]
+    DuplicateNodeId(String),
+    #[error("raw HTML sequence lost its internal boundary marker")]
+    InvalidRawHtmlBoundary,
+    #[error("resource URL is rejected by the target policy: {0}")]
+    ResourceRejected(String),
+}
+
+pub struct HtmlRenderer;
+
+impl HtmlRenderer {
+    pub fn render(
+        &self,
+        document: &Document,
+        context: &RenderContext,
+    ) -> Result<String, RenderError> {
+        Ok(self
+            .render_blocks(document, context)?
+            .into_iter()
+            .map(|block| block.html)
+            .collect())
+    }
+
+    pub fn render_blocks(
+        &self,
+        document: &Document,
+        context: &RenderContext,
+    ) -> Result<Vec<RenderedBlock>, RenderError> {
+        if document
+            .blocks
+            .iter()
+            .any(|block| matches!(block.kind, BlockKind::RawHtml { .. }))
+        {
+            return render_sanitized_block_sequence(&document.blocks, context);
+        }
+        let mut ids = HashSet::new();
+        let mut rendered = Vec::with_capacity(document.blocks.len());
+        for block in &document.blocks {
+            let mut node_ids = Vec::new();
+            let mut navigation = Vec::new();
+            collect_render_metadata(block, 0, &mut ids, &mut node_ids, &mut navigation)?;
+            rendered.push(RenderedBlock {
+                id: block.id.clone(),
+                node_ids,
+                navigation,
+                html: render_block(block, context)?,
+            });
+        }
+        Ok(rendered)
+    }
+}
+
+fn render_sanitized_block_sequence(
+    blocks: &[Block],
+    context: &RenderContext,
+) -> Result<Vec<RenderedBlock>, RenderError> {
+    let mut seen = HashSet::new();
+    let mut rendered = Vec::with_capacity(blocks.len());
+    let mut candidate = String::new();
+    for (index, block) in blocks.iter().enumerate() {
+        let mut node_ids = Vec::new();
+        let mut navigation = Vec::new();
+        collect_render_metadata(block, 0, &mut seen, &mut node_ids, &mut navigation)?;
+        let html = if matches!(block.kind, BlockKind::RawHtml { .. }) {
+            None
+        } else {
+            Some(render_block(block, context)?)
+        };
+        rendered.push((block, node_ids, navigation, html));
+        candidate.push_str(&block_marker(index));
+        match &block.kind {
+            BlockKind::RawHtml { html } => candidate.push_str(&neutralize_internal_markers(html)),
+            _ => candidate.push_str(&safe_block_marker(index)),
+        }
+    }
+
+    let sanitized = clean_raw_html(&candidate);
+    let starts = top_level_block_marker_offsets(&sanitized);
+    if starts.is_empty() {
+        // Every sequence begins with a protected marker. An empty set means an
+        // internal invariant was violated rather than author-controlled input.
+        return Err(RenderError::InvalidRawHtmlBoundary);
+    }
+
+    let mut output = Vec::with_capacity(starts.len());
+    for (group_index, start) in starts.iter().copied().enumerate() {
+        let end = starts
+            .get(group_index + 1)
+            .copied()
+            .unwrap_or(sanitized.len());
+        let mut group = sanitized[start..end].to_owned();
+        let indices = (0..blocks.len())
+            .filter(|index| group.contains(&block_marker(*index)))
+            .collect::<Vec<_>>();
+        let Some(&root_index) = indices.first() else {
+            return Err(RenderError::InvalidRawHtmlBoundary);
+        };
+
+        if indices.len() == 1 && rendered[root_index].3.is_some() {
+            output.push(RenderedBlock {
+                id: rendered[root_index].0.id.clone(),
+                node_ids: rendered[root_index].1.clone(),
+                navigation: rendered[root_index].2.clone(),
+                html: rendered[root_index].3.clone().expect("checked above"),
+            });
+            continue;
+        }
+
+        let mut node_ids = Vec::new();
+        let mut navigation = Vec::new();
+        for &index in &indices {
+            node_ids.extend(rendered[index].1.iter().cloned());
+            navigation.extend(rendered[index].2.iter().cloned());
+            group = group.replace(
+                &safe_block_marker(index),
+                rendered[index].3.as_deref().unwrap_or(""),
+            );
+            let identity = if index == root_index {
+                String::new()
+            } else if rendered[index].3.is_none() {
+                format!(
+                    "<span data-fleximark-node-id=\"{}\" data-fleximark-kind=\"raw-html-boundary\" hidden></span>",
+                    escape_attribute(&rendered[index].0.id.0)
+                )
+            } else {
+                String::new()
+            };
+            group = group.replace(&block_marker(index), &identity);
+        }
+        output.push(RenderedBlock {
+            id: rendered[root_index].0.id.clone(),
+            node_ids,
+            navigation,
+            html: format!(
+                "<div data-fleximark-node-id=\"{}\" data-fleximark-kind=\"raw-html-container\">{group}</div>\n",
+                escape_attribute(&rendered[root_index].0.id.0)
+            ),
+        });
+    }
+    Ok(output)
+}
+
+fn block_marker(index: usize) -> String {
+    format!("<{INTERNAL_BLOCK_MARKER_TAG} data-index=\"{index}\"></{INTERNAL_BLOCK_MARKER_TAG}>")
+}
+
+fn safe_block_marker(index: usize) -> String {
+    format!("<{INTERNAL_SAFE_BLOCK_TAG} data-index=\"{index}\"></{INTERNAL_SAFE_BLOCK_TAG}>")
+}
+
+fn top_level_block_marker_offsets(html: &str) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut depth = 0usize;
+    let mut cursor = 0usize;
+    while let Some(relative) = html[cursor..].find('<') {
+        let start = cursor + relative;
+        let Some(end) = find_html_tag_end(html, start + 1) else {
+            break;
+        };
+        let token = &html[start + 1..end];
+        if let Some(closing) = token.strip_prefix('/') {
+            let name = closing.split_ascii_whitespace().next().unwrap_or("");
+            if !name.is_empty() {
+                depth = depth.saturating_sub(1);
+            }
+        } else {
+            let name = token
+                .split_ascii_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('/');
+            if depth == 0 && name.eq_ignore_ascii_case(INTERNAL_BLOCK_MARKER_TAG) {
+                offsets.push(start);
+            }
+            let is_void = matches!(name, "br" | "col" | "hr" | "wbr") || token.ends_with('/');
+            if !name.is_empty() && !is_void {
+                depth += 1;
+            }
+        }
+        cursor = end + 1;
+    }
+    offsets
+}
+
+fn find_html_tag_end(html: &str, start: usize) -> Option<usize> {
+    let mut quote = None;
+    for (relative, character) in html[start..].char_indices() {
+        match (quote, character) {
+            (Some(active), current) if current == active => quote = None,
+            (None, current @ ('\'' | '"')) => quote = Some(current),
+            (None, '>') => return Some(start + relative),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn collect_render_metadata(
+    block: &Block,
+    depth: u32,
+    seen: &mut HashSet<NodeId>,
+    node_ids: &mut Vec<NodeId>,
+    navigation: &mut Vec<NavigationEntry>,
+) -> Result<(), RenderError> {
+    if !seen.insert(block.id.clone()) {
+        return Err(RenderError::DuplicateNodeId(block.id.0.clone()));
+    }
+    node_ids.push(block.id.clone());
+    if let Some(source_range) = block.provenance.navigation_range() {
+        navigation.push(NavigationEntry {
+            node_id: block.id.clone(),
+            source_range,
+            depth,
+        });
+    }
+    for child in &block.children {
+        if let Node::Block(block) = child {
+            collect_render_metadata(block, depth + 1, seen, node_ids, navigation)?;
+        }
+    }
+    Ok(())
+}
+
+fn render_block(block: &Block, context: &RenderContext) -> Result<String, RenderError> {
+    let id = escape_attribute(&block.id.0);
+    let children = || render_nodes(&block.children, context);
+    Ok(match &block.kind {
+        BlockKind::Paragraph => format!("<p data-fleximark-node-id=\"{id}\">{}</p>\n", children()?),
+        BlockKind::Heading { level } => {
+            let level = (*level).clamp(1, 6);
+            format!(
+                "<h{level} data-fleximark-node-id=\"{id}\">{}</h{level}>\n",
+                children()?
+            )
+        }
+        BlockKind::Quote => format!(
+            "<blockquote data-fleximark-node-id=\"{id}\">{}</blockquote>\n",
+            children()?
+        ),
+        BlockKind::List {
+            ordered,
+            start,
+            tight,
+        } => {
+            let tight = if *tight {
+                " data-fleximark-tight=\"true\""
+            } else {
+                ""
+            };
+            if *ordered {
+                format!(
+                    "<ol data-fleximark-node-id=\"{id}\" start=\"{start}\"{tight}>{}</ol>\n",
+                    children()?
+                )
+            } else {
+                format!(
+                    "<ul data-fleximark-node-id=\"{id}\"{tight}>{}</ul>\n",
+                    children()?
+                )
+            }
+        }
+        BlockKind::ListItem { checked } => {
+            let task = checked
+                .map(|checked| {
+                    format!(
+                        " role=\"checkbox\" aria-checked=\"{}\"",
+                        if checked { "true" } else { "false" }
+                    )
+                })
+                .unwrap_or_default();
+            format!(
+                "<li data-fleximark-node-id=\"{id}\"{task}>{}</li>\n",
+                children()?
+            )
+        }
+        BlockKind::Table => format!(
+            "<table data-fleximark-node-id=\"{id}\"><tbody>{}</tbody></table>\n",
+            children()?
+        ),
+        BlockKind::TableRow { .. } => {
+            format!("<tr data-fleximark-node-id=\"{id}\">{}</tr>\n", children()?)
+        }
+        BlockKind::TableCell { header } => {
+            let tag = if *header { "th" } else { "td" };
+            format!(
+                "<{tag} data-fleximark-node-id=\"{id}\">{}</{tag}>\n",
+                children()?
+            )
+        }
+        BlockKind::CodeBlock {
+            language,
+            title,
+            line_numbers,
+            code,
+        } => {
+            let language = language
+                .as_deref()
+                .map(escape_attribute)
+                .unwrap_or_default();
+            let caption = title
+                .as_deref()
+                .map(|value| {
+                    format!(
+                        "<figcaption class=\"fleximark-code-title\">{}</figcaption>",
+                        escape_text(value)
+                    )
+                })
+                .unwrap_or_default();
+            let code = if *line_numbers {
+                code.split_inclusive('\n')
+                    .enumerate()
+                    .map(|(index, line)| {
+                        let content = line.strip_suffix('\n').unwrap_or(line);
+                        format!(
+                            "<span class=\"fleximark-code-line\" data-line=\"{}\">{}</span>{}",
+                            index + 1,
+                            escape_text(content),
+                            if line.ends_with('\n') { "\n" } else { "" }
+                        )
+                    })
+                    .collect::<String>()
+            } else {
+                escape_text(code)
+            };
+            format!(
+                "<figure data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"code\">{caption}<pre><code class=\"language-{language}\">{code}</code></pre></figure>\n"
+            )
+        }
+        BlockKind::Mermaid { source } => special_block(&id, "mermaid", source),
+        BlockKind::AbcNotation { source } => special_block(&id, "abc", source),
+        BlockKind::Math { source } => format!(
+            "<div data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"math\">{}</div>\n",
+            escape_text(source)
+        ),
+        BlockKind::ThematicBreak => format!("<hr data-fleximark-node-id=\"{id}\">\n"),
+        BlockKind::Admonition { kind, title } => format!(
+            "<aside data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"admonition\" data-admonition-kind=\"{}\"><header class=\"fleximark-admonition-title\">{}</header>{}</aside>\n",
+            escape_attribute(kind),
+            escape_text(title),
+            children()?
+        ),
+        BlockKind::Tabs => format!(
+            "<section data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"tabs\">{}</section>\n",
+            children()?
+        ),
+        BlockKind::Tab { label } => format!(
+            "<section data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"tab\" data-tab-label=\"{}\">{}</section>\n",
+            escape_attribute(label),
+            children()?
+        ),
+        BlockKind::Details { summary } => format!(
+            "<details data-fleximark-node-id=\"{id}\"><summary>{}</summary>{}</details>\n",
+            escape_text(summary),
+            children()?
+        ),
+        BlockKind::Media { source } => {
+            if is_youtube_url(source) {
+                format!(
+                    "<div data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"youtube\" data-source=\"{}\"></div>\n",
+                    escape_attribute(source)
+                )
+            } else {
+                match resolve_resource(source, context, ResourceUse::Image) {
+                    Ok(source) => format!(
+                        "<img data-fleximark-node-id=\"{id}\" src=\"{}\" alt=\"\">\n",
+                        escape_attribute(&source)
+                    ),
+                    Err(RenderError::ResourceRejected(_))
+                        if context.target == HtmlTarget::Preview =>
+                    {
+                        format!(
+                            "<span data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"asset-placeholder\" role=\"img\">Asset unavailable</span>\n"
+                        )
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        BlockKind::RawHtml { html } => format!(
+            "<div data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"raw-html\">{}</div>\n",
+            clean_raw_html(&neutralize_internal_markers(html))
+        ),
+        BlockKind::Plugin { namespace, name } => format!(
+            "<div data-fleximark-node-id=\"{id}\" data-plugin-namespace=\"{}\" data-plugin-name=\"{}\">{}</div>\n",
+            escape_attribute(namespace),
+            escape_attribute(name),
+            children()?
+        ),
+    })
+}
+
+fn special_block(id: &str, kind: &str, source: &str) -> String {
+    let payload = serde_json::to_string(source)
+        .expect("serializing an owned Rust string as JSON cannot fail")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    format!(
+        "<div data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"{kind}\"><script type=\"application/json\">{}</script></div>\n",
+        payload
+    )
+}
+
+fn render_nodes(nodes: &[Node], context: &RenderContext) -> Result<String, RenderError> {
+    if nodes.iter().any(|node| {
+        matches!(
+            node,
+            Node::Block(Block {
+                kind: BlockKind::RawHtml { .. },
+                ..
+            })
+        )
+    }) {
+        return render_sanitized_nodes(nodes, context);
+    }
+    let mut html = String::new();
+    let mut index = 0;
+    while index < nodes.len() {
+        match &nodes[index] {
+            Node::Block(block) => {
+                html.push_str(&render_block(block, context)?);
+                index += 1;
+            }
+            Node::Inline(_) => {
+                let end = nodes[index..]
+                    .iter()
+                    .position(|node| matches!(node, Node::Block(_)))
+                    .map_or(nodes.len(), |offset| index + offset);
+                let inlines = nodes[index..end]
+                    .iter()
+                    .map(|node| match node {
+                        Node::Inline(inline) => inline,
+                        Node::Block(_) => unreachable!("inline run ended at the first block"),
+                    })
+                    .collect::<Vec<_>>();
+                html.push_str(&render_inline_sequence(&inlines, context)?);
+                index = end;
+            }
+        }
+    }
+    Ok(html)
+}
+
+fn render_sanitized_nodes(nodes: &[Node], context: &RenderContext) -> Result<String, RenderError> {
+    enum ProtectedNode {
+        Safe(String),
+        RawIdentity(NodeId),
+    }
+
+    let mut candidate = String::new();
+    let mut protected = Vec::new();
+    let mut index = 0;
+    while index < nodes.len() {
+        match &nodes[index] {
+            Node::Block(block) => {
+                let protected_index = protected.len();
+                match &block.kind {
+                    BlockKind::RawHtml { html } => {
+                        candidate.push_str(&block_marker(protected_index));
+                        candidate.push_str(&neutralize_internal_markers(html));
+                        protected.push(ProtectedNode::RawIdentity(block.id.clone()));
+                    }
+                    _ => {
+                        candidate.push_str(&safe_block_marker(protected_index));
+                        protected.push(ProtectedNode::Safe(render_block(block, context)?));
+                    }
+                }
+                index += 1;
+            }
+            Node::Inline(_) => {
+                let end = nodes[index..]
+                    .iter()
+                    .position(|node| matches!(node, Node::Block(_)))
+                    .map_or(nodes.len(), |offset| index + offset);
+                let inlines = nodes[index..end]
+                    .iter()
+                    .map(|node| match node {
+                        Node::Inline(inline) => inline,
+                        Node::Block(_) => unreachable!("inline run ended at the first block"),
+                    })
+                    .collect::<Vec<_>>();
+                let protected_index = protected.len();
+                candidate.push_str(&safe_block_marker(protected_index));
+                protected.push(ProtectedNode::Safe(render_inline_sequence(
+                    &inlines, context,
+                )?));
+                index = end;
+            }
+        }
+    }
+
+    let mut sanitized = clean_raw_html(&candidate);
+    for (index, node) in protected.into_iter().enumerate() {
+        match node {
+            ProtectedNode::Safe(html) => {
+                sanitized = sanitized.replace(&safe_block_marker(index), &html);
+            }
+            ProtectedNode::RawIdentity(id) => {
+                sanitized = sanitized.replace(
+                    &block_marker(index),
+                    &format!(
+                        "<span data-fleximark-node-id=\"{}\" data-fleximark-kind=\"raw-html-boundary\" hidden></span>",
+                        escape_attribute(&id.0)
+                    ),
+                );
+            }
+        }
+    }
+    Ok(sanitized)
+}
+
+fn render_inline_sequence(
+    inlines: &[&Inline],
+    context: &RenderContext,
+) -> Result<String, RenderError> {
+    if !inlines
+        .iter()
+        .any(|inline| matches!(inline.kind, InlineKind::RawHtml { .. }))
+    {
+        return inlines
+            .iter()
+            .map(|inline| render_inline(inline, context))
+            .collect();
+    }
+
+    // CommonMark represents an inline element as separate opening and closing
+    // raw nodes. Sanitize the complete sequence so harmless constructs such as
+    // `<kbd>Ctrl</kbd>` retain their structure. Renderer-owned fragments are
+    // replaced by inert text markers during sanitization and restored after it,
+    // preventing the raw allowlist from granting authors access to internal
+    // `data-fleximark-*` attributes or resource-loading elements.
+    let mut candidate = String::new();
+    let mut safe_fragments = Vec::new();
+    for inline in inlines {
+        if let InlineKind::RawHtml { html } = &inline.kind {
+            candidate.push_str(&neutralize_internal_markers(html));
+        } else {
+            let marker = format!(
+                "<{INTERNAL_FRAGMENT_TAG} data-index=\"{}\"></{INTERNAL_FRAGMENT_TAG}>",
+                safe_fragments.len()
+            );
+            candidate.push_str(&marker);
+            safe_fragments.push((marker, render_inline(inline, context)?));
+        }
+    }
+    let mut sanitized = clean_raw_html(&candidate);
+    for (marker, fragment) in safe_fragments {
+        sanitized = sanitized.replace(&marker, &fragment);
+    }
+    Ok(sanitized)
+}
+
+fn render_inline(inline: &Inline, context: &RenderContext) -> Result<String, RenderError> {
+    let nested = |children: &[Inline]| -> Result<String, RenderError> {
+        render_inline_sequence(&children.iter().collect::<Vec<_>>(), context)
+    };
+    Ok(match &inline.kind {
+        InlineKind::Text { value } => escape_text(value),
+        InlineKind::Code { value } => format!("<code>{}</code>", escape_text(value)),
+        InlineKind::Emphasis { children } => format!("<em>{}</em>", nested(children)?),
+        InlineKind::Strong { children } => format!("<strong>{}</strong>", nested(children)?),
+        InlineKind::Strikethrough { children } => format!("<del>{}</del>", nested(children)?),
+        InlineKind::Link {
+            destination,
+            title,
+            children,
+        } => {
+            let destination = resolve_resource(destination, context, ResourceUse::Link)?;
+            format!(
+                "<a href=\"{}\" title=\"{}\">{}</a>",
+                escape_attribute(&destination),
+                escape_attribute(title),
+                nested(children)?
+            )
+        }
+        InlineKind::Image {
+            source,
+            title,
+            children,
+        } => {
+            let alt = children.iter().map(inline_text).collect::<String>();
+            match resolve_resource(source, context, ResourceUse::Image) {
+                Ok(source) => format!(
+                    "<img src=\"{}\" title=\"{}\" alt=\"{}\">",
+                    escape_attribute(&source),
+                    escape_attribute(title),
+                    escape_attribute(&alt)
+                ),
+                Err(RenderError::ResourceRejected(_)) if context.target == HtmlTarget::Preview => {
+                    format!(
+                        "<span data-fleximark-kind=\"asset-placeholder\" role=\"img\" aria-label=\"{}\">Asset unavailable</span>",
+                        escape_attribute(&alt)
+                    )
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        InlineKind::Math { source } => format!(
+            "<span data-fleximark-kind=\"math\">{}</span>",
+            escape_text(source)
+        ),
+        InlineKind::SoftBreak => "\n".to_owned(),
+        InlineKind::HardBreak => "<br>\n".to_owned(),
+        InlineKind::RawHtml { html } => clean_raw_html(&neutralize_internal_markers(html)),
+    })
+}
+
+fn inline_text(inline: &Inline) -> String {
+    match &inline.kind {
+        InlineKind::Text { value } | InlineKind::Code { value } => value.clone(),
+        InlineKind::Emphasis { children }
+        | InlineKind::Strong { children }
+        | InlineKind::Strikethrough { children }
+        | InlineKind::Link { children, .. }
+        | InlineKind::Image { children, .. } => children.iter().map(inline_text).collect(),
+        InlineKind::Math { source } => source.clone(),
+        InlineKind::SoftBreak | InlineKind::HardBreak => " ".to_owned(),
+        InlineKind::RawHtml { .. } => String::new(),
+    }
+}
+
+static RAW_HTML_SANITIZER: LazyLock<ammonia::Builder<'static>> = LazyLock::new(|| {
+    let mut builder = ammonia::Builder::default();
+    builder
+        .add_tags(&[
+            INTERNAL_FRAGMENT_TAG,
+            INTERNAL_BLOCK_MARKER_TAG,
+            INTERNAL_SAFE_BLOCK_TAG,
+        ])
+        .add_tag_attributes(INTERNAL_FRAGMENT_TAG, &["data-index"])
+        .add_tag_attributes(INTERNAL_BLOCK_MARKER_TAG, &["data-index"])
+        .add_tag_attributes(INTERNAL_SAFE_BLOCK_TAG, &["data-index"])
+        .add_tag_attributes("details", &["open"])
+        .add_generic_attributes(&["class", "id", "style", "role", "dir", "tabindex"])
+        .add_generic_attribute_prefixes(&["aria-", "data-"])
+        .url_schemes(
+            ["http", "https", "mailto"]
+                .into_iter()
+                .collect::<HashSet<_>>(),
+        )
+        .url_relative(ammonia::UrlRelative::Custom(Box::new(
+            sanitize_relative_url,
+        )))
+        .add_clean_content_tags(&[
+            "embed", "form", "iframe", "noscript", "object", "script", "template",
+        ])
+        .attribute_filter(|tag, attribute, value| {
+            if attribute.starts_with("on")
+                || attribute == "srcdoc"
+                || (attribute.starts_with("data-fleximark-") && !tag.starts_with("fleximark-"))
+            {
+                None
+            } else {
+                Some(Cow::Borrowed(value))
+            }
+        })
+        // `target` is not allowed, so reverse-tabnabbing is impossible.
+        .link_rel(None);
+    builder
+});
+
+const INTERNAL_FRAGMENT_TAG: &str = "fleximark-safe-fragment";
+const INTERNAL_BLOCK_MARKER_TAG: &str = "fleximark-block-marker";
+const INTERNAL_SAFE_BLOCK_TAG: &str = "fleximark-safe-block";
+
+fn sanitize_relative_url(url: &str) -> Option<Cow<'_, str>> {
+    let normalized = url.trim();
+    if normalized.starts_with("//")
+        || normalized.starts_with("\\\\")
+        || normalized.contains('\\')
+        || normalized.chars().any(char::is_control)
+    {
+        None
+    } else {
+        Some(Cow::Borrowed(url))
+    }
+}
+
+fn clean_raw_html(source: &str) -> String {
+    RAW_HTML_SANITIZER.clean(source).to_string()
+}
+
+fn neutralize_internal_markers(source: &str) -> Cow<'_, str> {
+    let mut output = String::new();
+    let mut copied_until = 0;
+    for (index, character) in source.char_indices() {
+        if character != '<' {
+            continue;
+        }
+        let mut tail = &source[index + 1..];
+        if let Some(rest) = tail.strip_prefix('/') {
+            tail = rest;
+        }
+        let is_internal = [
+            INTERNAL_FRAGMENT_TAG,
+            INTERNAL_BLOCK_MARKER_TAG,
+            INTERNAL_SAFE_BLOCK_TAG,
+        ]
+        .into_iter()
+        .any(|internal| {
+            tail.get(..internal.len()).is_some_and(|name| {
+                let boundary = tail[internal.len()..].chars().next();
+                name.eq_ignore_ascii_case(internal)
+                    && boundary.is_none_or(|value| {
+                        value.is_ascii_whitespace() || matches!(value, '/' | '>')
+                    })
+            })
+        });
+        if is_internal {
+            output.push_str(&source[copied_until..index]);
+            output.push_str("&lt;");
+            copied_until = index + 1;
+        }
+    }
+    if copied_until == 0 {
+        Cow::Borrowed(source)
+    } else {
+        output.push_str(&source[copied_until..]);
+        Cow::Owned(output)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ResourceUse {
+    Link,
+    Image,
+}
+
+fn resolve_resource(
+    url: &str,
+    context: &RenderContext,
+    resource_use: ResourceUse,
+) -> Result<String, RenderError> {
+    if let Some(reference) = context.resolved_resources.get(url) {
+        if reference.starts_with("fleximark-asset:")
+            && reference["fleximark-asset:".len()..].len() == 64
+            && reference["fleximark-asset:".len()..]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            return Ok(reference.clone());
+        }
+        return Err(RenderError::ResourceRejected(reference.clone()));
+    }
+    let lower = url.trim().to_ascii_lowercase();
+    let safe_data_image = matches!(resource_use, ResourceUse::Image)
+        && [
+            "data:image/png;base64,",
+            "data:image/jpeg;base64,",
+            "data:image/gif;base64,",
+            "data:image/webp;base64,",
+        ]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    let is_protocol_relative = lower.starts_with("//") || lower.starts_with("\\\\");
+    let has_forbidden_character = lower.chars().any(char::is_control) || lower.contains('\\');
+    let is_relative_asset = matches!(resource_use, ResourceUse::Image)
+        && !lower.starts_with('/')
+        && !lower.starts_with("data:")
+        && !lower.starts_with("http://")
+        && !lower.starts_with("https://")
+        && !lower.contains(':');
+    let allowed = (!is_relative_asset || context.target == HtmlTarget::Portable)
+        && !is_protocol_relative
+        && !has_forbidden_character
+        && (lower.starts_with('#')
+            || lower.starts_with('/')
+            || lower.starts_with("./")
+            || lower.starts_with("../")
+            || lower.starts_with("mailto:")
+            || ((lower.starts_with("https://") || lower.starts_with("http://"))
+                && (matches!(resource_use, ResourceUse::Link) || context.allow_remote_resources))
+            || (safe_data_image && context.allow_data_resources)
+            || !lower.contains(':'));
+    if allowed {
+        Ok(url.to_owned())
+    } else {
+        Err(RenderError::ResourceRejected(url.to_owned()))
+    }
+}
+
+fn is_youtube_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("https://youtu.be/")
+        || lower.starts_with("https://www.youtube.com/watch?")
+        || lower.starts_with("https://youtube.com/watch?")
+}
+
+fn escape_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+fn escape_attribute(value: &str) -> String {
+    escape_text(value)
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fleximark_model::DocumentUri;
+    use fleximark_parser::parse;
+
+    #[test]
+    fn renders_typed_special_blocks_with_owned_identity() {
+        let source = "# Hi\n\n| A |\n|---|\n| B |\n\n```mermaid\ngraph TD; A-->B\n```\n";
+        let document = parse(DocumentUri("file:///demo.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert!(html.contains("data-fleximark-node-id=\"pending-0\""));
+        assert!(html.contains("data-fleximark-kind=\"mermaid\""));
+        assert!(html.contains("<th data-fleximark-node-id="));
+        assert!(html.contains(r#"type="application/json">"graph TD; A--\u003eB\n""#));
+    }
+
+    #[test]
+    fn marks_only_tight_lists_for_compact_preview_spacing() {
+        let tight = parse(DocumentUri("file:///tight.md".into()), 1, "- one\n- two\n").unwrap();
+        let loose = parse(
+            DocumentUri("file:///loose.md".into()),
+            1,
+            "- one\n\n- two\n",
+        )
+        .unwrap();
+
+        let tight_html = HtmlRenderer
+            .render(&tight, &RenderContext::default())
+            .unwrap();
+        let loose_html = HtmlRenderer
+            .render(&loose, &RenderContext::default())
+            .unwrap();
+        assert!(tight_html.contains("data-fleximark-tight=\"true\""));
+        assert!(!loose_html.contains("data-fleximark-tight"));
+    }
+
+    #[test]
+    fn renders_accessible_tabs_details_and_visible_code_metadata() {
+        let source = "::::tabs\n:::tab[First]\none\n:::\n:::tab[Second]\ntwo\n:::\n::::\n\n:::details[Read more]\ninside\n:::\n\n```rust title='Demo' line-numbers\nfn main() {}\nlet x = 2;\n```\n";
+        let document = parse(DocumentUri("file:///ui.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert!(html.contains("data-fleximark-kind=\"tab\" data-tab-label=\"First\""));
+        assert!(html.contains("<summary>Read more</summary>"));
+        assert!(html.contains("<figcaption class=\"fleximark-code-title\">Demo</figcaption>"));
+        assert!(html.contains("class=\"fleximark-code-line\" data-line=\"1\""));
+        assert!(html.contains("class=\"fleximark-code-line\" data-line=\"2\""));
+    }
+
+    #[test]
+    fn sanitizes_raw_html_links_and_image_resources() {
+        let raw = parse(
+            DocumentUri("file:///raw.md".into()),
+            1,
+            "<script>alert(1)</script>\n",
+        )
+        .unwrap();
+        let sanitized = HtmlRenderer
+            .render(&raw, &RenderContext::default())
+            .unwrap();
+        assert!(!sanitized.contains("script"));
+        assert!(!sanitized.contains("alert(1)"));
+        let link = parse(
+            DocumentUri("file:///link.md".into()),
+            1,
+            "[bad](javascript:alert(1))\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            HtmlRenderer.render(&link, &RenderContext::default()),
+            Err(RenderError::ResourceRejected(_))
+        ));
+        let permissive = RenderContext {
+            allow_remote_resources: true,
+            allow_data_resources: true,
+            ..RenderContext::default()
+        };
+        assert!(resolve_resource("//evil.example/x", &permissive, ResourceUse::Image).is_err());
+        assert!(
+            resolve_resource("data:text/html,<script>", &permissive, ResourceUse::Image).is_err()
+        );
+        assert!(
+            resolve_resource("data:image/svg+xml,<svg>", &permissive, ResourceUse::Image).is_err()
+        );
+        assert!(
+            resolve_resource(
+                "data:image/png,percent-encoded",
+                &permissive,
+                ResourceUse::Image
+            )
+            .is_err()
+        );
+        assert!(
+            resolve_resource(
+                "data:image/avif;base64,AA==",
+                &permissive,
+                ResourceUse::Image
+            )
+            .is_err()
+        );
+        assert!(
+            resolve_resource(
+                "data:image/png;base64,AA==",
+                &permissive,
+                ResourceUse::Image
+            )
+            .is_ok()
+        );
+        assert!(
+            resolve_resource("data:image/png;base64,AA==", &permissive, ResourceUse::Link).is_err()
+        );
+    }
+
+    #[test]
+    fn preserves_useful_raw_html_and_inline_tag_pairs() {
+        let source = "Press <kbd class=\"key\">Ctrl</kbd> and <mark>Enter</mark>.\n\n<details open><summary>More</summary><table><tr><th scope=\"col\">A</th></tr><tr><td>1</td></tr></table></details>\n";
+        let document = parse(DocumentUri("file:///safe-html.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+
+        assert!(html.contains("<kbd class=\"key\">Ctrl</kbd>"));
+        assert!(html.contains("<mark>Enter</mark>"));
+        assert!(html.contains("<details open"));
+        assert!(html.contains("<summary>More</summary>"));
+        assert!(html.contains("<th scope=\"col\">A</th>"));
+    }
+
+    #[test]
+    fn raw_details_container_keeps_markdown_blocks_inside_across_block_boundaries() {
+        let source = "<details><summary>More</summary>\n\nBody **bold**\n\n</details>\n";
+        let document = parse(DocumentUri("file:///details.md".into()), 1, source).unwrap();
+        assert!(
+            document.blocks.len() >= 3,
+            "fixture must cross block boundaries"
+        );
+
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(
+            blocks.len(),
+            1,
+            "the cross-block container is one safe patch unit"
+        );
+        let html = &blocks[0].html;
+        let details = html.find("<details>").unwrap();
+        let body = html.find(">Body <strong>bold</strong></p>").unwrap();
+        let closing = html.rfind("</details>").unwrap();
+        assert!(details < body && body < closing, "{html}");
+        assert_eq!(blocks[0].node_ids.len(), document.blocks.len());
+    }
+
+    #[test]
+    fn nested_raw_containers_and_nested_block_sequences_preserve_structure() {
+        let source = concat!(
+            "<details><summary>Outer</summary>\n\n",
+            "<details><summary>Inner</summary>\n\n",
+            "Nested body\n\n",
+            "</details>\n\n",
+            "Outer tail\n\n",
+            "</details>\n"
+        );
+        let document = parse(DocumentUri("file:///nested-details.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(html.matches("<details>").count(), 2, "{html}");
+        let nested_body = html.find(">Nested body</p>").unwrap();
+        let inner_close = html.find("</details>").unwrap();
+        let outer_tail = html.find(">Outer tail</p>").unwrap();
+        let outer_close = html.rfind("</details>").unwrap();
+        assert!(nested_body < inner_close && inner_close < outer_tail && outer_tail < outer_close);
+
+        let quoted = parse(
+            DocumentUri("file:///quoted-details.md".into()),
+            1,
+            "> <details><summary>Nested</summary>\n>\n> body\n>\n> </details>\n",
+        )
+        .unwrap();
+        let quoted_html = HtmlRenderer
+            .render(&quoted, &RenderContext::default())
+            .unwrap();
+        let open = quoted_html.find("<details>").unwrap();
+        let body = quoted_html.find(">body</p>").unwrap();
+        let close = quoted_html.find("</details>").unwrap();
+        assert!(open < body && body < close, "{quoted_html}");
+    }
+
+    #[test]
+    fn table_and_list_containers_survive_raw_block_boundaries() {
+        let source = concat!(
+            "<table>\n\n",
+            "<tr><th>A</th></tr>\n\n",
+            "<tr><td>1</td></tr>\n\n",
+            "</table>\n\n",
+            "<ul>\n\n",
+            "<li>one</li>\n\n",
+            "<li>two</li>\n\n",
+            "</ul>\n"
+        );
+        let document = parse(DocumentUri("file:///table-list.md".into()), 1, source).unwrap();
+        assert!(
+            document.blocks.len() >= 8,
+            "fixture must cross raw block boundaries"
+        );
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        let html = blocks
+            .iter()
+            .map(|block| block.html.as_str())
+            .collect::<String>();
+        let table_open = html.find("<table>").unwrap();
+        let table_row = html.find("<tr><td>1</td></tr>").unwrap();
+        let table_close = html.find("</table>").unwrap();
+        let list_open = html.find("<ul>").unwrap();
+        let list_item = html.find("<li>two</li>").unwrap();
+        let list_close = html.find("</ul>").unwrap();
+        assert!(table_open < table_row && table_row < table_close, "{html}");
+        assert!(list_open < list_item && list_item < list_close, "{html}");
+
+        let node_ids = blocks
+            .iter()
+            .flat_map(|block| block.node_ids.iter())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            node_ids.len(),
+            blocks
+                .iter()
+                .map(|block| block.node_ids.len())
+                .sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn malformed_closing_tag_cannot_capture_the_following_block_after_browser_style_reparse() {
+        let document = parse(
+            DocumentUri("file:///malformed-close.md".into()),
+            1,
+            "</details>\n\nFollowing paragraph\n",
+        )
+        .unwrap();
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert!(
+            blocks[0]
+                .html
+                .contains("data-fleximark-kind=\"raw-html-container\"")
+        );
+        assert!(blocks[1].html.contains(">Following paragraph</p>"));
+
+        // Ammonia and browsers both use the HTML5 tree-builder rules. Parsing
+        // the emitted blocks again must retain two sibling roots rather than
+        // letting an unmatched close tag capture the following paragraph.
+        let reparsed = clean_raw_html(
+            &blocks
+                .iter()
+                .map(|block| block.html.as_str())
+                .collect::<String>(),
+        );
+        assert!(reparsed.starts_with("<div>"), "{reparsed}");
+        assert!(
+            reparsed.contains("</div>\n<p>Following paragraph</p>"),
+            "{reparsed}"
+        );
+
+        let node_ids = blocks
+            .iter()
+            .flat_map(|block| block.node_ids.iter())
+            .collect::<HashSet<_>>();
+        assert_eq!(node_ids.len(), 2);
+    }
+
+    #[test]
+    fn author_block_html_cannot_collide_with_internal_sequence_markers() {
+        let source = concat!(
+            "<details><summary>Markers</summary>\n\n",
+            "<FLEXIMARK-BLOCK-MARKER data-index=\"0\"></FLEXIMARK-BLOCK-MARKER>\n",
+            "<fleximark-safe-block data-index=\"1\"></fleximark-safe-block>\n\n",
+            "trusted body\n\n",
+            "</details>\n"
+        );
+        let document = parse(DocumentUri("file:///block-marker.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert!(html.contains("&lt;FLEXIMARK-BLOCK-MARKER"), "{html}");
+        assert!(html.contains("&lt;fleximark-safe-block"), "{html}");
+        assert_eq!(html.matches(">trusted body</p>").count(), 1, "{html}");
+    }
+
+    #[test]
+    fn author_html_cannot_collide_with_internal_inline_fragment_markers() {
+        let source = "Attempt <FLEXIMARK-SAFE-FRAGMENT data-index=\"0\"></FLEXIMARK-SAFE-FRAGMENT> then <kbd>Ctrl</kbd> and **trusted**.\n";
+        let document = parse(DocumentUri("file:///marker.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+
+        assert!(html.contains("&lt;FLEXIMARK-SAFE-FRAGMENT"));
+        assert_eq!(html.matches("<strong>trusted</strong>").count(), 1);
+        assert!(html.contains("<kbd>Ctrl</kbd>"));
+    }
+
+    #[test]
+    fn raw_html_sanitizer_keeps_author_markup_but_removes_executable_and_embedded_content() {
+        let source = concat!(
+            "<div id=\"preview\" class=\"box\" style=\"background:url(https://evil.example)\" data-note=\"kept\" aria-label=\"example\" onclick=\"steal()\">",
+            "<script>steal()</script><style>@import 'https://evil.example/x';</style>",
+            "<iframe src=\"https://evil.example\">fallback</iframe>",
+            "<svg onload=\"steal()\"><script>steal()</script></svg>",
+            "<img src=\"https://evil.example/pixel\">",
+            "<a href=\"javascript:steal()\" data-fleximark-node-id=\"forged\">bad</a>",
+            "<a href=\"//evil.example/path\">protocol-relative</a>",
+            "<a href=\"../guide\">relative</a>",
+            "<a href=\"https://example.com\">good</a></div>"
+        );
+        let html = clean_raw_html(source);
+
+        assert!(html.contains("id=\"preview\""));
+        assert!(html.contains("class=\"box\""));
+        assert!(html.contains("style=\"background:url(https://evil.example)\""));
+        assert!(html.contains("data-note=\"kept\""));
+        assert!(html.contains("aria-label=\"example\""));
+        assert!(!html.contains("onclick"));
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("steal"));
+        assert!(!html.contains("<iframe"));
+        assert!(!html.contains("<svg"));
+        assert!(html.contains("<img src=\"https://evil.example/pixel\">"));
+        assert!(!html.contains("data-fleximark-node-id"));
+        assert!(html.contains("<a>bad</a>"));
+        assert!(html.contains("<a>protocol-relative</a>"));
+        assert!(html.contains("<a href=\"../guide\">relative</a>"));
+        assert!(html.contains("<a href=\"https://example.com\">good</a>"));
+    }
+
+    #[test]
+    fn local_images_require_a_resolved_opaque_asset_reference() {
+        let document = parse(
+            DocumentUri("file:///asset.md".into()),
+            1,
+            "![diagram](images/diagram.png)\n",
+        )
+        .unwrap();
+        let unresolved = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert!(unresolved.contains("data-fleximark-kind=\"asset-placeholder\""));
+        assert!(!unresolved.contains("images/diagram.png"));
+
+        let mut context = RenderContext::default();
+        context.resolved_resources.insert(
+            "images/diagram.png".to_owned(),
+            format!("fleximark-asset:{}", "a".repeat(64)),
+        );
+        let html = HtmlRenderer.render(&document, &context).unwrap();
+        assert!(html.contains(&format!("src=\"fleximark-asset:{}\"", "a".repeat(64))));
+        assert!(!html.contains("images/diagram.png"));
+
+        let portable = RenderContext {
+            target: HtmlTarget::Portable,
+            ..RenderContext::default()
+        };
+        let html = HtmlRenderer.render(&document, &portable).unwrap();
+        assert!(html.contains("src=\"images/diagram.png\""));
+        assert!(matches!(
+            resolve_resource(
+                "https://outside.example/diagram.png",
+                &portable,
+                ResourceUse::Image
+            ),
+            Err(RenderError::ResourceRejected(_))
+        ));
+
+        let document = parse(
+            DocumentUri("file:///assets.md".into()),
+            1,
+            "![works](images/diagram.png)\n\n![blocked](../outside.png)\n",
+        )
+        .unwrap();
+        let html = HtmlRenderer.render(&document, &context).unwrap();
+        assert!(html.contains(&format!("src=\"fleximark-asset:{}\"", "a".repeat(64))));
+        assert!(html.contains("aria-label=\"blocked\""));
+        assert!(!html.contains("../outside.png"));
+    }
+
+    #[test]
+    fn rendered_metadata_contains_valid_navigation_for_nested_unicode_blocks() {
+        let source = "- Héllo\n";
+        let document = parse(DocumentUri("file:///nested.md".into()), 1, source).unwrap();
+        document.validate(source).unwrap();
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        let navigation = blocks
+            .iter()
+            .flat_map(|block| &block.navigation)
+            .collect::<Vec<_>>();
+        assert_eq!(navigation.len(), blocks[0].node_ids.len());
+        assert!(navigation.iter().any(|entry| entry.depth >= 2));
+        assert!(navigation.iter().all(|entry| {
+            entry.source_range.byte_end <= source.len() as u64
+                && source.is_char_boundary(entry.source_range.byte_start.get() as usize)
+                && source.is_char_boundary(entry.source_range.byte_end.get() as usize)
+        }));
+    }
+}

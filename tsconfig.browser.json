@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": [],
+    "rootDir": ".",
+    "outDir": "out/types/browser",
+    "tsBuildInfoFile": "out/types/.tsbuildinfo/browser.tsbuildinfo"
+  },
+  "include": ["web/**/*.mts"]
+}

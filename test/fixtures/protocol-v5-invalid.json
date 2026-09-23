@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 5,
+  "cases": [
+    {
+      "name": "wrong JSON-RPC version",
+      "definition": "customRequest",
+      "value": {
+        "jsonrpc": "1.0",
+        "id": 7,
+        "method": "fleximark/getNoteOptions",
+        "params": {
+          "daemonInstanceId": "daemon",
+          "workspaceUri": "file:///workspace"
+        }
+      }
+    },
+    {
+      "name": "response error code is not numeric",
+      "definition": "response",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": { "code": "-32801", "message": "content modified" }
+      }
+    },
+    {
+      "name": "negative nested selection position",
+      "definition": "customNotification",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "fleximark/setSelection",
+        "params": {
+          "daemonInstanceId": "daemon",
+          "documentSessionId": "document",
+          "expectedDocumentVersion": 3,
+          "selections": [
+            {
+              "anchor": { "line": -1, "character": 0 },
+              "active": { "line": 0, "character": 0 }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "malformed nested preview navigation position",
+      "definition": "renderFrame",
+      "value": {
+        "previewSessionId": "preview",
+        "documentVersion": 3,
+        "renderRevision": 1,
+        "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blocks": [
+          {
+            "id": "document-root",
+            "html": "<p></p>",
+            "nodeIds": ["document-root"]
+          }
+        ],
+        "navigation": [
+          {
+            "nodeId": "document-root",
+            "sourceRange": {
+              "byteStart": 0,
+              "byteEnd": 0,
+              "start": { "line": 0, "character": 0, "encoding": "bytes" },
+              "end": { "line": 0, "character": 0, "encoding": "utf8" }
+            },
+            "depth": 0
+          }
+        ],
+        "style": null,
+        "assets": [],
+        "annotations": {}
+      }
+    },
+    {
+      "name": "malformed empty block node IDs",
+      "definition": "renderFrame",
+      "value": {
+        "previewSessionId": "preview",
+        "documentVersion": 4,
+        "renderRevision": 2,
+        "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "navigation": [],
+        "style": null,
+        "assets": [],
+        "blocks": [{ "id": "document-root", "html": "<p></p>", "nodeIds": [] }],
+        "annotations": {}
+      }
+    },
+    {
+      "name": "unknown nested source navigation event",
+      "definition": "customNotification",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "fleximark/previewEvent",
+        "params": {
+          "daemonInstanceId": "daemon",
+          "previewSessionId": "preview",
+          "renderRevision": 1,
+          "event": {
+            "type": "selectSource",
+            "sourceRange": {
+              "byteStart": 0,
+              "byteEnd": 3,
+              "start": { "line": 0, "character": 0, "encoding": "invalid" },
+              "end": { "line": 0, "character": 3, "encoding": "utf8" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "boolean is not an integer",
+      "definition": "initializeParams",
+      "value": {
+        "protocolVersion": true,
+        "client": { "name": "contract-test", "version": "1" }
+      }
+    }
+  ]
+}
