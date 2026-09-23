@@ -80,6 +80,14 @@ impl HtmlRenderer {
         document: &Document,
         context: &RenderContext,
     ) -> Result<Vec<RenderedBlock>, RenderError> {
+        if context.raw_html == RawHtmlPolicy::Sanitize
+            && document
+                .blocks
+                .iter()
+                .any(|block| matches!(block.kind, BlockKind::RawHtml { .. }))
+        {
+            return render_sanitized_block_sequence(&document.blocks, context);
+        }
         let mut ids = HashSet::new();
         let mut rendered = Vec::with_capacity(document.blocks.len());
         for block in &document.blocks {
@@ -95,6 +103,151 @@ impl HtmlRenderer {
         }
         Ok(rendered)
     }
+}
+
+fn render_sanitized_block_sequence(
+    blocks: &[Block],
+    context: &RenderContext,
+) -> Result<Vec<RenderedBlock>, RenderError> {
+    let mut seen = HashSet::new();
+    let mut rendered = Vec::with_capacity(blocks.len());
+    let mut candidate = String::new();
+    for (index, block) in blocks.iter().enumerate() {
+        let mut node_ids = Vec::new();
+        let mut navigation = Vec::new();
+        collect_render_metadata(block, 0, &mut seen, &mut node_ids, &mut navigation)?;
+        let html = if matches!(block.kind, BlockKind::RawHtml { .. }) {
+            None
+        } else {
+            Some(render_block(block, context)?)
+        };
+        rendered.push((block, node_ids, navigation, html));
+        candidate.push_str(&block_marker(index));
+        match &block.kind {
+            BlockKind::RawHtml { html } => candidate.push_str(&neutralize_internal_markers(html)),
+            _ => candidate.push_str(&safe_block_marker(index)),
+        }
+    }
+
+    let sanitized = clean_raw_html(&candidate);
+    let starts = top_level_block_marker_offsets(&sanitized);
+    if starts.is_empty() {
+        // Every sequence begins with a protected marker. An empty set means an
+        // internal invariant was violated rather than author-controlled input.
+        return Err(RenderError::RawHtmlRejected);
+    }
+
+    let mut output = Vec::with_capacity(starts.len());
+    for (group_index, start) in starts.iter().copied().enumerate() {
+        let end = starts
+            .get(group_index + 1)
+            .copied()
+            .unwrap_or(sanitized.len());
+        let mut group = sanitized[start..end].to_owned();
+        let indices = (0..blocks.len())
+            .filter(|index| group.contains(&block_marker(*index)))
+            .collect::<Vec<_>>();
+        let Some(&root_index) = indices.first() else {
+            return Err(RenderError::RawHtmlRejected);
+        };
+
+        if indices.len() == 1 && rendered[root_index].3.is_some() {
+            output.push(RenderedBlock {
+                id: rendered[root_index].0.id.clone(),
+                node_ids: rendered[root_index].1.clone(),
+                navigation: rendered[root_index].2.clone(),
+                html: rendered[root_index].3.clone().expect("checked above"),
+            });
+            continue;
+        }
+
+        let mut node_ids = Vec::new();
+        let mut navigation = Vec::new();
+        for &index in &indices {
+            node_ids.extend(rendered[index].1.iter().cloned());
+            navigation.extend(rendered[index].2.iter().cloned());
+            group = group.replace(
+                &safe_block_marker(index),
+                rendered[index].3.as_deref().unwrap_or(""),
+            );
+            let identity = if index == root_index {
+                String::new()
+            } else if rendered[index].3.is_none() {
+                format!(
+                    "<span data-fleximark-node-id=\"{}\" data-fleximark-kind=\"raw-html-boundary\" hidden></span>",
+                    escape_attribute(&rendered[index].0.id.0)
+                )
+            } else {
+                String::new()
+            };
+            group = group.replace(&block_marker(index), &identity);
+        }
+        output.push(RenderedBlock {
+            id: rendered[root_index].0.id.clone(),
+            node_ids,
+            navigation,
+            html: format!(
+                "<div data-fleximark-node-id=\"{}\" data-fleximark-kind=\"raw-html-container\">{group}</div>\n",
+                escape_attribute(&rendered[root_index].0.id.0)
+            ),
+        });
+    }
+    Ok(output)
+}
+
+fn block_marker(index: usize) -> String {
+    format!("<{INTERNAL_BLOCK_MARKER_TAG} data-index=\"{index}\"></{INTERNAL_BLOCK_MARKER_TAG}>")
+}
+
+fn safe_block_marker(index: usize) -> String {
+    format!("<{INTERNAL_SAFE_BLOCK_TAG} data-index=\"{index}\"></{INTERNAL_SAFE_BLOCK_TAG}>")
+}
+
+fn top_level_block_marker_offsets(html: &str) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut depth = 0usize;
+    let mut cursor = 0usize;
+    while let Some(relative) = html[cursor..].find('<') {
+        let start = cursor + relative;
+        let Some(end) = find_html_tag_end(html, start + 1) else {
+            break;
+        };
+        let token = &html[start + 1..end];
+        if let Some(closing) = token.strip_prefix('/') {
+            let name = closing.split_ascii_whitespace().next().unwrap_or("");
+            if !name.is_empty() {
+                depth = depth.saturating_sub(1);
+            }
+        } else {
+            let name = token
+                .split_ascii_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('/');
+            if depth == 0 && name.eq_ignore_ascii_case(INTERNAL_BLOCK_MARKER_TAG) {
+                offsets.push(start);
+            }
+            let is_void = matches!(name, "br" | "col" | "hr" | "wbr") || token.ends_with('/');
+            if !name.is_empty() && !is_void {
+                depth += 1;
+            }
+        }
+        cursor = end + 1;
+    }
+    offsets
+}
+
+fn find_html_tag_end(html: &str, start: usize) -> Option<usize> {
+    let mut quote = None;
+    for (relative, character) in html[start..].char_indices() {
+        match (quote, character) {
+            (Some(active), current) if current == active => quote = None,
+            (None, current @ ('\'' | '"')) => quote = Some(current),
+            (None, '>') => return Some(start + relative),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn collect_render_metadata(
@@ -304,6 +457,19 @@ fn special_block(id: &str, kind: &str, source: &str) -> String {
 }
 
 fn render_nodes(nodes: &[Node], context: &RenderContext) -> Result<String, RenderError> {
+    if context.raw_html == RawHtmlPolicy::Sanitize
+        && nodes.iter().any(|node| {
+            matches!(
+                node,
+                Node::Block(Block {
+                    kind: BlockKind::RawHtml { .. },
+                    ..
+                })
+            )
+        })
+    {
+        return render_sanitized_nodes(nodes, context);
+    }
     let mut html = String::new();
     let mut index = 0;
     while index < nodes.len() {
@@ -332,6 +498,74 @@ fn render_nodes(nodes: &[Node], context: &RenderContext) -> Result<String, Rende
     Ok(html)
 }
 
+fn render_sanitized_nodes(nodes: &[Node], context: &RenderContext) -> Result<String, RenderError> {
+    enum ProtectedNode {
+        Safe(String),
+        RawIdentity(NodeId),
+    }
+
+    let mut candidate = String::new();
+    let mut protected = Vec::new();
+    let mut index = 0;
+    while index < nodes.len() {
+        match &nodes[index] {
+            Node::Block(block) => {
+                let protected_index = protected.len();
+                match &block.kind {
+                    BlockKind::RawHtml { html } => {
+                        candidate.push_str(&block_marker(protected_index));
+                        candidate.push_str(&neutralize_internal_markers(html));
+                        protected.push(ProtectedNode::RawIdentity(block.id.clone()));
+                    }
+                    _ => {
+                        candidate.push_str(&safe_block_marker(protected_index));
+                        protected.push(ProtectedNode::Safe(render_block(block, context)?));
+                    }
+                }
+                index += 1;
+            }
+            Node::Inline(_) => {
+                let end = nodes[index..]
+                    .iter()
+                    .position(|node| matches!(node, Node::Block(_)))
+                    .map_or(nodes.len(), |offset| index + offset);
+                let inlines = nodes[index..end]
+                    .iter()
+                    .map(|node| match node {
+                        Node::Inline(inline) => inline,
+                        Node::Block(_) => unreachable!("inline run ended at the first block"),
+                    })
+                    .collect::<Vec<_>>();
+                let protected_index = protected.len();
+                candidate.push_str(&safe_block_marker(protected_index));
+                protected.push(ProtectedNode::Safe(render_inline_sequence(
+                    &inlines, context,
+                )?));
+                index = end;
+            }
+        }
+    }
+
+    let mut sanitized = clean_raw_html(&candidate);
+    for (index, node) in protected.into_iter().enumerate() {
+        match node {
+            ProtectedNode::Safe(html) => {
+                sanitized = sanitized.replace(&safe_block_marker(index), &html);
+            }
+            ProtectedNode::RawIdentity(id) => {
+                sanitized = sanitized.replace(
+                    &block_marker(index),
+                    &format!(
+                        "<span data-fleximark-node-id=\"{}\" data-fleximark-kind=\"raw-html-boundary\" hidden></span>",
+                        escape_attribute(&id.0)
+                    ),
+                );
+            }
+        }
+    }
+    Ok(sanitized)
+}
+
 fn render_inline_sequence(
     inlines: &[&Inline],
     context: &RenderContext,
@@ -357,7 +591,7 @@ fn render_inline_sequence(
     let mut safe_fragments = Vec::new();
     for inline in inlines {
         if let InlineKind::RawHtml { html } = &inline.kind {
-            candidate.push_str(&neutralize_fragment_markers(html));
+            candidate.push_str(&neutralize_internal_markers(html));
         } else {
             let marker = format!(
                 "<{INTERNAL_FRAGMENT_TAG} data-index=\"{}\"></{INTERNAL_FRAGMENT_TAG}>",
@@ -491,6 +725,8 @@ static RAW_HTML_SANITIZER: LazyLock<ammonia::Builder<'static>> = LazyLock::new(|
 });
 
 const INTERNAL_FRAGMENT_TAG: &str = "fleximark-safe-fragment";
+const INTERNAL_BLOCK_MARKER_TAG: &str = "fleximark-block-marker";
+const INTERNAL_SAFE_BLOCK_TAG: &str = "fleximark-safe-block";
 
 fn sanitize_relative_url(url: &str) -> Option<Cow<'_, str>> {
     let normalized = url.trim();
@@ -512,7 +748,7 @@ fn sanitize_relative_url(url: &str) -> Option<Cow<'_, str>> {
 /// browsing context, submitting data, or fetching subresources are excluded.
 /// Event handlers, inline styles, and `data-*` attributes are never accepted.
 pub fn sanitize_raw_html(source: &str) -> SanitizedHtml {
-    let html = clean_raw_html(&neutralize_fragment_markers(source));
+    let html = clean_raw_html(&neutralize_internal_markers(source));
     SanitizedHtml {
         modified: html != source,
         html,
@@ -523,7 +759,7 @@ fn clean_raw_html(source: &str) -> String {
     RAW_HTML_SANITIZER.clean(source).to_string()
 }
 
-fn neutralize_fragment_markers(source: &str) -> Cow<'_, str> {
+fn neutralize_internal_markers(source: &str) -> Cow<'_, str> {
     let mut output = String::new();
     let mut copied_until = 0;
     for (index, character) in source.char_indices() {
@@ -534,14 +770,22 @@ fn neutralize_fragment_markers(source: &str) -> Cow<'_, str> {
         if let Some(rest) = tail.strip_prefix('/') {
             tail = rest;
         }
-        let Some(name) = tail.get(..INTERNAL_FRAGMENT_TAG.len()) else {
-            continue;
-        };
-        let boundary = tail[INTERNAL_FRAGMENT_TAG.len()..].chars().next();
-        if name.eq_ignore_ascii_case(INTERNAL_FRAGMENT_TAG)
-            && boundary
-                .is_none_or(|value| value.is_ascii_whitespace() || matches!(value, '/' | '>'))
-        {
+        let is_internal = [
+            INTERNAL_FRAGMENT_TAG,
+            INTERNAL_BLOCK_MARKER_TAG,
+            INTERNAL_SAFE_BLOCK_TAG,
+        ]
+        .into_iter()
+        .any(|internal| {
+            tail.get(..internal.len()).is_some_and(|name| {
+                let boundary = tail[internal.len()..].chars().next();
+                name.eq_ignore_ascii_case(internal)
+                    && boundary.is_none_or(|value| {
+                        value.is_ascii_whitespace() || matches!(value, '/' | '>')
+                    })
+            })
+        });
+        if is_internal {
             output.push_str(&source[copied_until..index]);
             output.push_str("&lt;");
             copied_until = index + 1;
@@ -625,6 +869,8 @@ fn raw_html_tags() -> HashSet<&'static str> {
         "var",
         "wbr",
         INTERNAL_FRAGMENT_TAG,
+        INTERNAL_BLOCK_MARKER_TAG,
+        INTERNAL_SAFE_BLOCK_TAG,
     ]
     .into_iter()
     .collect()
@@ -662,6 +908,14 @@ fn raw_html_tag_attributes() -> HashMap<&'static str, HashSet<&'static str>> {
         ("ol", ["reversed", "start", "type"].into_iter().collect()),
         ("q", ["cite"].into_iter().collect()),
         (INTERNAL_FRAGMENT_TAG, ["data-index"].into_iter().collect()),
+        (
+            INTERNAL_BLOCK_MARKER_TAG,
+            ["data-index"].into_iter().collect(),
+        ),
+        (
+            INTERNAL_SAFE_BLOCK_TAG,
+            ["data-index"].into_iter().collect(),
+        ),
         (
             "td",
             ["colspan", "rowspan", "headers"].into_iter().collect(),
@@ -881,6 +1135,172 @@ mod tests {
         assert!(html.contains("<mark>Enter</mark>"));
         assert!(html.contains("<details open=\"\"><summary>More</summary>"));
         assert!(html.contains("<th scope=\"col\">A</th>"));
+    }
+
+    #[test]
+    fn raw_details_container_keeps_markdown_blocks_inside_across_block_boundaries() {
+        let source = "<details><summary>More</summary>\n\nBody **bold**\n\n</details>\n";
+        let document = parse(DocumentUri("file:///details.md".into()), 1, source).unwrap();
+        assert!(
+            document.blocks.len() >= 3,
+            "fixture must cross block boundaries"
+        );
+
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(
+            blocks.len(),
+            1,
+            "the cross-block container is one safe patch unit"
+        );
+        let html = &blocks[0].html;
+        let details = html.find("<details>").unwrap();
+        let body = html.find(">Body <strong>bold</strong></p>").unwrap();
+        let closing = html.rfind("</details>").unwrap();
+        assert!(details < body && body < closing, "{html}");
+        assert_eq!(blocks[0].node_ids.len(), document.blocks.len());
+    }
+
+    #[test]
+    fn nested_raw_containers_and_nested_block_sequences_preserve_structure() {
+        let source = concat!(
+            "<details><summary>Outer</summary>\n\n",
+            "<details><summary>Inner</summary>\n\n",
+            "Nested body\n\n",
+            "</details>\n\n",
+            "Outer tail\n\n",
+            "</details>\n"
+        );
+        let document = parse(DocumentUri("file:///nested-details.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(html.matches("<details>").count(), 2, "{html}");
+        let nested_body = html.find(">Nested body</p>").unwrap();
+        let inner_close = html.find("</details>").unwrap();
+        let outer_tail = html.find(">Outer tail</p>").unwrap();
+        let outer_close = html.rfind("</details>").unwrap();
+        assert!(nested_body < inner_close && inner_close < outer_tail && outer_tail < outer_close);
+
+        let quoted = parse(
+            DocumentUri("file:///quoted-details.md".into()),
+            1,
+            "> <details><summary>Nested</summary>\n>\n> body\n>\n> </details>\n",
+        )
+        .unwrap();
+        let quoted_html = HtmlRenderer
+            .render(&quoted, &RenderContext::default())
+            .unwrap();
+        let open = quoted_html.find("<details>").unwrap();
+        let body = quoted_html.find(">body</p>").unwrap();
+        let close = quoted_html.find("</details>").unwrap();
+        assert!(open < body && body < close, "{quoted_html}");
+    }
+
+    #[test]
+    fn table_and_list_containers_survive_raw_block_boundaries() {
+        let source = concat!(
+            "<table>\n\n",
+            "<tr><th>A</th></tr>\n\n",
+            "<tr><td>1</td></tr>\n\n",
+            "</table>\n\n",
+            "<ul>\n\n",
+            "<li>one</li>\n\n",
+            "<li>two</li>\n\n",
+            "</ul>\n"
+        );
+        let document = parse(DocumentUri("file:///table-list.md".into()), 1, source).unwrap();
+        assert!(
+            document.blocks.len() >= 8,
+            "fixture must cross raw block boundaries"
+        );
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        let html = blocks
+            .iter()
+            .map(|block| block.html.as_str())
+            .collect::<String>();
+        let table_open = html.find("<table>").unwrap();
+        let table_row = html.find("<tr><td>1</td></tr>").unwrap();
+        let table_close = html.find("</table>").unwrap();
+        let list_open = html.find("<ul>").unwrap();
+        let list_item = html.find("<li>two</li>").unwrap();
+        let list_close = html.find("</ul>").unwrap();
+        assert!(table_open < table_row && table_row < table_close, "{html}");
+        assert!(list_open < list_item && list_item < list_close, "{html}");
+
+        let node_ids = blocks
+            .iter()
+            .flat_map(|block| block.node_ids.iter())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            node_ids.len(),
+            blocks
+                .iter()
+                .map(|block| block.node_ids.len())
+                .sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn malformed_closing_tag_cannot_capture_the_following_block_after_browser_style_reparse() {
+        let document = parse(
+            DocumentUri("file:///malformed-close.md".into()),
+            1,
+            "</details>\n\nFollowing paragraph\n",
+        )
+        .unwrap();
+        let blocks = HtmlRenderer
+            .render_blocks(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert!(
+            blocks[0]
+                .html
+                .contains("data-fleximark-kind=\"raw-html-container\"")
+        );
+        assert!(blocks[1].html.contains(">Following paragraph</p>"));
+
+        // Ammonia and browsers both use the HTML5 tree-builder rules. Parsing
+        // the emitted blocks again must retain two sibling roots rather than
+        // letting an unmatched close tag capture the following paragraph.
+        let reparsed = clean_raw_html(
+            &blocks
+                .iter()
+                .map(|block| block.html.as_str())
+                .collect::<String>(),
+        );
+        assert!(reparsed.starts_with("<div>"), "{reparsed}");
+        assert!(
+            reparsed.contains("</div>\n<p>Following paragraph</p>"),
+            "{reparsed}"
+        );
+
+        let node_ids = blocks
+            .iter()
+            .flat_map(|block| block.node_ids.iter())
+            .collect::<HashSet<_>>();
+        assert_eq!(node_ids.len(), 2);
+    }
+
+    #[test]
+    fn author_block_html_cannot_collide_with_internal_sequence_markers() {
+        let source = concat!(
+            "<details><summary>Markers</summary>\n\n",
+            "<FLEXIMARK-BLOCK-MARKER data-index=\"0\"></FLEXIMARK-BLOCK-MARKER>\n",
+            "<fleximark-safe-block data-index=\"1\"></fleximark-safe-block>\n\n",
+            "trusted body\n\n",
+            "</details>\n"
+        );
+        let document = parse(DocumentUri("file:///block-marker.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert!(html.contains("&lt;FLEXIMARK-BLOCK-MARKER"), "{html}");
+        assert!(html.contains("&lt;fleximark-safe-block"), "{html}");
+        assert_eq!(html.matches(">trusted body</p>").count(), 1, "{html}");
     }
 
     #[test]

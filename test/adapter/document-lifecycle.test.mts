@@ -146,7 +146,7 @@ export function suite(): void {
           {
             code: "raw-html",
             data: {
-              escapedText: "&lt;script&gt;alert(1)&lt;/script&gt;\n",
+              escapedText: "&lt;script&gt;alert(1)&lt;/script&gt;",
             },
             message:
               "Unsafe raw HTML content was removed or rewritten in the rendered output",
