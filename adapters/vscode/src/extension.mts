@@ -46,16 +46,6 @@ export async function activate(
     ...registerCommands(activatedAdapter, undefined, isActive),
   );
 
-  for (const workspace of vscode.workspace.workspaceFolders ?? []) {
-    if (!isActive()) return;
-    try {
-      await offerMigration(workspace);
-    } catch (error) {
-      if (isActive()) activatedAdapter.report(error);
-    }
-  }
-  if (!isActive()) return;
-
   context.subscriptions.push(
     ...registerEditorEvents(activatedAdapter, undefined, isActive, {
       removed: (workspace) => migrator.forget(workspace),
@@ -72,6 +62,13 @@ export async function activate(
       },
     }),
   );
+
+  for (const workspace of vscode.workspace.workspaceFolders ?? []) {
+    if (!isActive()) return;
+    void offerMigration(workspace).catch((error: unknown) => {
+      if (isActive()) activatedAdapter.report(error);
+    });
+  }
 
   void activatedAdapter
     .activateEditor(vscode.window.activeTextEditor)

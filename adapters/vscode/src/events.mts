@@ -76,10 +76,20 @@ export function registerEditorEvents(
         });
     }),
     registrar.window.onDidChangeTextEditorSelection((event) => {
-      if (isActive()) adapter.selectionChanged(event);
+      if (!isActive()) return;
+      try {
+        adapter.selectionChanged(event);
+      } catch (error) {
+        if (isActive()) adapter.report(error);
+      }
     }),
     registrar.window.onDidChangeTextEditorVisibleRanges((event) => {
-      if (isActive()) adapter.viewportChanged(event);
+      if (!isActive()) return;
+      try {
+        adapter.viewportChanged(event);
+      } catch (error) {
+        if (isActive()) adapter.report(error);
+      }
     }),
   ];
 }

@@ -110,7 +110,7 @@ export async function migrateWorkspace(
   ]);
 }
 
-async function showMigrationCompleted(
+function showMigrationCompleted(
   workspace: vscode.WorkspaceFolder,
   state: LegacyWorkspaceState,
 ): Promise<void> {
@@ -123,5 +123,6 @@ async function showMigrationCompleted(
         "Migrated FlexiMark workspace “{0}” to the current format.",
         workspace.name,
       );
-  await vscode.window.showInformationMessage(message);
+  void vscode.window.showInformationMessage(message);
+  return Promise.resolve();
 }

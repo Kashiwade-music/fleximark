@@ -10,6 +10,36 @@ interface ProviderAdapter {
   ): Promise<T | undefined>;
 }
 
+interface WirePosition {
+  line: number;
+  character: number;
+}
+
+interface WireRange {
+  start: WirePosition;
+  end: WirePosition;
+}
+
+function toWirePosition(position: vscode.Position): WirePosition {
+  return { line: position.line, character: position.character };
+}
+
+function toWireRange(range: vscode.Range): WireRange {
+  return {
+    start: toWirePosition(range.start),
+    end: toWirePosition(range.end),
+  };
+}
+
+function toVscodeRange(range: WireRange): vscode.Range {
+  return new vscode.Range(
+    range.start.line,
+    range.start.character,
+    range.end.line,
+    range.end.character,
+  );
+}
+
 const semanticTokenTypes = [
   "keyword",
   "string",
@@ -43,14 +73,13 @@ export function registerProviders(
                 filterText: string;
                 insertTextFormat: number;
                 textEdit: {
-                  range: {
-                    start: vscode.Position;
-                    end: vscode.Position;
-                  };
+                  range: WireRange;
                   newText: string;
                 };
               }[];
-            }>("textDocument/completion", document, { position }),
+            }>("textDocument/completion", document, {
+              position: toWirePosition(position),
+            }),
           );
           return (result?.items ?? []).map((item) => {
             const completion = new vscode.CompletionItem(
@@ -59,10 +88,7 @@ export function registerProviders(
             );
             completion.detail = item.detail;
             completion.filterText = item.filterText;
-            completion.range = new vscode.Range(
-              item.textEdit.range.start,
-              item.textEdit.range.end,
-            );
+            completion.range = toVscodeRange(item.textEdit.range);
             completion.insertText =
               item.insertTextFormat === 2
                 ? new vscode.SnippetString(item.textEdit.newText)
@@ -99,7 +125,9 @@ export function registerProviders(
           const result = await request(() =>
             adapter.requestLanguageFeature<{
               contents: { value: string };
-            } | null>("textDocument/hover", document, { position }),
+            } | null>("textDocument/hover", document, {
+              position: toWirePosition(position),
+            }),
           );
           return result
             ? new vscode.Hover(new vscode.MarkdownString(result.contents.value))
@@ -116,11 +144,8 @@ export function registerProviders(
               {
                 name: string;
                 kind: number;
-                range: { start: vscode.Position; end: vscode.Position };
-                selectionRange: {
-                  start: vscode.Position;
-                  end: vscode.Position;
-                };
+                range: WireRange;
+                selectionRange: WireRange;
               }[]
             >("textDocument/documentSymbol", document),
           );
@@ -130,11 +155,8 @@ export function registerProviders(
                 item.name,
                 "",
                 item.kind as vscode.SymbolKind,
-                new vscode.Range(item.range.start, item.range.end),
-                new vscode.Range(
-                  item.selectionRange.start,
-                  item.selectionRange.end,
-                ),
+                toVscodeRange(item.range),
+                toVscodeRange(item.selectionRange),
               ),
           );
         },
@@ -145,7 +167,7 @@ export function registerProviders(
       {
         async provideCodeActions(document, range, actionContext) {
           const diagnostics = actionContext.diagnostics.map((diagnostic) => ({
-            range: diagnostic.range,
+            range: toWireRange(diagnostic.range),
             message: diagnostic.message,
             code: diagnostic.code,
             source: diagnostic.source,
@@ -160,14 +182,14 @@ export function registerProviders(
                   changes?: Record<
                     string,
                     {
-                      range: { start: vscode.Position; end: vscode.Position };
+                      range: WireRange;
                       newText: string;
                     }[]
                   >;
                 };
               }[]
             >("textDocument/codeAction", document, {
-              range,
+              range: toWireRange(range),
               context: { diagnostics },
             }),
           );
@@ -182,7 +204,7 @@ export function registerProviders(
                 for (const textEdit of edits)
                   edit.replace(
                     vscode.Uri.parse(uri),
-                    new vscode.Range(textEdit.range.start, textEdit.range.end),
+                    toVscodeRange(textEdit.range),
                     textEdit.newText,
                   );
               action.edit = edit;

@@ -188,6 +188,11 @@ export function suite(): void {
     const document = { uri: targetUri } as vscode.TextDocument;
     const position = new vscode.Position(2, 3);
     const range = new vscode.Range(1, 0, 1, 4);
+    const wirePosition = { line: 2, character: 3 };
+    const wireRange = {
+      start: { line: 1, character: 0 },
+      end: { line: 1, character: 4 },
+    };
     const results = new Map<LspMethod, unknown>([
       [
         "textDocument/completion",
@@ -199,7 +204,7 @@ export function suite(): void {
               detail: "Plain completion",
               filterText: "plain-filter",
               insertTextFormat: 1,
-              textEdit: { range, newText: "plain text" },
+              textEdit: { range: wireRange, newText: "plain text" },
             },
             {
               label: "snippet",
@@ -207,7 +212,7 @@ export function suite(): void {
               detail: "Snippet completion",
               filterText: "snippet-filter",
               insertTextFormat: 2,
-              textEdit: { range, newText: "${1:value}" },
+              textEdit: { range: wireRange, newText: "${1:value}" },
             },
           ],
         },
@@ -220,8 +225,8 @@ export function suite(): void {
           {
             name: "Heading",
             kind: vscode.SymbolKind.String,
-            range: { start: range.start, end: range.end },
-            selectionRange: { start: range.start, end: range.end },
+            range: wireRange,
+            selectionRange: wireRange,
           },
         ],
       ],
@@ -233,7 +238,9 @@ export function suite(): void {
             kind: "quickfix",
             edit: {
               changes: {
-                [editUri.toString()]: [{ range, newText: "&lt;tag&gt;" }],
+                [editUri.toString()]: [
+                  { range: wireRange, newText: "&lt;tag&gt;" },
+                ],
               },
             },
           },
@@ -382,9 +389,12 @@ export function suite(): void {
     assert.deepEqual(
       requests.map(({ method, params }) => ({ method, params })),
       [
-        { method: "textDocument/completion", params: { position } },
+        {
+          method: "textDocument/completion",
+          params: { position: wirePosition },
+        },
         { method: "textDocument/semanticTokens/full", params: undefined },
-        { method: "textDocument/hover", params: { position } },
+        { method: "textDocument/hover", params: { position: wirePosition } },
         { method: "textDocument/documentSymbol", params: undefined },
         {
           method: "textDocument/codeAction",
@@ -395,12 +405,12 @@ export function suite(): void {
                   code: "raw-html",
                   data: { escapedText: "&lt;tag&gt;" },
                   message: "unsafe HTML",
-                  range,
+                  range: wireRange,
                   source: "fleximark",
                 },
               ],
             },
-            range,
+            range: wireRange,
           },
         },
       ],
@@ -553,6 +563,8 @@ export function suite(): void {
     const failures: {
       activation?: Error;
       reconfiguration?: Error;
+      selection?: Error;
+      viewport?: Error;
     } = {};
     const adapter = {
       async activateDocument(document?: vscode.TextDocument) {
@@ -576,10 +588,14 @@ export function suite(): void {
       report(error: unknown) {
         reported.push(error);
       },
-      selectionChanged: (event: vscode.TextEditorSelectionChangeEvent) =>
-        record("selection", event),
-      viewportChanged: (event: vscode.TextEditorVisibleRangesChangeEvent) =>
-        record("viewport", event),
+      selectionChanged: (event: vscode.TextEditorSelectionChangeEvent) => {
+        record("selection", event);
+        if (failures.selection) throw failures.selection;
+      },
+      viewportChanged: (event: vscode.TextEditorVisibleRangesChangeEvent) => {
+        record("viewport", event);
+        if (failures.viewport) throw failures.viewport;
+      },
     };
 
     const registrations = registerEditorEvents(
@@ -657,14 +673,20 @@ export function suite(): void {
 
     failures.activation = new Error("activation failed");
     failures.reconfiguration = new Error("reconfiguration failed");
+    failures.selection = new Error("selection failed");
+    failures.viewport = new Error("viewport failed");
     handlers.get("window.activeEditor")?.(openedEditor);
     handlers.get("watcher.change")?.(
       vscode.Uri.joinPath(folder.uri, ".fleximark", "theme.css"),
     );
+    handlers.get("window.selection")?.(selectionEvent);
+    handlers.get("window.visibleRanges")?.(viewportEvent);
     await flushMicrotasks(2);
-    assert.equal(reported.length, 2);
+    assert.equal(reported.length, 4);
     assert.ok(reported.includes(failures.activation));
     assert.ok(reported.includes(failures.reconfiguration));
+    assert.ok(reported.includes(failures.selection));
+    assert.ok(reported.includes(failures.viewport));
 
     reported.length = 0;
     failures.activation = undefined;

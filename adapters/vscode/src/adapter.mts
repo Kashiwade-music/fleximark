@@ -439,8 +439,8 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       documentSessionId: state.sessionId,
       expectedDocumentVersion: event.textEditor.document.version,
       selections: event.selections.map(({ anchor, active }) => ({
-        anchor,
-        active,
+        anchor: { line: anchor.line, character: anchor.character },
+        active: { line: active.line, character: active.character },
       })),
     });
   }

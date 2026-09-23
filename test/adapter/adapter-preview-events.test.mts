@@ -89,6 +89,17 @@ export function suite(): void {
       assert.equal(state.notifications.length, 0);
       state.adapter.selectionChanged(selectionEvent);
       assert.equal(state.notifications[0]?.method, "fleximark/setSelection");
+      assert.deepEqual(state.notifications[0]?.params, {
+        daemonInstanceId: "daemon",
+        documentSessionId: "document",
+        expectedDocumentVersion: 1,
+        selections: [
+          {
+            anchor: { line: 0, character: 0 },
+            active: { line: 0, character: 1 },
+          },
+        ],
+      });
 
       const viewportEvent = {
         textEditor: state.editor,
