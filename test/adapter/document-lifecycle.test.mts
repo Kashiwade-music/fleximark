@@ -114,7 +114,7 @@ export function suite(): void {
     const uri = vscode.Uri.joinPath(workspace.uri, "checkpoint-contract.md");
     await vscode.workspace.fs.writeFile(
       uri,
-      Buffer.from("# Heading\n\n<div>x</div>\n"),
+      Buffer.from("# Heading\n\n<script>alert(1)</script>\n"),
     );
     const document = await vscode.workspace.openTextDocument(uri);
     const context = {
@@ -145,9 +145,12 @@ export function suite(): void {
           },
           {
             code: "raw-html",
-            data: { escapedText: "&lt;div&gt;x&lt;/div&gt;\n" },
-            message: "Raw HTML is governed by the preview security policy",
-            range: [2, 0, 2, 12],
+            data: {
+              escapedText: "&lt;script&gt;alert(1)&lt;/script&gt;\n",
+            },
+            message:
+              "Unsafe raw HTML content was removed or rewritten in the rendered output",
+            range: [2, 0, 2, 25],
             severity: vscode.DiagnosticSeverity.Warning,
             source: "fleximark",
           },

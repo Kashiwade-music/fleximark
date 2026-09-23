@@ -136,20 +136,106 @@ pub(super) fn collect_heading_symbols(blocks: &[Block], output: &mut Vec<Value>)
     }
 }
 
-fn collect_raw_html_diagnostics(blocks: &[Block], output: &mut Vec<Value>) {
+fn raw_html_diagnostic(
+    range: &fleximark_model::SourceRange,
+    html: &str,
+    policy: fleximark_render_html::RawHtmlPolicy,
+    output: &mut Vec<Value>,
+) {
+    let (severity, message) = match policy {
+        fleximark_render_html::RawHtmlPolicy::Sanitize => (
+            2,
+            "Unsafe raw HTML content was removed or rewritten in the rendered output",
+        ),
+        fleximark_render_html::RawHtmlPolicy::Escape => return,
+        fleximark_render_html::RawHtmlPolicy::Reject => {
+            (1, "Raw HTML is rejected by the configured security policy")
+        }
+    };
+    output.push(json!({
+        "range":{"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
+        "severity":severity,
+        "code":"raw-html",
+        "source":"fleximark",
+        "message":message,
+        "data":{"escapedText":html.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")}
+    }));
+}
+
+fn collect_inline_raw_html_diagnostics(
+    nodes: &[Node],
+    policy: fleximark_render_html::RawHtmlPolicy,
+    output: &mut Vec<Value>,
+) {
+    let inlines = nodes
+        .iter()
+        .filter_map(|node| match node {
+            Node::Inline(inline) => Some(inline),
+            Node::Block(_) => None,
+        })
+        .collect::<Vec<_>>();
+    collect_inline_sequence_raw_html_diagnostics(&inlines, policy, output);
+}
+
+fn collect_inline_sequence_raw_html_diagnostics(
+    inlines: &[&Inline],
+    policy: fleximark_render_html::RawHtmlPolicy,
+    output: &mut Vec<Value>,
+) {
+    let mut candidate = String::new();
+    let mut first = None;
+    for inline in inlines {
+        match &inline.kind {
+            InlineKind::RawHtml { html } => {
+                candidate.push_str(html);
+                first.get_or_insert((&inline.provenance, html));
+            }
+            _ => candidate.push_str("fleximark-content"),
+        }
+    }
+    if let Some((provenance, first_html)) = first {
+        if let Some(range) = provenance.navigation_range() {
+            let accepted = policy == fleximark_render_html::RawHtmlPolicy::Sanitize
+                && !fleximark_render_html::sanitize_raw_html(&candidate).modified;
+            if !accepted {
+                raw_html_diagnostic(&range, first_html, policy, output);
+            }
+        }
+    }
+
+    for inline in inlines {
+        let children = match &inline.kind {
+            InlineKind::Emphasis { children }
+            | InlineKind::Strong { children }
+            | InlineKind::Strikethrough { children }
+            | InlineKind::Link { children, .. }
+            | InlineKind::Image { children, .. } => children,
+            _ => continue,
+        };
+        collect_inline_sequence_raw_html_diagnostics(
+            &children.iter().collect::<Vec<_>>(),
+            policy,
+            output,
+        );
+    }
+}
+
+fn collect_raw_html_diagnostics(
+    blocks: &[Block],
+    policy: fleximark_render_html::RawHtmlPolicy,
+    output: &mut Vec<Value>,
+) {
     for block in blocks {
         if let BlockKind::RawHtml { html } = &block.kind {
             if let Some(range) = block.provenance.navigation_range() {
-                output.push(json!({
-                    "range":{"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
-                    "severity":2,
-                    "code":"raw-html",
-                    "source":"fleximark",
-                    "message":"Raw HTML is governed by the preview security policy",
-                    "data":{"escapedText":html.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")}
-                }));
+                if policy != fleximark_render_html::RawHtmlPolicy::Sanitize
+                    || fleximark_render_html::sanitize_raw_html(html).modified
+                {
+                    raw_html_diagnostic(&range, html, policy, output);
+                }
             }
         }
+        collect_inline_raw_html_diagnostics(&block.children, policy, output);
         let children = block
             .children
             .iter()
@@ -158,13 +244,17 @@ fn collect_raw_html_diagnostics(blocks: &[Block], output: &mut Vec<Value>) {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        collect_raw_html_diagnostics(&children, output);
+        collect_raw_html_diagnostics(&children, policy, output);
     }
 }
 
 fn collect_session_diagnostics(document: &fleximark_lsp::DocumentSession) -> Vec<Value> {
     let mut output = Vec::new();
-    collect_raw_html_diagnostics(&document.document().blocks, &mut output);
+    collect_raw_html_diagnostics(
+        &document.document().blocks,
+        document.engine().render_config().context.raw_html,
+        &mut output,
+    );
     for diagnostic in document.asset_diagnostics() {
         let range = diagnostic.source_range.as_ref().map_or_else(
             || json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}}),

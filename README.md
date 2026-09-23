@@ -108,10 +108,11 @@ code --install-extension kashiwade.fleximark
    `FlexiMark: Create New Note`
 
 Optional extensions use signed WebAssembly packages whose requested capabilities
-must also be granted by the trusted workspace configuration. Raw HTML is escaped
-or rejected according to the separate preview/export policies; unsafe export HTML
-is available only through an explicitly granted export hook and is marked in the
-generated artifact and ownership record.
+must also be granted by the trusted workspace configuration. Raw HTML is sanitized
+through a deterministic allowlist by default; the preview and export policies can
+instead escape or reject it. Unsafe export HTML is available only through an
+explicitly granted export hook and is marked in the generated artifact and
+ownership record.
 
 ## 📚 Documentation
 

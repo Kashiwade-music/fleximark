@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ammonia.workspace = true
 fleximark-model = { path = "../fleximark-model" }
 serde_json.workspace = true
 thiserror.workspace = true

@@ -35,6 +35,7 @@ pub(crate) fn render_config(
 ) -> Result<RenderConfig, ServiceError> {
     let mut context = RenderConfig::default().context;
     context.raw_html = match config.security.raw_html_preview {
+        RawHtmlRenderPolicy::Sanitize => RawHtmlPolicy::Sanitize,
         RawHtmlRenderPolicy::Escape => RawHtmlPolicy::Escape,
         RawHtmlRenderPolicy::Reject => RawHtmlPolicy::Reject,
     };
@@ -203,14 +204,14 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 1\n[security]\nraw_html_preview = \"reject\"\nraw_html_export = \"escape\"\n",
+            "schema_version = 2\n[security]\nraw_html_preview = \"reject\"\nraw_html_export = \"sanitize\"\n",
         )
         .unwrap();
         let (_, preview) = load_plugin_host(&uri, true, 1).unwrap();
         assert_eq!(preview.context.raw_html, RawHtmlPolicy::Reject);
         assert_eq!(
             export_render_context(&uri).unwrap().raw_html,
-            RawHtmlPolicy::Escape
+            RawHtmlPolicy::Sanitize
         );
         fs::remove_dir_all(root).unwrap();
     }

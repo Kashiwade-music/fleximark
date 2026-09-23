@@ -56,6 +56,7 @@ pub(crate) fn export_render_context(workspace_uri: &str) -> Result<RenderContext
     Ok(RenderContext {
         target: HtmlTarget::Portable,
         raw_html: match config.security.raw_html_export {
+            RawHtmlRenderPolicy::Sanitize => RawHtmlPolicy::Sanitize,
             RawHtmlRenderPolicy::Escape => RawHtmlPolicy::Escape,
             RawHtmlRenderPolicy::Reject => RawHtmlPolicy::Reject,
         },

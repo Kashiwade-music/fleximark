@@ -329,6 +329,7 @@ pub struct AssetsConfig {
 #[serde(rename_all = "snake_case")]
 pub enum RawHtmlRenderPolicy {
     #[default]
+    Sanitize,
     Escape,
     Reject,
 }
@@ -338,21 +339,17 @@ pub enum RawHtmlRenderPolicy {
 pub struct SecurityConfig {
     #[serde(default)]
     pub raw_html_preview: RawHtmlRenderPolicy,
-    #[serde(default = "reject_raw_html")]
+    #[serde(default)]
     pub raw_html_export: RawHtmlRenderPolicy,
 }
 
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
-            raw_html_preview: RawHtmlRenderPolicy::Escape,
-            raw_html_export: RawHtmlRenderPolicy::Reject,
+            raw_html_preview: RawHtmlRenderPolicy::Sanitize,
+            raw_html_export: RawHtmlRenderPolicy::Sanitize,
         }
     }
-}
-
-fn reject_raw_html() -> RawHtmlRenderPolicy {
-    RawHtmlRenderPolicy::Reject
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

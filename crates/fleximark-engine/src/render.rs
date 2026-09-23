@@ -332,6 +332,7 @@ fn renderer_fingerprint(
         HtmlTarget::Portable => "portable",
     };
     let raw = match context.raw_html {
+        RawHtmlPolicy::Sanitize => "sanitize",
         RawHtmlPolicy::Escape => "escape",
         RawHtmlPolicy::Reject => "reject",
     };
