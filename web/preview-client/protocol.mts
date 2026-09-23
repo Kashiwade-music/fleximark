@@ -22,6 +22,7 @@ export type {
   InitializeParams,
   InitializeResult,
   NavigationEntry,
+  NoteCategoryOption,
   PreviewChangedParams,
   PreviewTarget,
   RenderAsset,

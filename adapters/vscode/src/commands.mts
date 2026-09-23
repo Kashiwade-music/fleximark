@@ -5,6 +5,7 @@ import type {
   ExecuteCommandParams,
   GetNoteOptionsParams,
   GetNoteOptionsResult,
+  NoteCategoryOption,
   PreviewTarget,
 } from "./protocol.mjs";
 import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
@@ -12,7 +13,11 @@ import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
 export async function executeCreateNote(
   params: ExecuteCommandParams,
   getOptions: (params: GetNoteOptionsParams) => Promise<GetNoteOptionsResult>,
-  pick: (
+  pickCategory: (
+    items: readonly NoteCategoryQuickPickItem[],
+    options: { placeHolder: string },
+  ) => Thenable<NoteCategoryQuickPickItem | undefined>,
+  pickTemplate: (
     items: readonly string[],
     options: { placeHolder: string },
   ) => Thenable<string | undefined>,
@@ -23,19 +28,78 @@ export async function executeCreateNote(
     daemonInstanceId: params.daemonInstanceId,
     workspaceUri: params.workspaceUri,
   });
-  const noteCategory = options.categories.length
-    ? await pick(options.categories, {
-        placeHolder: vscode.l10n.t("Select a note category"),
-      })
+  const noteCategoryId = options.categories.length
+    ? await selectNoteCategory(options.categories, pickCategory)
     : undefined;
-  if (options.categories.length && noteCategory === undefined) return;
+  if (options.categories.length && noteCategoryId === undefined) return;
   const noteTemplate = options.templates.length
-    ? await pick(options.templates, {
+    ? await pickTemplate(options.templates, {
         placeHolder: vscode.l10n.t("Select a note template"),
       })
     : undefined;
   if (options.templates.length && noteTemplate === undefined) return;
-  return execute({ ...params, noteCategory, noteTemplate });
+  return execute({ ...params, noteCategoryId, noteTemplate });
+}
+
+export interface NoteCategoryQuickPickItem extends vscode.QuickPickItem {
+  action: "open" | "select" | "back";
+  category?: NoteCategoryOption;
+}
+
+export async function selectNoteCategory(
+  categories: readonly NoteCategoryOption[],
+  pick: (
+    items: readonly NoteCategoryQuickPickItem[],
+    options: { placeHolder: string },
+  ) => Thenable<NoteCategoryQuickPickItem | undefined>,
+): Promise<string | undefined> {
+  const stack: NoteCategoryOption[] = [];
+  let current = categories;
+  for (;;) {
+    const parent = stack.at(-1);
+    const items: NoteCategoryQuickPickItem[] = [];
+    if (parent) {
+      items.push({
+        label: `$(check) ${vscode.l10n.t("Use this category")}`,
+        description: parent.label,
+        action: "select",
+        category: parent,
+      });
+    }
+    items.push(
+      ...current.map((category) => ({
+        label: category.label,
+        description: category.id,
+        action: category.children.length
+          ? ("open" as const)
+          : ("select" as const),
+        category,
+      })),
+    );
+    if (parent) {
+      items.push({
+        label: `$(arrow-left) ${vscode.l10n.t("Back")}`,
+        action: "back",
+      });
+    }
+    const breadcrumb = stack.map((category) => category.label).join(" / ");
+    const selected = await pick(items, {
+      placeHolder: breadcrumb
+        ? vscode.l10n.t("Select a note category in {0}", breadcrumb)
+        : vscode.l10n.t("Select a note category"),
+    });
+    if (!selected) return undefined;
+    if (selected.action === "back") {
+      stack.pop();
+      current = stack.at(-1)?.children ?? categories;
+      continue;
+    }
+    const category = selected.category;
+    if (!category) return undefined;
+    if (selected.action === "select") return category.id;
+    stack.push(category);
+    current = category.children;
+  }
 }
 
 export async function openCommandResult(

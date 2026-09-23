@@ -179,7 +179,7 @@ class ReleaseManifestTests(TemporaryReleaseRootTests):
             json.loads(output.read_text(encoding="utf-8")),
             {
                 "schemaVersion": 1,
-                "protocolVersion": 2,
+                "protocolVersion": 3,
                 "artifacts": [
                     {
                         "platform": "linux",

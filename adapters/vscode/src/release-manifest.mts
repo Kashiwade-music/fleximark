@@ -83,7 +83,7 @@ export async function verifiedBundledDaemon(
     !isRecord(value) ||
     !hasExactKeys(value, RELEASE_MANIFEST_KEYS) ||
     value.schemaVersion !== 1 ||
-    value.protocolVersion !== 2 ||
+    value.protocolVersion !== 3 ||
     !Array.isArray(value.artifacts)
   )
     unsupportedManifest();

@@ -1,6 +1,9 @@
 import * as assert from "node:assert/strict";
 
-import { executeCreateNote } from "../../adapters/vscode/src/adapter.mjs";
+import {
+  executeCreateNote,
+  selectNoteCategory,
+} from "../../adapters/vscode/src/adapter.mjs";
 import type {
   ExecuteCommandParams,
   GetNoteOptionsParams,
@@ -16,18 +19,31 @@ export function suite(): void {
       workspaceUri: "file:///workspace",
     };
     let requested: GetNoteOptionsParams | undefined;
-    const selections = ["work/project", "meeting"];
+    let categoryStep = 0;
     let executed: ExecuteCommandParams | undefined;
     await executeCreateNote(
       base,
       async (params) => {
         requested = params;
         return {
-          categories: ["work/project", "personal"],
+          categories: [
+            {
+              id: "work",
+              label: "Work",
+              children: [
+                { id: "work-project", label: "Project", children: [] },
+              ],
+            },
+            { id: "personal", label: "Personal", children: [] },
+          ],
           templates: ["meeting", "blank"],
         };
       },
-      async () => selections.shift(),
+      async (items) => {
+        const id = categoryStep++ === 0 ? "work" : "work-project";
+        return items.find((item) => item.category?.id === id);
+      },
+      async () => "meeting",
       async (params) => {
         executed = params;
         return {};
@@ -39,14 +55,18 @@ export function suite(): void {
     });
     assert.deepEqual(executed, {
       ...base,
-      noteCategory: "work/project",
+      noteCategoryId: "work-project",
       noteTemplate: "meeting",
     });
     let executedAfterCancellation = false;
     const result = await executeCreateNote(
       base,
-      async () => ({ categories: ["work"], templates: ["blank"] }),
+      async () => ({
+        categories: [{ id: "work", label: "Work", children: [] }],
+        templates: ["blank"],
+      }),
       async () => undefined,
+      async () => "blank",
       async () => {
         executedAfterCancellation = true;
         return {};
@@ -54,5 +74,28 @@ export function suite(): void {
     );
     assert.equal(result, undefined);
     assert.equal(executedAfterCancellation, false);
+  });
+
+  test("supports choosing a parent and disambiguates equal labels by id", async () => {
+    const categories = [
+      {
+        id: "left",
+        label: "Same",
+        children: [{ id: "left-child", label: "Same", children: [] }],
+      },
+      { id: "right", label: "Same", children: [] },
+    ];
+    let step = 0;
+    const selected = await selectNoteCategory(categories, async (items) => {
+      if (step++ === 0) {
+        assert.deepEqual(
+          items.map((item) => item.description),
+          ["left", "right"],
+        );
+        return items.find((item) => item.category?.id === "left");
+      }
+      return items.find((item) => item.action === "select");
+    });
+    assert.equal(selected, "left");
   });
 }

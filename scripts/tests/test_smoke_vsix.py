@@ -92,7 +92,7 @@ class VsixChecksumTests(unittest.TestCase):
                         json.dumps(
                             {
                                 "schemaVersion": 1,
-                                "protocolVersion": 2,
+                                "protocolVersion": 3,
                                 "artifacts": [
                                     {
                                         "platform": "linux",

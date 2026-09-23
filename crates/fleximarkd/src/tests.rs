@@ -48,7 +48,7 @@ fn initialize_daemon(server: &mut Server, params: Value) -> String {
 
 fn initialize_params(capabilities: Value, workspaces: Option<Value>) -> Value {
     let mut params = json!({
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "client": {"name": "test", "version": "1"},
         "capabilities": capabilities,
     });
@@ -747,7 +747,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         2,
         method::INITIALIZE,
         json!({
-            "protocolVersion": 2, "client":{"name":"test","version":"1"},
+            "protocolVersion": 3, "client":{"name":"test","version":"1"},
             "capabilities":{"selectionEvents":true,"viewportEvents":true},
             "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
         }),
@@ -1285,7 +1285,7 @@ fn invalid_workspace_is_disabled_without_disabling_other_roots() {
     fleximark_service::initialize_workspace(&invalid_uri).unwrap();
     std::fs::write(
         invalid.join(".fleximark/config.toml"),
-        "schema_version=1\nunknown=true\n",
+        "schema_version=2\nunknown=true\n",
     )
     .unwrap();
     let mut server = Server::new(false);
@@ -1338,7 +1338,7 @@ fn note_options_rpc_reads_only_the_granted_canonical_config() {
     fleximark_service::initialize_workspace(&workspace_uri).unwrap();
     std::fs::write(
             workspace.join(".fleximark/config.toml"),
-            "schema_version = 1\n[notes.categories]\nwork = \"work\"\n[notes.templates]\ndaily = [\"# Daily\"]\n",
+            "schema_version = 2\n[[notes.categories]]\nid = \"work\"\nlabel = \"Work\"\ndirectory = \"work\"\n[notes.templates]\ndaily = [\"# Daily\"]\n",
         )
         .unwrap();
     let mut server = Server::new(false);
@@ -1356,7 +1356,10 @@ fn note_options_rpc_reads_only_the_granted_canonical_config() {
         json!({"daemonInstanceId":server.registry.daemon_instance_id(),
                 "workspaceUri":workspace_uri}),
     );
-    assert_eq!(response[0]["result"]["categories"], json!(["work"]));
+    assert_eq!(
+        response[0]["result"]["categories"],
+        json!([{"id":"work","label":"Work","children":[]}])
+    );
     assert_eq!(response[0]["result"]["templates"], json!(["daily"]));
 }
 
@@ -1476,7 +1479,7 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     assert!(unopened_tokens[0]["result"].is_null());
     let opened = server.notify(
             "textDocument/didOpen",
-            json!({"textDocument":{"uri":"file:///features.md","version":7,"text":"# Héllo\n\n:::warning[Care]\n<div>x</div>\n:::\n"}}),
+            json!({"textDocument":{"uri":"file:///features.md","version":7,"text":"# Héllo\n\n:::warning[Care]\n<svg>x</svg>\n:::\n"}}),
         );
     let published = opened
         .iter()
@@ -1530,7 +1533,7 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     assert_eq!(actions[0]["result"][0]["kind"], "quickfix");
     assert_eq!(
         actions[0]["result"][0]["edit"]["changes"]["file:///features.md"][0]["newText"],
-        "&lt;div&gt;x&lt;/div&gt;\n"
+        "&lt;svg&gt;"
     );
 
     for method in [

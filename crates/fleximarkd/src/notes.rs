@@ -4,7 +4,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_model::{Block, BlockKind, Document, Node};
-use fleximark_protocol::{CommandMessage, CommandResult, GetNoteOptionsResult};
+use fleximark_plugin_sdk::NoteCategoryConfig;
+use fleximark_protocol::{CommandMessage, CommandResult, GetNoteOptionsResult, NoteCategoryOption};
 
 use crate::workspace::{
     open_control_directory, reject_link, safe_workspace_relative_path, validate_config,
@@ -15,9 +16,22 @@ pub fn get_note_options(workspace_uri: &str) -> Result<GetNoteOptionsResult, Ser
     let root = workspace_path(workspace_uri)?;
     let config = validate_config(&root.join(".fleximark/config.toml"))?;
     Ok(GetNoteOptionsResult {
-        categories: config.notes.categories.keys().cloned().collect(),
+        categories: config
+            .notes
+            .categories
+            .iter()
+            .map(note_category_option)
+            .collect(),
         templates: config.notes.templates.keys().cloned().collect(),
     })
+}
+
+fn note_category_option(category: &NoteCategoryConfig) -> NoteCategoryOption {
+    NoteCategoryOption {
+        id: category.id.clone(),
+        label: category.label.clone(),
+        children: category.children.iter().map(note_category_option).collect(),
+    }
 }
 
 pub fn create_note(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
@@ -26,7 +40,7 @@ pub fn create_note(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
 
 pub fn create_note_with_options(
     workspace_uri: &str,
-    category: Option<&str>,
+    category_id: Option<&str>,
     template: Option<&str>,
 ) -> Result<CommandResult, ServiceError> {
     let root = workspace_path(workspace_uri)?;
@@ -39,28 +53,27 @@ pub fn create_note_with_options(
     let mut notes = root.join("notes");
     reject_link(&notes)?;
     fs::create_dir_all(&notes)?;
-    if let Some(category) = category {
-        let relative = config
-            .notes
-            .categories
-            .get(category)
+    if let Some(category_id) = category_id {
+        let directories = find_category_directories(&config.notes.categories, category_id)
             .ok_or(ServiceError::InvalidConfig)?;
-        if !safe_workspace_relative_path(relative) {
-            return Err(ServiceError::InvalidConfig);
-        }
-        for component in Path::new(relative).components() {
-            let std::path::Component::Normal(component) = component else {
+        for relative in directories {
+            if !safe_workspace_relative_path(relative) {
                 return Err(ServiceError::InvalidConfig);
-            };
-            notes.push(component);
-            reject_link(&notes)?;
-            fs::create_dir(&notes).or_else(|error| {
-                if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    Ok(())
-                } else {
-                    Err(error)
-                }
-            })?;
+            }
+            for component in Path::new(relative).components() {
+                let std::path::Component::Normal(component) = component else {
+                    return Err(ServiceError::InvalidConfig);
+                };
+                notes.push(component);
+                reject_link(&notes)?;
+                fs::create_dir(&notes).or_else(|error| {
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        Ok(())
+                    } else {
+                        Err(error)
+                    }
+                })?;
+            }
         }
     }
     let timestamp = SystemTime::now()
@@ -107,6 +120,31 @@ pub fn create_note_with_options(
         open_uri: Some(path_to_file_uri(&note)?),
         data: None,
     })
+}
+
+fn find_category_directories<'a>(
+    categories: &'a [NoteCategoryConfig],
+    category_id: &str,
+) -> Option<Vec<&'a str>> {
+    fn visit<'a>(
+        categories: &'a [NoteCategoryConfig],
+        category_id: &str,
+        directories: &mut Vec<&'a str>,
+    ) -> Option<Vec<&'a str>> {
+        for category in categories {
+            directories.push(&category.directory);
+            if category.id == category_id {
+                return Some(directories.clone());
+            }
+            if let Some(found) = visit(&category.children, category_id, directories) {
+                return Some(found);
+            }
+            directories.pop();
+        }
+        None
+    }
+
+    visit(categories, category_id, &mut Vec::new())
 }
 
 fn expand_note_text(text: &str) -> String {
@@ -247,14 +285,21 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            r##"schema_version = 1
+            r##"schema_version = 2
 
 [notes]
 file_name_prefix = "${CURRENT_YEAR}-"
 file_name_suffix = "-draft"
 
-[notes.categories]
-reports = "work/reports"
+[[notes.categories]]
+id = "work"
+label = "Shared"
+directory = "work"
+
+[[notes.categories.children]]
+id = "reports"
+label = "Shared"
+directory = "reports"
 
 [notes.templates]
 daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}", "$0"]
@@ -262,7 +307,9 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
         )
         .unwrap();
         let options = get_note_options(&uri).unwrap();
-        assert_eq!(options.categories, ["reports"]);
+        assert_eq!(options.categories.len(), 1);
+        assert_eq!(options.categories[0].id, "work");
+        assert_eq!(options.categories[0].children[0].id, "reports");
         assert_eq!(options.templates, ["daily"]);
         let result = create_note_with_options(&uri, Some("reports"), Some("daily")).unwrap();
         let note = workspace_path(result.open_uri.as_deref().unwrap()).unwrap();
@@ -275,6 +322,53 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
         let contents = fs::read_to_string(note).unwrap();
         assert!(contents.starts_with("# Title\nCreated "));
         assert!(!contents.contains("${") && !contents.contains("$0"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parent_categories_are_destinations_and_ids_disambiguate_equal_labels() {
+        let root = test_workspace("note-category-tree-test");
+        let uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&uri).unwrap();
+        fs::write(
+            root.join(".fleximark/config.toml"),
+            r#"schema_version = 2
+[[notes.categories]]
+id = "left"
+label = "Same"
+directory = "left"
+[[notes.categories.children]]
+id = "left-child"
+label = "Same"
+directory = "child"
+[[notes.categories]]
+id = "right"
+label = "Same"
+directory = "right"
+"#,
+        )
+        .unwrap();
+
+        let parent = create_note_with_options(&uri, Some("left"), None).unwrap();
+        let parent = workspace_path(parent.open_uri.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            parent.parent().unwrap(),
+            root.join("notes/left").canonicalize().unwrap()
+        );
+
+        let child = create_note_with_options(&uri, Some("left-child"), None).unwrap();
+        let child = workspace_path(child.open_uri.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            child.parent().unwrap(),
+            root.join("notes/left/child").canonicalize().unwrap()
+        );
+
+        let right = create_note_with_options(&uri, Some("right"), None).unwrap();
+        let right = workspace_path(right.open_uri.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            right.parent().unwrap(),
+            root.join("notes/right").canonicalize().unwrap()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

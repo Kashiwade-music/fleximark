@@ -262,11 +262,11 @@ export function suite(): void {
       {
         request: (connection: JsonRpcConnection) =>
           connection.request("fleximark/initialize", {
-            protocolVersion: 2,
+            protocolVersion: 3,
             client: { name: "boundary-test", version: "1" },
           }),
         result: {
-          protocolVersion: 2,
+          protocolVersion: 3,
           daemonInstanceId: "daemon",
           workspaceStatuses: [{ uri: "file:///workspace", enabled: "yes" }],
           capabilities: {},

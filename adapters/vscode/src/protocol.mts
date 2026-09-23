@@ -32,6 +32,7 @@ export type {
   JsonRpcMessageEnvelope,
   JsonRpcResponseEnvelope,
   LspMethod,
+  NoteCategoryOption,
   PreviewChangedParams,
   PreviewTarget,
   PublishDiagnosticsParams,

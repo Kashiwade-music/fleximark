@@ -1,16 +1,16 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "methods": [
     {
       "method": "fleximark/initialize",
       "direction": "clientToServer",
       "kind": "request",
       "params": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "client": { "name": "contract-test", "version": "1" }
       },
       "result": {
-        "protocolVersion": 2,
+        "protocolVersion": 3,
         "daemonInstanceId": "daemon",
         "workspaceStatuses": [
           { "uri": "file:///workspace", "enabled": true }
@@ -186,7 +186,18 @@
         "daemonInstanceId": "daemon",
         "workspaceUri": "file:///workspace"
       },
-      "result": { "categories": ["work"], "templates": ["daily"] }
+      "result": {
+        "categories": [
+          {
+            "id": "work",
+            "label": "Work",
+            "children": [
+              { "id": "project", "label": "Project", "children": [] }
+            ]
+          }
+        ],
+        "templates": ["daily"]
+      }
     },
     {
       "method": "fleximark/reconfigureWorkspace",

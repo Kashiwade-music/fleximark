@@ -141,14 +141,21 @@ mise exec -- uv run --frozen python scripts/stage_daemon.py
 file_name_prefix = "${CURRENT_YEAR}-"
 file_name_suffix = "-draft"
 
-[notes.categories]
-reports = "work/reports"
+[[notes.categories]]
+id = "work"
+label = "Work"
+directory = "work"
+
+[[notes.categories.children]]
+id = "reports"
+label = "Reports"
+directory = "reports"
 
 [notes.templates]
 daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}", "$0"]
 ```
 
-`FlexiMark: Create New Note` を実行し、category に `reports`、template に `daily` を選ぶ。
+`FlexiMark: Create New Note` を実行し、category で `Work`、続いて `Reports`、template に `daily` を選ぶ。
 `notes/work/reports/` に日付展開済みの Markdown が作られ、そのファイルが editor で開くことを確認する。
 選択肢を設定していない場合は、`notes/` に `# New note` の note が作られる。
 
@@ -232,7 +239,7 @@ code --install-extension fleximark-dev.vsix --force
 - TypeScript 変更が反映されない: F5 セッションを停止し、`mise run build` 後に再起動する。
 - Rust 変更が反映されない: F5 セッションを停止し、release build と `stage_daemon.py` を再実行する。
 - command が書き込みを拒否する: folder を workspace として開いたこと、Workspace Trust、
-  `.fleximark/config.toml` の `schema_version = 1` を確認する。
+  `.fleximark/config.toml` の `schema_version = 2` を確認する。
 - preview が開かない、または復旧しない: Output の `FlexiMark` channel で launch/recovery ID と
   daemon stderr を確認し、必要なら `Developer: Toggle Developer Tools` の Console も確認する。
 

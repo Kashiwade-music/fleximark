@@ -10,7 +10,7 @@ use thiserror::Error;
 
 pub const PLUGIN_API_VERSION: u32 = 1;
 pub const PLUGIN_MANIFEST_SCHEMA_VERSION: u32 = 1;
-pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 pub const PLUGIN_DIRECTORY: &str = ".fleximark/plugins";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -313,9 +313,19 @@ pub struct NotesConfig {
     #[serde(default)]
     pub file_name_suffix: String,
     #[serde(default)]
-    pub categories: BTreeMap<String, String>,
+    pub categories: Vec<NoteCategoryConfig>,
     #[serde(default)]
     pub templates: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoteCategoryConfig {
+    pub id: String,
+    pub label: String,
+    pub directory: String,
+    #[serde(default)]
+    pub children: Vec<NoteCategoryConfig>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,6 +395,8 @@ impl FlexiMarkConfig {
         if self.schema_version != CONFIG_SCHEMA_VERSION {
             return Err(ConfigError::Schema(self.schema_version));
         }
+        let mut category_ids = HashSet::new();
+        validate_note_categories(&self.notes.categories, &mut category_ids, 0)?;
         let mut ids = HashSet::new();
         for plugin in &self.plugins {
             if !valid_plugin_id(&plugin.id) {
@@ -424,6 +436,16 @@ pub enum ConfigError {
     Syntax(String),
     #[error("configuration schema version {0} is unsupported")]
     Schema(u32),
+    #[error("note category id is invalid: {0}")]
+    NoteCategoryId(String),
+    #[error("note category id is configured more than once: {0}")]
+    DuplicateNoteCategory(String),
+    #[error("note category label must not be empty: {0}")]
+    NoteCategoryLabel(String),
+    #[error("note category directory must be relative and traversal-free: {0}")]
+    NoteCategoryDirectory(String),
+    #[error("note category nesting exceeds 32 levels")]
+    NoteCategoryDepth,
     #[error("plugin is configured more than once: {0}")]
     DuplicatePlugin(String),
     #[error("configured plugin id is invalid: {0}")]
@@ -436,6 +458,41 @@ pub enum ConfigError {
     ManifestHash(String),
     #[error("plugin signer key must be a 32-byte hexadecimal Ed25519 key for: {0}")]
     SignerKey(String),
+}
+
+fn validate_note_categories<'a>(
+    categories: &'a [NoteCategoryConfig],
+    ids: &mut HashSet<&'a str>,
+    depth: usize,
+) -> Result<(), ConfigError> {
+    if depth >= 32 && !categories.is_empty() {
+        return Err(ConfigError::NoteCategoryDepth);
+    }
+    for category in categories {
+        if !valid_plugin_id(&category.id) {
+            return Err(ConfigError::NoteCategoryId(category.id.clone()));
+        }
+        if !ids.insert(&category.id) {
+            return Err(ConfigError::DuplicateNoteCategory(category.id.clone()));
+        }
+        if category.label.trim().is_empty() {
+            return Err(ConfigError::NoteCategoryLabel(category.id.clone()));
+        }
+        let directory = Path::new(&category.directory);
+        if category.directory.is_empty()
+            || directory.is_absolute()
+            || category.directory.contains(['\\', ':', '\0'])
+            || !directory
+                .components()
+                .all(|part| matches!(part, Component::Normal(_)))
+        {
+            return Err(ConfigError::NoteCategoryDirectory(
+                category.directory.clone(),
+            ));
+        }
+        validate_note_categories(&category.children, ids, depth + 1)?;
+    }
+    Ok(())
 }
 
 fn valid_relative_path(path: &Path, text: &str, extension: &str) -> bool {
@@ -497,14 +554,14 @@ mod tests {
     fn canonical_config_rejects_duplicates_and_traversal() {
         let metadata = "manifest='a.toml'\nsignature='a.sig'\nmanifest_sha256='0000000000000000000000000000000000000000000000000000000000000000'\nsigner_public_key='0000000000000000000000000000000000000000000000000000000000000000'\n";
         let duplicate = format!(
-            "schema_version=1\n[[plugins]]\nid='a'\nwasm='a.wasm'\n{metadata}[[plugins]]\nid='a'\nwasm='b.wasm'\n{metadata}"
+            "schema_version=2\n[[plugins]]\nid='a'\nwasm='a.wasm'\n{metadata}[[plugins]]\nid='a'\nwasm='b.wasm'\n{metadata}"
         );
         assert_eq!(
             FlexiMarkConfig::from_toml(&duplicate).unwrap_err(),
             ConfigError::DuplicatePlugin("a".into())
         );
         let traversal =
-            format!("schema_version=1\n[[plugins]]\nid='a'\nwasm='../a.wasm'\n{metadata}");
+            format!("schema_version=2\n[[plugins]]\nid='a'\nwasm='../a.wasm'\n{metadata}");
         assert_eq!(
             FlexiMarkConfig::from_toml(&traversal).unwrap_err(),
             ConfigError::PluginPath("../a.wasm".into())
@@ -513,12 +570,60 @@ mod tests {
 
     #[test]
     fn config_defaults_are_secure_and_unknown_fields_are_rejected() {
-        let config = FlexiMarkConfig::from_toml("schema_version = 1\n").unwrap();
+        let config = FlexiMarkConfig::from_toml("schema_version = 2\n").unwrap();
         assert_eq!(
             config.security.raw_html_preview,
-            RawHtmlRenderPolicy::Escape
+            RawHtmlRenderPolicy::Sanitize
         );
-        assert_eq!(config.security.raw_html_export, RawHtmlRenderPolicy::Reject);
-        assert!(FlexiMarkConfig::from_toml("schema_version = 1\nlegacy = true\n").is_err());
+        assert_eq!(
+            config.security.raw_html_export,
+            RawHtmlRenderPolicy::Sanitize
+        );
+        assert!(FlexiMarkConfig::from_toml("schema_version = 2\nlegacy = true\n").is_err());
+    }
+
+    #[test]
+    fn recursive_note_categories_require_unique_stable_ids_and_safe_directories() {
+        let config = FlexiMarkConfig::from_toml(
+            r#"schema_version = 2
+
+[[notes.categories]]
+id = "work"
+label = "Shared"
+directory = "work"
+
+[[notes.categories.children]]
+id = "work-project"
+label = "Shared"
+directory = "project"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.notes.categories[0].children[0].id, "work-project");
+
+        let duplicate = r#"schema_version = 2
+[[notes.categories]]
+id = "same"
+label = "One"
+directory = "one"
+[[notes.categories.children]]
+id = "same"
+label = "Two"
+directory = "two"
+"#;
+        assert_eq!(
+            FlexiMarkConfig::from_toml(duplicate).unwrap_err(),
+            ConfigError::DuplicateNoteCategory("same".into())
+        );
+        let traversal = r#"schema_version = 2
+[[notes.categories]]
+id = "unsafe"
+label = "Unsafe"
+directory = "../outside"
+"#;
+        assert_eq!(
+            FlexiMarkConfig::from_toml(traversal).unwrap_err(),
+            ConfigError::NoteCategoryDirectory("../outside".into())
+        );
     }
 }

@@ -7,7 +7,7 @@ use thiserror::Error;
 pub use fleximark_model::{NavigationEntry, NodeId, SourcePosition, SourceRange};
 pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 pub const CONTENT_MODIFIED: i64 = -32801;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -74,6 +74,7 @@ macro_rules! for_each_contract_type {
             (CommandMessage, "CommandMessage", "commandMessage", "CommandMessage", CommandMessage, Serialize),
             (CommandResult, "CommandResult", "commandResult", "CommandResult", CommandResult, Serialize),
             (GetNoteOptionsParams, "GetNoteOptionsParams", "getNoteOptionsParams", "GetNoteOptionsParams", GetNoteOptionsParams, Deserialize),
+            (NoteCategoryOption, "NoteCategoryOption", "noteCategoryOption", "NoteCategoryOption", NoteCategoryOption, Serialize),
             (GetNoteOptionsResult, "GetNoteOptionsResult", "getNoteOptionsResult", "GetNoteOptionsResult", GetNoteOptionsResult, Serialize),
             (ReconfigureWorkspaceParams, "ReconfigureWorkspaceParams", "reconfigureWorkspaceParams", "ReconfigureWorkspaceParams", ReconfigureWorkspaceParams, Deserialize),
             (RpcOpenDocumentParams, "RpcOpenDocumentParams", "openDocumentParams", "RpcOpenDocumentParams", RpcOpenDocumentParams, Deserialize),
@@ -650,7 +651,7 @@ pub struct ExecuteCommandParams {
     #[serde(default)]
     pub destination_uri: Option<String>,
     #[serde(default)]
-    pub note_category: Option<String>,
+    pub note_category_id: Option<String>,
     #[serde(default)]
     pub note_template: Option<String>,
     #[serde(default)]
@@ -665,10 +666,19 @@ pub struct GetNoteOptionsParams {
     pub workspace_uri: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct NoteCategoryOption {
+    pub id: String,
+    pub label: String,
+    pub children: Vec<NoteCategoryOption>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GetNoteOptionsResult {
-    pub categories: Vec<String>,
+    pub categories: Vec<NoteCategoryOption>,
     pub templates: Vec<String>,
 }
 
@@ -875,7 +885,7 @@ mod tests {
 
     fn contract_fixture() -> ContractFixture {
         serde_json::from_str(include_str!(
-            "../../../test/fixtures/protocol-v2-contract.json"
+            "../../../test/fixtures/protocol-v3-contract.json"
         ))
         .unwrap()
     }
@@ -935,7 +945,7 @@ mod tests {
                 assert!(params.expected_document_version.is_none());
                 assert!(params.workspace_uri.is_none());
                 assert!(params.destination_uri.is_none());
-                assert!(params.note_category.is_none());
+                assert!(params.note_category_id.is_none());
                 assert!(params.note_template.is_none());
             }
             WireType::GetNoteOptionsParams => drop(accept!(GetNoteOptionsParams)),
@@ -999,7 +1009,7 @@ mod tests {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|value| value.as_str().unwrap().to_owned())
+                    .map(note_category_option_from_value)
                     .collect(),
                 templates: case.result["templates"]
                     .as_array()
@@ -1028,6 +1038,19 @@ mod tests {
                 "registry uses non-result type {result_type:?} for {}",
                 case.method
             ),
+        }
+    }
+
+    fn note_category_option_from_value(value: &Value) -> NoteCategoryOption {
+        NoteCategoryOption {
+            id: value["id"].as_str().unwrap().to_owned(),
+            label: value["label"].as_str().unwrap().to_owned(),
+            children: value["children"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(note_category_option_from_value)
+                .collect(),
         }
     }
 
@@ -1207,7 +1230,7 @@ mod tests {
     fn inbound_dtos_reject_fields_not_declared_by_the_wire_schema() {
         assert!(
             serde_json::from_value::<InitializeParams>(json!({
-                "protocolVersion":2,
+                "protocolVersion":3,
                 "client":{"name":"test","version":"1"},
                 "unexpected":true
             }))

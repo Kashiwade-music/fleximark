@@ -8,9 +8,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "test" / "fixtures" / "protocol-v2-contract.json"
+FIXTURE = ROOT / "test" / "fixtures" / "protocol-v3-contract.json"
 BIDIRECTIONAL_SERVER_FIXTURE = (
-    ROOT / "test" / "fixtures" / "protocol-v2-bidirectional-server.json"
+    ROOT / "test" / "fixtures" / "protocol-v3-bidirectional-server.json"
 )
 SCHEMA = ROOT / "schemas" / "protocol.schema.json"
 

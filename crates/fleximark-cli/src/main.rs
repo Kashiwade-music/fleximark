@@ -353,7 +353,7 @@ mod tests {
         fleximark_service::initialize_workspace(&workspace_uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 1\n[[plugins]]\nid='malicious'\nwasm='missing.wasm'\nmanifest='missing.toml'\nsignature='missing.sig'\nmanifest_sha256='0000000000000000000000000000000000000000000000000000000000000000'\nsigner_public_key='0000000000000000000000000000000000000000000000000000000000000000'\n",
+            "schema_version = 2\n[[plugins]]\nid='malicious'\nwasm='missing.wasm'\nmanifest='missing.toml'\nsignature='missing.sig'\nmanifest_sha256='0000000000000000000000000000000000000000000000000000000000000000'\nsigner_public_key='0000000000000000000000000000000000000000000000000000000000000000'\n",
         )
         .unwrap();
         let document = root.join("doc.md");

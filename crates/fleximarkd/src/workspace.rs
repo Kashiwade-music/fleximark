@@ -5,13 +5,15 @@ use std::path::Path;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
-use fleximark_plugin_sdk::{AssetsConfig, FlexiMarkConfig, NotesConfig, SecurityConfig};
+use fleximark_plugin_sdk::{
+    AssetsConfig, FlexiMarkConfig, NoteCategoryConfig, NotesConfig, SecurityConfig,
+};
 use fleximark_protocol::{CommandMessage, CommandResult};
 use serde_json::Value;
 
 use crate::{ServiceError, path_to_file_uri, workspace_path};
 
-pub(crate) const CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 1\n\n[security]\nraw_html_preview = \"escape\"\nraw_html_export = \"reject\"\n";
+pub(crate) const CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n\n[security]\nraw_html_preview = \"sanitize\"\nraw_html_export = \"sanitize\"\n";
 const THEME: &str = "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
 pub fn initialize_workspace(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
@@ -57,7 +59,7 @@ pub fn migrate_legacy_workspace(
     }
 
     let config = FlexiMarkConfig {
-        schema_version: 1,
+        schema_version: 2,
         notes: NotesConfig {
             file_name_prefix: legacy_string(settings.get("noteFileNamePrefix")),
             file_name_suffix: legacy_string(settings.get("noteFileNameSuffix")),
@@ -106,37 +108,45 @@ fn legacy_string(value: Option<&Value>) -> String {
     value.and_then(Value::as_str).unwrap_or_default().to_owned()
 }
 
-fn legacy_categories(value: Option<&Value>) -> BTreeMap<String, String> {
-    let mut categories = BTreeMap::new();
-    let mut pending = value
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|entries| {
-            entries
-                .iter()
-                .map(|(name, child)| (vec![name.as_str()], child))
-        })
-        .collect::<Vec<_>>();
-    while let Some((parts, child)) = pending.pop() {
-        let Some(name) = parts.last() else { continue };
-        if name.is_empty()
-            || matches!(*name, "." | "..")
-            || name
-                .chars()
-                .any(|character| "\\/:*?\"<>|\0".contains(character))
-        {
-            continue;
-        }
-        categories.insert(parts.join(" / "), parts.join("/"));
-        if let Some(children) = child.as_object() {
-            pending.extend(children.iter().map(|(name, child)| {
-                let mut nested = parts.clone();
-                nested.push(name);
-                (nested, child)
-            }));
-        }
+fn legacy_categories(value: Option<&Value>) -> Vec<NoteCategoryConfig> {
+    fn convert(
+        entries: &serde_json::Map<String, Value>,
+        parent_id: &str,
+    ) -> Vec<NoteCategoryConfig> {
+        entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (name, child))| {
+                if name.is_empty()
+                    || matches!(name.as_str(), "." | "..")
+                    || name
+                        .chars()
+                        .any(|character| "\\/:*?\"<>|\0".contains(character))
+                {
+                    return None;
+                }
+                let id = if parent_id.is_empty() {
+                    format!("legacy-{index}")
+                } else {
+                    format!("{parent_id}-{index}")
+                };
+                Some(NoteCategoryConfig {
+                    id: id.clone(),
+                    label: name.clone(),
+                    directory: name.clone(),
+                    children: child
+                        .as_object()
+                        .map(|children| convert(children, &id))
+                        .unwrap_or_default(),
+                })
+            })
+            .collect()
     }
-    categories
+
+    value
+        .and_then(Value::as_object)
+        .map(|entries| convert(entries, ""))
+        .unwrap_or_default()
 }
 
 fn legacy_templates(value: Option<&Value>) -> BTreeMap<String, Vec<String>> {
@@ -377,11 +387,45 @@ mod tests {
         let config = validate_config(&control.join("config.toml")).unwrap();
         assert_eq!(config.notes.file_name_prefix, "${CURRENT_YEAR}_");
         assert_eq!(config.notes.file_name_suffix, "");
+        let general = config
+            .notes
+            .categories
+            .iter()
+            .find(|category| category.label == "General")
+            .unwrap();
+        let reports = general
+            .children
+            .iter()
+            .find(|category| category.label == "Reports")
+            .unwrap();
+        let weekly = reports
+            .children
+            .iter()
+            .find(|category| category.label == "Weekly")
+            .unwrap();
         assert_eq!(
-            config.notes.categories.get("General / Reports / Weekly"),
-            Some(&"General/Reports/Weekly".to_owned())
+            [
+                general.directory.as_str(),
+                reports.directory.as_str(),
+                weekly.directory.as_str(),
+            ],
+            ["General", "Reports", "Weekly"]
         );
-        assert!(!config.notes.categories.keys().any(|key| key.contains("..")));
+        let unsafe_category = config
+            .notes
+            .categories
+            .iter()
+            .find(|category| category.label == "Unsafe")
+            .unwrap();
+        assert!(unsafe_category.children.is_empty());
+        let migrated_note = crate::create_note_with_options(&uri, Some(&weekly.id), None).unwrap();
+        let migrated_note = workspace_path(migrated_note.open_uri.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            migrated_note.parent().unwrap(),
+            root.join("notes/General/Reports/Weekly")
+                .canonicalize()
+                .unwrap()
+        );
         assert_eq!(config.assets.roots, ["attachments"]);
         assert_eq!(
             fs::read_to_string(control.join("theme.css")).unwrap(),
@@ -405,7 +449,7 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 1\nunknown = true\n",
+            "schema_version = 2\nunknown = true\n",
         )
         .unwrap();
         assert!(matches!(

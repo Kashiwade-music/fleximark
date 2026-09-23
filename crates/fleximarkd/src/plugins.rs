@@ -149,7 +149,7 @@ mod tests {
         fs::write(
             root.join(".fleximark/config.toml"),
             format!(
-                "schema_version = 1\n[[plugins]]\nid = \"sample.plugin\"\nwasm = \"sample.wasm\"\nmanifest = \"sample.toml\"\nsignature = \"sample.sig\"\nmanifest_sha256 = \"{}\"\nsigner_public_key = \"{}\"\n",
+                "schema_version = 2\n[[plugins]]\nid = \"sample.plugin\"\nwasm = \"sample.wasm\"\nmanifest = \"sample.toml\"\nsignature = \"sample.sig\"\nmanifest_sha256 = \"{}\"\nsigner_public_key = \"{}\"\n",
                 sha256(manifest.as_bytes()),
                 "00".repeat(32)
             ),

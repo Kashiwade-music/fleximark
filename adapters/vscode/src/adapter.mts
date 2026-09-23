@@ -86,6 +86,7 @@ export { findVisibleSourceEditor } from "./workspace-selection.mjs";
 export {
   executeCreateNote,
   openCommandResult,
+  selectNoteCategory,
   selectWorkspaceUri,
 } from "./commands.mjs";
 
@@ -517,7 +518,8 @@ export class FlexiMarkAdapter implements vscode.Disposable {
             params,
             (optionParams) =>
               rpc.request("fleximark/getNoteOptions", optionParams),
-            vscode.window.showQuickPick,
+            (items, options) => vscode.window.showQuickPick(items, options),
+            (items, options) => vscode.window.showQuickPick(items, options),
             (commandParams) =>
               rpc.request("fleximark/executeCommand", commandParams),
           )
