@@ -6,6 +6,8 @@
   "Migrated FlexiMark workspace “{0}”. Its legacy JavaScript plugin was retained but is disabled.": "Migrated FlexiMark workspace “{0}”. Its legacy JavaScript plugin was retained but is disabled.",
   "Migrated FlexiMark workspace “{0}” to the current format.": "Migrated FlexiMark workspace “{0}” to the current format.",
   "Select a note template": "Select a note template",
+  "Enter a file name": "Enter a file name",
+  "File name cannot be empty": "File name cannot be empty",
   "Use this category": "Use this category",
   "Back": "Back",
   "Select a note category in {0}": "Select a note category in {0}",

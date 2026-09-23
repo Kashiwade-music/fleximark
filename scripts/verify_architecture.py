@@ -138,7 +138,7 @@ def verify_architecture() -> None:
         "protocol.generated.mts must be generated from the Rust protocol contract",
     )
     fixture_source = (
-        ROOT / "test" / "fixtures" / "protocol-v4-contract.json"
+        ROOT / "test" / "fixtures" / "protocol-v5-contract.json"
     ).read_text(encoding="utf-8")
     require(
         generated_marker not in fixture_source,

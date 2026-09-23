@@ -10,6 +10,10 @@ pub enum ServiceError {
     NotInitialized,
     #[error(".fleximark/config.toml is not a valid version 1 configuration")]
     InvalidConfig,
+    #[error("note file name is invalid")]
+    InvalidNoteName,
+    #[error("a note with that name already exists")]
+    NoteAlreadyExists,
     #[error("refusing a symbolic link or non-file at a FlexiMark-owned path")]
     InvalidControlPath,
     #[error("refusing an unmanaged non-empty export destination")]

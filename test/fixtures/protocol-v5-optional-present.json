@@ -1,11 +1,11 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "cases": [
     {
       "name": "initialize params with all optional fields",
       "definition": "initializeParams",
       "value": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "client": { "name": "contract-test", "version": "1" },
         "capabilities": {
           "embeddedHtml": true,
@@ -14,16 +14,14 @@
           "viewportEvents": true,
           "openExternal": true
         },
-        "workspaces": [
-          { "uri": "file:///workspace", "trusted": true }
-        ]
+        "workspaces": [{ "uri": "file:///workspace", "trusted": true }]
       }
     },
     {
       "name": "initialize result with workspace error",
       "definition": "initializeResult",
       "value": {
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "daemonInstanceId": "daemon",
         "workspaceStatuses": [
           {
@@ -60,7 +58,8 @@
         "workspaceUri": "file:///workspace",
         "destinationUri": "file:///workspace/note.md",
         "noteCategoryPath": ["Work"],
-        "noteTemplate": "daily"
+        "noteTemplate": "daily",
+        "noteFileName": "session"
       }
     },
     {

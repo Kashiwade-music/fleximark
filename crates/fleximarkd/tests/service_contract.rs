@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const DEFAULT_CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n";
+const DEFAULT_CONFIG: &str =
+    "# FlexiMark workspace configuration\nschema_version = 2\n\n[notes]\nroot = \"notes\"\n";
 const DEFAULT_THEME: &str =
     "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 

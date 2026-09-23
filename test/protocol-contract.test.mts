@@ -38,7 +38,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v4-contract.json",
+          "protocol-v5-contract.json",
         ),
         "utf8",
       ),
@@ -169,7 +169,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v4-bidirectional-server.json",
+          "protocol-v5-bidirectional-server.json",
         ),
         "utf8",
       ),
@@ -249,7 +249,7 @@ export function suite(): void {
           process.cwd(),
           "test",
           "fixtures",
-          "protocol-v4-optional-present.json",
+          "protocol-v5-optional-present.json",
         ),
         "utf8",
       ),
@@ -284,5 +284,13 @@ export function suite(): void {
     ]) {
       assert.equal(validate({ ...base, noteCategoryPath }), false);
     }
+  });
+
+  test("rejects invalid present note file names", () => {
+    const validate = customRequestParamsValidators["fleximark/executeCommand"];
+    const base = { daemonInstanceId: "daemon", command: "createNote" };
+    for (const noteFileName of [null, "", "x".repeat(256)])
+      assert.equal(validate({ ...base, noteFileName }), false);
+    assert.equal(validate({ ...base, noteFileName: "session" }), true);
   });
 }

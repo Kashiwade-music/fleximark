@@ -48,7 +48,7 @@ fn initialize_daemon(server: &mut Server, params: Value) -> String {
 
 fn initialize_params(capabilities: Value, workspaces: Option<Value>) -> Value {
     let mut params = json!({
-        "protocolVersion": 4,
+        "protocolVersion": 5,
         "client": {"name": "test", "version": "1"},
         "capabilities": capabilities,
     });
@@ -746,7 +746,7 @@ fn lsp_and_fleximark_requests_use_the_same_document() {
         2,
         method::INITIALIZE,
         json!({
-            "protocolVersion": 4, "client":{"name":"test","version":"1"},
+            "protocolVersion": 5, "client":{"name":"test","version":"1"},
             "capabilities":{"selectionEvents":true,"viewportEvents":true},
             "workspaces":[{"uri":workspace_uri.clone(),"trusted":true}]
         }),

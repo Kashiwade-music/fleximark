@@ -3,7 +3,7 @@ use fleximark_protocol::{NodeId, RenderNavigationEvent, TextPosition};
 #[test]
 fn selection_wire_always_includes_null_or_object_active_position() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../test/fixtures/protocol-v4-render-navigation.json"
+        "../../../test/fixtures/protocol-v5-render-navigation.json"
     ))
     .unwrap();
     let without_active = RenderNavigationEvent::Selection {
@@ -22,7 +22,7 @@ fn selection_wire_always_includes_null_or_object_active_position() {
         }),
     };
 
-    assert_eq!(fixture["schemaVersion"], 4);
+    assert_eq!(fixture["schemaVersion"], 5);
     assert_eq!(fixture["events"].as_array().unwrap().len(), 3);
     assert_eq!(
         serde_json::to_value(&without_active).unwrap(),

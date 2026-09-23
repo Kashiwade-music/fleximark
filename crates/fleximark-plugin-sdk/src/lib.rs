@@ -305,9 +305,11 @@ pub struct FlexiMarkConfig {
     pub plugins: Vec<ConfiguredPlugin>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NotesConfig {
+    #[serde(default = "default_note_root")]
+    pub root: String,
     #[serde(default)]
     pub file_name_prefix: String,
     #[serde(default)]
@@ -316,6 +318,22 @@ pub struct NotesConfig {
     pub categories: BTreeMap<String, NoteCategoryConfig>,
     #[serde(default)]
     pub templates: BTreeMap<String, Vec<String>>,
+}
+
+impl Default for NotesConfig {
+    fn default() -> Self {
+        Self {
+            root: default_note_root(),
+            file_name_prefix: String::new(),
+            file_name_suffix: String::new(),
+            categories: BTreeMap::new(),
+            templates: BTreeMap::new(),
+        }
+    }
+}
+
+fn default_note_root() -> String {
+    ".".to_owned()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -362,6 +380,9 @@ impl FlexiMarkConfig {
         if self.schema_version != CONFIG_SCHEMA_VERSION {
             return Err(ConfigError::Schema(self.schema_version));
         }
+        if !is_safe_note_root(&self.notes.root) {
+            return Err(ConfigError::NoteRoot(self.notes.root.clone()));
+        }
         validate_note_categories(&self.notes.categories, 0)?;
         let mut ids = HashSet::new();
         for plugin in &self.plugins {
@@ -404,6 +425,8 @@ pub enum ConfigError {
     Schema(u32),
     #[error("note category name is not a safe directory segment: {0}")]
     NoteCategoryName(String),
+    #[error("note root must be '.' or a safe workspace-relative path: {0}")]
+    NoteRoot(String),
     #[error("note category name collides with a sibling on common filesystems: {0}")]
     NoteCategoryCollision(String),
     #[error("note category nesting exceeds 32 levels")]
@@ -473,6 +496,13 @@ pub fn is_safe_note_category_name(name: &str) -> bool {
             "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
         )
     })
+}
+
+pub fn is_safe_note_root(root: &str) -> bool {
+    root == "."
+        || (!root.is_empty()
+            && !root.contains('\\')
+            && root.split('/').all(is_safe_note_category_name))
 }
 
 pub fn note_category_filesystem_key(name: &str) -> Option<String> {
@@ -557,9 +587,31 @@ mod tests {
         let config = FlexiMarkConfig::from_toml("schema_version = 2\n").unwrap();
         assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
         assert_eq!(config.notes, NotesConfig::default());
+        assert_eq!(config.notes.root, ".");
         assert_eq!(config.assets, AssetsConfig::default());
         assert!(config.plugins.is_empty());
         assert!(FlexiMarkConfig::from_toml("schema_version = 2\nlegacy = true\n").is_err());
+    }
+
+    #[test]
+    fn note_root_accepts_workspace_root_and_safe_relative_directories() {
+        for root in [".", "notes", "content/notes", "日本語/ノート"] {
+            let source = format!("schema_version = 2\n[notes]\nroot = {root:?}\n");
+            assert_eq!(
+                FlexiMarkConfig::from_toml(&source).unwrap().notes.root,
+                root
+            );
+        }
+        for root in ["", "..", "../notes", "/notes", "notes\\nested", "CON"] {
+            let source = format!("schema_version = 2\n[notes]\nroot = {root:?}\n");
+            assert!(
+                matches!(
+                    FlexiMarkConfig::from_toml(&source),
+                    Err(ConfigError::NoteRoot(_))
+                ),
+                "unsafe note root was accepted: {root:?}"
+            );
+        }
     }
 
     #[test]

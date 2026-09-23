@@ -20,7 +20,7 @@ struct Case {
 
 fn fixture() -> Fixture {
     serde_json::from_str(include_str!(
-        "../../../test/fixtures/protocol-v4-optional-present.json"
+        "../../../test/fixtures/protocol-v5-optional-present.json"
     ))
     .unwrap()
 }
@@ -37,7 +37,7 @@ fn case<'a>(fixture: &'a Fixture, definition: &str) -> &'a Value {
 #[test]
 fn optional_present_fixture_matches_directional_public_dtos() {
     let fixture = fixture();
-    assert_eq!(fixture.schema_version, 4);
+    assert_eq!(fixture.schema_version, 5);
     assert_eq!(fixture.cases.len(), 5);
 
     let initialize: InitializeParams =
@@ -69,9 +69,10 @@ fn optional_present_fixture_matches_directional_public_dtos() {
         Some(["Work".to_owned()].as_slice())
     );
     assert_eq!(execute.note_template.as_deref(), Some("daily"));
+    assert_eq!(execute.note_file_name.as_deref(), Some("session"));
 
     let initialize_result = InitializeResult {
-        protocol_version: 4,
+        protocol_version: 5,
         daemon_instance_id: "daemon".into(),
         workspace_statuses: vec![WorkspaceStatus {
             uri: "file:///workspace".into(),
@@ -116,7 +117,7 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
     assert_eq!(
         case(&fixture, "initializeParams")["protocolVersion"],
-        json!(4)
+        json!(5)
     );
 }
 
@@ -131,4 +132,15 @@ fn note_category_path_rejects_present_invalid_values() {
     }
     let missing = serde_json::from_value::<ExecuteCommandParams>(base).unwrap();
     assert!(missing.note_category_path.is_none());
+    assert!(missing.note_file_name.is_none());
+}
+
+#[test]
+fn note_file_name_rejects_present_invalid_values() {
+    let base = json!({"daemonInstanceId":"daemon","command":"createNote"});
+    for invalid in [Value::Null, json!(""), json!("x".repeat(256))] {
+        let mut value = base.clone();
+        value["noteFileName"] = invalid;
+        assert!(serde_json::from_value::<ExecuteCommandParams>(value).is_err());
+    }
 }

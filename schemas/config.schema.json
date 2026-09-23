@@ -10,6 +10,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "root": {
+          "type": "string",
+          "default": ".",
+          "pattern": "^(?:\\.|(?=\\S)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[. ](?:/|$))(?!.*[\\u0000-\\u001f\\u007f-\\u009f\\\\:*?\"<>|])[^/]+(?:/[^/]+)*)$"
+        },
         "file_name_prefix": { "type": "string", "default": "" },
         "file_name_suffix": { "type": "string", "default": "" },
         "categories": {

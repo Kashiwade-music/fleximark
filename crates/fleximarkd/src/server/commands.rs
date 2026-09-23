@@ -251,6 +251,7 @@ impl Server {
                 uri,
                 params.note_category_path.as_deref(),
                 params.note_template.as_deref(),
+                params.note_file_name.as_deref(),
             )
             .map_err(|error| error.to_string())
         })

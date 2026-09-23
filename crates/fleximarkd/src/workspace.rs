@@ -13,7 +13,8 @@ use serde_json::Value;
 
 use crate::{ServiceError, path_to_file_uri, workspace_path};
 
-pub(crate) const CONFIG: &str = "# FlexiMark workspace configuration\nschema_version = 2\n";
+pub(crate) const CONFIG: &str =
+    "# FlexiMark workspace configuration\nschema_version = 2\n\n[notes]\nroot = \"notes\"\n";
 const THEME: &str = "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
 pub fn initialize_workspace(workspace_uri: &str) -> Result<CommandResult, ServiceError> {
@@ -61,6 +62,7 @@ pub fn migrate_legacy_workspace(
     let config = FlexiMarkConfig {
         schema_version: 2,
         notes: NotesConfig {
+            root: ".".to_owned(),
             file_name_prefix: legacy_string(settings.get("noteFileNamePrefix")),
             file_name_suffix: legacy_string(settings.get("noteFileNameSuffix")),
             categories: legacy_categories(settings.get("noteCategories"))?,
@@ -444,13 +446,13 @@ mod tests {
             "Reports".to_owned(),
             "Weekly".to_owned(),
         ];
-        let migrated_note = crate::create_note_with_options(&uri, Some(&weekly), None).unwrap();
+        assert_eq!(config.notes.root, ".");
+        let migrated_note =
+            crate::create_note_with_options(&uri, Some(&weekly), None, Some("weekly")).unwrap();
         let migrated_note = workspace_path(migrated_note.open_uri.as_deref().unwrap()).unwrap();
         assert_eq!(
             migrated_note.parent().unwrap(),
-            root.join("notes/General/Reports/Weekly")
-                .canonicalize()
-                .unwrap()
+            root.join("General/Reports/Weekly").canonicalize().unwrap()
         );
         assert_eq!(config.assets.roots, ["attachments"]);
         assert_eq!(

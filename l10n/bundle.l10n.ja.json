@@ -10,6 +10,8 @@
   "Use this category": "このカテゴリーを使用",
   "Back": "戻る",
   "Select a note template": "ノートのテンプレートを選択してください",
+  "Enter a file name": "ファイル名を入力してください",
+  "File name cannot be empty": "ファイル名を空にすることはできません",
   "Select a FlexiMark workspace": "FlexiMark ワークスペースを選択してください",
   "Open a Markdown document first.": "先に Markdown 文書を開いてください。",
   "Open the Markdown document inside a workspace first.": "先にワークスペース内の Markdown 文書を開いてください。",

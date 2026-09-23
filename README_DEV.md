@@ -40,17 +40,17 @@ esbuild、VSCE、VS Code test runner などの Node 製ツールは Python か�
 JavaScript の custom task は、semantic-release が module として直接 import する hook だけである。
 `package.json` の scripts は VSCE lifecycle と Yarn 利用者向けの互換入口である。
 
-| command                                  | 内容                                                                                                                                                     |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mise run build`                         | external browser 用 preview client、release版 `fleximarkd`、release manifest、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
-| `mise run dev`                           | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                                            |
-| `mise run test`                          | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                                    |
-| `mise run verify`                        | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。                      |
-| `mise run package -- --out <file>`       | `verify`を通した後、依存packageを同梱しないVSIXを作る。                                                                                                  |
-| `mise run smoke -- <vsix>`               | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                                            |
-| `mise run l10n`                          | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                                        |
-| `mise run clean`                         | 生成した`dist/`、`out/test/`、`out/types/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                       |
-| `yarn run vscode:prepublish`             | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                                               |
+| command                            | 内容                                                                                                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mise run build`                   | external browser 用 preview client、release版 `fleximarkd`、release manifest、VS Code adapterを順にbuildし、daemonを`bin/<platform>-<arch>/`へ配置する。 |
+| `mise run dev`                     | VS Code adapter/preview bundleのesbuild watchと、TypeScriptの型検査watchを並行実行する。daemonはbuildしない。                                            |
+| `mise run test`                    | test bundleと製品全体をbuildし、VS Code integration suiteを実行する。                                                                                    |
+| `mise run verify`                  | architecture、型、lint、localization、製品build、VSIX内容、Rust、performance、VS Code integrationを含む完全なlocal gateを実行する。                      |
+| `mise run package -- --out <file>` | `verify`を通した後、依存packageを同梱しないVSIXを作る。                                                                                                  |
+| `mise run smoke -- <vsix>`         | 一時VS Code環境へ指定VSIXをinstallし、manifest/checksumと同梱daemonのprotocol起動を確認する。                                                            |
+| `mise run l10n`                    | adapterのlocalizable stringから英語bundleを再生成する。翻訳bundleの更新と差分確認は開発者が行う。                                                        |
+| `mise run clean`                   | 生成した`dist/`、`out/test/`、`out/types/`を削除する。Rustの`target/`や配置済みdaemonは削除しない。                                                      |
+| `yarn run vscode:prepublish`       | VSCEがpackage/publish直前に自動実行するhookで、内容は`build`と同じ。通常は直接実行しない。                                                               |
 
 ## Extension Development Host での手動動作確認
 
@@ -138,6 +138,7 @@ mise exec -- uv run --frozen python scripts/stage_daemon.py
 
 ```toml
 [notes]
+root = "notes"
 file_name_prefix = "${CURRENT_YEAR}-"
 file_name_suffix = "-draft"
 
@@ -152,6 +153,8 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
 
 `FlexiMark: Create New Note` を実行し、category で `Work`、続いて `Reports`、template に `daily` を選ぶ。
 category 名は表示名と directory 名を兼ね、各階層では辞書順に表示される。
+`notes.root` はノートの保存先を workspace-relative path で指定する。新規 workspace の初期設定は
+`notes`、v0.16 から移行した workspace と `root` がない既存設定は配置を保つため `.` になる。
 JSON Schema は構造と単一の名前に対する基本制約を検証する。大文字小文字や Unicode 正規化による
 同階層名の衝突、filesystem 単位の byte/UTF-16 長など、Schema だけでは表現できない制約は
 daemon が設定読込時に semantic validation する。

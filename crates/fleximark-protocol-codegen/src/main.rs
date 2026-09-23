@@ -429,6 +429,10 @@ fn apply_semantic_overlays(definitions: &mut Map<String, Value>) {
         path["minItems"] = json!(1);
         path["maxItems"] = json!(32);
         path["items"]["minLength"] = json!(1);
+        let file_name = &mut params["properties"]["noteFileName"];
+        remove_null_variant(file_name);
+        file_name["minLength"] = json!(1);
+        file_name["maxLength"] = json!(255);
     }
 }
 
@@ -640,9 +644,9 @@ fn generate_protocol_schema(named: &[NamedSchema]) -> Result<String, String> {
 
     let mut document = json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://fleximark.dev/schemas/protocol-v4.json",
+        "$id": format!("https://fleximark.dev/schemas/protocol-v{PROTOCOL_VERSION}.json"),
         "$comment": GENERATED_COMMENT,
-        "title": "FlexiMark JSON-RPC protocol v4",
+        "title": format!("FlexiMark JSON-RPC protocol v{PROTOCOL_VERSION}"),
         "oneOf": [
             { "$ref": "#/$defs/customRequest" }, { "$ref": "#/$defs/customNotification" },
             { "$ref": "#/$defs/lspMessage" }, { "$ref": "#/$defs/response" }
@@ -1274,6 +1278,10 @@ mod tests {
         assert_eq!(category_path["items"]["minLength"], 1);
         assert_eq!(category_path["minItems"], 1);
         assert_eq!(category_path["maxItems"], 32);
+        let file_name = &schema["$defs"]["executeCommandParams"]["properties"]["noteFileName"];
+        assert_eq!(file_name["type"], "string");
+        assert_eq!(file_name["minLength"], 1);
+        assert_eq!(file_name["maxLength"], 255);
     }
 
     fn assert_safe_integer_bounds(schema: &Value) {

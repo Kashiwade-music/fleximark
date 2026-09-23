@@ -7,7 +7,7 @@ use thiserror::Error;
 pub use fleximark_model::{NavigationEntry, NodeId, SourcePosition, SourceRange};
 pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const CONTENT_MODIFIED: i64 = -32801;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -654,8 +654,23 @@ pub struct ExecuteCommandParams {
     pub note_category_path: Option<Vec<String>>,
     #[serde(default)]
     pub note_template: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_note_file_name")]
+    pub note_file_name: Option<String>,
     #[serde(default)]
     pub arguments: Vec<String>,
+}
+
+fn deserialize_note_file_name<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let name = String::deserialize(deserializer)?;
+    if name.is_empty() || name.chars().count() > 255 {
+        return Err(serde::de::Error::custom(
+            "noteFileName must contain 1 to 255 characters",
+        ));
+    }
+    Ok(Some(name))
 }
 
 fn deserialize_note_category_path<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
@@ -897,7 +912,7 @@ mod tests {
 
     fn contract_fixture() -> ContractFixture {
         serde_json::from_str(include_str!(
-            "../../../test/fixtures/protocol-v4-contract.json"
+            "../../../test/fixtures/protocol-v5-contract.json"
         ))
         .unwrap()
     }
@@ -1241,7 +1256,7 @@ mod tests {
     fn inbound_dtos_reject_fields_not_declared_by_the_wire_schema() {
         assert!(
             serde_json::from_value::<InitializeParams>(json!({
-                "protocolVersion":4,
+                "protocolVersion":5,
                 "client":{"name":"test","version":"1"},
                 "unexpected":true
             }))

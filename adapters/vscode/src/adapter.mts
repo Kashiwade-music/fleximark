@@ -520,6 +520,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
               rpc.request("fleximark/getNoteOptions", optionParams),
             (items, options) => vscode.window.showQuickPick(items, options),
             (items, options) => vscode.window.showQuickPick(items, options),
+            (options) => vscode.window.showInputBox(options),
             (commandParams) =>
               rpc.request("fleximark/executeCommand", commandParams),
           )

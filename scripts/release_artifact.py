@@ -409,7 +409,7 @@ def _daemon_manifest_artifacts(payload: bytes, label: str) -> list[dict[str, Any
         type(manifest.get("schemaVersion")) is not int
         or manifest["schemaVersion"] != 1
         or type(manifest.get("protocolVersion")) is not int
-        or manifest["protocolVersion"] != 4
+        or manifest["protocolVersion"] != 5
     ):
         raise RuntimeError(f"{label} has unsupported versions")
     artifacts = manifest.get("artifacts")

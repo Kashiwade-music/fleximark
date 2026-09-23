@@ -41,6 +41,11 @@ export function suite(): void {
         return items.find((item) => item.category?.name === name);
       },
       async () => "meeting",
+      async (options) => {
+        assert.equal(options.validateInput(""), "File name cannot be empty");
+        assert.equal(options.validateInput("session"), undefined);
+        return "session";
+      },
       async (params) => {
         executed = params;
         return {};
@@ -54,6 +59,7 @@ export function suite(): void {
       ...base,
       noteCategoryPath: ["Work", "Project"],
       noteTemplate: "meeting",
+      noteFileName: "session",
     });
     let executedAfterCancellation = false;
     const result = await executeCreateNote(
@@ -64,6 +70,7 @@ export function suite(): void {
       }),
       async () => undefined,
       async () => "blank",
+      async () => "cancelled-before-file-name",
       async () => {
         executedAfterCancellation = true;
         return {};
@@ -71,6 +78,18 @@ export function suite(): void {
     );
     assert.equal(result, undefined);
     assert.equal(executedAfterCancellation, false);
+
+    const fileNameCancellation = await executeCreateNote(
+      { ...base, command: "createNote" },
+      async () => ({ categories: [], templates: [] }),
+      async () => undefined,
+      async () => undefined,
+      async () => undefined,
+      async () => {
+        throw new Error("cancelled file name must not execute");
+      },
+    );
+    assert.equal(fileNameCancellation, undefined);
   });
 
   test("supports choosing a parent and returns breadcrumb paths", async () => {

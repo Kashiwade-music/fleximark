@@ -21,6 +21,10 @@ export async function executeCreateNote(
     items: readonly string[],
     options: { placeHolder: string },
   ) => Thenable<string | undefined>,
+  promptFileName: (options: {
+    prompt: string;
+    validateInput(value: string): string | undefined;
+  }) => Thenable<string | undefined>,
   execute: (params: ExecuteCommandParams) => Promise<CommandResult>,
 ): Promise<CommandResult | undefined> {
   if (!params.workspaceUri) return execute(params);
@@ -38,7 +42,18 @@ export async function executeCreateNote(
       })
     : undefined;
   if (options.templates.length && noteTemplate === undefined) return;
-  return execute({ ...params, noteCategoryPath, noteTemplate });
+  const noteFileName = await promptFileName({
+    prompt: vscode.l10n.t("Enter a file name"),
+    validateInput: (value) =>
+      value.trim() ? undefined : vscode.l10n.t("File name cannot be empty"),
+  });
+  if (noteFileName === undefined) return;
+  return execute({
+    ...params,
+    noteCategoryPath,
+    noteTemplate,
+    noteFileName,
+  });
 }
 
 export interface NoteCategoryQuickPickItem extends vscode.QuickPickItem {
