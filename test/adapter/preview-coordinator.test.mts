@@ -95,6 +95,11 @@ export function suite(): void {
     assert.match(shell, /base-uri 'none'/);
     assert.match(shell, /form-action 'none'/);
     assert.match(shell, /script-src 'nonce-nonce' vscode-resource:/);
+    assert.match(shell, /img-src[^;]*https:\/\/i\.ytimg\.com/);
+    assert.match(
+      shell,
+      /<meta name="referrer" content="strict-origin-when-cross-origin">/,
+    );
     assert.doesNotMatch(shell, /script-src[^;]*'unsafe-inline'/);
     assert.match(shell, /object-src 'none'/);
     assert.match(shell, /fleximark-message-token/);

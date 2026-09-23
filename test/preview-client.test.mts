@@ -613,6 +613,48 @@ export function suite(): void {
     enhancer.dispose();
   });
 
+  test("shows a YouTube thumbnail and loads a referrer-enabled player", async () => {
+    assert.equal(
+      preview.apply(
+        frame(1, [
+          {
+            id: "youtube",
+            nodeIds: ["youtube"],
+            html: '<div data-fleximark-node-id="youtube" data-fleximark-kind="youtube" data-source="https://youtu.be/M7lc1UVf-VE"></div>',
+          },
+        ]),
+      ),
+      true,
+    );
+    const enhancer = new PreviewEnhancer(inertRuntimes());
+    await enhancer.render(root);
+
+    const button = root.querySelector<HTMLButtonElement>(
+      "button.youtube-placeholder",
+    );
+    const thumbnail = button?.querySelector<HTMLImageElement>("img");
+    assert.equal(button?.getAttribute("aria-label"), "Play YouTube video");
+    assert.equal(
+      thumbnail?.src,
+      "https://i.ytimg.com/vi/M7lc1UVf-VE/hqdefault.jpg",
+    );
+    assert.equal(thumbnail?.alt, "");
+
+    button?.click();
+    const frameElement = root.querySelector<HTMLIFrameElement>("iframe");
+    assert.equal(
+      frameElement?.src,
+      "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE",
+    );
+    assert.equal(
+      frameElement?.getAttribute("referrerpolicy"),
+      "strict-origin-when-cross-origin",
+    );
+    assert.match(frameElement?.getAttribute("allow") ?? "", /autoplay/);
+    assert.equal(frameElement?.hasAttribute("allowfullscreen"), true);
+    enhancer.dispose();
+  });
+
   test("renders ABC notation into SVG output", async () => {
     assert.equal(preview.apply(specialFrame("abc", "X:1\nK:C\nC")), true);
     const { previewRuntimes } =
