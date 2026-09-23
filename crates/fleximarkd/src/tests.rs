@@ -1547,6 +1547,113 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
 }
 
 #[test]
+fn raw_html_diagnostics_only_report_content_changed_by_the_security_policy() {
+    let mut server = Server::new(true);
+    server.request(
+        1,
+        "initialize",
+        json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
+    );
+    server.request(2, method::INITIALIZE, initialize_params(json!({}), None));
+
+    let accepted = server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":"file:///accepted-html.md","version":1,"text":"Press <kbd>Ctrl</kbd>.\n"}}),
+    );
+    let accepted_diagnostics = accepted
+        .iter()
+        .find(|item| item["method"] == "textDocument/publishDiagnostics")
+        .unwrap();
+    assert_eq!(accepted_diagnostics["params"]["diagnostics"], json!([]));
+
+    let sanitized = server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":"file:///sanitized-html.md","version":1,"text":"<img src=\"https://evil.example/tracker\" onerror=\"steal()\">\n"}}),
+    );
+    let sanitized_diagnostics = sanitized
+        .iter()
+        .find(|item| item["method"] == "textDocument/publishDiagnostics")
+        .unwrap();
+    assert_eq!(
+        sanitized_diagnostics["params"]["diagnostics"][0]["code"],
+        "raw-html"
+    );
+    assert_eq!(
+        sanitized_diagnostics["params"]["diagnostics"][0]["severity"],
+        2
+    );
+}
+
+#[test]
+fn asset_errors_publish_precise_diagnostics_without_blocking_preview_rendering() {
+    let workspace = test_directory("asset-lsp-diagnostics");
+    let workspace_uri = fleximark_service::path_to_file_uri(&workspace).unwrap();
+    fleximark_service::initialize_workspace(&workspace_uri).unwrap();
+    std::fs::write(workspace.join("valid.png"), b"\x89PNG\r\n\x1a\nvalid").unwrap();
+    let document_path = workspace.join("doc.md");
+    let source = "![missing](missing.png)\n\n![valid](valid.png)\n";
+    std::fs::write(&document_path, source).unwrap();
+    let document_uri = fleximark_service::path_to_file_uri(&document_path).unwrap();
+    let mut server = Server::new(true);
+    server.request(
+        1,
+        "initialize",
+        json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}}}),
+    );
+    server.request(
+        2,
+        method::INITIALIZE,
+        initialize_params(
+            json!({}),
+            Some(json!([{"uri":workspace_uri,"trusted":true}])),
+        ),
+    );
+    let opened = server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":document_uri,"version":1,"text":source}}),
+    );
+
+    let published = opened
+        .iter()
+        .find(|item| item["method"] == "textDocument/publishDiagnostics")
+        .expect("asset diagnostics are published after opening the document");
+    assert_eq!(
+        published["params"]["diagnostics"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        published["params"]["diagnostics"][0]["code"],
+        "asset-missing"
+    );
+    assert_eq!(
+        published["params"]["diagnostics"][0]["range"]["start"],
+        json!({"line":0,"character":0})
+    );
+    assert_eq!(
+        published["params"]["diagnostics"][0]["range"]["end"],
+        json!({"line":0,"character":23})
+    );
+    let daemon = server.registry.daemon_instance_id().to_owned();
+    let session_id = server
+        .registry
+        .session_id_for_uri(&document_uri)
+        .unwrap()
+        .to_owned();
+    let frame = server
+        .registry
+        .render_with_cancellation(
+            &daemon,
+            &session_id,
+            1,
+            "asset-diagnostic-preview",
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    assert_eq!(frame.assets.len(), 1);
+    assert!(frame.html().contains("Asset unavailable"));
+}
+
+#[test]
 fn preview_http_shell_preserves_exact_security_headers_and_rejections() {
     let token = "fixture-token";
     let pages = preview_pages(token);

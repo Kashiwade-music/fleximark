@@ -268,7 +268,7 @@ fn collect_session_diagnostics(document: &fleximark_lsp::DocumentSession) -> Vec
         output.push(json!({
             "range":range,
             "severity":1,
-            "code":"asset",
+            "code":diagnostic.kind.code(),
             "source":"fleximark",
             "message":diagnostic.message
         }));
