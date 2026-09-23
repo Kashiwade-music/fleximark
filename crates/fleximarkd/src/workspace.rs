@@ -78,10 +78,7 @@ pub fn migrate_legacy_workspace(
         plugins: Vec::new(),
     };
     config.validate().map_err(|_| ServiceError::InvalidConfig)?;
-    let config = format!(
-        "# FlexiMark workspace configuration\n# Migrated from the legacy VS Code workspace format.\n{}",
-        toml::to_string_pretty(&config).map_err(|_| ServiceError::InvalidConfig)?
-    );
+    let config = migrated_config_toml(&config)?;
 
     if !path_exists(&control, "theme.css")? {
         if regular_file_exists(&control, "fleximark.css")? {
@@ -155,6 +152,57 @@ fn legacy_templates(value: Option<&Value>) -> BTreeMap<String, Vec<String>> {
             Some((name.clone(), lines.into_iter().map(str::to_owned).collect()))
         })
         .collect()
+}
+
+fn migrated_config_toml(config: &FlexiMarkConfig) -> Result<String, ServiceError> {
+    let mut base = config.clone();
+    base.notes.categories.clear();
+    let base = toml::to_string_pretty(&base).map_err(|_| ServiceError::InvalidConfig)?;
+    let marker = "[notes.categories]\n";
+    if !base.contains(marker) {
+        return Err(ServiceError::InvalidConfig);
+    }
+    let mut categories = marker.to_owned();
+    for (name, children) in &config.notes.categories {
+        categories.push_str(&toml_value(name)?);
+        categories.push_str(" = ");
+        write_category_inline_table(&mut categories, &children.0, 0)?;
+        categories.push('\n');
+    }
+    Ok(format!(
+        "# FlexiMark workspace configuration\n# Migrated from the legacy VS Code workspace format.\n{}",
+        base.replacen(marker, &categories, 1)
+    ))
+}
+
+fn write_category_inline_table(
+    output: &mut String,
+    categories: &BTreeMap<String, NoteCategoryConfig>,
+    indent: usize,
+) -> Result<(), ServiceError> {
+    if categories.is_empty() {
+        output.push_str("{}");
+        return Ok(());
+    }
+    output.push_str("{\n");
+    for (name, children) in categories {
+        output.push_str(&" ".repeat(indent + 2));
+        output.push_str(&toml_value(name)?);
+        output.push_str(" = ");
+        write_category_inline_table(output, &children.0, indent + 2)?;
+        output.push_str(",\n");
+    }
+    output.push_str(&" ".repeat(indent));
+    output.push('}');
+    Ok(())
+}
+
+fn toml_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<String, ServiceError> {
+    let mut output = String::new();
+    value
+        .serialize(toml::ser::ValueSerializer::new(&mut output))
+        .map_err(|_| ServiceError::InvalidConfig)?;
+    Ok(output)
 }
 
 fn path_exists(directory: &Dir, path: &str) -> Result<bool, ServiceError> {
@@ -362,7 +410,8 @@ mod tests {
                 "noteFileNamePrefix": "${CURRENT_YEAR}_",
                 "noteFileNameSuffix": 42,
                 "noteCategories": {
-                    "General": { "Reports": { "Weekly": {} } }
+                    "General": { "Reports": { "Weekly": {} } },
+                    "Project #1": { "Plan = A": {} }
                 },
                 "noteTemplates": {
                     "default": ["# ${1:Title}", "Created ${CURRENT_DATE}"],
@@ -374,11 +423,22 @@ mod tests {
         .unwrap();
 
         let config = validate_config(&control.join("config.toml")).unwrap();
+        let config_source = fs::read_to_string(control.join("config.toml")).unwrap();
+        assert!(config_source.contains(
+            "[notes.categories]\n\"General\" = {\n  \"Reports\" = {\n    \"Weekly\" = {},\n  },\n}"
+        ));
+        assert!(config_source.contains("\"Project #1\" = {\n  \"Plan = A\" = {},\n}"));
+        assert!(!config_source.contains("[notes.categories.General"));
         assert_eq!(config.notes.file_name_prefix, "${CURRENT_YEAR}_");
         assert_eq!(config.notes.file_name_suffix, "");
         let general = &config.notes.categories["General"];
         let reports = &general.0["Reports"];
         assert!(reports.0["Weekly"].0.is_empty());
+        assert!(
+            config.notes.categories["Project #1"].0["Plan = A"]
+                .0
+                .is_empty()
+        );
         let weekly = [
             "General".to_owned(),
             "Reports".to_owned(),

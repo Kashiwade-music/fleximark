@@ -196,7 +196,7 @@ sequenceDiagram
 
 ## 6. ワークスペースとファイル操作
 
-`.fleximark/config.toml` は Rust サービスが読むワークスペース設定であり、ノートの命名・カテゴリ・テンプレート、アセットのルート、生 HTML の扱い、プラグイン設定を保持する。カテゴリは表示名と保存先から独立した一意 ID を持つ再帰木であり、同名カテゴリと親カテゴリへの保存を扱える。型は `fleximark-plugin-sdk`、スキーマは `schemas/config.schema.json` にある。テーマは `.fleximark/theme.css` を使う。
+`.fleximark/config.toml` は Rust サービスが読むワークスペース設定であり、ノートの命名・カテゴリ・テンプレート、アセットのルート、プラグイン設定を保持する。カテゴリは名前をキーにした再帰木であり、親カテゴリへの保存と異なる親の下にある同名カテゴリを扱える。型は `fleximark-plugin-sdk`、スキーマは `schemas/config.schema.json` にある。テーマは `.fleximark/theme.css` を使う。
 
 VS Code 設定はデーモンの場所、表示先、表示列、自動プレビュー、ログレベルなど、エディター統合に関わるものを担当する。旧 workspace migration は維持している。TypeScript は旧 VS Code 設定の読取り、確認 UI、表示先設定の更新を担当し、旧ファイルの検査、TOML 生成、テーマコピー、config を最後に書く処理は Rust サービスが担当する。既存ファイル保護とシンボリックリンク検査も Rust 側で行う。
 

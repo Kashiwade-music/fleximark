@@ -142,7 +142,9 @@ file_name_prefix = "${CURRENT_YEAR}-"
 file_name_suffix = "-draft"
 
 [notes.categories]
-Work = { Reports = {} }
+Work = {
+  Reports = {},
+}
 
 [notes.templates]
 daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}", "$0"]
