@@ -48,12 +48,14 @@ export async function executeCreateNote(
       value.trim() ? undefined : vscode.l10n.t("File name cannot be empty"),
   });
   if (noteFileName === undefined) return;
-  return execute({
+  const commandParams: ExecuteCommandParams = {
     ...params,
-    noteCategoryPath,
-    noteTemplate,
     noteFileName,
-  });
+  };
+  if (noteCategoryPath !== undefined)
+    commandParams.noteCategoryPath = noteCategoryPath;
+  if (noteTemplate !== undefined) commandParams.noteTemplate = noteTemplate;
+  return execute(commandParams);
 }
 
 export interface NoteCategoryQuickPickItem extends vscode.QuickPickItem {

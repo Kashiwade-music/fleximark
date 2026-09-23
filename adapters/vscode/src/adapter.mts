@@ -508,9 +508,13 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     const params: ExecuteCommandParams = {
       daemonInstanceId: this.#supervisor.daemonInstanceId,
       command,
-      documentSessionId: state?.sessionId,
-      expectedDocumentVersion: document?.version,
       workspaceUri,
+      ...(state && document
+        ? {
+            documentSessionId: state.sessionId,
+            expectedDocumentVersion: document.version,
+          }
+        : {}),
     };
     const result =
       command === "createNote"

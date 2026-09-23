@@ -8,6 +8,7 @@ import type {
   ExecuteCommandParams,
   GetNoteOptionsParams,
 } from "../../adapters/vscode/src/protocol.mjs";
+import { customRequestParamsValidators } from "../../adapters/vscode/src/protocol.mjs";
 
 export const suiteName = "Note option adapter";
 
@@ -90,6 +91,29 @@ export function suite(): void {
       },
     );
     assert.equal(fileNameCancellation, undefined);
+
+    let emptyOptionsParams: ExecuteCommandParams | undefined;
+    await executeCreateNote(
+      base,
+      async () => ({ categories: [], templates: [] }),
+      async () => assert.fail("empty categories must not open a picker"),
+      async () => assert.fail("empty templates must not open a picker"),
+      async () => "legacy-note",
+      async (params) => {
+        emptyOptionsParams = params;
+        return {};
+      },
+    );
+    assert.deepEqual(emptyOptionsParams, {
+      ...base,
+      noteFileName: "legacy-note",
+    });
+    assert.equal(
+      customRequestParamsValidators["fleximark/executeCommand"](
+        emptyOptionsParams,
+      ),
+      true,
+    );
   });
 
   test("supports choosing a parent and returns breadcrumb paths", async () => {
