@@ -92,25 +92,35 @@ export function suite(): void {
     );
     assert.equal(fileNameCancellation, undefined);
 
-    let emptyOptionsParams: ExecuteCommandParams | undefined;
+    let migratedWorkspaceParams: ExecuteCommandParams | undefined;
     await executeCreateNote(
-      base,
-      async () => ({ categories: [], templates: [] }),
-      async () => assert.fail("empty categories must not open a picker"),
-      async () => assert.fail("empty templates must not open a picker"),
+      {
+        ...base,
+        documentSessionId: undefined,
+        expectedDocumentVersion: 7,
+      },
+      async () => ({
+        categories: [{ name: "Work", children: [] }],
+        templates: ["daily"],
+      }),
+      async (items) => items.find((item) => item.category?.name === "Work"),
+      async () => "daily",
       async () => "legacy-note",
       async (params) => {
-        emptyOptionsParams = params;
+        migratedWorkspaceParams = params;
         return {};
       },
     );
-    assert.deepEqual(emptyOptionsParams, {
+    assert.deepEqual(migratedWorkspaceParams, {
       ...base,
+      expectedDocumentVersion: 7,
+      noteCategoryPath: ["Work"],
+      noteTemplate: "daily",
       noteFileName: "legacy-note",
     });
     assert.equal(
       customRequestParamsValidators["fleximark/executeCommand"](
-        emptyOptionsParams,
+        migratedWorkspaceParams,
       ),
       true,
     );

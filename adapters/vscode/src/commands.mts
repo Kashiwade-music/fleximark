@@ -48,13 +48,14 @@ export async function executeCreateNote(
       value.trim() ? undefined : vscode.l10n.t("File name cannot be empty"),
   });
   if (noteFileName === undefined) return;
-  const commandParams: ExecuteCommandParams = {
-    ...params,
-    noteFileName,
-  };
-  if (noteCategoryPath !== undefined)
-    commandParams.noteCategoryPath = noteCategoryPath;
-  if (noteTemplate !== undefined) commandParams.noteTemplate = noteTemplate;
+  const commandParams = Object.fromEntries(
+    Object.entries({
+      ...params,
+      noteCategoryPath,
+      noteTemplate,
+      noteFileName,
+    }).filter(([, value]) => value !== undefined),
+  ) as ExecuteCommandParams;
   return execute(commandParams);
 }
 
