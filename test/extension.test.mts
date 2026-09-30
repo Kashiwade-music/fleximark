@@ -1,6 +1,7 @@
 import * as assert from "node:assert/strict";
 import * as vscode from "vscode";
 
+import * as browserNavigationRuntime from "./adapter/browser-navigation-runtime.test.mjs";
 import * as daemonRuntime from "./adapter/daemon-runtime.test.mjs";
 import * as documentLifecycle from "./adapter/document-lifecycle.test.mjs";
 import * as exportAck from "./adapter/export-ack.test.mjs";
@@ -20,6 +21,7 @@ suite("Extension Test Suite", () => {
 
   suite(contributions.suiteName, contributions.suite);
   suite(daemonRuntime.suiteName, daemonRuntime.suite);
+  suite(browserNavigationRuntime.suiteName, browserNavigationRuntime.suite);
   suite(documentLifecycle.suiteName, documentLifecycle.suite);
   suite(exportAck.suiteName, exportAck.suite);
   suite(noteOptions.suiteName, noteOptions.suite);

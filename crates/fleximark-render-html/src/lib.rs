@@ -794,6 +794,7 @@ fn resolve_resource(
             "data:image/jpeg;base64,",
             "data:image/gif;base64,",
             "data:image/webp;base64,",
+            "data:image/avif;base64,",
         ]
         .iter()
         .any(|prefix| lower.starts_with(prefix));
@@ -940,7 +941,7 @@ mod tests {
         );
         assert!(
             resolve_resource(
-                "data:image/avif;base64,AA==",
+                "data:image/heic;base64,AA==",
                 &permissive,
                 ResourceUse::Image
             )
@@ -956,6 +957,22 @@ mod tests {
         );
         assert!(
             resolve_resource("data:image/png;base64,AA==", &permissive, ResourceUse::Link).is_err()
+        );
+        assert!(
+            resolve_resource(
+                "data:image/avif;base64,AA==",
+                &permissive,
+                ResourceUse::Image
+            )
+            .is_ok()
+        );
+        assert!(
+            resolve_resource(
+                "data:image/avif;base64,AA==",
+                &permissive,
+                ResourceUse::Link
+            )
+            .is_err()
         );
     }
 

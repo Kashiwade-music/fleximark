@@ -128,12 +128,51 @@ export async function checkpointDocument(
   origin: DaemonOrigin | undefined,
 ): Promise<void> {
   if (!origin || origin.rpc.closed || !state.sessionId) return;
-  await origin.rpc.request("fleximark/checkpointDocument", {
-    daemonInstanceId: origin.daemonInstanceId,
-    documentSessionId: state.sessionId,
-    documentVersion: document.version,
-    contentHash: createHash("sha256").update(document.getText()).digest("hex"),
-  });
+  const sessionId = state.sessionId;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const version = document.version;
+    try {
+      await origin.rpc.request("fleximark/checkpointDocument", {
+        daemonInstanceId: origin.daemonInstanceId,
+        documentSessionId: sessionId,
+        documentVersion: version,
+        contentHash: createHash("sha256")
+          .update(document.getText())
+          .digest("hex"),
+      });
+      return;
+    } catch (error) {
+      if (
+        origin.rpc.closed ||
+        document.isClosed ||
+        state.sessionId !== sessionId
+      )
+        return;
+      if (!(error instanceof JsonRpcResponseError)) throw error;
+      if (error.code === -32800) {
+        // A delayed full-text recovery can cancel this read without changing
+        // the editor version. Retry the latest snapshot within the same bound;
+        // continuing edits already schedule their own checkpoint.
+        if (attempt === 2) return;
+        continue;
+      }
+      if (attempt === 2) throw error;
+      if (error.code === -32801) {
+        // The daemon may request recovery separately. Identical full-text
+        // replays are safe, so repair before checking the latest snapshot.
+        state.version = document.version;
+        origin.rpc.notifyLsp("textDocument/didChange", {
+          textDocument: {
+            uri: document.uri.toString(),
+            version: document.version,
+          },
+          contentChanges: [{ text: document.getText() }],
+        });
+      } else {
+        throw error;
+      }
+    }
+  }
 }
 
 export function resetDocumentSessions(

@@ -13,6 +13,58 @@ import { customRequestParamsValidators } from "../../adapters/vscode/src/protoco
 export const suiteName = "Note option adapter";
 
 export function suite(): void {
+  test("prompts for a named note after selecting Japanese categories without templates", async () => {
+    const base: ExecuteCommandParams = {
+      daemonInstanceId: "daemon-1",
+      command: "createNote",
+      workspaceUri: "file:///workspace",
+    };
+    let step = 0;
+    let prompted = false;
+    let executed: ExecuteCommandParams | undefined;
+    await executeCreateNote(
+      base,
+      async () => ({
+        categories: [
+          {
+            name: "DTM関連",
+            children: [
+              { name: "DTM入門", children: [] },
+              { name: "その他", children: [] },
+            ],
+          },
+        ],
+        templates: [],
+      }),
+      async (items) => {
+        const category = step++ === 0 ? "DTM関連" : "その他";
+        return items.find((item) => item.category?.name === category);
+      },
+      async () => {
+        throw new Error("no template picker without templates");
+      },
+      async () => {
+        assert.equal(step, 2);
+        prompted = true;
+        return "ミックス";
+      },
+      async (params) => {
+        assert.equal(prompted, true);
+        executed = params;
+        return {};
+      },
+    );
+    assert.deepEqual(executed, {
+      ...base,
+      noteCategoryPath: ["DTM関連", "その他"],
+      noteFileName: "ミックス",
+    });
+    assert.equal(
+      customRequestParamsValidators["fleximark/executeCommand"](executed),
+      true,
+    );
+  });
+
   test("executes selected note options and stops after cancellation", async () => {
     const base: ExecuteCommandParams = {
       daemonInstanceId: "daemon-1",

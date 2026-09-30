@@ -9,6 +9,7 @@ pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
 
 pub const PROTOCOL_VERSION: u32 = 5;
 pub const CONTENT_MODIFIED: i64 = -32801;
+/// Limits incoming control messages; outgoing render frames may contain large assets.
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -791,9 +792,6 @@ pub fn read_frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>, FrameErr
 
 pub fn write_frame(writer: &mut impl Write, value: &impl Serialize) -> Result<(), FrameError> {
     let body = serde_json::to_vec(value).expect("serializable protocol message");
-    if body.len() > MAX_MESSAGE_BYTES {
-        return Err(FrameError::MessageTooLarge);
-    }
     write!(writer, "Content-Length: {}\r\n\r\n", body.len())?;
     writer.write_all(&body)?;
     writer.flush()?;
@@ -891,6 +889,34 @@ mod tests {
         assert!(matches!(
             read_frame(&mut duplicate),
             Err(FrameError::DuplicateContentLength)
+        ));
+    }
+
+    #[test]
+    fn outgoing_frames_can_exceed_the_incoming_control_message_limit() {
+        let message = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "data": "A".repeat(MAX_MESSAGE_BYTES + 1) }
+        });
+        let mut bytes = Vec::new();
+        write_frame(&mut bytes, &message).unwrap();
+        let header_end = bytes
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap();
+        let body = &bytes[header_end + 4..];
+        assert!(body.len() > MAX_MESSAGE_BYTES);
+        assert_eq!(
+            &bytes[..header_end],
+            format!("Content-Length: {}", body.len()).as_bytes()
+        );
+        assert_eq!(serde_json::from_slice::<Value>(body).unwrap(), message);
+
+        // Large responses do not relax bounds on requests received by the daemon.
+        assert!(matches!(
+            read_frame(&mut Cursor::new(bytes)),
+            Err(FrameError::MessageTooLarge)
         ));
     }
 

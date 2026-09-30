@@ -4,6 +4,7 @@ import type * as vscode from "vscode";
 import type { DaemonOrigin } from "./document-coordinator.mjs";
 import {
   type CreatePreviewResult,
+  type CustomRequestMap,
   type EditorNavigationEvent,
   type PreviewChangedParams,
   type PreviewTarget,
@@ -12,6 +13,7 @@ import {
   isWebviewInboundMessage,
   shouldForwardEditorNavigation,
 } from "./protocol.mjs";
+import { JsonRpcResponseError } from "./rpc.mjs";
 import type {
   DocumentState,
   PreviewState,
@@ -240,14 +242,35 @@ export function synchronizePreviewLifecycle(
           forceRead || preview.renderRevision === 0
             ? undefined
             : preview.renderRevision;
-        const result = await incarnation.origin.rpc.request(
-          "fleximark/readPreview",
-          {
-            daemonInstanceId: incarnation.origin.daemonInstanceId,
-            previewSessionId: incarnation.previewSessionId,
-            ...(afterRevision === undefined ? {} : { afterRevision }),
-          },
-        );
+        const notifiedRevision = preview.notifiedRevision;
+        let result: CustomRequestMap["fleximark/readPreview"]["result"];
+        try {
+          result = await incarnation.origin.rpc.request(
+            "fleximark/readPreview",
+            {
+              daemonInstanceId: incarnation.origin.daemonInstanceId,
+              previewSessionId: incarnation.previewSessionId,
+              ...(afterRevision === undefined ? {} : { afterRevision }),
+            },
+          );
+        } catch (error) {
+          if (!previewOwnsIncarnation(runtime, preview, incarnation)) return;
+          if (
+            !(error instanceof JsonRpcResponseError) ||
+            (error.code !== -32800 && error.code !== -32801)
+          )
+            throw error;
+          // Editing can supersede reads while full-text recovery is pending.
+          // Read a notification that arrived during the rejected request once;
+          // otherwise wait for the recovery's next published frame.
+          if (
+            preview.readAgain &&
+            preview.notifiedRevision > notifiedRevision &&
+            dependencies.previewCurrent(runtime, preview)
+          )
+            continue;
+          return;
+        }
         if (!previewOwnsIncarnation(runtime, preview, incarnation)) return;
         const frame = result?.frame;
         if (frame) {
@@ -638,7 +661,18 @@ export async function handlePreviewEventLifecycle(
     !sameDaemonOrigin(preview.origin, origin)
   )
     return false;
-  if (event.renderRevision !== preview.renderRevision) return true;
+  // Browser frames are read over HTTP, so the initial frame (and a frame
+  // restored after daemon recovery) may arrive without a changed notification
+  // observed by the adapter. The daemon has already checked source navigation
+  // against its authoritative frame before forwarding it over this connection.
+  if (!preview.panel && preview.target === "externalBrowser") {
+    if (
+      event.renderRevision <
+      Math.max(preview.renderRevision, preview.notifiedRevision)
+    )
+      return true;
+    preview.renderRevision = event.renderRevision;
+  } else if (event.renderRevision !== preview.renderRevision) return true;
   if (
     event.event.type === "selectSource" ||
     event.event.type === "revealSource"

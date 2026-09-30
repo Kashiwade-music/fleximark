@@ -364,11 +364,13 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
         fs::write(
             root.join(".fleximark/config.toml"),
             r#"schema_version = 2
+plugins = []
 [notes]
 file_name_prefix = "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
+file_name_suffix = ""
 
 [notes.categories]
-"DTM関連" = { "その他" = {} }
+"DTM関連" = { "DTM入門" = {}, "その他" = {} }
 "#,
         )
         .unwrap();
@@ -386,6 +388,7 @@ file_name_prefix = "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
                 .to_string_lossy()
                 .ends_with("_ミックス.md")
         );
+        assert!(!root.join("notes").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -14,6 +14,7 @@
     "test/adapter/rpc.test.mts",
     "test/adapter/daemon-supervisor.test.mts",
     "test/adapter/document-coordinator.test.mts",
+    "test/adapter/note-options.test.mts",
     "test/adapter/preview-coordinator.test.mts",
     "test/adapter/release-manifest.test.mts",
     "test/adapter/workspace-migration.test.mts",

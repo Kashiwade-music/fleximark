@@ -152,12 +152,7 @@ const contractValidator =
     hasContractShape(name, value) && semantics(value as T);
 
 const decodedBase64Length = (value: string): number | undefined => {
-  if (
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-      value,
-    )
-  )
+  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$(?![\s\S])/.test(value))
     return;
   return (
     (value.length / 4) * 3 -
@@ -182,9 +177,7 @@ const assetIsValid = (asset: Contract.RenderAsset): boolean =>
 
 const assetsAreValid = (assets: readonly Contract.RenderAsset[]): boolean =>
   assets.every(assetIsValid) &&
-  new Set(assets.map(({ reference }) => reference)).size === assets.length &&
-  assets.reduce((total, { byteLength }) => total + byteLength, 0) <=
-    8 * 1024 * 1024;
+  new Set(assets.map(({ reference }) => reference)).size === assets.length;
 
 const frameSemanticsAreValid = (frame: Contract.RenderFrame): boolean => {
   const blockIds = new Set(frame.blocks.map(({ id }) => id));

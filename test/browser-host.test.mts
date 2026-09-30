@@ -1,11 +1,39 @@
 import { parseHTML } from "linkedom";
 import * as assert from "node:assert/strict";
 
+import { BrowserNavigationTransport } from "../web/preview-client/browser-navigation.mjs";
 import { deferred } from "./adapter/async-helpers.mjs";
 
 export const suiteName = "Browser preview host";
 
 export function suite(): void {
+  test("calls browser fetch with its global receiver", () => {
+    const sent: unknown[] = [];
+    const fetcher = function (
+      this: unknown,
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) {
+      assert.equal(this, globalThis);
+      assert.equal(input, "/preview/navigation");
+      sent.push(JSON.parse(init?.body as string));
+      return Promise.resolve({ ok: true } as Response);
+    } as typeof fetch;
+    const navigation = new BrowserNavigationTransport(
+      "/preview/navigation",
+      fetcher,
+    );
+    const event = {
+      type: "revealNode" as const,
+      nodeId: "visible-node",
+      previewSessionId: "preview",
+      renderRevision: 1,
+    };
+    navigation.send(event);
+    assert.deepEqual(sent, [event]);
+    navigation.dispose();
+  });
+
   test("reads the latest frame initially and after a coalesced change notification", async () => {
     const names = [
       "document",
@@ -32,6 +60,7 @@ export function suite(): void {
     let closeCount = 0;
     const second = deferred<Response>();
     const fetches: string[] = [];
+    const navigationPosts: unknown[] = [];
     class FakeEventSource {
       constructor(readonly url: string) {}
       addEventListener(
@@ -65,7 +94,12 @@ export function suite(): void {
         EventSource: { configurable: true, value: FakeEventSource },
         fetch: {
           configurable: true,
-          value: (input: string) => {
+          value: (input: string, init?: RequestInit) => {
+            if (init?.method === "POST") {
+              assert.equal(input, "/preview/navigation");
+              navigationPosts.push(JSON.parse(init.body as string));
+              return Promise.resolve({ ok: true } as Response);
+            }
             fetches.push(input);
             if (fetches.length === 1) return response(frame(1, "one"));
             return second.promise;
@@ -98,6 +132,24 @@ export function suite(): void {
         window.document.querySelector("#preview")?.textContent,
         "two",
       );
+      const paragraph = window.document.querySelector("p");
+      assert.ok(paragraph);
+      paragraph.getBoundingClientRect = () =>
+        ({ top: 0, bottom: 20, height: 20 }) as DOMRect;
+      Object.defineProperty(window, "innerHeight", {
+        value: 720,
+        configurable: true,
+      });
+      window.dispatchEvent(new window.Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.deepEqual(navigationPosts, [
+        {
+          type: "revealNode",
+          nodeId: "paragraph",
+          previewSessionId: "preview",
+          renderRevision: 2,
+        },
+      ]);
       window.dispatchEvent(new window.Event("unload"));
       assert.equal(closeCount, 1);
     } finally {
@@ -134,7 +186,18 @@ function frame(renderRevision: number, text: string) {
         html: `<p data-fleximark-node-id="paragraph">${text}</p>`,
       },
     ],
-    navigation: [],
+    navigation: [
+      {
+        nodeId: "paragraph",
+        depth: 0,
+        sourceRange: {
+          byteStart: 0,
+          byteEnd: text.length,
+          start: { line: 0, character: 0, encoding: "utf8" },
+          end: { line: 0, character: text.length, encoding: "utf8" },
+        },
+      },
+    ],
     annotations: {},
   };
 }

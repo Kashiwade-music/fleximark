@@ -2,22 +2,18 @@ import type { RenderAsset } from "./protocol.mjs";
 
 export function validAssets(assets: readonly RenderAsset[]): boolean {
   const references = new Set<string>();
-  let total = 0;
   try {
     return assets.every((asset) => {
       const bytes = atob(asset.data);
-      total += bytes.length;
       return (
         /^fleximark-asset:[0-9a-f]{64}$/.test(asset.reference) &&
         /^[0-9a-f]{64}$/.test(asset.contentHash) &&
         asset.reference === `fleximark-asset:${asset.contentHash}` &&
-        /^(?:image\/(?:png|jpeg|gif|webp)|audio\/(?:mpeg|ogg|wav))$/.test(
+        /^(?:image\/(?:png|jpeg|gif|webp|avif)|audio\/(?:mpeg|ogg|wav))$/.test(
           asset.mediaType,
         ) &&
         Number.isSafeInteger(asset.byteLength) &&
         asset.byteLength === bytes.length &&
-        asset.byteLength <= 1024 * 1024 &&
-        total <= 8 * 1024 * 1024 &&
         !references.has(asset.reference) &&
         (references.add(asset.reference), true)
       );

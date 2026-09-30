@@ -18,7 +18,10 @@ import {
   synchronizePreviewLifecycle,
 } from "../../adapters/vscode/src/preview-coordinator.mjs";
 import type { RenderFrame } from "../../adapters/vscode/src/protocol.mjs";
-import type { JsonRpcConnection } from "../../adapters/vscode/src/rpc.mjs";
+import {
+  type JsonRpcConnection,
+  JsonRpcResponseError,
+} from "../../adapters/vscode/src/rpc.mjs";
 import type {
   PreviewState,
   WorkspaceRuntime,
@@ -209,6 +212,105 @@ export function suite(): void {
     assert.equal(preview.renderRevision, 2);
   });
 
+  test("waits for a fresh frame after transient editing rejections without busy retries", async () => {
+    for (const code of [-32800, -32801]) {
+      let requests = 0;
+      const rpc = {
+        closed: false,
+        request: () => {
+          requests++;
+          return requests === 1
+            ? Promise.reject(new JsonRpcResponseError("editing", code))
+            : Promise.resolve({ frame: frame(2) });
+        },
+      } as unknown as JsonRpcConnection;
+      const preview = previewState(
+        daemonOrigin(rpc, "daemon", 1),
+        async () => true,
+      );
+      const runtime = runtimeWithPreview(preview);
+      const dependencies = { previewCurrent: () => true, report: assert.fail };
+      await synchronizePreviewLifecycle(runtime, preview, dependencies);
+      assert.equal(requests, 1);
+      assert.equal(preview.readInFlight, undefined);
+
+      handlePreviewChangedLifecycle(
+        preview.origin,
+        {
+          daemonInstanceId: "daemon",
+          previewSessionId: "preview",
+          renderRevision: 2,
+        },
+        [runtime],
+        (owner, item) =>
+          void synchronizePreviewLifecycle(owner, item, dependencies),
+      );
+      await preview.readInFlight;
+      assert.equal(requests, 2);
+      assert.equal(preview.renderRevision, 2);
+    }
+  });
+
+  test("keeps a new frame notification received before a transient read rejection", async () => {
+    for (const code of [-32800, -32801]) {
+      const first = deferred<{ frame: RenderFrame | null }>();
+      let requests = 0;
+      const rpc = {
+        closed: false,
+        request: () =>
+          ++requests === 1
+            ? first.promise
+            : Promise.resolve({ frame: frame(2) }),
+      } as unknown as JsonRpcConnection;
+      const preview = previewState(
+        daemonOrigin(rpc, "daemon", 1),
+        async () => true,
+      );
+      const runtime = runtimeWithPreview(preview);
+      const dependencies = { previewCurrent: () => true, report: assert.fail };
+      const reading = synchronizePreviewLifecycle(
+        runtime,
+        preview,
+        dependencies,
+      );
+      await Promise.resolve();
+      handlePreviewChangedLifecycle(
+        preview.origin,
+        {
+          daemonInstanceId: "daemon",
+          previewSessionId: "preview",
+          renderRevision: 2,
+        },
+        [runtime],
+        (owner, item) =>
+          void synchronizePreviewLifecycle(owner, item, dependencies),
+      );
+      first.reject(new JsonRpcResponseError("editing", code));
+      await reading;
+      assert.equal(requests, 2);
+      assert.equal(preview.renderRevision, 2);
+      assert.equal(preview.readInFlight, undefined);
+    }
+  });
+
+  test("still reports genuine preview read failures", async () => {
+    const failure = new JsonRpcResponseError("unknown preview session", -32602);
+    const rpc = {
+      closed: false,
+      request: () => Promise.reject(failure),
+    } as unknown as JsonRpcConnection;
+    const preview = previewState(
+      daemonOrigin(rpc, "daemon", 1),
+      async () => true,
+    );
+    const reported: unknown[] = [];
+    await synchronizePreviewLifecycle(runtimeWithPreview(preview), preview, {
+      previewCurrent: () => true,
+      report: (error) => reported.push(error),
+    });
+    assert.deepEqual(reported, [failure]);
+  });
+
   test("drops a read response from a replaced connection incarnation", async () => {
     const response = deferred<{ frame: RenderFrame | null }>();
     let posted = false;
@@ -320,6 +422,35 @@ export function suite(): void {
     assert.deepEqual(opened, ["http://127.0.0.1/preview"]);
     assert.equal(preview.renderRevision, 0);
 
+    const navigated: unknown[] = [];
+    const sourceNavigation = (renderRevision: number) => ({
+      daemonInstanceId: "daemon",
+      previewSessionId: "preview",
+      renderRevision,
+      event: {
+        type: "revealSource" as const,
+        sourceRange: {
+          byteStart: 0,
+          byteEnd: 1,
+          start: { line: 0, character: 0, encoding: "utf8" as const },
+          end: { line: 0, character: 1, encoding: "utf8" as const },
+        },
+      },
+    });
+    const navigate = async (
+      _owner: WorkspaceRuntime,
+      _preview: PreviewState,
+      event: unknown,
+    ) => void navigated.push(event);
+    await handlePreviewEventLifecycle(
+      origin,
+      sourceNavigation(1),
+      [runtime],
+      navigate,
+    );
+    assert.equal(navigated.length, 1, "scroll works before any document edit");
+    assert.equal(preview.renderRevision, 1);
+
     handlePreviewChangedLifecycle(
       origin,
       {
@@ -332,7 +463,17 @@ export function suite(): void {
     );
     assert.equal(preview.renderRevision, 3);
 
-    const navigated: unknown[] = [];
+    await handlePreviewEventLifecycle(
+      origin,
+      sourceNavigation(1),
+      [runtime],
+      navigate,
+    );
+    assert.equal(
+      navigated.length,
+      1,
+      "old browser frames cannot move the editor",
+    );
     assert.equal(
       await handlePreviewEventLifecycle(
         origin,
@@ -355,7 +496,7 @@ export function suite(): void {
       ),
       true,
     );
-    assert.equal(navigated.length, 1);
+    assert.equal(navigated.length, 2);
   });
 
   test("forwards editor viewport navigation to the embedded preview", async () => {

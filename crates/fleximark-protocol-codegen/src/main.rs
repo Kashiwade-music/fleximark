@@ -182,7 +182,7 @@ fn normalize_schema(value: &mut Value, property_name: Option<&str>) {
                 }
                 Some("byteLength") => {
                     object.insert("minimum".to_owned(), json!(0));
-                    object.insert("maximum".to_owned(), json!(1_048_576));
+                    object.insert("maximum".to_owned(), json!(MAX_SAFE_INTEGER));
                 }
                 Some("line" | "character" | "byteStart" | "byteEnd" | "depth") => {
                     object.insert("minimum".to_owned(), json!(0));
@@ -400,7 +400,7 @@ fn apply_semantic_overlays(definitions: &mut Map<String, Value>) {
     if let Some(asset) = definitions.get_mut("RenderAsset") {
         asset["properties"]["reference"]["pattern"] = json!("^fleximark-asset:[0-9a-f]{64}$");
         asset["properties"]["mediaType"] = json!({ "enum": [
-            "image/png", "image/jpeg", "image/gif", "image/webp",
+            "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif",
             "audio/mpeg", "audio/ogg", "audio/wav"
         ] });
         asset["properties"]["contentHash"]["pattern"] = json!("^[0-9a-f]{64}$");

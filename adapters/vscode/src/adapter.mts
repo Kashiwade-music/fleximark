@@ -480,6 +480,23 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     await this.#applySourceNavigation(runtime, preview, event);
   }
 
+  async openExternalPreviewForTest(): Promise<string> {
+    if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
+      throw new Error("external preview seam is only available in tests");
+    const openExternal = this.#previewLifecycleContext.openExternal;
+    let url: string | undefined;
+    this.#previewLifecycleContext.openExternal = async (opened) => {
+      url = opened;
+    };
+    try {
+      await this.openPreview("externalBrowser");
+    } finally {
+      this.#previewLifecycleContext.openExternal = openExternal;
+    }
+    if (!url) throw new Error("external preview was not created");
+    return url;
+  }
+
   async execute(command: string): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
     const folders = vscode.workspace.workspaceFolders ?? [];

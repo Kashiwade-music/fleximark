@@ -15,6 +15,46 @@ import {
 export const suiteName = "TypeScript protocol contract";
 
 export function suite(): void {
+  test("accepts large assets while preserving base64 and reference validation", () => {
+    const frame = JSON.parse(
+      readFileSync("test/fixtures/rust-render-frame-v4.json", "utf8"),
+    );
+    const byteLength = 4 * 1024 * 1024 + 1;
+    const data = Buffer.alloc(byteLength).toString("base64");
+    frame.assets = ["7", "8"].map((digit) => ({
+      reference: `fleximark-asset:${digit.repeat(64)}`,
+      contentHash: digit.repeat(64),
+      byteLength,
+      data,
+      mediaType: "image/avif",
+    }));
+    assert.equal(isRenderFrame(frame), true);
+    assert.equal(
+      customRequestResultValidators["fleximark/readPreview"]({ frame }),
+      true,
+    );
+    const original = frame.assets[0];
+    for (const invalid of [
+      { ...original, byteLength: byteLength - 1 },
+      { ...original, byteLength: Number.MAX_SAFE_INTEGER + 1 },
+      { ...original, reference: `fleximark-asset:${"9".repeat(64)}` },
+      { ...original, contentHash: "invalid" },
+      ...["A===", "AAAA=", "A=AA", "AA A", "%%%=", "AA=\n"].map(
+        (malformed) => ({
+          ...original,
+          data: malformed,
+          byteLength: 1,
+        }),
+      ),
+    ]) {
+      frame.assets[0] = invalid;
+      assert.equal(isRenderFrame(frame), false);
+    }
+    frame.assets[0] = original;
+    frame.assets[1] = original;
+    assert.equal(isRenderFrame(frame), false);
+  });
+
   test("accepts the frame serialized by the Rust renderer", () => {
     const frame = JSON.parse(
       readFileSync(

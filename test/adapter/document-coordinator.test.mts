@@ -7,6 +7,7 @@ import {
   changeDocument,
   checkpointDocument,
   closeDocument,
+  handleRequestFullText,
   replayDocumentSessions,
   resetDocumentSessions,
   syncDocument,
@@ -243,6 +244,202 @@ export function suite(): void {
         ),
         error,
       );
+  });
+
+  test("repairs a rejected checkpoint with the latest full text before retrying", async () => {
+    const uri = "file:///document.md";
+    let version = 2;
+    let text = "before edit";
+    const document = {
+      uri: { toString: () => uri },
+      get version() {
+        return version;
+      },
+      getText: () => text,
+    } as never;
+    const state: DocumentState = { sessionId: "session", version };
+    const events: { method: string; params: unknown }[] = [];
+    let requests = 0;
+    const rpc = {
+      closed: false,
+      notifyLsp(method: string, params: unknown) {
+        events.push({ method, params });
+      },
+      request(method: string, params: unknown) {
+        events.push({ method, params });
+        if (++requests === 1) {
+          version = 3;
+          text = "latest 😀 edit";
+          return Promise.reject(
+            new JsonRpcResponseError("document is out of sync", -32801),
+          );
+        }
+        return Promise.resolve(null);
+      },
+    } as unknown as JsonRpcConnection;
+
+    await checkpointDocument(document, state, {
+      rpc,
+      daemonInstanceId: "daemon",
+      generation: 1,
+    });
+
+    assert.deepEqual(events, [
+      {
+        method: "fleximark/checkpointDocument",
+        params: {
+          daemonInstanceId: "daemon",
+          documentSessionId: "session",
+          documentVersion: 2,
+          contentHash: createHash("sha256").update("before edit").digest("hex"),
+        },
+      },
+      {
+        method: "textDocument/didChange",
+        params: {
+          textDocument: { uri, version: 3 },
+          contentChanges: [{ text: "latest 😀 edit" }],
+        },
+      },
+      {
+        method: "fleximark/checkpointDocument",
+        params: {
+          daemonInstanceId: "daemon",
+          documentSessionId: "session",
+          documentVersion: 3,
+          contentHash: createHash("sha256").update(text).digest("hex"),
+        },
+      },
+    ]);
+    assert.equal(state.version, 3);
+  });
+
+  test("bounds checkpoint recovery and preserves unrelated daemon errors", async () => {
+    const document = textDocument("file:///document.md", 2, "current");
+    const state: DocumentState = { sessionId: "session", version: 2 };
+    for (const code of [-32801, -32602]) {
+      let requests = 0;
+      let changes = 0;
+      const rejection = new JsonRpcResponseError("rejected", code);
+      const rpc = {
+        closed: false,
+        notifyLsp: () => changes++,
+        request: () => {
+          requests++;
+          return Promise.reject(rejection);
+        },
+      } as unknown as JsonRpcConnection;
+      await assert.rejects(
+        checkpointDocument(document, state, {
+          rpc,
+          daemonInstanceId: "daemon",
+          generation: 1,
+        }),
+        rejection,
+      );
+      assert.equal(requests, code === -32801 ? 3 : 1);
+      assert.equal(changes, code === -32801 ? 2 : 0);
+    }
+  });
+
+  test("retries checkpoints cancelled by delayed full-text recovery at the same version", async () => {
+    const uri = "file:///document.md";
+    const document = textDocument(uri, 2, "latest 😀");
+    const state: DocumentState = { sessionId: "session", version: 2 };
+    const runtime = {
+      documents: new Map([[uri, state]]),
+    } as unknown as WorkspaceRuntime;
+    const requests: unknown[] = [];
+    let replays = 0;
+    const rpc = {
+      closed: false,
+      notifyLsp: () => replays++,
+      request(_method: string, params: unknown) {
+        requests.push(params);
+        if (requests.length === 1)
+          return Promise.reject(
+            new JsonRpcResponseError("out of sync", -32801),
+          );
+        if (requests.length === 2) {
+          // The daemon's separate recovery request arrives after the adapter
+          // has already sent its own recovery and started a new checkpoint.
+          handleRequestFullText(
+            {
+              jsonrpc: "2.0",
+              method: "fleximark/requestFullText",
+              params: {
+                daemonInstanceId: "daemon",
+                documentSessionId: "session",
+                uri,
+                reason: "recovery",
+              },
+            },
+            rpc,
+            [runtime],
+            "daemon",
+            [document],
+          );
+          return Promise.reject(
+            new JsonRpcResponseError("request cancelled", -32800),
+          );
+        }
+        return Promise.resolve(null);
+      },
+    } as unknown as JsonRpcConnection;
+    await checkpointDocument(document, state, {
+      rpc,
+      daemonInstanceId: "daemon",
+      generation: 1,
+    });
+    assert.equal(replays, 2);
+    assert.equal(requests.length, 3);
+    assert.deepEqual(requests[0], requests[1]);
+    assert.deepEqual(requests[1], requests[2]);
+  });
+
+  test("bounds cancelled checkpoints without reporting superseded editing work", async () => {
+    let requests = 0;
+    const rpc = {
+      closed: false,
+      notifyLsp: () =>
+        assert.fail("cancellation does not require full-text recovery"),
+      request: () => {
+        requests++;
+        return Promise.reject(
+          new JsonRpcResponseError("request cancelled", -32800),
+        );
+      },
+    } as unknown as JsonRpcConnection;
+    await checkpointDocument(
+      textDocument("file:///document.md", 2, "current"),
+      { sessionId: "session", version: 2 },
+      { rpc, daemonInstanceId: "daemon", generation: 1 },
+    );
+    assert.equal(requests, 3);
+  });
+
+  test("does not repair a checkpoint belonging to a replaced document session", async () => {
+    const state: DocumentState = { sessionId: "old-session", version: 1 };
+    const rpc = {
+      closed: false,
+      notifyLsp: () =>
+        assert.fail("the replaced session cannot send full text"),
+      request: () => {
+        state.sessionId = "new-session";
+        return Promise.reject(
+          new JsonRpcResponseError("document is out of sync", -32801),
+        );
+      },
+    } as unknown as JsonRpcConnection;
+    await checkpointDocument(
+      textDocument("file:///document.md", 1, "old"),
+      state,
+      {
+        rpc,
+        daemonInstanceId: "daemon",
+        generation: 1,
+      },
+    );
   });
 
   test("retries synchronization when an edited Markdown document has no session", async () => {

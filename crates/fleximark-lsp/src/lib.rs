@@ -320,6 +320,16 @@ impl SessionRegistry {
         let version_u64 = u64::try_from(version).map_err(|_| SessionError::StaleVersion)?;
         let is_full_replacement =
             params.content_changes.len() == 1 && params.content_changes[0].range.is_none();
+        // A requested full-text recovery can race with an ordinary full-text
+        // change carrying the same version. An identical replay is already in
+        // sync and must not invalidate the session again.
+        if !current.engine.is_out_of_sync()
+            && is_full_replacement
+            && version_u64 == current_version
+            && params.content_changes[0].text == current.engine.source()
+        {
+            return Ok(());
+        }
         let same_version_recovery = current.engine.is_out_of_sync()
             && is_full_replacement
             && version_u64 == current_version;
@@ -877,18 +887,14 @@ mod tests {
             .renderer_fingerprint
     }
 
-    fn assets_exceeding_total_limit() -> ResolvedAssets {
-        (0_u8..9)
-            .map(|index| {
-                fleximark_engine::ResolvedRenderAsset::from_validated_bytes(
-                    format!("file:///asset-{index}.bin"),
-                    "application/octet-stream".into(),
-                    &vec![index; 1024 * 1024],
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>()
-            .into()
+    fn assets_with_duplicate_sources() -> ResolvedAssets {
+        let asset = fleximark_engine::ResolvedRenderAsset::from_validated_bytes(
+            "file:///asset.bin".into(),
+            "application/octet-stream".into(),
+            b"asset content",
+        )
+        .unwrap();
+        vec![asset.clone(), asset].into()
     }
 
     #[test]
@@ -912,6 +918,43 @@ mod tests {
         assert!(entry.source_range.byte_start <= 6);
         assert!(entry.source_range.byte_end >= 6);
         assert_eq!(entry.source_range.start.encoding, PositionEncoding::Utf8);
+    }
+
+    #[test]
+    fn repeated_full_text_recovery_keeps_the_document_in_sync() {
+        let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
+        open(&mut registry, "old", 1);
+        let session = session_id(&registry, DOCUMENT_URI).to_owned();
+        let bad_checkpoint = checkpoint_params(&registry, &session, 1, content_hash("different"));
+        assert_eq!(
+            registry.checkpoint(&bad_checkpoint).unwrap_err(),
+            SessionError::HashMismatch
+        );
+        assert_eq!(registry.take_full_text_requests().len(), 1);
+
+        // The editor sends its next edit before answering the recovery request.
+        for _ in 0..2 {
+            registry
+                .change_with_cancellation(
+                    change(DOCUMENT_URI, 2, None, "latest 😀"),
+                    &CancellationToken::default(),
+                )
+                .unwrap();
+        }
+
+        registry
+            .checkpoint(&checkpoint_params(
+                &registry,
+                &session,
+                2,
+                content_hash("latest 😀"),
+            ))
+            .unwrap();
+        assert!(registry.take_full_text_requests().is_empty());
+        assert_eq!(
+            document(&registry, DOCUMENT_URI, 2).engine.source(),
+            "latest 😀"
+        );
     }
 
     #[test]
@@ -1219,22 +1262,22 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(stage_order.len(), 2);
         let failing_uri = stage_order.last().unwrap().clone();
-        let mut oversized_assets = HashMap::new();
-        oversized_assets.insert(failing_uri, assets_exceeding_total_limit());
+        let mut invalid_assets = HashMap::new();
+        invalid_assets.insert(failing_uri, assets_with_duplicate_sources());
         let (mismatched_host, mismatched_config) = configured_host("mismatched", true);
         let error = workspace
             .reconfigure_workspace(
                 "file:///workspace",
                 mismatched_host,
                 mismatched_config,
-                oversized_assets,
+                invalid_assets,
                 &CancellationToken::default(),
             )
             .unwrap_err();
         assert_eq!(
             error,
             SessionError::Engine(
-                "invalid resolved render asset: resolved assets exceed 8 MiB".into()
+                "invalid resolved render asset: resolved asset sources must be unique".into()
             )
         );
         for (uri, session_id, source, version, fingerprint) in &baseline {

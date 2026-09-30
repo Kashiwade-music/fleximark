@@ -1,5 +1,6 @@
 import { parseHTML } from "linkedom";
 import * as assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   PreviewEnhancer,
@@ -497,6 +498,100 @@ export function suite(): void {
     assert.equal(requested, 2);
   });
 
+  test("accepts AVIF frame assets and binds them with their image media type", () => {
+    const avif: RenderAsset = {
+      ...asset("AQ==", "6".repeat(64)),
+      mediaType: "image/avif",
+    };
+    const avifFrame = {
+      ...frame(1, [assetBlock("avif", avif.reference)]),
+      assets: [avif],
+    };
+    assert.equal(
+      isPreviewHostMessage({
+        type: "previewFrame",
+        messageToken: "secret",
+        frame: avifFrame,
+      }),
+      true,
+    );
+    const createObjectURL = URL.createObjectURL;
+    const revokeObjectURL = URL.revokeObjectURL;
+    const revoked: string[] = [];
+    let mediaType: string | undefined;
+    URL.createObjectURL = (blob) => {
+      assert.ok(blob instanceof Blob);
+      mediaType = blob.type;
+      return "blob:avif-image";
+    };
+    URL.revokeObjectURL = (url) => revoked.push(url);
+    try {
+      assert.equal(preview.apply(avifFrame), true);
+      assert.equal(mediaType, "image/avif");
+      assert.equal(
+        root.querySelector("img")?.getAttribute("src"),
+        "blob:avif-image",
+      );
+      preview.dispose();
+      assert.deepEqual(revoked, ["blob:avif-image"]);
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
+  });
+
+  test("binds individual assets above 1 MiB and frames above 8 MiB", () => {
+    const byteLength = 4 * 1024 * 1024 + 1;
+    const data = Buffer.alloc(byteLength).toString("base64");
+    const assets: RenderAsset[] = ["7", "8"].map((digit) => ({
+      ...asset(data, digit.repeat(64)),
+      byteLength,
+      mediaType: "image/avif",
+    }));
+    const largeFrame = {
+      ...frame(
+        1,
+        assets.map((image, index) =>
+          assetBlock(`image-${index}`, image.reference),
+        ),
+      ),
+      assets,
+    };
+    assert.equal(
+      isPreviewHostMessage({
+        type: "previewFrame",
+        messageToken: "secret",
+        frame: largeFrame,
+      }),
+      true,
+    );
+    const createObjectURL = URL.createObjectURL;
+    const revokeObjectURL = URL.revokeObjectURL;
+    const blobSizes: number[] = [];
+    const revoked: string[] = [];
+    URL.createObjectURL = (blob) => {
+      assert.ok(blob instanceof Blob);
+      blobSizes.push(blob.size);
+      return `blob:large-image-${blobSizes.length}`;
+    };
+    URL.revokeObjectURL = (url) => revoked.push(url);
+    try {
+      assert.equal(preview.apply(largeFrame), true);
+      assert.deepEqual(blobSizes, [byteLength, byteLength]);
+      assert.deepEqual(
+        [...root.querySelectorAll("img")].map((image) =>
+          image.getAttribute("src"),
+        ),
+        ["blob:large-image-1", "blob:large-image-2"],
+      );
+      preview.dispose();
+      assert.deepEqual(revoked, ["blob:large-image-1", "blob:large-image-2"]);
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
+  });
+
   test("applies validated theme CSS from the latest frame", () => {
     const style = { css: ":root{color:red}", fingerprint: "3".repeat(64) };
     assert.equal(
@@ -551,6 +646,123 @@ export function suite(): void {
     assert.ok(root.querySelector("[data-fleximark-output] math msup"));
     assert.ok(root.querySelector("[data-fleximark-output] .katex-html"));
     enhancer.dispose();
+  });
+
+  test("enlarges only the Mermaid diagram and restores it when closed", async () => {
+    assert.equal(
+      preview.apply(specialFrame("mermaid", "graph TD; A-->B")),
+      true,
+    );
+    const runtimes = inertRuntimes();
+    runtimes.mermaid.render = async () => ({
+      svg: '<svg id="diagram" viewBox="0 0 1200 600" style="max-width: 1200px"><text>Diagram</text></svg>',
+    });
+    const enhancer = new PreviewEnhancer(runtimes);
+    await enhancer.render(root);
+    const enlarge = root.querySelector<HTMLButtonElement>(
+      ".fleximark-mermaid-enlarge",
+    );
+    const diagram = root.querySelector<SVGSVGElement>("svg");
+    assert.ok(enlarge);
+    assert.ok(diagram);
+    const originalStyle = diagram.getAttribute("style");
+    const createElement = document.createElement.bind(document);
+    document.createElement = ((tag: string) => {
+      const element = createElement(tag);
+      if (tag === "dialog")
+        Object.assign(element, {
+          showModal() {
+            element.setAttribute("open", "");
+          },
+          close() {
+            element.removeAttribute("open");
+            element.dispatchEvent(new Event("close"));
+          },
+        });
+      return element;
+    }) as typeof document.createElement;
+    try {
+      enlarge.click();
+      const dialog = document.querySelector<HTMLDialogElement>(
+        ".fleximark-mermaid-dialog",
+      );
+      assert.ok(dialog);
+      assert.equal(dialog.hasAttribute("open"), true);
+      assert.equal(
+        dialog.getAttribute("aria-label"),
+        "Enlarged Mermaid diagram",
+      );
+      assert.equal(dialog.querySelector("svg"), diagram);
+      assert.equal(document.querySelectorAll("#diagram").length, 1);
+      assert.equal(dialog.querySelector("script"), null);
+      assert.equal(diagram.style.width, "1200px");
+      const controls = [
+        ...dialog.querySelectorAll<HTMLButtonElement>("button"),
+      ];
+      controls.find((control) => control.textContent === "Zoom in")?.click();
+      assert.equal(diagram.style.width, "1500px");
+      assert.equal(dialog.querySelector("output")?.textContent, "125%");
+      controls.find((control) => control.textContent === "Reset zoom")?.click();
+      assert.equal(diagram.style.width, "1200px");
+      controls.find((control) => control.textContent === "Close")?.click();
+      assert.equal(document.querySelector("dialog"), null);
+      assert.equal(root.querySelector("svg"), diagram);
+      assert.equal(diagram.getAttribute("style"), originalStyle);
+
+      await enhancer.render(root);
+      assert.equal(
+        root.querySelectorAll(".fleximark-mermaid-enlarge").length,
+        1,
+      );
+      enlarge.click();
+      document.querySelector("dialog")?.dispatchEvent(new Event("cancel"));
+      assert.equal(document.querySelector("dialog"), null);
+      assert.equal(root.querySelector("svg"), diagram);
+
+      enlarge.click();
+      assert.equal(
+        preview.apply(frame(2, [block("replacement", "updated")])),
+        true,
+      );
+      await enhancer.render(root);
+      assert.equal(document.querySelector("dialog"), null);
+      assert.equal(root.textContent, "updated");
+    } finally {
+      enhancer.dispose();
+      document.createElement = createElement;
+    }
+  });
+
+  test("removes an enlarged Mermaid view when the enhancer is disposed", async () => {
+    assert.equal(
+      preview.apply(specialFrame("mermaid", "graph TD; A-->B")),
+      true,
+    );
+    const enhancer = new PreviewEnhancer(inertRuntimes());
+    await enhancer.render(root);
+    const createElement = document.createElement.bind(document);
+    document.createElement = ((tag: string) => {
+      const element = createElement(tag);
+      if (tag === "dialog")
+        Object.assign(element, {
+          showModal: () => element.setAttribute("open", ""),
+          close: () => element.removeAttribute("open"),
+        });
+      return element;
+    }) as typeof document.createElement;
+    try {
+      root
+        .querySelector<HTMLButtonElement>(".fleximark-mermaid-enlarge")
+        ?.click();
+      assert.ok(document.querySelector("dialog"));
+      enhancer.dispose();
+      assert.equal(document.querySelector("dialog"), null);
+      assert.equal(root.querySelector(".fleximark-mermaid-enlarge"), null);
+      assert.ok(root.querySelector("svg"));
+    } finally {
+      enhancer.dispose();
+      document.createElement = createElement;
+    }
   });
 
   test("renders Japanese text in math without a KaTeX error", async () => {
@@ -815,6 +1027,85 @@ export function suite(): void {
       "true",
     );
     navigation.dispose();
+  });
+
+  test("scrolls to the visible descendant in a Rust-rendered nested container", async () => {
+    const rendered = JSON.parse(
+      readFileSync("test/fixtures/rust-navigation-frame.json", "utf8"),
+    ) as RenderFrame;
+    assert.equal(preview.apply(rendered), true);
+    const paragraph = [...root.querySelectorAll<HTMLElement>("p")].find(
+      (node) => node.textContent?.startsWith("Nested paragraph 40."),
+    );
+    assert.ok(paragraph);
+    const id = paragraph.dataset.fleximarkNodeId;
+    assert.ok(id);
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 720,
+    });
+    for (const node of root.querySelectorAll<HTMLElement>(
+      "[data-fleximark-node-id]",
+    ))
+      node.getBoundingClientRect = () =>
+        ({ top: -40, bottom: -20, height: 20 }) as DOMRect;
+    paragraph.getBoundingClientRect = () =>
+      ({ top: -5, bottom: 25, height: 30 }) as DOMRect;
+    let parent = paragraph.parentElement;
+    while (parent && parent !== root) {
+      parent.getBoundingClientRect = () =>
+        ({ top: -1000, bottom: 700, height: 1700 }) as DOMRect;
+      parent = parent.parentElement;
+    }
+    const hidden = document.createElement("span");
+    hidden.dataset.fleximarkNodeId = "raw-html-boundary";
+    hidden.hidden = true;
+    hidden.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 0, height: 0 }) as DOMRect;
+    root.prepend(hidden);
+    const events: unknown[] = [];
+    const navigation = new PreviewNavigation(root, (event) =>
+      events.push(event),
+    );
+    navigation.setKnownIds(
+      ["raw-html-boundary", ...rendered.navigation.map(({ nodeId }) => nodeId)],
+      rendered.navigation,
+    );
+    try {
+      window.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.deepEqual(events, [{ type: "revealNode", nodeId: id }]);
+      const source = rendered.navigation.find((entry) => entry.nodeId === id);
+      assert.equal(source?.sourceRange.start.line, 82);
+    } finally {
+      navigation.dispose();
+    }
+  });
+
+  test("a no-op editor reveal does not suppress the next user scroll", async () => {
+    root.innerHTML = '<p data-fleximark-node-id="a">one</p>';
+    const paragraph = root.firstElementChild as HTMLElement;
+    paragraph.scrollIntoView = () => undefined;
+    paragraph.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 20, height: 20 }) as DOMRect;
+    Object.defineProperties(window, {
+      innerHeight: { configurable: true, value: 720 },
+      scrollY: { configurable: true, writable: true, value: 0 },
+    });
+    const events: unknown[] = [];
+    const navigation = new PreviewNavigation(root, (event) =>
+      events.push(event),
+    );
+    navigation.setKnownIds(["a"]);
+    try {
+      navigation.receive({ type: "viewport", nodeId: "a" });
+      window.scrollY = 40;
+      window.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.deepEqual(events, [{ type: "revealNode", nodeId: "a" }]);
+    } finally {
+      navigation.dispose();
+    }
   });
 }
 

@@ -13,7 +13,7 @@ export class BrowserNavigationTransport {
     if (this.#disposed) return;
     let request: Promise<Response>;
     try {
-      request = this.fetcher(this.endpoint, {
+      request = this.fetcher.call(globalThis, this.endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(event),

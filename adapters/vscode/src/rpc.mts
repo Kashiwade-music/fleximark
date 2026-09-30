@@ -218,11 +218,7 @@ export class JsonRpcConnection extends EventEmitter {
         return;
       }
       const length = Number(matches[0][1]);
-      if (
-        !Number.isSafeInteger(length) ||
-        length < 0 ||
-        length > 16 * 1024 * 1024
-      ) {
+      if (!Number.isSafeInteger(length) || length < 0) {
         this.close(new Error("Invalid JSON-RPC frame length"));
         return;
       }

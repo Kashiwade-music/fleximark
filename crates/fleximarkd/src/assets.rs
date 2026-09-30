@@ -95,6 +95,7 @@ pub fn resolve_export_assets(
             "image/jpeg" => "jpg",
             "image/gif" => "gif",
             "image/webp" => "webp",
+            "image/avif" => "avif",
             "audio/mpeg" => "mp3",
             "audio/ogg" => "ogg",
             "audio/wav" => "wav",
@@ -192,7 +193,6 @@ pub fn resolve_render_assets(
     }
     let mut assets = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut total_bytes = 0_usize;
     for (reference, occurrences) in references {
         if reference.starts_with('#')
             || reference.starts_with('/')
@@ -209,29 +209,7 @@ pub fn resolve_render_assets(
             &workspace_dir,
             &allowed_roots,
         ) {
-            Ok(asset) => {
-                let is_new_content = !assets.iter().any(|existing: &ResolvedRenderAsset| {
-                    existing.published().reference == asset.published().reference
-                });
-                let byte_length = asset.published().byte_length.get() as usize;
-                if is_new_content
-                    && total_bytes.saturating_add(byte_length) > MAX_RENDER_ASSETS_BYTES
-                {
-                    diagnostics.extend(occurrences.into_iter().map(|source_range| {
-                        asset_diagnostic(
-                            &reference,
-                            AssetDiagnosticKind::TotalLimit,
-                            "loading it would exceed the 8 MiB document asset limit",
-                            source_range,
-                        )
-                    }));
-                } else {
-                    if is_new_content {
-                        total_bytes += byte_length;
-                    }
-                    assets.push(asset);
-                }
-            }
+            Ok(asset) => assets.push(asset),
             Err((kind, detail)) => diagnostics.extend(
                 occurrences
                     .into_iter()
@@ -271,9 +249,6 @@ fn asset_diagnostic(
         source_range,
     }
 }
-
-const MAX_RENDER_ASSET_BYTES: u64 = 1024 * 1024;
-const MAX_RENDER_ASSETS_BYTES: usize = 8 * 1024 * 1024;
 
 fn resolve_render_asset(
     reference: &str,
@@ -393,14 +368,7 @@ fn resolve_render_asset(
             "the path does not name a regular file",
         ));
     }
-    if metadata.len() > MAX_RENDER_ASSET_BYTES {
-        return Err((
-            AssetDiagnosticKind::Oversize,
-            "the file exceeds the 1 MiB per-asset limit",
-        ));
-    }
-    let byte_length = metadata.len() as usize;
-    let mut bytes = Vec::with_capacity(byte_length);
+    let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).map_err(|_| {
         (
             AssetDiagnosticKind::Unreadable,
@@ -465,6 +433,8 @@ fn media_type_from_signature(bytes: &[u8]) -> Option<&'static str> {
         Some("image/gif")
     } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
         Some("image/webp")
+    } else if has_avif_file_type(bytes) {
+        Some("image/avif")
     } else if bytes.starts_with(b"OggS") {
         Some("audio/ogg")
     } else if bytes.starts_with(b"ID3")
@@ -480,6 +450,40 @@ fn media_type_from_signature(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+fn has_avif_file_type(bytes: &[u8]) -> bool {
+    let Some(header) = bytes.get(..8) else {
+        return false;
+    };
+    if &header[4..8] != b"ftyp" {
+        return false;
+    }
+    let short_size = u32::from_be_bytes(header[..4].try_into().unwrap());
+    let (size, header_size) = match short_size {
+        0 => (bytes.len(), 8),
+        1 => {
+            let Some(large_size) = bytes.get(8..16) else {
+                return false;
+            };
+            let Ok(size) = usize::try_from(u64::from_be_bytes(large_size.try_into().unwrap()))
+            else {
+                return false;
+            };
+            (size, 16)
+        }
+        size => (size as usize, 8),
+    };
+    // Only inspect the major brand and aligned compatible brands of a complete
+    // FileTypeBox. Arbitrary occurrences in payloads or the minor version are not brands.
+    if size < header_size + 8 || (size - header_size) % 4 != 0 {
+        return false;
+    }
+    let Some(file_type) = bytes.get(header_size..size) else {
+        return false;
+    };
+    let is_avif_brand = |brand: &[u8]| brand == b"avif" || brand == b"avis";
+    is_avif_brand(&file_type[..4]) || file_type[8..].chunks_exact(4).any(is_avif_brand)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -487,6 +491,94 @@ mod tests {
     use super::*;
     use crate::test_support::test_workspace;
     use crate::{initialize_workspace, path_to_file_uri};
+
+    #[test]
+    fn avif_signatures_require_a_complete_file_type_box_and_image_brand() {
+        let still = b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00mif1avif";
+        let animated = b"\x00\x00\x00\x18ftypavis\x00\x00\x00\x00msf1avis";
+        let compatible = b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00mif1avif";
+        let extended =
+            b"\x00\x00\x00\x01ftyp\x00\x00\x00\x00\x00\x00\x00\x20avif\x00\x00\x00\x00mif1avif";
+        for bytes in [still.as_slice(), animated, compatible, extended] {
+            assert_eq!(media_type_from_signature(bytes), Some("image/avif"));
+        }
+        let mut to_end = still.to_vec();
+        to_end[..4].fill(0);
+        assert_eq!(media_type_from_signature(&to_end), Some("image/avif"));
+        for end in 0..still.len() {
+            assert_eq!(media_type_from_signature(&still[..end]), None);
+        }
+        for invalid in [
+            b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic".as_slice(),
+            b"\x00\x00\x00\x10ftypmif1avif",
+            b"\x00\x00\x00\x10ftypmif1\x00\x00\x00\x00avif",
+            b"\x00\x00\x00\x15ftypavif\x00\x00\x00\x00mif1x",
+            b"\x00\x00\x00\x08ftypavif\x00\x00\x00\x00",
+        ] {
+            assert_eq!(media_type_from_signature(invalid), None);
+        }
+    }
+
+    #[test]
+    fn avif_assets_render_and_export_with_the_image_media_type() {
+        let root = test_workspace("avif-assets-test");
+        let workspace_uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&workspace_uri).unwrap();
+        let bytes = b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00mif1avif";
+        fs::write(root.join("still.avif"), bytes).unwrap();
+        fs::create_dir(root.join("assets")).unwrap();
+        fs::write(
+            root.join("assets/demo_main.avif"),
+            include_bytes!("../../../assets/demo_main.avif"),
+        )
+        .unwrap();
+        let source = "![still](still.avif)\n\n![animated](assets/demo_main.avif)\n";
+        let document_path = root.join("doc.md");
+        fs::write(&document_path, source).unwrap();
+        let document_uri = path_to_file_uri(&document_path).unwrap();
+        let session = parsed_document(&document_uri, source);
+        let assets =
+            resolve_render_assets(&document_uri, &workspace_uri, session.document()).unwrap();
+        assert!(assets.diagnostics.is_empty());
+        assert_eq!(assets.assets.len(), 2);
+        let config = fleximark_engine::RenderConfig::default()
+            .with_resolved_assets(assets)
+            .unwrap();
+        let published = config.assets().cloned().collect::<Vec<_>>();
+        assert!(
+            published
+                .iter()
+                .any(|asset| asset.byte_length.get() > 1024 * 1024)
+        );
+        assert!(
+            published
+                .iter()
+                .all(|asset| asset.media_type == "image/avif")
+        );
+        let html = format!(
+            "<img src=\"{}\"><img src=\"{}\">",
+            published[0].reference, published[1].reference
+        );
+        let exported =
+            resolve_export_assets(&document_uri, &workspace_uri, &html, &published).unwrap();
+        assert_eq!(exported.assets.len(), 2);
+        assert!(
+            exported
+                .assets
+                .iter()
+                .all(|asset| asset.path.ends_with(".avif"))
+        );
+        assert!(exported.assets.iter().any(|asset| asset.bytes == bytes));
+        assert!(
+            exported
+                .assets
+                .iter()
+                .any(|asset| { asset.bytes == include_bytes!("../../../assets/demo_main.avif") })
+        );
+        assert!(!exported.html.contains("fleximark-asset:"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn portable_html_boots_the_common_client_with_typed_style() {
         let style = RenderStyle::from_validated_css(":root { color: red; }".into());
@@ -599,9 +691,8 @@ mod tests {
         initialize_workspace(&workspace_uri).unwrap();
         fs::write(root.join("valid.png"), b"\x89PNG\r\n\x1a\nvalid").unwrap();
         fs::write(root.join("unsupported.bin"), b"not a supported file").unwrap();
-        fs::write(root.join("large.png"), vec![0_u8; 1024 * 1024 + 1]).unwrap();
         fs::create_dir(root.join("directory.png")).unwrap();
-        let source = "![first missing](missing.png)\n\n![valid](valid.png)\n\n![second missing](missing.png)\n\n![unsupported](unsupported.bin)\n\n![large](large.png)\n\n![directory](directory.png)\n\n![valid again](valid.png)\n";
+        let source = "![first missing](missing.png)\n\n![valid](valid.png)\n\n![second missing](missing.png)\n\n![unsupported](unsupported.bin)\n\n![directory](directory.png)\n\n![valid again](valid.png)\n";
         let document_path = root.join("doc.md");
         fs::write(&document_path, source).unwrap();
         let document_uri = path_to_file_uri(&document_path).unwrap();
@@ -612,7 +703,7 @@ mod tests {
 
         assert_eq!(resolved.assets.len(), 1);
         assert_eq!(resolved.assets[0].source(), "valid.png");
-        assert_eq!(resolved.diagnostics.len(), 5);
+        assert_eq!(resolved.diagnostics.len(), 4);
         assert_eq!(
             resolved
                 .diagnostics
@@ -626,12 +717,6 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.kind == AssetDiagnosticKind::Unsupported)
-        );
-        assert!(
-            resolved
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.kind == AssetDiagnosticKind::Oversize)
         );
         assert!(
             resolved
@@ -658,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    fn document_asset_budget_produces_a_diagnostic_instead_of_failing_resolution() {
+    fn document_assets_are_not_limited_by_their_combined_size() {
         let root = test_workspace("asset-total-budget-test");
         let workspace_uri = path_to_file_uri(&root).unwrap();
         initialize_workspace(&workspace_uri).unwrap();
@@ -678,12 +763,12 @@ mod tests {
         let resolved =
             resolve_render_assets(&document_uri, &workspace_uri, session.document()).unwrap();
 
-        assert_eq!(resolved.assets.len(), 8);
-        assert_eq!(resolved.diagnostics.len(), 1);
-        assert_eq!(
-            resolved.diagnostics[0].kind,
-            AssetDiagnosticKind::TotalLimit
-        );
+        assert_eq!(resolved.assets.len(), 9);
+        assert!(resolved.diagnostics.is_empty());
+        let config = fleximark_engine::RenderConfig::default()
+            .with_resolved_assets(resolved)
+            .unwrap();
+        assert_eq!(config.assets().len(), 9);
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -10,9 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::EngineError;
 use crate::identity::{content_hash, content_hash_bytes};
 
-pub(super) const MAX_RENDER_ASSET_BYTES: usize = 1024 * 1024;
-const MAX_RENDER_ASSETS_BYTES: usize = 8 * 1024 * 1024;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -125,7 +122,6 @@ impl RenderConfig {
         let mut publications = BTreeMap::<String, RenderAsset>::new();
         let mut resources = BTreeMap::new();
         let mut unique_assets = Vec::new();
-        let mut total = 0_usize;
         for asset in assets {
             asset.validate()?;
             if !sources.insert(asset.source.clone()) {
@@ -142,14 +138,9 @@ impl RenderConfig {
                 }
                 continue;
             }
-            total = total
-                .checked_add(asset.published.byte_length.get() as usize)
-                .filter(|total| *total <= MAX_RENDER_ASSETS_BYTES)
-                .ok_or_else(|| EngineError::Asset("resolved assets exceed 8 MiB".to_owned()))?;
             publications.insert(asset.published.reference.clone(), asset.published.clone());
             unique_assets.push(asset);
         }
-        debug_assert!(total <= MAX_RENDER_ASSETS_BYTES);
         self.context.resolved_resources = resources;
         self.assets = unique_assets;
         self.asset_diagnostics = diagnostics;
@@ -259,9 +250,7 @@ pub enum AssetDiagnosticKind {
     Symlink,
     NotAFile,
     Unreadable,
-    Oversize,
     Unsupported,
-    TotalLimit,
 }
 
 impl AssetDiagnosticKind {
@@ -273,9 +262,7 @@ impl AssetDiagnosticKind {
             Self::Symlink => "asset-symlink",
             Self::NotAFile => "asset-not-a-file",
             Self::Unreadable => "asset-unreadable",
-            Self::Oversize => "asset-oversize",
             Self::Unsupported => "asset-unsupported",
-            Self::TotalLimit => "asset-total-limit",
         }
     }
 }
@@ -301,10 +288,9 @@ impl ResolvedRenderAsset {
         media_type: String,
         bytes: &[u8],
     ) -> Result<Self, EngineError> {
-        if source.is_empty() || bytes.len() > MAX_RENDER_ASSET_BYTES {
+        if source.is_empty() {
             return Err(EngineError::Asset(
-                "resolved asset source must be non-empty and content must not exceed 1 MiB"
-                    .to_owned(),
+                "resolved asset source must be non-empty".to_owned(),
             ));
         }
         let content_hash = content_hash_bytes(bytes);
@@ -314,8 +300,9 @@ impl ResolvedRenderAsset {
                 reference: format!("fleximark-asset:{content_hash}"),
                 media_type,
                 content_hash,
-                byte_length: JsSafeU64::new(bytes.len() as u64)
-                    .expect("asset size limit is JavaScript-safe"),
+                byte_length: JsSafeU64::new(bytes.len() as u64).map_err(|_| {
+                    EngineError::Asset("asset byte length is not JavaScript-safe".to_owned())
+                })?,
                 data: BASE64.encode(bytes),
             },
         };
@@ -343,7 +330,6 @@ impl ResolvedRenderAsset {
             .map_err(|_| EngineError::Asset("asset data is not canonical base64".to_owned()))?;
         if !media_type_valid
             || decoded.len() != self.published.byte_length.get() as usize
-            || decoded.len() > MAX_RENDER_ASSET_BYTES
             || content_hash_bytes(&decoded) != self.published.content_hash
             || self.published.reference
                 != format!("fleximark-asset:{}", self.published.content_hash)

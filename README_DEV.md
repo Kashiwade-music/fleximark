@@ -112,6 +112,9 @@ mise exec -- uv run --frozen python scripts/stage_daemon.py
 6. preview 内の heading をクリックし、editor の対応範囲へ selection が移る。
 7. `FlexiMark: Force Reload Preview` を実行しても同じ内容に復旧する。
 8. `FlexiMark: Preview in Browser` を実行し、既定ブラウザでも同じ文書が開く。
+9. ブラウザ側をスクロールし、編集前でも editor の対応箇所が追従する。
+10. Mermaid の `Enlarge diagram` を押し、図だけの拡大表示、zoom、Escape での終了を確認する。
+11. 長いコードブロックの全行が縦スクロールなしで表示され、AVIF 画像が読み込まれる。
 
 既定 preview の切替は Settings の `FlexiMark: Preview Target`、自動表示は
 `FlexiMark: Auto Open Preview` で確認できる。
@@ -152,6 +155,7 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
 ```
 
 `FlexiMark: Create New Note` を実行し、category で `Work`、続いて `Reports`、template に `daily` を選ぶ。
+続いてファイル名を入力する。template がない設定でもファイル名の入力欄が表示され、キャンセルすると作成を中止する。
 category 名は表示名と directory 名を兼ね、各階層では辞書順に表示される。
 `notes.root` はノートの保存先を workspace-relative path で指定する。新規 workspace の初期設定は
 `notes`、v0.16 から移行した workspace と `root` がない既存設定は配置を保つため `.` になる。

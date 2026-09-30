@@ -1,4 +1,5 @@
 import * as assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { PassThrough } from "node:stream";
 
 import type { LspMethod } from "../../adapters/vscode/src/protocol.mjs";
@@ -66,6 +67,52 @@ export function suite(): void {
 
     assert.match(requestText, /"method":"workspace\/test"/);
     assert.deepEqual(await pending, { ok: true });
+    connection.close();
+  });
+
+  test("accepts typed render frames larger than 16 MiB and continues reading", async () => {
+    const { connection, daemonOutput, messages } = rpcHarness();
+    const bytes = Buffer.alloc(13 * 1024 * 1024, 7);
+    const contentHash = createHash("sha256").update(bytes).digest("hex");
+    const result = {
+      frame: {
+        previewSessionId: "preview",
+        documentVersion: 1,
+        renderRevision: 1,
+        rendererFingerprint: "a".repeat(64),
+        style: null,
+        assets: [
+          {
+            reference: `fleximark-asset:${contentHash}`,
+            mediaType: "image/avif",
+            contentHash,
+            byteLength: bytes.length,
+            data: bytes.toString("base64"),
+          },
+        ],
+        blocks: [],
+        navigation: [],
+        annotations: {},
+      },
+    };
+    const pending = connection.request("fleximark/readPreview", {
+      daemonInstanceId: "daemon",
+      previewSessionId: "preview",
+    });
+    const response = frame({ jsonrpc: "2.0", id: 1, result });
+    assert.ok(response.length > 16 * 1024 * 1024);
+    daemonOutput.write(response.subarray(0, 32));
+    daemonOutput.write(response.subarray(32, 8 * 1024 * 1024));
+    daemonOutput.write(
+      Buffer.concat([
+        response.subarray(8 * 1024 * 1024),
+        frame(EMPTY_DIAGNOSTICS),
+      ]),
+    );
+
+    assert.deepEqual(await pending, result);
+    assert.equal(connection.closed, false);
+    assert.deepEqual(messages, [EMPTY_DIAGNOSTICS]);
     connection.close();
   });
 
@@ -305,7 +352,10 @@ export function suite(): void {
     const valid = frame(EMPTY_DIAGNOSTICS);
 
     daemonOutput.write(
-      Buffer.concat([Buffer.from("Content-Length: 16777217\r\n\r\n"), valid]),
+      Buffer.concat([
+        Buffer.from("Content-Length: 9007199254740992\r\n\r\n"),
+        valid,
+      ]),
     );
     daemonOutput.write(valid);
     await new Promise<void>((resolve) => setImmediate(resolve));
