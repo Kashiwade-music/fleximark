@@ -4,55 +4,34 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "watch",
-      "dependsOn": ["npm: watch:tsc", "npm: watch:esbuild"],
-      "presentation": {
-        "reveal": "never"
-      },
+      "type": "process",
+      "command": "mise",
+      "args": ["run", "dev"],
       "group": {
         "kind": "build",
         "isDefault": true
-      }
-    },
-    {
-      "type": "npm",
-      "script": "watch:esbuild",
-      "group": "build",
-      "problemMatcher": "$esbuild-watch",
-      "isBackground": true,
-      "label": "npm: watch:esbuild",
-      "presentation": {
-        "group": "watch",
-        "reveal": "never"
-      }
-    },
-    {
-      "type": "npm",
-      "script": "watch:tsc",
-      "group": "build",
-      "problemMatcher": "$tsc-watch",
-      "isBackground": true,
-      "label": "npm: watch:tsc",
-      "presentation": {
-        "group": "watch",
-        "reveal": "never"
-      }
-    },
-    {
-      "type": "npm",
-      "script": "watch-tests",
-      "problemMatcher": "$tsc-watch",
-      "isBackground": true,
-      "presentation": {
-        "reveal": "never",
-        "group": "watchers"
       },
-      "group": "build"
-    },
-    {
-      "label": "tasks: watch-tests",
-      "dependsOn": ["npm: watch", "npm: watch-tests"],
-      "problemMatcher": []
+      "problemMatcher": [
+        "$esbuild-watch",
+        "$tsc-watch",
+        {
+          "owner": "fleximark-dev",
+          "pattern": {
+            "regexp": "^(?!)$"
+          },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^FlexiMark development build starting$",
+            "endsPattern": "^FlexiMark development build ready$"
+          }
+        }
+      ],
+      "isBackground": true,
+      "label": "mise: dev",
+      "presentation": {
+        "group": "dev",
+        "reveal": "never"
+      }
     }
   ]
 }

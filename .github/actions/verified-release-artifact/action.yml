@@ -1,0 +1,37 @@
+name: Prepare verified release artifact
+description: Set up Python, download the release VSIX, and verify its immutable identity
+
+inputs:
+  sha256:
+    description: Expected VSIX SHA-256
+    required: true
+  git-tag:
+    description: Expected release tag
+    required: true
+  source-git-head:
+    description: Expected source commit
+    required: true
+  install-dependencies:
+    description: Install project dependencies after setting up the toolchain
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup toolchain and dependencies
+      uses: ./.github/actions/setup-toolchain
+      with:
+        install-dependencies: ${{ inputs.install-dependencies }}
+
+    - name: Download exact release artifact
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: fleximark-release-vsix
+
+    - name: Verify exact release identity
+      shell: bash
+      env:
+        FLEXIMARK_EXPECTED_SHA256: ${{ inputs.sha256 }}
+        FLEXIMARK_EXPECTED_GIT_TAG: ${{ inputs.git-tag }}
+        FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD: ${{ inputs.source-git-head }}
+      run: python scripts/release_artifact.py verify

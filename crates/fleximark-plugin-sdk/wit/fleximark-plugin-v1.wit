@@ -1,0 +1,20 @@
+package fleximark:plugin@1.0.0;
+
+interface hooks {
+  record invocation {
+    api-version: u32,
+    hook: string,
+    request-json: string,
+  }
+
+  record response {
+    api-version: u32,
+    response-json: string,
+  }
+
+  invoke: func(request: invocation) -> result<response, string>;
+}
+
+world fleximark-plugin {
+  export hooks;
+}

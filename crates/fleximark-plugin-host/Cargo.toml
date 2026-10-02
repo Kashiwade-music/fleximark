@@ -1,0 +1,21 @@
+[package]
+name = "fleximark-plugin-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+fleximark-model = { path = "../fleximark-model" }
+fleximark-plugin-sdk = { path = "../fleximark-plugin-sdk" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+ed25519-dalek.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+
+[dev-dependencies]
+fleximark-parser = { path = "../fleximark-parser" }

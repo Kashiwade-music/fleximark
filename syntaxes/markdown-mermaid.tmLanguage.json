@@ -13,7 +13,27 @@
       "contentName": "meta.embedded.block.mermaid",
       "patterns": [
         {
-          "include": "source.mermaid"
+          "name": "comment.line.percentage.mermaid",
+          "match": "%%.*$"
+        },
+        {
+          "name": "keyword.control.mermaid",
+          "match": "(?i)\\b(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram-v2|erDiagram|journey|gantt|pie|mindmap|timeline|quadrantChart|xychart-beta|block-beta|packet-beta|kanban|architecture-beta|gitGraph|subgraph|end|participant|actor|note|loop|alt|else|opt|par|and|rect|activate|deactivate|title|section)\\b"
+        },
+        {
+          "name": "string.quoted.double.mermaid",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.mermaid",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "keyword.operator.arrow.mermaid",
+          "match": "(?:--+>|==+>|-.->|--+|==+|-.->|<--+>|<==+>)"
         }
       ]
     }

@@ -9,9 +9,34 @@
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "args": [
+        "${input:targetWorkspace}",
+        "--disable-extensions",
+        "--disable-extension=GitHub.copilot-chat",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
       "preLaunchTask": "${defaultBuildTask}"
+    },
+    {
+      "name": "Run Extension (extension workspace)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "${workspaceFolder}",
+        "--disable-extensions",
+        "--disable-extension=GitHub.copilot-chat",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "preLaunchTask": "${defaultBuildTask}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "targetWorkspace",
+      "type": "promptString",
+      "description": "Absolute path of the workspace to open in the Extension Development Host"
     }
   ]
 }
