@@ -41,8 +41,11 @@
   "preview": true,
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": false,
-      "description": "FlexiMark requires explicit trust for workspace writes, local assets, and optional WebAssembly components."
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "fleximark.daemonPath"
+      ],
+      "description": "Plain Markdown preview is available without trust. Local assets, WebAssembly components, and workspace writes require trust."
     },
     "virtualWorkspaces": {
       "supported": false,

@@ -9,15 +9,15 @@ import {
   sourcePositionWithinLine,
 } from "./position.mjs";
 import type { PreviewEchoState } from "./preview-coordinator.mjs";
-import type { PreviewState, WorkspaceRuntime } from "./runtime-state.mjs";
+import type { DocumentRuntime, PreviewState } from "./runtime-state.mjs";
 import { findVisibleSourceEditor } from "./workspace-selection.mjs";
 
 export async function applySourceNavigation(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   preview: PreviewState,
   event: SourceNavigationEvent,
   echoes: PreviewEchoState,
-  isCurrent: (runtime: WorkspaceRuntime, preview: PreviewState) => boolean,
+  isCurrent: (runtime: DocumentRuntime, preview: PreviewState) => boolean,
 ): Promise<void> {
   const expectedRevision = preview.renderRevision;
   const expectedSession = preview.previewSessionId;

@@ -4,8 +4,8 @@ import { FlexiMarkAdapter } from "../../../adapters/vscode/src/adapter.mjs";
 import type { DaemonOrigin } from "../../../adapters/vscode/src/document-coordinator.mjs";
 import type { JsonRpcConnection } from "../../../adapters/vscode/src/rpc.mjs";
 import type {
+  DocumentRuntime,
   PreviewState,
-  WorkspaceRuntime,
 } from "../../../adapters/vscode/src/runtime-state.mjs";
 import { isShowDocumentParams } from "../../../adapters/vscode/src/show-document.mjs";
 import { deferred } from "./async-helpers.mjs";
@@ -14,11 +14,52 @@ import {
   Range,
   Selection,
   __test as vscode,
+  workspace as workspaceApi,
 } from "./vscode-pure-stub.mjs";
 
 export const suiteName = "Adapter preview event seam";
 
 export function suite(): void {
+  test("ignores non-Markdown active buffers before starting document services", async () => {
+    const state = testState();
+    let starts = 0;
+    state.adapter.start = async () => {
+      starts += 1;
+      return undefined;
+    };
+    const nonMarkdown = {
+      ...state.document,
+      languageId: "plaintext",
+    } as unknown as Parameters<FlexiMarkAdapter["activateDocument"]>[0];
+    try {
+      await state.adapter.activateDocument(nonMarkdown);
+      await state.adapter.activateEditor({ document: nonMarkdown } as never);
+      assert.equal(
+        await state.adapter.requestLanguageFeature(
+          "textDocument/hover",
+          nonMarkdown as never,
+        ),
+        undefined,
+      );
+      assert.equal(starts, 0);
+    } finally {
+      state.adapter.dispose();
+    }
+  });
+  test("does not invoke CLI migration in a restricted window", async () => {
+    const state = testState();
+    const trusted = workspaceApi.isTrusted;
+    workspaceApi.isTrusted = false;
+    try {
+      await assert.rejects(
+        state.adapter.migrateWorkspace(),
+        /Trust the workspace/,
+      );
+    } finally {
+      workspaceApi.isTrusted = trusted;
+      state.adapter.dispose();
+    }
+  });
   test("validates browser URLs and source selections before opening them", () => {
     assert.equal(
       isShowDocumentParams({
@@ -169,7 +210,7 @@ interface TestState {
   editor: TestEditor;
   notifications: { method: string; params: unknown }[];
   preview: PreviewState;
-  runtime: WorkspaceRuntime;
+  runtime: DocumentRuntime;
 }
 
 function testState(): TestState {
@@ -186,7 +227,7 @@ function testState(): TestState {
     ]),
     previews: new Map(),
     removed: false,
-  } as unknown as WorkspaceRuntime;
+  } as unknown as DocumentRuntime;
   const preview = {
     origin: activeOrigin,
     documentUri: opened.uri.toString(),

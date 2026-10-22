@@ -67,13 +67,15 @@ fn sanitizes_raw_html_links_and_image_resources() {
     let link = parse(
         DocumentUri("file:///link.md".into()),
         1,
-        "[bad](javascript:alert(1))\n",
+        "[bad](javascript:alert(1))\n\nFollowing body.\n",
     )
     .unwrap();
-    assert!(matches!(
-        HtmlRenderer.render(&link, &RenderContext::default()),
-        Err(RenderError::ResourceRejected(_))
-    ));
+    let inert_link = HtmlRenderer
+        .render(&link, &RenderContext::default())
+        .unwrap();
+    assert!(inert_link.contains("<a title=\"\">bad</a>"));
+    assert!(!inert_link.contains("href="));
+    assert!(inert_link.contains("Following body."));
     let permissive = RenderContext {
         allow_remote_resources: true,
         allow_data_resources: true,
@@ -140,6 +142,143 @@ fn preserves_useful_raw_html_and_inline_tag_pairs() {
     assert!(html.contains("<details open"));
     assert!(html.contains("<summary>More</summary>"));
     assert!(html.contains("<th scope=\"col\">A</th>"));
+}
+
+fn source_link_document(destination: &str) -> Document {
+    let mut document = parse(
+        DocumentUri("file:///source-links.md".into()),
+        1,
+        "[**Rust &lt;tag&gt; & source**](./src/main.rs '<&\" title>')\n\nFollowing paragraph.\n",
+    )
+    .unwrap();
+    let Node::Inline(inline) = &mut document.blocks[0].children[0] else {
+        panic!("expected an inline link")
+    };
+    let InlineKind::Link {
+        destination: value, ..
+    } = &mut inline.kind
+    else {
+        panic!("expected a link")
+    };
+    *value = destination.to_owned();
+    document
+}
+
+#[test]
+fn relative_source_links_preserve_href_label_title_and_following_content() {
+    for target in [HtmlTarget::Preview, HtmlTarget::Portable] {
+        let context = RenderContext {
+            target,
+            ..RenderContext::default()
+        };
+        for destination in [
+            "./src/main.rs",
+            "../../core/parser/src/lib.rs#L25",
+            "../my%20crate/src/lib.rs#section",
+        ] {
+            let source = format!(
+                "[**Rust source**]({destination} 'Source title')\n\nFollowing paragraph.\n"
+            );
+            let document = parse(DocumentUri("file:///sources.md".into()), 1, &source).unwrap();
+            let html = HtmlRenderer.render(&document, &context).unwrap();
+            assert!(html.contains(&format!("href=\"{destination}\"")));
+            assert!(html.contains("title=\"Source title\"><strong>Rust source</strong></a>"));
+            assert!(html.contains("Following paragraph."));
+        }
+    }
+}
+
+#[test]
+fn disallowed_source_links_are_inert_without_losing_nested_labels_or_body() {
+    for target in [HtmlTarget::Preview, HtmlTarget::Portable] {
+        let context = RenderContext {
+            target,
+            allow_remote_resources: true,
+            allow_data_resources: true,
+            ..RenderContext::default()
+        };
+        for destination in [
+            "file:///workspace/src/main.rs#L3",
+            "C:/workspace/src/main.rs",
+            "C:\\workspace\\src\\main.rs",
+            "javascript:alert(1)",
+            "command:workbench.action.openSettings",
+            "data:text/html,<script>alert(1)</script>",
+            "//outside.example/src/main.rs",
+            "\\\\outside.example\\src\\main.rs",
+            "java\tscript:alert(1)",
+            "https://example.com/source.rs\n",
+        ] {
+            assert!(resolve_resource(destination, &context, ResourceUse::Link).is_err());
+            let html = HtmlRenderer
+                .render(&source_link_document(destination), &context)
+                .unwrap();
+            assert!(html.contains("<a title=\"&lt;&amp;&quot; title&gt;\"><strong>Rust &lt;tag&gt; &amp; source</strong></a>"));
+            assert!(!html.contains("href="));
+            assert!(!html.contains("<script>"));
+            assert!(html.contains("Following paragraph."));
+        }
+    }
+}
+
+#[test]
+fn published_image_aliases_do_not_rewrite_hyperlinks() {
+    let document = parse(
+        DocumentUri("file:///image-link.md".into()),
+        1,
+        "[Rust source](src/main.rs)\n\n![diagram](src/main.rs)\n",
+    )
+    .unwrap();
+    let reference = format!("fleximark-asset:{}", "a".repeat(64));
+    for target in [HtmlTarget::Preview, HtmlTarget::Portable] {
+        let mut context = RenderContext {
+            target,
+            ..RenderContext::default()
+        };
+        context
+            .resolved_resources
+            .insert("src/main.rs".into(), reference.clone());
+        context
+            .resolved_resources
+            .insert("file:///workspace/src/main.rs".into(), reference.clone());
+        let html = HtmlRenderer.render(&document, &context).unwrap();
+        assert!(html.contains("<a href=\"src/main.rs\" title=\"\">Rust source</a>"));
+        assert!(html.contains(&format!("<img src=\"{reference}\"")));
+        assert!(!html.contains(&format!("href=\"{reference}\"")));
+        let rejected = HtmlRenderer
+            .render(
+                &source_link_document("file:///workspace/src/main.rs"),
+                &context,
+            )
+            .unwrap();
+        assert!(!rejected.contains("href="));
+    }
+}
+
+#[test]
+fn markdown_file_and_windows_links_do_not_abort_document_rendering() {
+    for destination in [
+        "file:///workspace/src/main.rs",
+        "C:/workspace/src/main.rs",
+        "C:\\workspace\\src\\main.rs",
+    ] {
+        let source = format!("[Rust source]({destination})\n\nBody after the link.\n");
+        let document = parse(DocumentUri("file:///source-links.md".into()), 1, &source).unwrap();
+        for target in [HtmlTarget::Preview, HtmlTarget::Portable] {
+            let html = HtmlRenderer
+                .render(
+                    &document,
+                    &RenderContext {
+                        target,
+                        ..RenderContext::default()
+                    },
+                )
+                .unwrap();
+            assert!(html.contains("<a title=\"\">Rust source</a>"));
+            assert!(!html.contains("href="));
+            assert!(html.contains("Body after the link."));
+        }
+    }
 }
 
 #[test]

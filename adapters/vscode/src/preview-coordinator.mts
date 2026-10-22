@@ -15,14 +15,14 @@ import { isWebviewInboundMessage } from "../webview/bridge.mjs";
 import type { DaemonOrigin } from "./document-coordinator.mjs";
 import { JsonRpcResponseError } from "./rpc.mjs";
 import type {
+  DocumentRuntime,
   DocumentState,
   PreviewState,
-  WorkspaceRuntime,
 } from "./runtime-state.mjs";
 
 export interface PreviewCandidateOrigin {
   readonly origin: DaemonOrigin;
-  readonly runtime: WorkspaceRuntime;
+  readonly runtime: DocumentRuntime;
   readonly documentUri: string;
   readonly documentState: DocumentState;
   readonly documentSessionId: string;
@@ -35,7 +35,7 @@ export interface PreviewCandidate extends PreviewCandidateOrigin {
 
 export interface PreviewCandidateCurrentState {
   readonly disposed: boolean;
-  readonly runtime: WorkspaceRuntime | undefined;
+  readonly runtime: DocumentRuntime | undefined;
   readonly origin: DaemonOrigin | undefined;
   readonly documentState: DocumentState | undefined;
   readonly documentVersion: number | undefined;
@@ -59,7 +59,7 @@ function capturePreviewIncarnation(
 }
 
 function previewOwnsIncarnation(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   preview: PreviewState,
   expected: Pick<PreviewState, "previewSessionId" | "origin">,
 ): boolean {
@@ -109,7 +109,7 @@ export async function disposePreviewCandidate(
 }
 
 export async function requestPreviewCandidate(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   document: vscode.TextDocument,
   target: PreviewTarget,
   currentOrigin: () => DaemonOrigin | undefined,
@@ -163,7 +163,7 @@ export async function requestPreviewCandidate(
 }
 
 export function previewIsCurrent(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   preview: PreviewState,
   expectedSessionId: string,
 ): boolean {
@@ -187,7 +187,7 @@ export function embeddedPreviewShell(
 
 /** Requests a fresh render while discarding completion from a replaced preview. */
 export async function rerenderPreviewLifecycle(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   preview: PreviewState,
   dependencies: PreviewFramePort,
 ): Promise<boolean> {
@@ -214,7 +214,7 @@ export async function rerenderPreviewLifecycle(
 
 /** Coalesces changed notifications into one latest-frame read at a time. */
 export function synchronizePreviewLifecycle(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   preview: PreviewState,
   dependencies: PreviewFramePort,
   force = false,
@@ -325,23 +325,22 @@ export interface PreviewLifecycleDependencies {
   activeEditor(): vscode.TextEditor | undefined;
   document(uri: string): vscode.TextDocument | undefined;
   showNoDocument(): void;
-  showNoWorkspace(): void;
   workspaceFor(
     document: vscode.TextDocument,
   ): vscode.WorkspaceFolder | undefined;
   start(
     workspace: vscode.WorkspaceFolder | undefined,
-  ): Promise<WorkspaceRuntime | undefined>;
+  ): Promise<DocumentRuntime | undefined>;
   sync(document: vscode.TextDocument): Promise<void>;
   request(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     document: vscode.TextDocument,
     target: PreviewTarget,
   ): Promise<PreviewCandidate | undefined>;
   candidateCurrent(candidate: PreviewCandidate): boolean;
   rejectCandidate(candidate: PreviewCandidate): Promise<void>;
   synchronize(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
     force?: boolean,
   ): Promise<void>;
@@ -351,11 +350,11 @@ export interface PreviewLifecycleDependencies {
   random(size: number, encoding: "base64" | "base64url"): string;
   css: string;
   log(message: string): void;
-  previewCurrent(runtime: WorkspaceRuntime, preview: PreviewState): boolean;
-  owner(preview: PreviewState): WorkspaceRuntime | undefined;
+  previewCurrent(runtime: DocumentRuntime, preview: PreviewState): boolean;
+  owner(preview: PreviewState): DocumentRuntime | undefined;
   report(error: unknown): void;
   dispose(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
   ): Promise<void> | void;
   notifyNavigation(event: {
@@ -381,10 +380,6 @@ export async function openPreviewLifecycle(
     return;
   }
   const workspace = dependencies.workspaceFor(document);
-  if (!workspace) {
-    dependencies.showNoWorkspace();
-    return;
-  }
   const runtime = await dependencies.start(workspace);
   if (!runtime) return;
   await dependencies.sync(document);
@@ -485,7 +480,7 @@ export async function openPreviewLifecycle(
 
 export async function followActiveDocumentLifecycle(
   editor: vscode.TextEditor | undefined,
-  runtimes: Iterable<WorkspaceRuntime>,
+  runtimes: Iterable<DocumentRuntime>,
   dependencies: PreviewLifecycleDependencies,
 ): Promise<void> {
   const document = editor?.document;
@@ -497,7 +492,6 @@ export async function followActiveDocumentLifecycle(
   )
     return;
   const workspace = dependencies.workspaceFor(document);
-  if (!workspace) return;
   const owners = [...runtimes];
   const followers = owners.flatMap((runtime) =>
     [...runtime.previews.values()]
@@ -570,7 +564,7 @@ export async function followActiveDocumentLifecycle(
 }
 
 export async function disposePreviewLifecycle(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   preview: PreviewState,
   reportFailure: (message: string) => void,
 ): Promise<void> {
@@ -593,7 +587,7 @@ export async function disposePreviewLifecycle(
 }
 
 export async function recreatePreviewsLifecycle(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   dependencies: PreviewLifecycleDependencies,
 ): Promise<void> {
   for (const [previousId, preview] of [...runtime.previews]) {
@@ -643,9 +637,9 @@ export async function recreatePreviewsLifecycle(
 export async function handlePreviewEventLifecycle(
   origin: DaemonOrigin,
   event: ServerPreviewEventParams,
-  runtimes: Iterable<WorkspaceRuntime>,
+  runtimes: Iterable<DocumentRuntime>,
   navigate: (
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
     event: SourceNavigationEvent,
   ) => Promise<void>,
@@ -692,8 +686,8 @@ export async function handlePreviewEventLifecycle(
 export function handlePreviewChangedLifecycle(
   origin: DaemonOrigin,
   changed: PreviewChangedParams,
-  runtimes: Iterable<WorkspaceRuntime>,
-  synchronize: (runtime: WorkspaceRuntime, preview: PreviewState) => void,
+  runtimes: Iterable<DocumentRuntime>,
+  synchronize: (runtime: DocumentRuntime, preview: PreviewState) => void,
 ): boolean {
   const runtime = [...runtimes].find((candidate) =>
     candidate.previews.has(changed.previewSessionId),

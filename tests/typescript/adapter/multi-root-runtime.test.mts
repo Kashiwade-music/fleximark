@@ -398,19 +398,35 @@ export function suite(): void {
           recovery: api.recoveryState(),
         }),
         ({ labels, recovery }) =>
-          !labels.some((label) => label.includes("alpha.md")) &&
+          labels.some((label) => label.includes("alpha.md")) &&
           labels.some((label) => label.includes("beta.md")) &&
-          recovery.documentSessions[alphaDocument.toString()] === undefined &&
-          recovery.previewSessions[alphaDocument.toString()] === undefined &&
-          recovery.previewRenderRevisions[alphaDocument.toString()] ===
+          recovery.connectionGeneration > afterCrash.connectionGeneration &&
+          Boolean(recovery.daemonInstanceId) &&
+          recovery.documentSessions[alphaDocument.toString()] !== undefined &&
+          recovery.previewSessions[alphaDocument.toString()] !== undefined &&
+          recovery.previewRenderRevisions[alphaDocument.toString()] !==
             undefined &&
           recovery.documentSessions[betaDocument.toString()] !== undefined &&
-          recovery.previewSessions[betaDocument.toString()] !== undefined,
-        "scoped alpha removal while beta remains active",
+          recovery.previewSessions[betaDocument.toString()] !== undefined &&
+          recovery.previewRenderRevisions[betaDocument.toString()] !==
+            undefined,
+        "alpha detaches without losing its open document or preview while beta remains active",
       );
       const remaining = afterRemoval.labels;
-      assert.ok(!remaining.some((label) => label.includes("alpha.md")));
+      assert.equal(
+        vscode.workspace.getWorkspaceFolder(alphaDocument),
+        undefined,
+      );
+      assert.notEqual(
+        afterRemoval.recovery.daemonInstanceId,
+        afterCrash.daemonInstanceId,
+      );
+      assert.ok(remaining.some((label) => label.includes("alpha.md")));
       assert.ok(remaining.some((label) => label.includes("beta.md")));
+      const detachedSymbols = await vscode.commands.executeCommand<
+        vscode.DocumentSymbol[]
+      >("vscode.executeDocumentSymbolProvider", alphaDocument);
+      assert.ok(detachedSymbols?.some((symbol) => symbol.name === "Unsaved"));
     } catch (error) {
       testFailed = true;
       testError = error;

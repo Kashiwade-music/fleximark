@@ -4,7 +4,7 @@ export interface DaemonSupervisorDependencies<Process, Rpc, Timer, Status> {
   now(): number;
   schedule(callback: () => void, delay: number): Timer;
   cancel(timer: Timer): void;
-  workspaceCount(): number;
+  runtimeCount(): number;
   resolveBinary(): Promise<string>;
   spawn(binary: string): Process;
   createRpc(process: Process): Rpc;
@@ -119,7 +119,7 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
       this.#dependencies.cancel(this.#restartTimer);
       this.#restartTimer = undefined;
     }
-    while (this.#dependencies.workspaceCount()) {
+    while (this.#dependencies.runtimeCount()) {
       if (this.#stopping || this.#disposed) return;
       if (this.#restartTimer !== undefined) {
         this.#dependencies.cancel(this.#restartTimer);
@@ -156,7 +156,7 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
         if (
           this.#recoveryId &&
           !this.#stopping &&
-          this.#dependencies.workspaceCount()
+          this.#dependencies.runtimeCount()
         )
           this.#scheduleRecovery(`launch failed: ${errorMessage(error)}`);
         throw error;
@@ -218,7 +218,7 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     if (
       this.#stopping ||
       this.#disposed ||
-      !this.#dependencies.workspaceCount()
+      !this.#dependencies.runtimeCount()
     ) {
       this.#restarting = false;
       return;
@@ -232,11 +232,7 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
 
   async #launch(): Promise<void> {
     const binary = await this.#dependencies.resolveBinary();
-    if (
-      this.#stopping ||
-      this.#disposed ||
-      !this.#dependencies.workspaceCount()
-    )
+    if (this.#stopping || this.#disposed || !this.#dependencies.runtimeCount())
       return;
     const process = this.#dependencies.spawn(binary);
     this.#process = process;
@@ -245,7 +241,7 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     const recoveryId =
       this.#recoveryId ?? `launch-${this.#recoverySequence + 1}`;
     this.#dependencies.log(
-      `[${recoveryId}] launching daemon generation=${generation} workspaces=${this.#dependencies.workspaceCount()} workspaceRevision=${this.#workspaceRevision}`,
+      `[${recoveryId}] launching daemon generation=${generation} runtimes=${this.#dependencies.runtimeCount()} workspaceRevision=${this.#workspaceRevision}`,
     );
     this.#rpc = rpc;
     this.#dependencies.bindConnection(process, rpc, generation);

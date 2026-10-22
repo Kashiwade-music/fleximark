@@ -83,6 +83,14 @@ def pure_test_args() -> list[str]:
     ]
 
 
+def standalone_test_args() -> list[str]:
+    return [
+        argument.replace("tests/typescript/extension.test.mts", "tests/typescript/standalone.test.mts")
+        .replace("electron/extension.test.cjs", "electron/standalone.test.cjs")
+        for argument in test_args()
+    ]
+
+
 def clean() -> None:
     shutil.rmtree(DIST, ignore_errors=True)
     shutil.rmtree(TEST_OUTPUT, ignore_errors=True)
@@ -129,6 +137,7 @@ def build_workspace_ui() -> None:
 def build_electron_tests() -> None:
     shutil.rmtree(ELECTRON_TEST_OUTPUT, ignore_errors=True)
     yarn("esbuild", *test_args())
+    yarn("esbuild", *standalone_test_args())
 
 
 def build_pure_tests() -> None:

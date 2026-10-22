@@ -22,8 +22,8 @@ import {
   JsonRpcResponseError,
 } from "../../../adapters/vscode/src/rpc.mjs";
 import type {
+  DocumentRuntime,
   PreviewState,
-  WorkspaceRuntime,
 } from "../../../adapters/vscode/src/runtime-state.mjs";
 import type { RenderFrame } from "../../../contracts/typescript/protocol.mjs";
 import { deferred } from "./async-helpers.mjs";
@@ -56,7 +56,7 @@ export function suite(): void {
     const runtime = {
       removed: false,
       documents: new Map([["file:///next.md", documentState]]),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const candidate = {
       origin,
       runtime,
@@ -123,7 +123,7 @@ export function suite(): void {
     const preview = previewState(origin, async () => true);
     const runtime = runtimeWithPreview(preview);
     const dependencies = {
-      previewCurrent: (_runtime: WorkspaceRuntime, item: PreviewState) =>
+      previewCurrent: (_runtime: DocumentRuntime, item: PreviewState) =>
         runtime.previews.get(item.previewSessionId) === item,
       report: assert.fail,
     };
@@ -167,7 +167,7 @@ export function suite(): void {
     });
     const runtime = runtimeWithPreview(preview);
     const dependencies = {
-      previewCurrent: (_runtime: WorkspaceRuntime, item: PreviewState) =>
+      previewCurrent: (_runtime: DocumentRuntime, item: PreviewState) =>
         runtime.previews.get(item.previewSessionId) === item,
       report: assert.fail,
     };
@@ -366,7 +366,7 @@ export function suite(): void {
     assert.equal(synchronized, false);
   });
 
-  test("tracks external frame revision before forwarding browser source navigation", async () => {
+  test("tracks detached external frame revision before forwarding browser source navigation", async () => {
     const rpc = { closed: false } as JsonRpcConnection;
     const origin = daemonOrigin(rpc, "daemon", 1);
     const document = {
@@ -374,20 +374,21 @@ export function suite(): void {
       fileName: "note.md",
       uri: { toString: () => "file:///note.md" },
     };
-    const workspace = { uri: { toString: () => "file:///workspace" } };
     const documentState = { sessionId: "document", version: 1 };
     const runtime = {
       removed: false,
       documents: new Map([["file:///next.md", documentState]]),
       previews: new Map(),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const opened: string[] = [];
     const dependencies = {
       activeEditor: () => ({ document, viewColumn: 1 }),
       showNoDocument: assert.fail,
-      showNoWorkspace: assert.fail,
-      workspaceFor: () => workspace,
-      start: async () => runtime,
+      workspaceFor: () => undefined,
+      start: async (workspace: unknown) => {
+        assert.equal(workspace, undefined);
+        return runtime;
+      },
       sync: async () => void 0,
       request: async () => ({
         origin,
@@ -438,7 +439,7 @@ export function suite(): void {
       },
     });
     const navigate = async (
-      _owner: WorkspaceRuntime,
+      _owner: DocumentRuntime,
       _preview: PreviewState,
       event: unknown,
     ) => void navigated.push(event);
@@ -543,7 +544,7 @@ export function suite(): void {
     ]);
   });
 
-  test("moves an embedded preview when its source editor activates another Markdown document", async () => {
+  test("moves an embedded preview from a root to another detached Markdown document", async () => {
     const released: unknown[] = [];
     const previousRpc = {
       closed: false,
@@ -559,14 +560,12 @@ export function suite(): void {
     preview.sourceViewColumn = 1;
     preview.renderRevision = 4;
     const previousRuntime = runtimeWithPreview(preview);
-    const workspace = { uri: { toString: () => "file:///workspace" } };
     const documentState = { sessionId: "document-next", version: 2 };
     const nextRuntime = {
-      workspace,
       removed: false,
       documents: new Map([["file:///next.md", documentState]]),
       previews: new Map(),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const document = {
       languageId: "markdown",
       fileName: "next.md",
@@ -578,11 +577,11 @@ export function suite(): void {
     const synchronized: unknown[] = [];
     const dependencies = {
       activeEditor: () => editor,
-      workspaceFor: () => workspace,
+      workspaceFor: () => undefined,
       start: async () => nextRuntime,
       sync: async () => void 0,
       request: async (
-        runtime: WorkspaceRuntime,
+        runtime: DocumentRuntime,
         requestedDocument: vscode.TextDocument,
       ) => {
         requests.push({ runtime, requestedDocument });
@@ -598,9 +597,9 @@ export function suite(): void {
       },
       candidateCurrent: () => true,
       rejectCandidate: assert.fail,
-      previewCurrent: (runtime: WorkspaceRuntime, item: PreviewState) =>
+      previewCurrent: (runtime: DocumentRuntime, item: PreviewState) =>
         runtime.previews.get(item.previewSessionId) === item,
-      synchronize: async (runtime: WorkspaceRuntime, item: PreviewState) =>
+      synchronize: async (runtime: DocumentRuntime, item: PreviewState) =>
         void synchronized.push({ runtime, item }),
     } as unknown as PreviewLifecycleDependencies;
 
@@ -672,7 +671,7 @@ export function suite(): void {
       removed: false,
       documents: new Map([["file:///note.md", documentState]]),
       previews: new Map(),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const document = {
       languageId: "markdown",
       fileName: "note.md",
@@ -700,7 +699,7 @@ export function suite(): void {
       }),
       candidateCurrent: () => true,
       rejectCandidate: assert.fail,
-      previewCurrent: (owner: WorkspaceRuntime, item: PreviewState) =>
+      previewCurrent: (owner: DocumentRuntime, item: PreviewState) =>
         owner.previews.get(item.previewSessionId) === item,
       synchronize: async () => void 0,
     } as unknown as PreviewLifecycleDependencies;
@@ -827,11 +826,11 @@ function previewState(
   };
 }
 
-function runtimeWithPreview(preview: PreviewState): WorkspaceRuntime {
+function runtimeWithPreview(preview: PreviewState): DocumentRuntime {
   return {
     removed: false,
     previews: new Map([[preview.previewSessionId, preview]]),
-  } as unknown as WorkspaceRuntime;
+  } as unknown as DocumentRuntime;
 }
 
 function frame(renderRevision: number): RenderFrame {

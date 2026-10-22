@@ -98,6 +98,7 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
     ) -> None:
         pure = suite_members("tests/typescript/pure.test.mts", "describe")
         electron = suite_members("tests/typescript/extension.test.mts", "suite")
+        standalone = suite_members("tests/typescript/standalone.test.mts", "suite")
 
         expected_pure = [
             "./adapter/rpc.test.mjs",
@@ -125,6 +126,19 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
         ]
         self.assertEqual(pure, expected_pure)
         self.assertEqual(electron, expected_electron)
+        self.assertEqual(standalone, ["./adapter/standalone-runtime.test.mjs"])
+        self.assertFalse(set(standalone).intersection(pure + electron))
+
+    def test_standalone_host_has_an_independent_profile_and_no_workspace_argument(self) -> None:
+        source = read("adapters/vscode/.vscode-test.mjs")
+        standalone = source.split('label: "standalone",', 1)[1]
+        self.assertIn('standalone.test.cjs', standalone)
+        self.assertIn('standaloneUserDataDirectory', standalone)
+        self.assertNotIn('workspaceFolder:', standalone)
+        self.assertNotIn('integrationWorkspaceFile', standalone)
+        tasks = read("tooling/tasks/tasks.py")
+        self.assertIn('run("node", "tooling/tasks/restricted-vscode.mjs")', tasks)
+        self.assertGreaterEqual(tasks.count("run_editor_integration()"), 3)
 
 class JavaScriptEntrypointContract(unittest.TestCase):
     def test_typescript_projects_cover_every_production_and_test_source(self) -> None:

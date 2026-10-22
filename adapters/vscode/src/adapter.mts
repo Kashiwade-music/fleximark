@@ -32,7 +32,12 @@ import {
   replayDocumentSessions,
   resetDocumentSessions,
 } from "./document-coordinator.mjs";
-import { initializeEditor, migrateWorkspace } from "./editor-service.mjs";
+import {
+  executeBrowserCommand,
+  initializeEditor,
+  migrateWorkspace,
+  synchronizeEditorWorkspaces,
+} from "./editor-service.mjs";
 import { errorMessage, redactSensitiveText } from "./error-policy.mjs";
 import {
   type PreviewCandidate,
@@ -64,10 +69,15 @@ import {
   type JsonRpcRequest,
   JsonRpcResponseError,
 } from "./rpc.mjs";
+import {
+  ensureRuntime,
+  reconcileRuntimeMembership,
+  runtimeKey,
+} from "./runtime-membership.mjs";
 import type {
+  DocumentRuntime,
   DocumentState,
   PreviewState,
-  WorkspaceRuntime,
 } from "./runtime-state.mjs";
 import { isShowDocumentParams, showDocument } from "./show-document.mjs";
 import { applySourceNavigation } from "./source-navigation.mjs";
@@ -102,6 +112,7 @@ export interface AdapterRecoveryState {
 }
 
 export class FlexiMarkAdapter implements vscode.Disposable {
+  readonly #workspaceUris = new Set<string>();
   #initialized?: {
     daemonInstanceId: string;
     protocolVersion: number;
@@ -111,7 +122,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   readonly #output = vscode.window.createOutputChannel("FlexiMark");
   readonly #diagnostics =
     vscode.languages.createDiagnosticCollection("fleximark");
-  readonly #runtimes = new Map<string, WorkspaceRuntime>();
+  readonly #runtimes = new Map<string, DocumentRuntime>();
   readonly #supervisor: AdapterSupervisor;
   #disposed = false;
   #testOrigin?: DaemonOrigin;
@@ -119,7 +130,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   readonly #previewLifecycleContext: PreviewLifecycleDependencies = {
     activeEditor: () => vscode.window.activeTextEditor,
     showNoDocument: () => this.#showNoDocument(),
-    showNoWorkspace: () => this.#showNoWorkspace(),
     workspaceFor: (document) =>
       vscode.workspace.getWorkspaceFolder(document.uri),
     start: (workspace) => this.start(workspace),
@@ -187,7 +197,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       now: () => Date.now(),
       schedule: (callback, delay) => setTimeout(callback, delay),
       cancel: (timer) => clearTimeout(timer),
-      workspaceCount: () => this.#runtimes.size,
+      runtimeCount: () => this.#runtimes.size,
       resolveBinary: async () => {
         const configuredPath = vscode.workspace
           .getConfiguration("fleximark")
@@ -196,7 +206,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       },
       spawn: (binary) =>
         spawn(binary, ["lsp"], {
-          cwd: this.#runtimes.values().next().value?.workspace.uri.fsPath,
+          cwd: this.#runtimes.values().next().value?.workspace?.uri.fsPath,
           stdio: ["pipe", "pipe", "pipe"],
           windowsHide: true,
         }),
@@ -263,20 +273,15 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   async start(
     workspace?: vscode.WorkspaceFolder,
-  ): Promise<WorkspaceRuntime | undefined> {
-    if (!workspace || this.#disposed) return;
-    const key = workspace.uri.toString();
-    let runtime = this.#runtimes.get(key);
-    if (!runtime) {
-      runtime = {
-        workspace,
-        documents: new Map(),
-        previews: new Map(),
-        removed: false,
-      };
-      this.#runtimes.set(key, runtime);
+  ): Promise<DocumentRuntime | undefined> {
+    if (this.#disposed) return;
+    const previousKeys = [...this.#runtimes.keys()].sort().join("\n");
+    reconcileRuntimeMembership(this.#runtimes, (uri) =>
+      vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(uri)),
+    );
+    const runtime = ensureRuntime(this.#runtimes, workspace);
+    if ([...this.#runtimes.keys()].sort().join("\n") !== previousKeys)
       this.#supervisor.workspaceChanged();
-    }
     try {
       await this.#supervisor.ensure();
     } catch (error) {
@@ -292,7 +297,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     const workspace = document
       ? vscode.workspace.getWorkspaceFolder(document.uri)
       : undefined;
-    if (!document || !workspace) return;
+    if (!document || document.languageId !== "markdown") return;
     await this.start(workspace);
     if (this.#disposed) return;
     if (document?.languageId === "markdown") await this.syncDocument(document);
@@ -309,6 +314,8 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async migrateWorkspace(): Promise<void> {
+    if (!vscode.workspace.isTrusted)
+      throw new Error("Trust the workspace before migrating it.");
     const workspace = await migrateWorkspace(
       this.#context.extensionUri.fsPath,
       (value) => this.#appendOutput(value),
@@ -326,6 +333,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     document: vscode.TextDocument,
     params: object = {},
   ): Promise<T | undefined> {
+    if (document.languageId !== "markdown") return;
     await this.activateDocument(document);
     if (this.#disposed) return;
     if (!this.#supervisor.rpc)
@@ -364,7 +372,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #syncDocument(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     document: vscode.TextDocument,
   ): Promise<void> {
     const origin = this.#daemonOrigin();
@@ -376,7 +384,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       (owner, openedDocument, state, operationOrigin) =>
         !this.#disposed &&
         !owner.removed &&
-        this.#runtimes.get(owner.workspace.uri.toString()) === owner &&
+        this.#runtimes.get(runtimeKey(owner.workspace)) === owner &&
         owner.documents.get(openedDocument.uri.toString()) === state &&
         vscode.workspace.textDocuments.includes(openedDocument) &&
         this.#originIsCurrent(operationOrigin),
@@ -459,13 +467,13 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async previewNavigationForTest(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
     event: SourceNavigationEvent,
   ): Promise<void> {
     if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
       throw new Error("preview navigation seam is only available in tests");
-    this.#runtimes.set(runtime.workspace.uri.toString(), runtime);
+    this.#runtimes.set(runtimeKey(runtime.workspace), runtime);
     runtime.previews.set(preview.previewSessionId, preview);
     this.#testOrigin = preview.origin;
     await this.#applySourceNavigation(runtime, preview, event);
@@ -490,6 +498,10 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   async execute(command: string): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
+    if (command === "previewAt" && document?.languageId !== "markdown") {
+      this.#showNoDocument();
+      return;
+    }
     if (
       command === "workspace" ||
       command === "previewAt" ||
@@ -497,44 +509,18 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         ["exportHtml", "collectAdmonitions", "editTheme"].includes(command))
     ) {
       const first = vscode.workspace.workspaceFolders?.[0];
-      if (!first) {
+      if (!first && command !== "previewAt") {
         this.#showNoWorkspace();
         return;
       }
-      await this.start(first);
+      if (command === "previewAt") await this.activateDocument(document);
+      else await this.start(first);
       if (!this.#supervisor.rpc) return;
-      const editor = vscode.window.activeTextEditor;
-      const workspace = document
-        ? vscode.workspace.getWorkspaceFolder(document.uri)
-        : undefined;
-      await this.#supervisor.rpc.requestLsp("workspace/executeCommand", {
-        command: "fleximark." + command,
-        arguments: [
-          {
-            ...(workspace ? { workspaceUri: workspace.uri.toString() } : {}),
-            ...(document
-              ? {
-                  documentUri: document.uri.toString(),
-                  documentVersion: document.version,
-                }
-              : {}),
-            ...(editor
-              ? {
-                  range: {
-                    start: {
-                      line: editor.selection.start.line,
-                      character: editor.selection.start.character,
-                    },
-                    end: {
-                      line: editor.selection.end.line,
-                      character: editor.selection.end.character,
-                    },
-                  },
-                }
-              : {}),
-          },
-        ],
-      });
+      await executeBrowserCommand(
+        this.#supervisor.rpc,
+        command,
+        vscode.window.activeTextEditor,
+      );
       return;
     }
     const folders = vscode.workspace.workspaceFolders ?? [];
@@ -685,12 +671,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   removeWorkspace(workspace: vscode.WorkspaceFolder): void {
-    const key = workspace.uri.toString();
-    const runtime = this.#runtimes.get(key);
-    if (!runtime || !this.#runtimes.delete(key)) return;
+    reconcileRuntimeMembership(
+      this.#runtimes,
+      (uri) => vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(uri)),
+      runtimeKey(workspace),
+    );
     this.#supervisor.workspaceChanged();
-    runtime.removed = true;
-    this.#stop(runtime);
     if (this.#runtimes.size === 0) this.#supervisor.stop();
     else
       void this.#supervisor
@@ -700,12 +686,17 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   #runtimeForDocument(
     document: vscode.TextDocument,
-  ): WorkspaceRuntime | undefined {
+  ): DocumentRuntime | undefined {
     const workspace = vscode.workspace.getWorkspaceFolder(document.uri);
-    return workspace && this.#runtimes.get(workspace.uri.toString());
+    return (
+      this.#runtimes.get(runtimeKey(workspace)) ??
+      [...this.#runtimes.values()].find((runtime) =>
+        runtime.documents.has(document.uri.toString()),
+      )
+    );
   }
 
-  #previewOwner(preview: PreviewState): WorkspaceRuntime | undefined {
+  #previewOwner(preview: PreviewState): DocumentRuntime | undefined {
     return [...this.#runtimes.values()].find(
       (runtime) => runtime.previews.get(preview.previewSessionId) === preview,
     );
@@ -742,18 +733,18 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
     return {
       disposed: this.#disposed,
-      runtime: this.#runtimes.get(candidate.runtime.workspace.uri.toString()),
+      runtime: this.#runtimes.get(runtimeKey(candidate.runtime.workspace)),
       origin: this.#daemonOrigin(),
       documentState: candidate.runtime.documents.get(candidate.documentUri),
       documentVersion: document?.version,
     };
   }
 
-  #previewIsActive(runtime: WorkspaceRuntime, preview: PreviewState): boolean {
+  #previewIsActive(runtime: DocumentRuntime, preview: PreviewState): boolean {
     const origin = this.#daemonOrigin();
     return (
       !this.#disposed &&
-      this.#runtimes.get(runtime.workspace.uri.toString()) === runtime &&
+      this.#runtimes.get(runtimeKey(runtime.workspace)) === runtime &&
       previewIsCurrent(runtime, preview, preview.previewSessionId) &&
       sameDaemonOrigin(origin, preview.origin)
     );
@@ -769,7 +760,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   #synchronizePreview(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
     force = false,
   ): Promise<void> {
@@ -781,7 +772,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
   }
 
-  #stop(runtime: WorkspaceRuntime): void {
+  #stop(runtime: DocumentRuntime): void {
     for (const state of runtime.documents.values()) {
       if (state.checkpoint) clearTimeout(state.checkpoint);
     }
@@ -815,11 +806,15 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #initializeProtocol(rpc: JsonRpcConnection): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders ?? [];
     this.#initialized = await initializeEditor(
       rpc,
       this.#context.extension.packageJSON.version,
-      [...this.#runtimes.values()].map((r) => r.workspace),
+      folders,
     );
+    this.#workspaceUris.clear();
+    for (const folder of folders)
+      this.#workspaceUris.add(folder.uri.toString());
   }
 
   async #replayDocuments(): Promise<void> {
@@ -827,9 +822,9 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       await replayDocumentSessions(
         vscode.workspace.textDocuments.filter(
           (document) =>
-            vscode.workspace
-              .getWorkspaceFolder(document.uri)
-              ?.uri.toString() === runtime.workspace.uri.toString(),
+            document.languageId === "markdown" &&
+            runtimeKey(vscode.workspace.getWorkspaceFolder(document.uri)) ===
+              runtimeKey(runtime.workspace),
         ),
         (document) => this.#syncDocument(runtime, document),
         (document, error) => {
@@ -869,15 +864,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     const initialized = this.#initialized;
     if (!initialized)
       throw new Error("FlexiMark initialization is unavailable");
-    rpc.notifyLsp("workspace/didChangeWorkspaceFolders", {
-      event: {
-        added: [...this.#runtimes.values()].map(({ workspace }) => ({
-          uri: workspace.uri.toString(),
-          name: workspace.name,
-        })),
-        removed: [],
-      },
-    });
+    synchronizeEditorWorkspaces(
+      rpc,
+      this.#workspaceUris,
+      vscode.workspace.workspaceFolders ?? [],
+    );
     if (initialized.protocolVersion !== protocolVersion) {
       throw new Error(
         `Unsupported FlexiMark protocol version ${initialized.protocolVersion}`,
@@ -892,7 +883,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #requestPreview(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     document: vscode.TextDocument,
     target: PreviewTarget,
   ): Promise<PreviewCandidate | undefined> {
@@ -916,7 +907,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     await checkpointDocument(document, state, origin);
   }
 
-  async #recreatePreviews(runtime: WorkspaceRuntime): Promise<void> {
+  async #recreatePreviews(runtime: DocumentRuntime): Promise<void> {
     await recreatePreviewsLifecycle(runtime, this.#previewLifecycleContext);
   }
 
@@ -999,7 +990,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #applySourceNavigation(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
     event: SourceNavigationEvent,
   ): Promise<void> {
@@ -1013,7 +1004,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #disposePreview(
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     preview: PreviewState,
   ): Promise<void> {
     await disposePreviewLifecycle(runtime, preview, (message) =>

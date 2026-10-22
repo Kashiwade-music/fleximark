@@ -8,9 +8,9 @@ import {
   JsonRpcResponseError,
 } from "./rpc.mjs";
 import type {
+  DocumentRuntime,
   DocumentState,
   PreviewState,
-  WorkspaceRuntime,
 } from "./runtime-state.mjs";
 
 function deactivatePreviewSession(preview: PreviewState): void {
@@ -37,11 +37,11 @@ const systemDocumentClock: DocumentClock = {
 };
 
 export async function syncDocument(
-  runtime: WorkspaceRuntime,
+  runtime: DocumentRuntime,
   document: vscode.TextDocument,
   origin: DaemonOrigin,
   isCurrent: (
-    runtime: WorkspaceRuntime,
+    runtime: DocumentRuntime,
     document: vscode.TextDocument,
     state: DocumentState,
     origin: DaemonOrigin,
@@ -81,7 +81,7 @@ export async function syncDocument(
 }
 
 export function changeDocument(
-  runtime: WorkspaceRuntime | undefined,
+  runtime: DocumentRuntime | undefined,
   document: vscode.TextDocument,
   rpc: JsonRpcConnection | undefined,
   synchronize: () => Promise<void>,
@@ -108,7 +108,7 @@ export function changeDocument(
 }
 
 export function closeDocument(
-  runtime: WorkspaceRuntime | undefined,
+  runtime: DocumentRuntime | undefined,
   document: vscode.TextDocument,
   rpc: JsonRpcConnection | undefined,
 ): void {
@@ -179,7 +179,7 @@ export async function checkpointDocument(
 }
 
 export function resetDocumentSessions(
-  runtimes: Iterable<WorkspaceRuntime>,
+  runtimes: Iterable<DocumentRuntime>,
 ): void {
   for (const runtime of runtimes) {
     for (const state of runtime.documents.values()) state.sessionId = undefined;
@@ -219,7 +219,7 @@ function isEngineDocumentRejection(
 export function handleRequestFullText(
   message: JsonRpcRequest,
   connection: JsonRpcConnection,
-  runtimes: Iterable<WorkspaceRuntime>,
+  runtimes: Iterable<DocumentRuntime>,
   daemonInstanceId: string | undefined,
   documents: readonly vscode.TextDocument[],
 ): boolean {

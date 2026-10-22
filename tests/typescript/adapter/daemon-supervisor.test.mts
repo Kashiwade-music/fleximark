@@ -37,7 +37,7 @@ interface FakeStatus {
 
 class SupervisorHarness {
   now = 0;
-  workspaceCount = 1;
+  runtimeCount = 1;
   spawnCount = 0;
   shutdownCount = 0;
   resetCount = 0;
@@ -73,7 +73,7 @@ class SupervisorHarness {
         return timer;
       },
       cancel: (timer) => (timer.cancelled = true),
-      workspaceCount: () => this.workspaceCount,
+      runtimeCount: () => this.runtimeCount,
       resolveBinary: async () => {
         this.lifecycle.push("resolve");
         return this.resolveBinaryHook?.() ?? "fake-daemon";
@@ -454,7 +454,7 @@ export function suite(): void {
       const operation = stopped.supervisor.ensure();
       await stopped.settle();
       const process = stopped.processes[0];
-      stopped.workspaceCount = 0;
+      stopped.runtimeCount = 0;
       if (dispose) {
         stopped.supervisor.beginDispose();
         stopped.supervisor.dispose();

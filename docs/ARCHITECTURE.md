@@ -61,6 +61,10 @@ navigation は daemon identity、文書 session、文書 version、preview revis
 
 VS Code は native Webview の埋め込みプレビューと外部ブラウザの両方を持つ。`adapters/vscode/webview` が VS Code API との bridge を所有し、共通の `web/preview` はエディター API を import しない。
 
+VS Code の文書 runtime は workspace を任意とし、単独の Markdown ファイルや未保存文書にも同じ LSP 同期・preview・再接続処理を使う。workspace に属さない文書の親 directory を workspace として登録せず、設定・plugin・local asset の権限も推測しない。制限モードでも本文のプレビューは利用でき、workspace 書込みや明示移行は trust を必要とする。
+
+通常の相対リンクは拡張子に関係なく保持する。描画ポリシーで許可できないリンク先は active な `href` を出力せず、ラベルと本文を描画する。リンク先の拒否だけで文書全体の描画を失敗させない。画像の解決済み asset 対応表は hyperlink へ適用しない。
+
 Zed は通常版の公式 editor と外部ブラウザを使う。Code Action が URI・version・range を渡し、`workspace/executeCommand` が操作を実行する。プレビュー URL とソース範囲は標準 `window/showDocument` で開く。選択位置からプレビューへの明示移動、browser からソースへの移動、未保存本文の更新を扱う。Zed の継続的な editor viewport 追跡はこの製品契約に含めない。
 
 共通 workspace UI は文書・workspace の選択、note のカテゴリ・template・名前、theme、初期化、admonition 収集、export のフォームを提供する。文書 context がない command は開いている文書・workspace を画面で選択させる。

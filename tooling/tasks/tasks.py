@@ -208,6 +208,11 @@ def compile_tests() -> None:
     javascript_build.build_electron_tests()
 
 
+def run_editor_integration() -> None:
+    yarn("vscode-test", "--config", "adapters/vscode/.vscode-test.mjs")
+    run("node", "tooling/tasks/restricted-vscode.mjs")
+
+
 def integration_test(args: Sequence[str]) -> None:
     arguments = tuple(args)
     if arguments not in {(), ("--prebuilt",)}:
@@ -216,7 +221,7 @@ def integration_test(args: Sequence[str]) -> None:
     compile_tests()
     if not arguments:
         build_product()
-    yarn("vscode-test", "--config", "adapters/vscode/.vscode-test.mjs")
+    run_editor_integration()
 
 
 def pure_test(_: Sequence[str]) -> None:
@@ -284,7 +289,7 @@ def verify(_: Sequence[str]) -> None:
         "warnings",
     )
     check_performance_budgets()
-    yarn("vscode-test", "--config", "adapters/vscode/.vscode-test.mjs")
+    run_editor_integration()
 
 
 def package_vsix(args: Sequence[str]) -> None:

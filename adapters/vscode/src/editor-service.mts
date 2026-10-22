@@ -11,6 +11,63 @@ import {
 } from "./release-manifest.mjs";
 import type { JsonRpcConnection } from "./rpc.mjs";
 
+export async function executeBrowserCommand(
+  rpc: JsonRpcConnection,
+  command: string,
+  editor?: vscode.TextEditor,
+): Promise<void> {
+  const document = editor?.document;
+  const workspace =
+    document && vscode.workspace.getWorkspaceFolder(document.uri);
+  await rpc.requestLsp("workspace/executeCommand", {
+    command: "fleximark." + command,
+    arguments: [
+      {
+        ...(workspace ? { workspaceUri: workspace.uri.toString() } : {}),
+        ...(document
+          ? {
+              documentUri: document.uri.toString(),
+              documentVersion: document.version,
+            }
+          : {}),
+        ...(editor
+          ? {
+              range: {
+                start: {
+                  line: editor.selection.start.line,
+                  character: editor.selection.start.character,
+                },
+                end: {
+                  line: editor.selection.end.line,
+                  character: editor.selection.end.character,
+                },
+              },
+            }
+          : {}),
+      },
+    ],
+  });
+}
+export function synchronizeEditorWorkspaces(
+  rpc: JsonRpcConnection,
+  previous: Set<string>,
+  folders: readonly vscode.WorkspaceFolder[],
+): void {
+  const current = new Set(folders.map((folder) => folder.uri.toString()));
+  const added = folders
+    .filter((folder) => !previous.has(folder.uri.toString()))
+    .map((folder) => ({ uri: folder.uri.toString(), name: folder.name }));
+  const removed = [...previous]
+    .filter((uri) => !current.has(uri))
+    .map((uri) => ({ uri, name: "" }));
+  if (added.length || removed.length)
+    rpc.notifyLsp("workspace/didChangeWorkspaceFolders", {
+      event: { added, removed },
+    });
+  previous.clear();
+  for (const uri of current) previous.add(uri);
+}
+
 export async function initializeEditor(
   rpc: JsonRpcConnection,
   version: string,

@@ -9,6 +9,8 @@
   },
   "include": [
     "tests/typescript/extension.test.mts",
+    "tests/typescript/standalone.test.mts",
+    "tests/typescript/adapter/standalone-runtime.test.mts",
     "tests/typescript/contributions.test.mts",
     "tests/typescript/adapter/daemon-runtime.test.mts",
     "tests/typescript/adapter/document-lifecycle.test.mts",

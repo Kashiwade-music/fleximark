@@ -16,15 +16,69 @@ import {
   type JsonRpcConnection,
   JsonRpcResponseError,
 } from "../../../adapters/vscode/src/rpc.mjs";
+import {
+  DETACHED_RUNTIME_KEY,
+  ensureRuntime,
+  reconcileRuntimeMembership,
+  runtimeKey,
+} from "../../../adapters/vscode/src/runtime-membership.mjs";
 import type {
+  DocumentRuntime,
   DocumentState,
   PreviewState,
-  WorkspaceRuntime,
 } from "../../../adapters/vscode/src/runtime-state.mjs";
 
 export const suiteName = "Document coordinator";
 
 export function suite(): void {
+  test("reclassifies loose documents and previews without replacing sessions or disturbing another root", () => {
+    const first = { uri: { toString: () => "file:///first" } } as NonNullable<
+      DocumentRuntime["workspace"]
+    >;
+    const second = { uri: { toString: () => "file:///second" } } as NonNullable<
+      DocumentRuntime["workspace"]
+    >;
+    const runtimes = new Map<string, DocumentRuntime>();
+    const detached = ensureRuntime(runtimes);
+    const other = ensureRuntime(runtimes, second);
+    const state = { sessionId: "loose-session", version: 3 };
+    const preview = {
+      documentUri: "file:///first/loose.md",
+      previewSessionId: "preview",
+    } as PreviewState;
+    detached.documents.set(preview.documentUri, state);
+    detached.previews.set("preview", preview);
+    other.documents.set("file:///second/kept.md", {
+      sessionId: "other-session",
+      version: 1,
+    });
+    assert.equal(runtimeKey(), DETACHED_RUNTIME_KEY);
+    reconcileRuntimeMembership(runtimes, (uri) =>
+      uri.startsWith("file:///first/") ? first : second,
+    );
+    const moved = runtimes.get(runtimeKey(first));
+    assert.equal(moved?.documents.get(preview.documentUri), state);
+    assert.equal(moved?.previews.get("preview"), preview);
+    assert.equal(detached.documents.size, 0);
+    reconcileRuntimeMembership(
+      runtimes,
+      (uri) => (uri.startsWith("file:///first/") ? first : second),
+      runtimeKey(first),
+    );
+    assert.equal(runtimes.has(runtimeKey(first)), false);
+    assert.equal(detached.documents.get(preview.documentUri), state);
+    assert.equal(detached.previews.get("preview"), preview);
+    assert.equal(
+      other.documents.get("file:///second/kept.md")?.sessionId,
+      "other-session",
+    );
+    assert.equal(
+      [...runtimes.values()].filter((runtime) =>
+        runtime.documents.has(preview.documentUri),
+      ).length,
+      1,
+    );
+  });
   test("opens an already active document with one acknowledged request", async () => {
     const requests: { method: string; params: unknown }[] = [];
     const rpc = {
@@ -48,7 +102,7 @@ export function suite(): void {
       removed: false,
       documents: new Map(),
       previews: new Map(),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
 
     await syncDocument(
       runtime,
@@ -107,7 +161,7 @@ export function suite(): void {
       removed: false,
       documents: new Map(),
       previews: new Map(),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const syncing = syncDocument(
       runtime,
       document,
@@ -169,7 +223,7 @@ export function suite(): void {
     const state: DocumentState = { sessionId: "session", version: 1 };
     const runtime = {
       documents: new Map([[uri, state]]),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const first = textDocument(uri, 2, "first edit");
     const latest = textDocument(uri, 3, "latest edit");
     const fail = (error: unknown) => assert.fail(String(error));
@@ -365,7 +419,7 @@ export function suite(): void {
     const state: DocumentState = { sessionId: "session", version: 2 };
     const runtime = {
       documents: new Map([[uri, state]]),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const requests: unknown[] = [];
     let replays = 0;
     const rpc = {
@@ -464,7 +518,7 @@ export function suite(): void {
     const document = textDocument(uri, 2, "repaired");
     const runtime = {
       documents: new Map([[uri, { version: 1 }]]),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const rpc = { closed: false } as JsonRpcConnection;
     let synchronized = 0;
 
@@ -507,7 +561,7 @@ export function suite(): void {
         [preview.previewSessionId, preview],
         [external.previewSessionId, external],
       ]),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
     const notifications: unknown[] = [];
     const rpc = {
       notifyLsp: (method: string, params: unknown) =>
@@ -545,7 +599,7 @@ export function suite(): void {
     const runtime = {
       documents: new Map([["file:///note.md", documentState]]),
       previews: new Map([[preview.previewSessionId, preview]]),
-    } as unknown as WorkspaceRuntime;
+    } as unknown as DocumentRuntime;
 
     resetDocumentSessions([runtime]);
 

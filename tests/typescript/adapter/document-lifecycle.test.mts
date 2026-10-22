@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { FlexiMarkAdapter } from "../../../adapters/vscode/src/adapter.mjs";
 import { handleRequestFullText } from "../../../adapters/vscode/src/document-coordinator.mjs";
 import type { JsonRpcConnection } from "../../../adapters/vscode/src/rpc.mjs";
-import type { WorkspaceRuntime } from "../../../adapters/vscode/src/runtime-state.mjs";
+import type { DocumentRuntime } from "../../../adapters/vscode/src/runtime-state.mjs";
 
 export const suiteName = "Document lifecycle adapter";
 
@@ -43,7 +43,7 @@ export function suite(): void {
           [uri, { sessionId: "session-current", version: document.version }],
           ["file:///closed.md", { sessionId: "session-closed", version: 1 }],
         ]),
-      } as unknown as WorkspaceRuntime;
+      } as unknown as DocumentRuntime;
       const events: unknown[] = [];
       const connection = {
         notifyLsp(method: string, params: unknown) {

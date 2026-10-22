@@ -22,6 +22,18 @@ const targets = {
 const testUserDataDirectory = mkdtempSync(
   join(tmpdir(), "fleximark-vscode-test-"),
 );
+const standaloneUserDataDirectory = join(
+  testUserDataDirectory,
+  "standalone-profile",
+);
+mkdirSync(join(standaloneUserDataDirectory, "User"), { recursive: true });
+writeFileSync(
+  join(standaloneUserDataDirectory, "User", "settings.json"),
+  JSON.stringify({
+    "security.workspace.trust.emptyWindow": false,
+    "security.workspace.trust.untrustedFiles": "open",
+  }),
+);
 process.once("exit", () => {
   try {
     rmSync(testUserDataDirectory, {
@@ -44,9 +56,25 @@ writeFileSync(
   `${JSON.stringify({ folders: [{ path: "workspace" }] }, undefined, 2)}\n`,
 );
 
-export default defineConfig({
-  extensionDevelopmentPath: `../../.artifacts/${version}/${targets[`${platform()}-${arch()}`]}/vscode`,
-  files: "../../.build/tests/electron/extension.test.cjs",
-  launchArgs: [`--user-data-dir=${testUserDataDirectory}`],
-  workspaceFolder: integrationWorkspaceFile,
-});
+const extensionDevelopmentPath = `../../.artifacts/${version}/${targets[`${platform()}-${arch()}`]}/vscode`;
+
+export default defineConfig([
+  {
+    label: "workspace",
+    extensionDevelopmentPath,
+    files: "../../.build/tests/electron/extension.test.cjs",
+    launchArgs: [`--user-data-dir=${testUserDataDirectory}`],
+    workspaceFolder: integrationWorkspaceFile,
+  },
+  {
+    label: "standalone",
+    extensionDevelopmentPath,
+    files: "../../.build/tests/electron/standalone.test.cjs",
+    launchArgs: [
+      `--user-data-dir=${standaloneUserDataDirectory}`,
+      "--new-window",
+      "--skip-welcome",
+      "--skip-release-notes",
+    ],
+  },
+]);

@@ -625,13 +625,18 @@ fn render_inline(inline: &Inline, context: &RenderContext) -> Result<String, Ren
             title,
             children,
         } => {
-            let destination = resolve_resource(destination, context, ResourceUse::Link)?;
-            format!(
-                "<a href=\"{}\" title=\"{}\">{}</a>",
-                escape_attribute(&destination),
-                escape_attribute(title),
-                nested(children)?
-            )
+            let label = nested(children)?;
+            let title = escape_attribute(title);
+            match resolve_resource(destination, context, ResourceUse::Link) {
+                Ok(destination) => format!(
+                    "<a href=\"{}\" title=\"{title}\">{label}</a>",
+                    escape_attribute(&destination),
+                ),
+                Err(RenderError::ResourceRejected(_)) => {
+                    format!("<a title=\"{title}\">{label}</a>")
+                }
+                Err(error) => return Err(error),
+            }
         }
         InlineKind::Image {
             source,
@@ -791,7 +796,11 @@ fn resolve_resource(
     context: &RenderContext,
     resource_use: ResourceUse,
 ) -> Result<String, RenderError> {
-    if let Some(reference) = context.resolved_resources.get(url) {
+    if let Some(reference) = context
+        .resolved_resources
+        .get(url)
+        .filter(|_| matches!(resource_use, ResourceUse::Image))
+    {
         if reference.starts_with("fleximark-asset:")
             && reference["fleximark-asset:".len()..].len() == 64
             && reference["fleximark-asset:".len()..]
@@ -814,7 +823,7 @@ fn resolve_resource(
         .iter()
         .any(|prefix| lower.starts_with(prefix));
     let is_protocol_relative = lower.starts_with("//") || lower.starts_with("\\\\");
-    let has_forbidden_character = lower.chars().any(char::is_control) || lower.contains('\\');
+    let has_forbidden_character = url.chars().any(char::is_control) || lower.contains('\\');
     let is_relative_asset = matches!(resource_use, ResourceUse::Image)
         && !lower.starts_with('/')
         && !lower.starts_with("data:")

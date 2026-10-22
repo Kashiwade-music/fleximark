@@ -27,8 +27,8 @@ export interface PreviewState {
   panel?: vscode.WebviewPanel;
 }
 
-export interface WorkspaceRuntime {
-  workspace: vscode.WorkspaceFolder;
+export interface DocumentRuntime {
+  workspace?: vscode.WorkspaceFolder;
   documents: Map<string, DocumentState>;
   previews: Map<string, PreviewState>;
   removed: boolean;

@@ -9,6 +9,65 @@ use std::time::Duration;
 use support::*;
 
 #[test]
+fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_configuration() {
+    let root = test_directory("standalone-source-links");
+    std::fs::create_dir(root.join(".fleximark")).unwrap();
+    std::fs::write(
+        root.join(".fleximark/config.toml"),
+        "invalid workspace config",
+    )
+    .unwrap();
+    let path = root.join("standalone.md");
+    std::fs::write(&path, "disk contents").unwrap();
+    let document = uri(&path);
+    let mut server = Server::new(
+        Arc::new(fleximark_workspace::NativeWorkspace),
+        browser_assets(),
+    );
+    let initialized = server.request(1, "initialize", json!({"capabilities": {}}));
+    assert_eq!(
+        initialized[0]["result"]["capabilities"]["experimental"]["fleximark"]["workspaceStatuses"],
+        json!([])
+    );
+    open(
+        &mut server,
+        &document,
+        "[Rust](./src/main.rs)\n\n[Local Rust](file:///tmp/main.rs)\n\n# Following content\n",
+        1,
+    );
+    let preview = server.request(2, "workspace/executeCommand", json!({
+        "command": "fleximark.preview", "arguments": [{"documentUri": document, "documentVersion": 1}]
+    }));
+    let preview_id = preview[0]["result"]["previewSessionId"].as_str().unwrap();
+    let url = preview[0]["result"]["url"].as_str().unwrap();
+    let initial = read_frame(&mut server, preview_id);
+    let html = initial["blocks"].to_string();
+    assert!(html.contains("src/main.rs"));
+    assert!(html.contains("Local Rust"));
+    assert!(html.contains("Following content"));
+    assert!(!html.contains("file:///tmp/main.rs"));
+    let changed = server.notify(
+        "textDocument/didChange",
+        json!({
+            "textDocument": {"uri": document, "version": 2},
+            "contentChanges": [{"text": "[Rust](../src/main.rs#L2)\n\n# Unsaved update\n"}]
+        }),
+    );
+    assert!(
+        changed
+            .iter()
+            .any(|event| event["method"] == method::PREVIEW_CHANGED)
+    );
+    let updated = read_frame(&mut server, preview_id);
+    assert_eq!(updated["documentVersion"], 2);
+    assert!(
+        updated["renderRevision"].as_u64().unwrap() > initial["renderRevision"].as_u64().unwrap()
+    );
+    assert!(http(url, "/frame", "GET", None).contains("Unsaved update"));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "disk contents");
+}
+
+#[test]
 fn explicit_preview_selection_survives_initial_browser_load_and_returns_to_source() {
     let (sender, events) = mpsc::channel();
     let mut server = Server::with_assets(

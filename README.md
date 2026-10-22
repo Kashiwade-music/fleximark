@@ -26,6 +26,10 @@ extension with the matching runtime release. Both include note creation,
 workspace initialization, theme editing, admonition collection and HTML export.
 Migration of old workspace data is an explicit command.
 
+VS Code can also preview a standalone Markdown file or an unsaved Markdown
+buffer without opening a folder. Workspace configuration, local assets and
+plugins remain scoped to explicitly trusted workspaces.
+
 Developers: `mise run install`, `mise run build`, and `mise run verify` run from
 the repository root. `release.toml` is the product version source. Sources live
 under `core`, `application`, `runtime`, `transports`, `apps`, `contracts`, `web`
