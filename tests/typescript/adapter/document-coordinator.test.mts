@@ -1,13 +1,9 @@
 import * as assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 
 import {
   type DaemonOrigin,
-  type DocumentClock,
   changeDocument,
-  checkpointDocument,
   closeDocument,
-  handleRequestFullText,
   replayDocumentSessions,
   resetDocumentSessions,
   syncDocument,
@@ -44,7 +40,7 @@ export function suite(): void {
     const state = { sessionId: "loose-session", version: 3 };
     const preview = {
       documentUri: "file:///first/loose.md",
-      previewSessionId: "preview",
+      binding: { previewSessionId: "preview" },
     } as PreviewState;
     detached.documents.set(preview.documentUri, state);
     detached.previews.set("preview", preview);
@@ -132,9 +128,6 @@ export function suite(): void {
           daemonInstanceId: "daemon",
           uri,
           expectedDocumentVersion: 1,
-          contentHash: createHash("sha256")
-            .update("already open")
-            .digest("hex"),
         },
       },
     ]);
@@ -188,82 +181,47 @@ export function suite(): void {
     assert.equal(oldState?.sessionId, undefined);
   });
 
-  test("resets the exact 150ms checkpoint and fires with latest text, version, and hash", async () => {
-    const scheduled: {
-      callback: () => void;
-      delay: number;
-      handle: NodeJS.Timeout;
-    }[] = [];
-    const cancelled: NodeJS.Timeout[] = [];
-    const clock: DocumentClock = {
-      schedule(callback, delay) {
-        const handle = { id: scheduled.length } as unknown as NodeJS.Timeout;
-        scheduled.push({ callback, delay, handle });
-        return handle;
-      },
-      cancel(handle) {
-        cancelled.push(handle);
-      },
-    };
-    const requests: { method: string; params: unknown }[] = [];
-    const rpc = {
-      closed: false,
-      notifyLsp: () => undefined,
-      request(method: string, params: unknown) {
-        requests.push({ method, params });
-        return Promise.resolve(null);
-      },
-    } as unknown as JsonRpcConnection;
-    const origin: DaemonOrigin = {
-      rpc,
-      daemonInstanceId: "daemon",
-      generation: 1,
-    };
+  test("sends complete text immediately for every document version", () => {
     const uri = "file:///document.md";
     const state: DocumentState = { sessionId: "session", version: 1 };
     const runtime = {
       documents: new Map([[uri, state]]),
     } as unknown as DocumentRuntime;
-    const first = textDocument(uri, 2, "first edit");
-    const latest = textDocument(uri, 3, "latest edit");
-    const fail = (error: unknown) => assert.fail(String(error));
-    changeDocument(
-      runtime,
-      first,
-      rpc,
-      async () => undefined,
-      async () => undefined,
-      fail,
-      clock,
-    );
-    changeDocument(
-      runtime,
-      latest,
-      rpc,
-      async () => undefined,
-      () => checkpointDocument(latest, state, origin),
-      fail,
-      clock,
-    );
-    assert.deepEqual(
-      scheduled.map(({ delay }) => delay),
-      [150, 150],
-    );
-    assert.deepEqual(cancelled, [scheduled[0].handle]);
-
-    scheduled[1].callback();
-    await Promise.resolve();
-    assert.deepEqual(requests, [
+    const changes: unknown[] = [];
+    const rpc = {
+      notifyLsp(method: string, params: unknown) {
+        changes.push({ method, params });
+      },
+      request: assert.fail,
+    } as unknown as JsonRpcConnection;
+    for (const [version, text] of [
+      [2, "first"],
+      [3, "latest 😀"],
+    ] as const)
+      changeDocument(
+        runtime,
+        textDocument(uri, version, text),
+        rpc,
+        async () => assert.fail("already synchronized"),
+        (error) => assert.fail(String(error)),
+      );
+    assert.deepEqual(changes, [
       {
-        method: "fleximark/checkpointDocument",
+        method: "textDocument/didChange",
         params: {
-          daemonInstanceId: "daemon",
-          documentSessionId: "session",
-          documentVersion: 3,
-          contentHash: createHash("sha256").update("latest edit").digest("hex"),
+          textDocument: { uri, version: 2 },
+          contentChanges: [{ text: "first" }],
+        },
+      },
+      {
+        method: "textDocument/didChange",
+        params: {
+          textDocument: { uri, version: 3 },
+          contentChanges: [{ text: "latest 😀" }],
         },
       },
     ]);
+    assert.equal(state.version, 3);
   });
 
   test("isolates daemon document rejections during replay but propagates transport failures", async () => {
@@ -317,202 +275,6 @@ export function suite(): void {
       );
   });
 
-  test("repairs a rejected checkpoint with the latest full text before retrying", async () => {
-    const uri = "file:///document.md";
-    let version = 2;
-    let text = "before edit";
-    const document = {
-      uri: { toString: () => uri },
-      get version() {
-        return version;
-      },
-      getText: () => text,
-    } as never;
-    const state: DocumentState = { sessionId: "session", version };
-    const events: { method: string; params: unknown }[] = [];
-    let requests = 0;
-    const rpc = {
-      closed: false,
-      notifyLsp(method: string, params: unknown) {
-        events.push({ method, params });
-      },
-      request(method: string, params: unknown) {
-        events.push({ method, params });
-        if (++requests === 1) {
-          version = 3;
-          text = "latest 😀 edit";
-          return Promise.reject(
-            new JsonRpcResponseError("document is out of sync", -32801),
-          );
-        }
-        return Promise.resolve(null);
-      },
-    } as unknown as JsonRpcConnection;
-
-    await checkpointDocument(document, state, {
-      rpc,
-      daemonInstanceId: "daemon",
-      generation: 1,
-    });
-
-    assert.deepEqual(events, [
-      {
-        method: "fleximark/checkpointDocument",
-        params: {
-          daemonInstanceId: "daemon",
-          documentSessionId: "session",
-          documentVersion: 2,
-          contentHash: createHash("sha256").update("before edit").digest("hex"),
-        },
-      },
-      {
-        method: "textDocument/didChange",
-        params: {
-          textDocument: { uri, version: 3 },
-          contentChanges: [{ text: "latest 😀 edit" }],
-        },
-      },
-      {
-        method: "fleximark/checkpointDocument",
-        params: {
-          daemonInstanceId: "daemon",
-          documentSessionId: "session",
-          documentVersion: 3,
-          contentHash: createHash("sha256").update(text).digest("hex"),
-        },
-      },
-    ]);
-    assert.equal(state.version, 3);
-  });
-
-  test("bounds checkpoint recovery and preserves unrelated daemon errors", async () => {
-    const document = textDocument("file:///document.md", 2, "current");
-    const state: DocumentState = { sessionId: "session", version: 2 };
-    for (const code of [-32801, -32602]) {
-      let requests = 0;
-      let changes = 0;
-      const rejection = new JsonRpcResponseError("rejected", code);
-      const rpc = {
-        closed: false,
-        notifyLsp: () => changes++,
-        request: () => {
-          requests++;
-          return Promise.reject(rejection);
-        },
-      } as unknown as JsonRpcConnection;
-      await assert.rejects(
-        checkpointDocument(document, state, {
-          rpc,
-          daemonInstanceId: "daemon",
-          generation: 1,
-        }),
-        rejection,
-      );
-      assert.equal(requests, code === -32801 ? 3 : 1);
-      assert.equal(changes, code === -32801 ? 2 : 0);
-    }
-  });
-
-  test("retries checkpoints cancelled by delayed full-text recovery at the same version", async () => {
-    const uri = "file:///document.md";
-    const document = textDocument(uri, 2, "latest 😀");
-    const state: DocumentState = { sessionId: "session", version: 2 };
-    const runtime = {
-      documents: new Map([[uri, state]]),
-    } as unknown as DocumentRuntime;
-    const requests: unknown[] = [];
-    let replays = 0;
-    const rpc = {
-      closed: false,
-      notifyLsp: () => replays++,
-      request(_method: string, params: unknown) {
-        requests.push(params);
-        if (requests.length === 1)
-          return Promise.reject(
-            new JsonRpcResponseError("out of sync", -32801),
-          );
-        if (requests.length === 2) {
-          // The daemon's separate recovery request arrives after the adapter
-          // has already sent its own recovery and started a new checkpoint.
-          handleRequestFullText(
-            {
-              jsonrpc: "2.0",
-              method: "fleximark/requestFullText",
-              params: {
-                daemonInstanceId: "daemon",
-                documentSessionId: "session",
-                uri,
-                reason: "recovery",
-              },
-            },
-            rpc,
-            [runtime],
-            "daemon",
-            [document],
-          );
-          return Promise.reject(
-            new JsonRpcResponseError("request cancelled", -32800),
-          );
-        }
-        return Promise.resolve(null);
-      },
-    } as unknown as JsonRpcConnection;
-    await checkpointDocument(document, state, {
-      rpc,
-      daemonInstanceId: "daemon",
-      generation: 1,
-    });
-    assert.equal(replays, 2);
-    assert.equal(requests.length, 3);
-    assert.deepEqual(requests[0], requests[1]);
-    assert.deepEqual(requests[1], requests[2]);
-  });
-
-  test("bounds cancelled checkpoints without reporting superseded editing work", async () => {
-    let requests = 0;
-    const rpc = {
-      closed: false,
-      notifyLsp: () =>
-        assert.fail("cancellation does not require full-text recovery"),
-      request: () => {
-        requests++;
-        return Promise.reject(
-          new JsonRpcResponseError("request cancelled", -32800),
-        );
-      },
-    } as unknown as JsonRpcConnection;
-    await checkpointDocument(
-      textDocument("file:///document.md", 2, "current"),
-      { sessionId: "session", version: 2 },
-      { rpc, daemonInstanceId: "daemon", generation: 1 },
-    );
-    assert.equal(requests, 3);
-  });
-
-  test("does not repair a checkpoint belonging to a replaced document session", async () => {
-    const state: DocumentState = { sessionId: "old-session", version: 1 };
-    const rpc = {
-      closed: false,
-      notifyLsp: () =>
-        assert.fail("the replaced session cannot send full text"),
-      request: () => {
-        state.sessionId = "new-session";
-        return Promise.reject(
-          new JsonRpcResponseError("document is out of sync", -32801),
-        );
-      },
-    } as unknown as JsonRpcConnection;
-    await checkpointDocument(
-      textDocument("file:///document.md", 1, "old"),
-      state,
-      {
-        rpc,
-        daemonInstanceId: "daemon",
-        generation: 1,
-      },
-    );
-  });
-
   test("retries synchronization when an edited Markdown document has no session", async () => {
     const uri = "file:///rejected.md";
     const document = textDocument(uri, 2, "repaired");
@@ -529,7 +291,6 @@ export function suite(): void {
       async () => {
         synchronized += 1;
       },
-      async () => assert.fail("an unopened document cannot checkpoint"),
       (error) => assert.fail(String(error)),
     );
     await Promise.resolve();
@@ -541,25 +302,20 @@ export function suite(): void {
     let panelDisposed = 0;
     const preview = {
       documentUri: uri,
-      previewSessionId: "preview",
-      remoteSessionActive: true,
-      renderRevision: 7,
-      readInFlight: Promise.resolve(),
-      readAgain: true,
-      forceRead: true,
+      binding: { previewSessionId: "preview", active: true, renderRevision: 7 },
       panel: { dispose: () => panelDisposed++ },
     } as unknown as PreviewState;
     const external = {
       ...preview,
-      previewSessionId: "external",
+      binding: { ...preview.binding, previewSessionId: "external" },
       target: "externalBrowser",
       panel: undefined,
     } as PreviewState;
     const runtime = {
       documents: new Map([[uri, { sessionId: "document", version: 1 }]]),
       previews: new Map([
-        [preview.previewSessionId, preview],
-        [external.previewSessionId, external],
+        [preview.binding.previewSessionId, preview],
+        [external.binding.previewSessionId, external],
       ]),
     } as unknown as DocumentRuntime;
     const notifications: unknown[] = [];
@@ -579,35 +335,25 @@ export function suite(): void {
     assert.equal(runtime.documents.has(uri), false);
     assert.equal(runtime.previews.get("preview"), preview);
     assert.equal(runtime.previews.has("external"), false);
-    assert.equal(preview.remoteSessionActive, false);
-    assert.equal(preview.renderRevision, 7);
-    assert.equal(preview.readInFlight, undefined);
-    assert.equal(preview.readAgain, false);
-    assert.equal(preview.forceRead, false);
+    assert.equal(preview.binding.active, false);
+    assert.equal(preview.binding.renderRevision, 7);
     assert.equal(panelDisposed, 0);
   });
 
   test("disconnects every preview when daemon sessions reset", () => {
     const preview = {
-      previewSessionId: "preview",
-      remoteSessionActive: true,
-      readInFlight: Promise.resolve(),
-      readAgain: true,
-      forceRead: true,
+      binding: { previewSessionId: "preview", active: true },
     } as unknown as PreviewState;
     const documentState = { sessionId: "document", version: 1 };
     const runtime = {
       documents: new Map([["file:///note.md", documentState]]),
-      previews: new Map([[preview.previewSessionId, preview]]),
+      previews: new Map([[preview.binding.previewSessionId, preview]]),
     } as unknown as DocumentRuntime;
 
     resetDocumentSessions([runtime]);
 
     assert.equal(documentState.sessionId, undefined);
-    assert.equal(preview.remoteSessionActive, false);
-    assert.equal(preview.readInFlight, undefined);
-    assert.equal(preview.readAgain, false);
-    assert.equal(preview.forceRead, false);
+    assert.equal(preview.binding.active, false);
   });
 }
 

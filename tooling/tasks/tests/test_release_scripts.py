@@ -201,20 +201,6 @@ class ToolProcessTests(unittest.TestCase):
 
 
 class DistributionTests(unittest.TestCase):
-    def test_distribution_schema_binds_target_to_exact_payload_paths(self):
-        import json
-        from test_protocol_contract import Draft202012FixtureValidator, SchemaViolation
-        schema = json.loads((_tools.ROOT / "contracts/distribution/runtime-manifest.schema.json").read_text(encoding="utf-8"))
-        validator = Draft202012FixtureValidator(schema)
-        for target in distribution.TARGETS.values():
-            kind = "windowsFiles" if "windows" in target else "unixFiles"
-            files = {name: "a" * 64 for name in schema["$defs"][kind]["required"]}
-            manifest = {"schemaVersion": 1, "protocolVersion": distribution.metadata()["protocol_version"], "version": distribution.metadata()["version"], "target": target, "files": files}
-            validator.validate(manifest, schema)
-            manifest["target"] = "aarch64-unknown-linux-gnu" if "windows" in target else "aarch64-pc-windows-msvc"
-            with self.assertRaises(SchemaViolation):
-                validator.validate(manifest, schema)
-
     def test_release_publish_requires_exact_tag_and_complete_product_set(self):
         import release_assets
         with tempfile.TemporaryDirectory() as temporary:

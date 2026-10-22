@@ -3,10 +3,10 @@ use super::filesystem::read_json_regular;
 use super::journal::read_journal;
 use super::model::RecordedObject;
 use super::*;
-use crate::assets::resolve_export_assets;
-use crate::integrity::ObjectIdentity;
-use crate::test_support::test_workspace;
-use crate::{initialize_workspace, path_to_file_uri};
+use crate::native::assets::resolve_export_assets;
+use crate::native::integrity::ObjectIdentity;
+use crate::native::test_support::test_workspace;
+use crate::native::{initialize_workspace, path_to_file_uri};
 use fleximark_engine::ResolvedRenderAsset;
 
 #[test]

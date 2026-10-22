@@ -1,10 +1,22 @@
 //! Role: Verify session synchronization and workspace reconfiguration.
 use crate::test_plugins::TestPlugins;
 
-use crate::requests::{DocumentAttachmentRequest, DocumentCheckpointRequest, Position};
+use crate::requests::Position;
 use fleximark_engine::EngineError;
 
 use super::*;
+
+pub(super) fn workspace_uri() -> &'static str {
+    static URI: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    URI.get_or_init(|| {
+        let root = crate::native::test_support::test_workspace("authority");
+        std::fs::create_dir(root.join("nested")).unwrap();
+        crate::native::path_to_file_uri(&root).unwrap()
+    })
+}
+pub(super) fn workspace_document_uri(suffix: &str) -> &'static str {
+    Box::leak(format!("{}/{}", workspace_uri(), suffix).into_boxed_str())
+}
 
 const DOCUMENT_URI: &str = "file:///doc.md";
 
@@ -44,34 +56,6 @@ fn session_id<'a>(registry: &'a SessionRegistry, uri: &str) -> &'a str {
     registry.session_id_for_uri(uri).unwrap()
 }
 
-fn attach_params(
-    registry: &SessionRegistry,
-    uri: &str,
-    version: u32,
-    text: &str,
-) -> DocumentAttachmentRequest {
-    DocumentAttachmentRequest {
-        daemon_instance_id: registry.daemon_instance_id().into(),
-        uri: uri.into(),
-        expected_document_version: version.into(),
-        content_hash: content_hash(text),
-    }
-}
-
-fn checkpoint_params(
-    registry: &SessionRegistry,
-    session_id: &str,
-    version: u32,
-    hash: String,
-) -> DocumentCheckpointRequest {
-    DocumentCheckpointRequest {
-        daemon_instance_id: registry.daemon_instance_id().into(),
-        document_session_id: session_id.into(),
-        document_version: version.into(),
-        content_hash: hash,
-    }
-}
-
 fn document<'a>(registry: &'a SessionRegistry, uri: &str, version: i64) -> &'a DocumentSession {
     registry
         .document(
@@ -84,6 +68,8 @@ fn document<'a>(registry: &'a SessionRegistry, uri: &str, version: i64) -> &'a D
 
 fn configured_host(label: &str, _trusted: bool) -> (Arc<dyn PluginExecutor>, RenderConfig) {
     let host: Arc<dyn PluginExecutor> = Arc::new(TestPlugins {
+        calls: None,
+        marker: None,
         hash: content_hash(label),
     });
     let config = RenderConfig::for_plugins(Default::default(), None, host.as_ref());
@@ -107,6 +93,7 @@ fn render_fingerprint(
         )
         .unwrap()
         .renderer_fingerprint
+        .clone()
 }
 
 fn assets_with_duplicate_sources() -> ResolvedAssets {
@@ -139,188 +126,30 @@ fn utf16_position_resolves_through_the_authoritative_session() {
         .expect("heading has a navigation node");
     assert!(entry.source_range.byte_start <= 6);
     assert!(entry.source_range.byte_end >= 6);
-    assert_eq!(entry.source_range.start.encoding, PositionEncoding::Utf8);
 }
 
 #[test]
-fn stale_change_marks_session_out_of_sync_until_full_text() {
+fn full_sync_recovers_after_a_stale_update_and_reopen_replaces_identity() {
     let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
     open(&mut registry, "old", 3);
-    let stale = change(DOCUMENT_URI, 3, None, "ignored");
+    let old = session_id(&registry, DOCUMENT_URI).to_owned();
     assert_eq!(
-        registry.change_with_cancellation(stale, &CancellationToken::default()),
+        registry.change_with_cancellation(
+            change(DOCUMENT_URI, 3, None, "stale"),
+            &CancellationToken::default()
+        ),
         Err(SessionError::StaleVersion)
     );
-    assert!(
-        registry
-            .index
-            .by_uri(DOCUMENT_URI)
-            .unwrap()
-            .engine
-            .is_out_of_sync()
-    );
-    let requests = registry.take_full_text_requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(
-        requests[0].daemon_instance_id,
-        registry.daemon_instance_id()
-    );
-    assert_eq!(
-        requests[0].document_session_id,
-        session_id(&registry, DOCUMENT_URI)
-    );
-
     registry
         .change_with_cancellation(
-            change(DOCUMENT_URI, 9, None, "fresh"),
+            change(DOCUMENT_URI, 4, None, "latest 😀"),
             &CancellationToken::default(),
         )
         .unwrap();
-    assert!(
-        !registry
-            .index
-            .by_uri(DOCUMENT_URI)
-            .unwrap()
-            .engine
-            .is_out_of_sync()
-    );
-}
-
-#[test]
-fn repeated_full_text_recovery_keeps_the_document_in_sync() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
-    open(&mut registry, "old", 1);
-    let session = session_id(&registry, DOCUMENT_URI).to_owned();
-    let bad_checkpoint = checkpoint_params(&registry, &session, 1, content_hash("different"));
-    assert_eq!(
-        registry.checkpoint(&bad_checkpoint).unwrap_err(),
-        SessionError::HashMismatch
-    );
-    assert_eq!(registry.take_full_text_requests().len(), 1);
-
-    // The next ordinary edit can arrive before its full-text recovery reply.
-    for _ in 0..2 {
-        registry
-            .change_with_cancellation(
-                change(DOCUMENT_URI, 2, None, "latest 😀"),
-                &CancellationToken::default(),
-            )
-            .unwrap();
-    }
-
-    registry
-        .checkpoint(&checkpoint_params(
-            &registry,
-            &session,
-            2,
-            content_hash("latest 😀"),
-        ))
-        .unwrap();
-    assert!(registry.take_full_text_requests().is_empty());
-    assert_eq!(document(&registry, DOCUMENT_URI, 2).source(), "latest 😀");
-}
-
-#[test]
-fn bad_checkpoint_requests_full_text_and_blocks_render_lookup() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
-    open(&mut registry, "text", 1);
-    let attached = registry
-        .attach(&attach_params(&registry, DOCUMENT_URI, 1, "text"))
-        .unwrap();
-    let error = registry
-        .checkpoint(&checkpoint_params(
-            &registry,
-            &attached.document_session_id,
-            1,
-            content_hash("different"),
-        ))
-        .unwrap_err();
-    assert_eq!(error, SessionError::HashMismatch);
-    assert_eq!(
-        registry
-            .document(
-                registry.daemon_instance_id(),
-                &attached.document_session_id,
-                1
-            )
-            .err()
-            .unwrap(),
-        SessionError::ContentModified
-    );
-    assert_eq!(registry.take_full_text_requests().len(), 1);
-    registry
-        .change_with_cancellation(
-            change(DOCUMENT_URI, 1, None, "text"),
-            &CancellationToken::default(),
-        )
-        .unwrap();
-    assert!(
-        registry
-            .document(
-                registry.daemon_instance_id(),
-                &attached.document_session_id,
-                1
-            )
-            .is_ok()
-    );
-}
-
-#[test]
-fn duplicate_open_change_checkpoint_close_and_reopen_keep_one_session_index() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
-    let daemon = registry.daemon_instance_id().to_owned();
-    open(&mut registry, "one", 1);
-    let first = session_id(&registry, DOCUMENT_URI).to_owned();
-
-    open(&mut registry, "two", 2);
-    let second = session_id(&registry, DOCUMENT_URI).to_owned();
-    assert_ne!(first, second);
-    assert_eq!(
-        registry.current_version(&daemon, &first),
-        Err(SessionError::UnknownSession)
-    );
-    let attached = registry
-        .attach(&attach_params(&registry, DOCUMENT_URI, 2, "two"))
-        .unwrap();
-    assert_eq!(attached.document_session_id, second);
-
-    registry
-        .change_with_cancellation(
-            change(DOCUMENT_URI, 3, None, "three"),
-            &CancellationToken::default(),
-        )
-        .unwrap();
-    registry
-        .checkpoint(&checkpoint_params(
-            &registry,
-            &second,
-            3,
-            content_hash("three"),
-        ))
-        .unwrap();
-    assert_eq!(registry.current_version(&daemon, &second), Ok(3));
-
-    registry.close(DidCloseParams {
-        text_document: TextDocumentIdentifier {
-            uri: DOCUMENT_URI.into(),
-        },
-    });
-    assert_eq!(registry.session_id_for_uri(DOCUMENT_URI), None);
-    assert_eq!(
-        registry.current_version(&daemon, &second),
-        Err(SessionError::UnknownSession)
-    );
-    assert_eq!(
-        registry
-            .attach(&attach_params(&registry, DOCUMENT_URI, 3, "three"))
-            .unwrap_err(),
-        SessionError::NotOpen
-    );
-
-    open(&mut registry, "reopened", 4);
-    let third = session_id(&registry, DOCUMENT_URI);
-    assert_ne!(third, first);
-    assert_ne!(third, second);
+    assert_eq!(document(&registry, DOCUMENT_URI, 4).source(), "latest 😀");
+    open(&mut registry, "reconnected", 1);
+    assert_ne!(session_id(&registry, DOCUMENT_URI), old);
+    assert_eq!(registry.open_documents().len(), 1);
 }
 
 #[test]
@@ -348,43 +177,43 @@ fn session_index_replaces_colliding_session_ids_atomically() {
 }
 
 #[test]
-fn incremental_edits_use_utf8_utf16_and_utf32_units() {
-    let cases = [
-        (PositionEncoding::Utf8, 1, 5),
-        (PositionEncoding::Utf16, 1, 3),
-        (PositionEncoding::Utf32, 1, 2),
-    ];
-    for (encoding, start, end) in cases {
+fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental_input() {
+    for encoding in [
+        PositionEncoding::Utf8,
+        PositionEncoding::Utf16,
+        PositionEncoding::Utf32,
+    ] {
         let mut registry = SessionRegistry::new(encoding);
         open(&mut registry, "a😀b\n", 1);
+        let range = Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 1,
+            },
+        };
+        assert_eq!(
+            registry.change_with_cancellation(
+                change(DOCUMENT_URI, 2, Some(range), "x"),
+                &CancellationToken::default()
+            ),
+            Err(SessionError::InvalidRange)
+        );
         registry
             .change_with_cancellation(
-                change(
-                    DOCUMENT_URI,
-                    2,
-                    Some(Range {
-                        start: Position {
-                            line: 0,
-                            character: start,
-                        },
-                        end: Position {
-                            line: 0,
-                            character: end,
-                        },
-                    }),
-                    "x",
-                ),
+                change(DOCUMENT_URI, 2, None, "axb😀\n"),
                 &CancellationToken::default(),
             )
             .unwrap();
-        let session = document(&registry, DOCUMENT_URI, 2);
-        assert_eq!(session.source(), "axb\n", "encoding: {encoding:?}");
-        assert_eq!(session.position_encoding(), encoding);
+        assert_eq!(document(&registry, DOCUMENT_URI, 2).source(), "axb😀\n");
     }
 }
 
 #[test]
-fn workspace_matching_preserves_raw_longest_segment_prefix_semantics() {
+fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself() {
     let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
     let (parent_host, parent_config) = configured_host("parent", true);
     let (nested_host, nested_config) = configured_host("nested", false);
@@ -394,9 +223,9 @@ fn workspace_matching_preserves_raw_longest_segment_prefix_semantics() {
         .configure_workspaces(vec![
             ("".into(), empty_root_host, empty_root_config),
             ("file:///".into(), file_root_host, file_root_config),
-            ("file:///workspace".into(), parent_host, parent_config),
+            (workspace_uri().into(), parent_host, parent_config),
             (
-                "file:///workspace/nested/".into(),
+                workspace_document_uri("nested/").into(),
                 nested_host,
                 nested_config,
             ),
@@ -404,22 +233,26 @@ fn workspace_matching_preserves_raw_longest_segment_prefix_semantics() {
         .unwrap();
 
     let cases = [
-        ("file:///workspace/nested", Some("file:///workspace/nested")),
+        (workspace_document_uri("nested"), Some(workspace_uri())),
         (
-            "file:///workspace/nested/deep.md",
-            Some("file:///workspace/nested"),
+            workspace_document_uri("nested/deep.md"),
+            Some(workspace_document_uri("nested")),
         ),
-        ("file:///outside.md", Some("file:")),
-        ("/outside.md", Some("")),
+        ("file:///outside.md", None),
+        ("/outside.md", None),
         (
-            "file:///workspace/NESTED/case.md",
-            Some("file:///workspace"),
+            workspace_document_uri("NESTED/case.md"),
+            if cfg!(windows) {
+                Some(workspace_document_uri("nested"))
+            } else {
+                Some(workspace_uri())
+            },
         ),
         (
-            "file:///workspace/%6Eested/encoded.md",
-            Some("file:///workspace"),
+            workspace_document_uri("%6Eested/encoded.md"),
+            Some(workspace_document_uri("nested")),
         ),
-        ("file:///workspace-other/sibling.md", Some("file:")),
+        ("file:///workspace-other/sibling.md", None),
         ("relative.md", None),
     ];
     for (uri, expected_workspace) in cases {
@@ -430,27 +263,26 @@ fn workspace_matching_preserves_raw_longest_segment_prefix_semantics() {
 
     let parent_fingerprint = render_fingerprint(
         &mut registry,
-        "file:///workspace/NESTED/case.md",
+        workspace_document_uri("NESTED/case.md"),
         1,
         "parent-case",
     );
     let encoded_fingerprint = render_fingerprint(
         &mut registry,
-        "file:///workspace/%6Eested/encoded.md",
+        workspace_document_uri("%6Eested/encoded.md"),
         1,
         "parent-encoded",
     );
     let nested_fingerprint = render_fingerprint(
         &mut registry,
-        "file:///workspace/nested/deep.md",
+        workspace_document_uri("nested/deep.md"),
         1,
         "nested",
     );
-    assert_eq!(encoded_fingerprint, parent_fingerprint);
-    assert_ne!(nested_fingerprint, parent_fingerprint);
-    // Security boundary: authority matching compares raw URI text. Case and percent-encoded
-    // aliases therefore miss the untrusted nested root and inherit its trusted parent.
-    // Normalization requires a separately reviewed behavior and policy change.
+    assert_eq!(encoded_fingerprint, nested_fingerprint);
+    if !cfg!(windows) {
+        assert_ne!(nested_fingerprint, parent_fingerprint);
+    }
 }
 
 #[test]
@@ -458,9 +290,12 @@ fn workspace_reconfiguration_is_transactional() {
     let mut workspace = SessionRegistry::new(PositionEncoding::Utf8);
     let (old_host, old_config) = configured_host("old", true);
     workspace
-        .configure_workspaces(vec![("file:///workspace".into(), old_host, old_config)])
+        .configure_workspaces(vec![(workspace_uri().into(), old_host, old_config)])
         .unwrap();
-    let original_uris = ["file:///workspace/alpha.md", "file:///workspace/beta.md"];
+    let original_uris = [
+        workspace_document_uri("alpha.md"),
+        workspace_document_uri("beta.md"),
+    ];
     open_uri(&mut workspace, original_uris[0], "alpha", 1);
     open_uri(&mut workspace, original_uris[1], "beta", 2);
     let daemon = workspace.daemon_instance_id().to_owned();
@@ -479,7 +314,7 @@ fn workspace_reconfiguration_is_transactional() {
     let stage_order = workspace
         .index
         .iter()
-        .filter(|(_, session)| session.workspace_uri() == Some("file:///workspace"))
+        .filter(|(_, session)| session.workspace_uri() == Some(workspace_uri()))
         .map(|(uri, _)| uri.to_owned())
         .collect::<Vec<_>>();
     assert_eq!(stage_order.len(), 2);
@@ -489,7 +324,7 @@ fn workspace_reconfiguration_is_transactional() {
     let (mismatched_host, mismatched_config) = configured_host("mismatched", true);
     let error = workspace
         .reconfigure_workspace(
-            "file:///workspace",
+            workspace_uri(),
             mismatched_host,
             mismatched_config,
             invalid_assets,
@@ -520,7 +355,7 @@ fn workspace_reconfiguration_is_transactional() {
         );
     }
 
-    let new_uri = "file:///workspace/after-failure.md";
+    let new_uri = workspace_document_uri("after-failure.md");
     open_uri(&mut workspace, new_uri, "new", 3);
     let new_session_id = session_id(&workspace, new_uri).to_owned();
     assert_eq!(
@@ -528,7 +363,7 @@ fn workspace_reconfiguration_is_transactional() {
             .document(&daemon, &new_session_id, 3)
             .unwrap()
             .workspace_uri(),
-        Some("file:///workspace")
+        Some(workspace_uri())
     );
     assert_eq!(
         render_fingerprint(&mut workspace, new_uri, 3, "new-after-failure"),
@@ -538,7 +373,7 @@ fn workspace_reconfiguration_is_transactional() {
     let (replacement_host, replacement_config) = configured_host("replacement", true);
     workspace
         .reconfigure_workspace(
-            "file:///workspace",
+            workspace_uri(),
             replacement_host,
             replacement_config,
             HashMap::new(),
@@ -599,5 +434,143 @@ fn engine_error_categories_preserve_session_error_identity_and_messages() {
     ];
     for (engine, expected) in cases {
         assert_eq!(engine_error(engine), expected);
+    }
+}
+
+#[test]
+fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject() {
+    let root = crate::native::test_support::test_workspace("precedence");
+    let outer = root.join("outer");
+    let nested = outer.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    let base_uri = native::path_to_file_uri(&root).unwrap();
+    let outer_uri = native::path_to_file_uri(&outer).unwrap();
+    let nested_uri = format!("{outer_uri}/%6Eested");
+    let document_uri = format!("{outer_uri}/nested/new.md");
+    let alias_name =
+        "very-long-trusted-outer-workspace-alias-that-must-never-outrank-a-nested-root";
+    let alias = root.join(alias_name);
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(&outer, &alias);
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_dir(&outer, &alias);
+    let outer_alias = if linked.is_ok() {
+        format!("{base_uri}/{alias_name}")
+    } else {
+        format!("{base_uri}/%6Futer")
+    };
+    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+    let (outer_host, outer_config) = configured_host("privileged-outer", true);
+    let (nested_host, nested_config) = configured_host("restricted-nested", false);
+    let nested_hash = nested_config.plugin_set_hash.clone();
+    registry
+        .configure_workspaces(vec![
+            (outer_alias.clone(), outer_host, outer_config),
+            (nested_uri.clone(), nested_host, nested_config),
+        ])
+        .unwrap();
+    registry.set_workspace_status(&nested_uri, false, true);
+    assert_eq!(
+        registry.workspace_for_document(&document_uri),
+        Some((nested_uri.clone(), false))
+    );
+    open_uri(&mut registry, &document_uri, "# Source", 1);
+    assert_eq!(
+        document(&registry, &document_uri, 1).workspace_uri(),
+        Some(nested_uri.as_str())
+    );
+    assert_eq!(
+        document(&registry, &document_uri, 1)
+            .engine()
+            .render_config()
+            .plugin_set_hash,
+        nested_hash
+    );
+    assert!(!registry.workspace_grants_write(&nested_uri));
+    let mut duplicate = SessionRegistry::new(PositionEncoding::Utf8);
+    assert!(
+        duplicate
+            .configure_native_workspaces(vec![
+                (outer_uri.clone(), true),
+                (format!("{base_uri}/%6Futer"), false)
+            ])
+            .is_err()
+    );
+    assert!(duplicate.workspace_statuses().is_empty());
+    if linked.is_ok() {
+        std::fs::remove_dir(alias).unwrap();
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn revocation_ignores_invalid_config_and_cancellation_and_never_runs_old_hooks() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for cancel in [false, true] {
+        let root = crate::native::test_support::test_workspace("revoke");
+        let uri = native::path_to_file_uri(&root).unwrap();
+        native::initialize_workspace(&uri).unwrap();
+        let document_uri = format!("{uri}/new.md");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let host: Arc<dyn PluginExecutor> = Arc::new(TestPlugins {
+            hash: content_hash("privileged"),
+            calls: Some(Arc::clone(&calls)),
+            marker: Some("# Privileged generated heading\n\n".into()),
+        });
+        let config = RenderConfig::for_plugins(Default::default(), None, host.as_ref());
+        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        registry
+            .configure_workspaces(vec![(uri.clone(), host, config)])
+            .unwrap();
+        open_uri(&mut registry, &document_uri, "# Plain", 1);
+        assert!(
+            document(&registry, &document_uri, 1)
+                .document()
+                .metadata
+                .front_matter
+                .is_some()
+        );
+        let before = calls.load(Ordering::SeqCst);
+        std::fs::write(root.join(".fleximark/config.toml"), "invalid = [").unwrap();
+        let token = CancellationToken::default();
+        if cancel {
+            token.cancel();
+        }
+        let daemon = registry.daemon_instance_id().to_owned();
+        let result = registry.reconfigure_native_workspace(&daemon, &uri, false, &token);
+        if !cancel {
+            result.unwrap();
+        }
+        assert!(!registry.workspace_grants_write(&uri));
+        assert!(
+            document(&registry, &document_uri, 1)
+                .document()
+                .metadata
+                .front_matter
+                .is_none()
+        );
+        assert_eq!(
+            document(&registry, &document_uri, 1)
+                .document()
+                .blocks
+                .len(),
+            1,
+            "generated privileged IR must be discarded even on cancellation"
+        );
+        registry
+            .change_with_cancellation(
+                change(&document_uri, 2, None, "# Changed"),
+                &CancellationToken::default(),
+            )
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), before);
+        assert_eq!(
+            document(&registry, &document_uri, 2)
+                .document()
+                .blocks
+                .len(),
+            1
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,9 +1,11 @@
 import * as assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
 import type * as vscode from "vscode";
 
 import type { DaemonOrigin } from "../../../adapters/vscode/src/document-coordinator.mjs";
 import {
   type PreviewLifecycleDependencies,
+  disposePreviewCandidate,
   disposePreviewLifecycle,
   embeddedPreviewShell,
   followActiveDocumentLifecycle,
@@ -13,14 +15,12 @@ import {
   previewCandidateIdentityIsCurrent,
   previewCandidateIsCurrent,
   recreatePreviewsLifecycle,
+  requestPreviewCandidate,
   rerenderPreviewLifecycle,
   sameDaemonOrigin,
   synchronizePreviewLifecycle,
 } from "../../../adapters/vscode/src/preview-coordinator.mjs";
-import {
-  type JsonRpcConnection,
-  JsonRpcResponseError,
-} from "../../../adapters/vscode/src/rpc.mjs";
+import { JsonRpcConnection } from "../../../adapters/vscode/src/rpc.mjs";
 import type {
   DocumentRuntime,
   PreviewState,
@@ -31,6 +31,200 @@ import { deferred } from "./async-helpers.mjs";
 export const suiteName = "Preview coordinator";
 
 export function suite(): void {
+  test("keeps a same-chunk pushed frame while opening and rebinding a preview", async () => {
+    for (const rebind of [false, true]) {
+      const input = new PassThrough();
+      const output = new PassThrough();
+      const rpc = new JsonRpcConnection(input, output);
+      const origin = daemonOrigin(rpc, "daemon", 1);
+      const old = previewState(origin, async () => true);
+      old.sourceViewColumn = 1;
+      const state = { sessionId: "document", version: 1 };
+      const runtime = {
+        removed: false,
+        documents: new Map([["file:///next.md", state]]),
+        previews: new Map(rebind ? [["preview", old]] : []),
+      } as unknown as DocumentRuntime;
+      const document = {
+        languageId: "markdown",
+        version: 1,
+        fileName: "next.md",
+        uri: { toString: () => "file:///next.md" },
+      } as vscode.TextDocument;
+      const messages: unknown[] = [];
+      let ready: ((value: unknown) => void) | undefined;
+      const panel = {
+        webview: {
+          cspSource: "resource:",
+          postMessage: async (message: unknown) => {
+            messages.push(message);
+            return true;
+          },
+          onDidReceiveMessage: (handler: (value: unknown) => void) => {
+            ready = handler;
+          },
+        },
+        onDidDispose: () => undefined,
+        dispose: () => undefined,
+      } as unknown as vscode.WebviewPanel;
+      const requested = deferred<undefined>();
+      let written = "";
+      output.on("data", (chunk: Buffer) => {
+        written += chunk.toString();
+        if (written.includes("fleximark/createPreview"))
+          requested.resolve(undefined);
+      });
+      const dependencies = {
+        activeEditor: () => ({ document, viewColumn: 1 }),
+        workspaceFor: () => undefined,
+        start: async () => runtime,
+        sync: async () => undefined,
+        request: (
+          owner: DocumentRuntime,
+          opened: vscode.TextDocument,
+          target: "embeddedHtml",
+        ) =>
+          requestPreviewCandidate(
+            owner,
+            opened,
+            target,
+            () => origin,
+            () => true,
+            disposePreviewCandidate,
+          ),
+        candidateCurrent: () => true,
+        rejectCandidate: disposePreviewCandidate,
+        createPanel: () => panel,
+        scriptUri: () => "preview.js",
+        random: () => "token",
+        css: "",
+        log: () => undefined,
+        owner: () => runtime,
+        previewCurrent: () => true,
+        report: (error: unknown) => assert.fail(String(error)),
+        synchronize: (
+          owner: DocumentRuntime,
+          preview: PreviewState,
+          force?: boolean,
+        ) => synchronizePreviewLifecycle(owner, preview, dependencies, force),
+        notifyNavigation: () => undefined,
+      } as unknown as PreviewLifecycleDependencies;
+      rpc.on("message", (message) =>
+        handlePreviewChangedLifecycle(
+          origin,
+          message.params,
+          [runtime],
+          (owner, preview) => {
+            void dependencies.synchronize(owner, preview);
+          },
+        ),
+      );
+      const operation = rebind
+        ? followActiveDocumentLifecycle(
+            dependencies.activeEditor(),
+            [runtime],
+            dependencies,
+          )
+        : openPreviewLifecycle("embeddedHtml", dependencies);
+      await requested.promise;
+      const encode = (value: unknown) => {
+        const body = JSON.stringify(value);
+        return Buffer.from(
+          `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+        );
+      };
+      input.write(
+        Buffer.concat([
+          encode({
+            jsonrpc: "2.0",
+            id: 1,
+            result: {
+              previewSessionId: "preview-next",
+              frame: { ...frame(1), previewSessionId: "preview-next" },
+            },
+          }),
+          encode({
+            jsonrpc: "2.0",
+            method: "fleximark/previewChanged",
+            params: {
+              daemonInstanceId: "daemon",
+              previewSessionId: "preview-next",
+              renderRevision: 2,
+              frame: {
+                ...frame(2),
+                documentVersion: 1,
+                previewSessionId: "preview-next",
+              },
+            },
+          }),
+        ]),
+      );
+      if (rebind) {
+        // The old remote disposal follows the committed rebind.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        input.write(encode({ jsonrpc: "2.0", id: 2, result: null }));
+      }
+      await operation;
+      if (!rebind) ready?.({ type: "ready" });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const preview = runtime.previews.get("preview-next");
+      assert.ok(preview);
+      assert.equal(runtime.previews.size, 1);
+      assert.equal(preview.binding.frame.renderRevision, 2);
+      assert.equal(preview.binding.renderRevision, 2);
+      if (!rebind)
+        assert.equal(
+          (messages[0] as { frame: RenderFrame }).frame.renderRevision,
+          2,
+        );
+      assert.doesNotMatch(written, /readPreview/);
+      rpc.close();
+    }
+  });
+
+  test("removes an uncommitted preview when its connection closes after creation", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const rpc = new JsonRpcConnection(input, output);
+    const origin = daemonOrigin(rpc, "daemon", 1);
+    const document = {
+      languageId: "markdown",
+      version: 1,
+      uri: { toString: () => "file:///note.md" },
+    } as vscode.TextDocument;
+    const runtime = {
+      removed: false,
+      documents: new Map([
+        ["file:///note.md", { sessionId: "document", version: 1 }],
+      ]),
+      previews: new Map(),
+    } as unknown as DocumentRuntime;
+    const pending = requestPreviewCandidate(
+      runtime,
+      document,
+      "embeddedHtml",
+      () => origin,
+      () => !rpc.closed,
+      disposePreviewCandidate,
+    );
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { previewSessionId: "preview", frame: frame(1) },
+    });
+    input.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+    assert.equal(
+      runtime.previews.size,
+      1,
+      "registration is synchronous with the response",
+    );
+    rpc.close();
+    const candidate = await pending;
+    assert.ok(candidate);
+    await disposePreviewCandidate(candidate);
+    assert.equal(runtime.previews.size, 0);
+  });
+
   test("compares every daemon origin identity dimension", () => {
     const rpc = {} as JsonRpcConnection;
     const origin = daemonOrigin(rpc, "daemon", 3);
@@ -124,7 +318,7 @@ export function suite(): void {
     const runtime = runtimeWithPreview(preview);
     const dependencies = {
       previewCurrent: (_runtime: DocumentRuntime, item: PreviewState) =>
-        runtime.previews.get(item.previewSessionId) === item,
+        runtime.previews.get(item.binding.previewSessionId) === item,
       report: assert.fail,
     };
 
@@ -133,7 +327,7 @@ export function suite(): void {
       preview,
       dependencies,
     );
-    runtime.previews.delete(preview.previewSessionId);
+    runtime.previews.delete(preview.binding.previewSessionId);
     response.resolve(null);
 
     assert.equal(await rerendering, false);
@@ -148,160 +342,123 @@ export function suite(): void {
     ]);
   });
 
-  test("coalesces notifications received during a read and applies only latest frames", async () => {
-    const first = deferred<{ frame: RenderFrame | null }>();
-    const second = deferred<{ frame: RenderFrame | null }>();
-    const calls: unknown[] = [];
+  test("delivers pushed frames without reading and fences replaced bindings", async () => {
+    const delivery = deferred<boolean>();
     const messages: unknown[] = [];
-    const rpc = {
-      closed: false,
-      request(_method: string, params: unknown) {
-        calls.push(params);
-        return calls.length === 1 ? first.promise : second.promise;
-      },
-    } as unknown as JsonRpcConnection;
-    const origin = daemonOrigin(rpc, "daemon", 1);
+    const origin = daemonOrigin(
+      { closed: false, request: assert.fail } as unknown as JsonRpcConnection,
+      "daemon",
+      1,
+    );
     const preview = previewState(origin, async (message) => {
       messages.push(message);
-      return true;
+      return delivery.promise;
     });
     const runtime = runtimeWithPreview(preview);
-    const dependencies = {
-      previewCurrent: (_runtime: DocumentRuntime, item: PreviewState) =>
-        runtime.previews.get(item.previewSessionId) === item,
-      report: assert.fail,
-    };
-    const reading = synchronizePreviewLifecycle(
-      runtime,
-      preview,
-      dependencies,
-      true,
-    );
-    handlePreviewChangedLifecycle(
-      origin,
-      {
-        daemonInstanceId: "daemon",
-        previewSessionId: "preview",
-        renderRevision: 2,
-      },
-      [runtime],
-      (owner, item) =>
-        void synchronizePreviewLifecycle(owner, item, dependencies),
-    );
-    first.resolve({ frame: frame(1) });
-    await Promise.resolve();
-    second.resolve({ frame: frame(2) });
-    await reading;
-
-    assert.equal(calls.length, 2);
-    assert.deepEqual(calls[0], {
-      daemonInstanceId: "daemon",
-      previewSessionId: "preview",
-    });
-    assert.deepEqual(calls[1], {
-      daemonInstanceId: "daemon",
-      previewSessionId: "preview",
-      afterRevision: 1,
-    });
+    const dependencies = { previewCurrent: () => true, report: assert.fail };
+    const firstBinding = preview.binding;
+    const sending = synchronizePreviewLifecycle(runtime, preview, dependencies);
+    preview.binding = { ...firstBinding, renderRevision: 0, frame: frame(2) };
+    delivery.resolve(true);
+    await sending;
+    assert.equal(preview.binding.renderRevision, 0);
+    await synchronizePreviewLifecycle(runtime, preview, dependencies);
+    assert.equal(preview.binding.renderRevision, 2);
     assert.deepEqual(
       messages.map(
         (message) => (message as { frame: RenderFrame }).frame.renderRevision,
       ),
       [1, 2],
     );
-    assert.equal(preview.renderRevision, 2);
   });
 
-  test("waits for a fresh frame after transient editing rejections without busy retries", async () => {
-    for (const code of [-32800, -32801]) {
-      let requests = 0;
-      const rpc = {
-        closed: false,
-        request: () => {
-          requests++;
-          return requests === 1
-            ? Promise.reject(new JsonRpcResponseError("editing", code))
-            : Promise.resolve({ frame: frame(2) });
-        },
-      } as unknown as JsonRpcConnection;
-      const preview = previewState(
-        daemonOrigin(rpc, "daemon", 1),
-        async () => true,
-      );
-      const runtime = runtimeWithPreview(preview);
-      const dependencies = { previewCurrent: () => true, report: assert.fail };
-      await synchronizePreviewLifecycle(runtime, preview, dependencies);
-      assert.equal(requests, 1);
-      assert.equal(preview.readInFlight, undefined);
-
-      handlePreviewChangedLifecycle(
-        preview.origin,
-        {
-          daemonInstanceId: "daemon",
-          previewSessionId: "preview",
-          renderRevision: 2,
-        },
-        [runtime],
-        (owner, item) =>
-          void synchronizePreviewLifecycle(owner, item, dependencies),
-      );
-      await preview.readInFlight;
-      assert.equal(requests, 2);
-      assert.equal(preview.renderRevision, 2);
-    }
+  test("keeps the latest pushed frame until ready and retries failed delivery", async () => {
+    const messages: unknown[] = [];
+    let delivered = false;
+    const origin = daemonOrigin(
+      { closed: false, request: assert.fail } as unknown as JsonRpcConnection,
+      "daemon",
+      1,
+    );
+    const preview = previewState(origin, async (message) => {
+      messages.push(message);
+      return delivered;
+    });
+    preview.webviewReady = false;
+    const runtime = runtimeWithPreview(preview);
+    const dependencies = { previewCurrent: () => true, report: assert.fail };
+    handlePreviewChangedLifecycle(
+      origin,
+      {
+        daemonInstanceId: "daemon",
+        previewSessionId: "preview",
+        renderRevision: 2,
+        frame: frame(2),
+      },
+      [runtime],
+      assert.fail,
+    );
+    assert.equal(messages.length, 0);
+    preview.webviewReady = true;
+    await synchronizePreviewLifecycle(runtime, preview, dependencies);
+    assert.equal(preview.binding.renderRevision, 0);
+    delivered = true;
+    await synchronizePreviewLifecycle(runtime, preview, dependencies);
+    assert.equal(preview.binding.renderRevision, 2);
+    assert.equal(messages.length, 2);
   });
 
-  test("keeps a new frame notification received before a transient read rejection", async () => {
-    for (const code of [-32800, -32801]) {
-      const first = deferred<{ frame: RenderFrame | null }>();
-      let requests = 0;
-      const rpc = {
-        closed: false,
-        request: () =>
-          ++requests === 1
-            ? first.promise
-            : Promise.resolve({ frame: frame(2) }),
-      } as unknown as JsonRpcConnection;
-      const preview = previewState(
-        daemonOrigin(rpc, "daemon", 1),
-        async () => true,
-      );
-      const runtime = runtimeWithPreview(preview);
-      const dependencies = { previewCurrent: () => true, report: assert.fail };
-      const reading = synchronizePreviewLifecycle(
-        runtime,
-        preview,
-        dependencies,
-      );
-      await Promise.resolve();
-      handlePreviewChangedLifecycle(
-        preview.origin,
-        {
-          daemonInstanceId: "daemon",
-          previewSessionId: "preview",
-          renderRevision: 2,
-        },
-        [runtime],
-        (owner, item) =>
-          void synchronizePreviewLifecycle(owner, item, dependencies),
-      );
-      first.reject(new JsonRpcResponseError("editing", code));
-      await reading;
-      assert.equal(requests, 2);
-      assert.equal(preview.renderRevision, 2);
-      assert.equal(preview.readInFlight, undefined);
-    }
+  test("forwards matching navigation after successful frame delivery", async () => {
+    const completion = deferred<boolean>();
+    const messages: unknown[] = [];
+    const origin = daemonOrigin(
+      { closed: false } as JsonRpcConnection,
+      "daemon",
+      1,
+    );
+    const preview = previewState(origin, async (message) => {
+      messages.push(message);
+      return messages.length === 1 ? completion.promise : true;
+    });
+    const runtime = runtimeWithPreview(preview);
+    const sending = synchronizePreviewLifecycle(runtime, preview, {
+      previewCurrent: () => true,
+      report: (error) => assert.fail(String(error)),
+    });
+    const event = {
+      type: "viewport" as const,
+      previewSessionId: "preview",
+      renderRevision: 1,
+      nodeId: "a",
+    };
+    await handlePreviewEventLifecycle(
+      origin,
+      {
+        daemonInstanceId: "daemon",
+        previewSessionId: "preview",
+        renderRevision: 1,
+        event,
+      },
+      [runtime],
+      async () => assert.fail("must stay in preview"),
+    );
+    assert.equal(messages.length, 1);
+    completion.resolve(true);
+    await sending;
+    assert.deepEqual(messages[1], {
+      type: "previewEvent",
+      messageToken: "token",
+      event,
+    });
   });
 
-  test("still reports genuine preview read failures", async () => {
-    const failure = new JsonRpcResponseError("unknown preview session", -32602);
-    const rpc = {
-      closed: false,
-      request: () => Promise.reject(failure),
-    } as unknown as JsonRpcConnection;
+  test("reports webview delivery failures", async () => {
+    const failure = new Error("webview closed");
     const preview = previewState(
-      daemonOrigin(rpc, "daemon", 1),
-      async () => true,
+      daemonOrigin({ closed: false } as JsonRpcConnection, "daemon", 1),
+      async () => {
+        throw failure;
+      },
     );
     const reported: unknown[] = [];
     await synchronizePreviewLifecycle(runtimeWithPreview(preview), preview, {
@@ -309,36 +466,6 @@ export function suite(): void {
       report: (error) => reported.push(error),
     });
     assert.deepEqual(reported, [failure]);
-  });
-
-  test("drops a read response from a replaced connection incarnation", async () => {
-    const response = deferred<{ frame: RenderFrame | null }>();
-    let posted = false;
-    const firstRpc = {
-      closed: false,
-      request: () => response.promise,
-    } as unknown as JsonRpcConnection;
-    const preview = previewState(
-      daemonOrigin(firstRpc, "old", 1),
-      async () => ((posted = true), true),
-    );
-    const runtime = runtimeWithPreview(preview);
-    const reading = synchronizePreviewLifecycle(
-      runtime,
-      preview,
-      { previewCurrent: () => true, report: assert.fail },
-      true,
-    );
-    await Promise.resolve();
-    preview.origin = daemonOrigin(
-      { closed: false } as JsonRpcConnection,
-      "new",
-      2,
-    );
-    response.resolve({ frame: frame(1) });
-    await reading;
-    assert.equal(posted, false);
-    assert.equal(preview.renderRevision, 0);
   });
 
   test("ignores changed notifications from stale origins", () => {
@@ -356,13 +483,14 @@ export function suite(): void {
           daemonInstanceId: "old",
           previewSessionId: "preview",
           renderRevision: 9,
+          frame: frame(9),
         },
         [runtime],
         () => (synchronized = true),
       ),
       false,
     );
-    assert.equal(preview.notifiedRevision, 0);
+    assert.equal(preview.binding.frame.renderRevision, 1);
     assert.equal(synchronized, false);
   });
 
@@ -400,6 +528,7 @@ export function suite(): void {
         result: {
           previewSessionId: "preview",
           url: "http://127.0.0.1/preview",
+          frame: frame(1),
         },
       }),
       candidateCurrent: () => true,
@@ -421,7 +550,7 @@ export function suite(): void {
     const preview = runtime.previews.get("preview");
     assert.ok(preview);
     assert.deepEqual(opened, ["http://127.0.0.1/preview"]);
-    assert.equal(preview.renderRevision, 0);
+    assert.equal(preview.binding.renderRevision, 0);
 
     const navigated: unknown[] = [];
     const sourceNavigation = (renderRevision: number) => ({
@@ -450,7 +579,7 @@ export function suite(): void {
       navigate,
     );
     assert.equal(navigated.length, 1, "scroll works before any document edit");
-    assert.equal(preview.renderRevision, 1);
+    assert.equal(preview.binding.renderRevision, 1);
 
     handlePreviewChangedLifecycle(
       origin,
@@ -458,11 +587,12 @@ export function suite(): void {
         daemonInstanceId: "daemon",
         previewSessionId: "preview",
         renderRevision: 3,
+        frame: frame(3),
       },
       [runtime],
       assert.fail,
     );
-    assert.equal(preview.renderRevision, 3);
+    assert.equal(preview.binding.renderRevision, 3);
 
     await handlePreviewEventLifecycle(
       origin,
@@ -508,7 +638,7 @@ export function suite(): void {
       messages.push(message);
       return true;
     });
-    preview.renderRevision = 3;
+    preview.binding.renderRevision = 3;
     const runtime = runtimeWithPreview(preview);
 
     assert.equal(
@@ -558,7 +688,7 @@ export function suite(): void {
     const nextOrigin = daemonOrigin(nextRpc, "daemon", 1);
     const preview = previewState(previousOrigin, async () => true);
     preview.sourceViewColumn = 1;
-    preview.renderRevision = 4;
+    preview.binding.renderRevision = 4;
     const previousRuntime = runtimeWithPreview(preview);
     const documentState = { sessionId: "document-next", version: 2 };
     const nextRuntime = {
@@ -592,13 +722,16 @@ export function suite(): void {
           documentState,
           documentSessionId: "document-next",
           documentVersion: 2,
-          result: { previewSessionId: "preview-next" },
+          result: {
+            previewSessionId: "preview-next",
+            frame: { ...frame(1), previewSessionId: "preview-next" },
+          },
         };
       },
       candidateCurrent: () => true,
       rejectCandidate: assert.fail,
       previewCurrent: (runtime: DocumentRuntime, item: PreviewState) =>
-        runtime.previews.get(item.previewSessionId) === item,
+        runtime.previews.get(item.binding.previewSessionId) === item,
       synchronize: async (runtime: DocumentRuntime, item: PreviewState) =>
         void synchronized.push({ runtime, item }),
     } as unknown as PreviewLifecycleDependencies;
@@ -632,8 +765,8 @@ export function suite(): void {
     assert.equal(previousRuntime.previews.size, 0);
     assert.equal(nextRuntime.previews.get("preview-next"), preview);
     assert.equal(preview.documentUri, "file:///next.md");
-    assert.equal(preview.remoteSessionActive, true);
-    assert.equal(preview.renderRevision, 0);
+    assert.equal(preview.binding.active, true);
+    assert.equal(preview.binding.renderRevision, 0);
     assert.equal(preview.panel?.title, "FlexiMark: next.md");
     assert.equal(synchronized.length, 1);
     assert.deepEqual(released, [
@@ -662,7 +795,7 @@ export function suite(): void {
     );
     const preview = previewState(previousOrigin, async () => true);
     preview.sourceViewColumn = 1;
-    preview.remoteSessionActive = false;
+    preview.binding.active = false;
     const previousRuntime = runtimeWithPreview(preview);
     const workspace = { uri: { toString: () => "file:///workspace" } };
     const documentState = { sessionId: "next-document", version: 2 };
@@ -695,12 +828,15 @@ export function suite(): void {
         documentState,
         documentSessionId: "next-document",
         documentVersion: 2,
-        result: { previewSessionId: "preview-next" },
+        result: {
+          previewSessionId: "preview-next",
+          frame: { ...frame(1), previewSessionId: "preview-next" },
+        },
       }),
       candidateCurrent: () => true,
       rejectCandidate: assert.fail,
       previewCurrent: (owner: DocumentRuntime, item: PreviewState) =>
-        owner.previews.get(item.previewSessionId) === item,
+        owner.previews.get(item.binding.previewSessionId) === item,
       synchronize: async () => void 0,
     } as unknown as PreviewLifecycleDependencies;
 
@@ -713,7 +849,7 @@ export function suite(): void {
     assert.equal(released, 0);
     assert.equal(previousRuntime.previews.size, 0);
     assert.equal(nextRuntime.previews.get("preview-next"), preview);
-    assert.equal(preview.remoteSessionActive, true);
+    assert.equal(preview.binding.active, true);
   });
 
   test("retains disconnected panels when replay is unavailable", async () => {
@@ -736,7 +872,7 @@ export function suite(): void {
         daemonOrigin(item.connection, item.daemon, 1),
         async () => true,
       );
-      if (item.connection.closed) preview.remoteSessionActive = false;
+      if (item.connection.closed) preview.binding.active = false;
       const runtime = runtimeWithPreview(preview);
       await recreatePreviewsLifecycle(runtime, {
         document: item.document,
@@ -745,7 +881,7 @@ export function suite(): void {
         report: assert.fail,
       } as unknown as PreviewLifecycleDependencies);
       assert.equal(runtime.previews.get("preview"), preview, item.daemon);
-      assert.equal(preview.remoteSessionActive, false, item.daemon);
+      assert.equal(preview.binding.active, false, item.daemon);
       assert.ok(preview.panel, item.daemon);
     }
   });
@@ -789,7 +925,7 @@ export function suite(): void {
       ),
       async () => true,
     );
-    preview.remoteSessionActive = false;
+    preview.binding.active = false;
     let panelDisposed = 0;
     preview.panel = { dispose: () => panelDisposed++ } as never;
     const runtime = runtimeWithPreview(preview);
@@ -813,13 +949,15 @@ function previewState(
   postMessage: (message: unknown) => Promise<boolean>,
 ): PreviewState {
   return {
-    origin,
+    binding: {
+      origin,
+      previewSessionId: "preview",
+      active: true,
+      renderRevision: 0,
+      frame: frame(1),
+    },
     documentUri: "file:///note.md",
-    previewSessionId: "preview",
-    remoteSessionActive: true,
     target: "embeddedHtml",
-    renderRevision: 0,
-    notifiedRevision: 0,
     webviewReady: true,
     messageToken: "token",
     panel: { webview: { postMessage } } as never,
@@ -829,7 +967,7 @@ function previewState(
 function runtimeWithPreview(preview: PreviewState): DocumentRuntime {
   return {
     removed: false,
-    previews: new Map([[preview.previewSessionId, preview]]),
+    previews: new Map([[preview.binding.previewSessionId, preview]]),
   } as unknown as DocumentRuntime;
 }
 

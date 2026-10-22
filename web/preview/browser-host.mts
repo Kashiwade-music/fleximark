@@ -1,6 +1,5 @@
 import {
   type PreviewNavigationEvent,
-  isPreviewChangedParams,
   isPreviewNavigationEvent,
   isRenderFrame,
 } from "../../contracts/typescript/protocol.mjs";
@@ -45,11 +44,8 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   );
   const state: {
     preview?: PreviewHost;
-    reading: boolean;
-    pendingRevision: number;
     pendingNavigation?: PreviewNavigationEvent;
-    navigationSequence: number;
-  } = { reading: false, pendingRevision: 0, navigationSequence: 0 };
+  } = {};
   const failure = new PreviewFailureGuard(
     () => events.close(),
     () => {
@@ -63,59 +59,19 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
   );
   state.preview = new PreviewHost(
     root,
-    () => void readFrame(),
+    () => failure.fail(),
     (event) => navigation.send(event),
   );
 
-  async function readFrame(): Promise<void> {
-    if (failure.failed || state.reading) return;
-    state.reading = true;
+  events.addEventListener("message", (event) => {
+    if (failure.failed) return;
     try {
-      do {
-        const requestedRevision = state.pendingRevision;
-        const response = await fetch(`${location.pathname}/frame`, {
-          headers: { accept: "application/json" },
-          cache: "no-store",
-        });
-        if (!response.ok)
-          throw new Error(`frame request failed: ${response.status}`);
-        const value = (await response.json()) as unknown;
-        if (
-          value === null ||
-          typeof value !== "object" ||
-          Array.isArray(value) ||
-          !isRenderFrame((value as { frame?: unknown }).frame)
-        )
-          throw new Error("invalid preview frame");
-        const frame = (value as { frame: RenderFrame }).frame;
+      const changed = JSON.parse(
+        (event as MessageEvent<string>).data,
+      ) as unknown;
+      if (isRenderFrame(changed)) {
+        const frame = changed as RenderFrame;
         state.preview?.apply([frame]);
-        if (state.preview?.renderRevision !== frame.renderRevision)
-          throw new Error("preview frame was rejected");
-        const retained = (value as { navigation?: unknown }).navigation;
-        if (retained !== undefined && retained !== null) {
-          if (typeof retained !== "object" || Array.isArray(retained))
-            throw new Error("invalid retained navigation");
-          const { sequence, event } = retained as {
-            sequence?: unknown;
-            event?: unknown;
-          };
-          if (
-            !Number.isSafeInteger(sequence) ||
-            (sequence as number) < 1 ||
-            !isPreviewNavigationEvent(event)
-          )
-            throw new Error("invalid retained navigation");
-          const navigationEvent = event as PreviewNavigationEvent;
-          if (
-            (sequence as number) > state.navigationSequence &&
-            navigationEvent.previewSessionId === frame.previewSessionId &&
-            navigationEvent.renderRevision === frame.renderRevision
-          ) {
-            state.preview?.apply([navigationEvent]);
-            state.navigationSequence = sequence as number;
-            state.pendingNavigation = undefined;
-          }
-        }
         const pending = state.pendingNavigation;
         if (
           pending?.previewSessionId === frame.previewSessionId &&
@@ -125,29 +81,6 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
             state.preview?.apply([pending]);
           state.pendingNavigation = undefined;
         }
-        if (requestedRevision === state.pendingRevision) break;
-      } while (!failure.failed);
-    } catch {
-      failure.fail();
-    } finally {
-      state.reading = false;
-    }
-  }
-
-  events.addEventListener("message", (event) => {
-    if (failure.failed) return;
-    try {
-      const changed = JSON.parse(
-        (event as MessageEvent<string>).data,
-      ) as unknown;
-      if (isPreviewChangedParams(changed)) {
-        const notification =
-          changed as import("../../contracts/typescript/protocol.mjs").PreviewChangedParams;
-        state.pendingRevision = Math.max(
-          state.pendingRevision,
-          notification.renderRevision,
-        );
-        void readFrame();
       } else if (isPreviewNavigationEvent(changed)) {
         const event = changed as PreviewNavigationEvent;
         if (
@@ -174,5 +107,4 @@ if (document.currentScript?.hasAttribute("data-fleximark-live")) {
       state.preview?.dispose();
     }
   });
-  void readFrame();
 }

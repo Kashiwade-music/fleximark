@@ -7,7 +7,7 @@ mod rendering;
 pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
 pub use registry::*;
 pub use rendering::*;
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 pub const CONTENT_MODIFIED: i64 = -32801;
 /// Limits incoming control messages; outgoing render frames may contain large assets.
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -129,6 +129,7 @@ pub struct Notification<P> {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InitializeParams {
+    #[cfg_attr(feature = "contract-schema", schemars(extend("const" = PROTOCOL_VERSION)))]
     pub protocol_version: u32,
     pub client: ClientInfo,
     #[serde(default)]
@@ -182,6 +183,7 @@ pub struct ClientCapabilities {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
+    #[cfg_attr(feature = "contract-schema", schemars(extend("const" = PROTOCOL_VERSION)))]
     pub protocol_version: u32,
     pub daemon_instance_id: String,
     pub capabilities: ServerCapabilities,
@@ -194,6 +196,7 @@ pub struct InitializeResult {
 pub struct WorkspaceStatus {
     pub uri: String,
     pub enabled: bool,
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -203,7 +206,6 @@ pub struct WorkspaceStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
     pub html_render: bool,
-    pub document_checkpoint: bool,
     pub selection_events: bool,
     pub viewport_events: bool,
     pub workspace_commands: Vec<&'static str>,
@@ -216,7 +218,6 @@ pub struct AttachDocumentParams {
     pub daemon_instance_id: String,
     pub uri: String,
     pub expected_document_version: JsSafeI64,
-    pub content_hash: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -225,35 +226,6 @@ pub struct AttachDocumentParams {
 pub struct AttachDocumentResult {
     pub document_session_id: String,
     pub document_version: JsSafeI64,
-    pub content_hash: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CheckpointDocumentParams {
-    pub daemon_instance_id: String,
-    pub document_session_id: String,
-    pub document_version: JsSafeI64,
-    pub content_hash: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct CheckpointDocumentResult {
-    pub document_version: JsSafeI64,
-    pub content_hash: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct RequestFullTextParams {
-    pub daemon_instance_id: String,
-    pub uri: String,
-    pub document_session_id: String,
-    pub reason: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -278,34 +250,21 @@ pub enum PreviewTarget {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePreviewResult {
+    pub frame: RenderFrame,
     pub preview_session_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReadPreviewParams {
-    pub daemon_instance_id: String,
-    pub preview_session_id: String,
-    #[serde(default)]
-    pub after_revision: Option<JsSafeU64>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ReadPreviewResult<T> {
-    pub frame: Option<T>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewChangedParams {
+    pub frame: RenderFrame,
     pub daemon_instance_id: String,
     pub preview_session_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
     pub render_revision: JsSafeU64,
 }
 
@@ -369,13 +328,19 @@ pub struct TextSelection {
 )]
 pub enum PreviewNavigationEvent {
     SelectNode {
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         preview_session_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
         render_revision: JsSafeU64,
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         node_id: NodeId,
     },
     RevealNode {
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         preview_session_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
         render_revision: JsSafeU64,
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         node_id: NodeId,
     },
 }
@@ -401,14 +366,24 @@ pub enum SourceNavigationEvent {
 )]
 pub enum RenderNavigationEvent {
     Selection {
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         preview_session_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
         render_revision: JsSafeU64,
+        #[cfg_attr(feature = "contract-schema", schemars(extend("uniqueItems" = true, "items" = {"type":"string","minLength":1})))]
         node_ids: Vec<NodeId>,
+        #[cfg_attr(
+            feature = "contract-schema",
+            schemars(skip_serializing_if = "Option::is_none")
+        )]
         active_position: Option<TextPosition>,
     },
     Viewport {
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         preview_session_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
         render_revision: JsSafeU64,
+        #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
         node_id: NodeId,
     },
 }
@@ -429,6 +404,7 @@ pub struct SetViewportParams {
 pub struct PreviewEventParams {
     pub daemon_instance_id: String,
     pub preview_session_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
     pub render_revision: JsSafeU64,
     pub event: PreviewNavigationEvent,
 }
@@ -447,6 +423,7 @@ pub enum ServerPreviewEvent {
 pub struct ServerPreviewEventParams {
     pub daemon_instance_id: String,
     pub preview_session_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
     pub render_revision: JsSafeU64,
     pub event: ServerPreviewEvent,
 }
@@ -466,10 +443,12 @@ pub struct ExecuteCommandParams {
     #[serde(default)]
     pub destination_uri: Option<String>,
     #[serde(default, deserialize_with = "deserialize_note_category_path")]
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null, extend("minItems" = 1, "maxItems" = 32, "items" = {"type":"string","minLength":1})))]
     pub note_category_path: Option<Vec<String>>,
     #[serde(default)]
     pub note_template: Option<String>,
     #[serde(default, deserialize_with = "deserialize_note_file_name")]
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null, extend("minLength" = 1, "maxLength" = 255)))]
     pub note_file_name: Option<String>,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -513,6 +492,7 @@ pub struct GetNoteOptionsParams {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct NoteCategoryOption {
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
     pub name: String,
     pub children: Vec<NoteCategoryOption>,
 }
@@ -520,7 +500,9 @@ pub struct NoteCategoryOption {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GetNoteOptionsResult {
+    #[cfg_attr(feature = "contract-schema", schemars(extend("uniqueItems" = true)))]
     pub categories: Vec<NoteCategoryOption>,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("uniqueItems" = true)))]
     pub templates: Vec<String>,
 }
 
@@ -528,10 +510,13 @@ pub struct GetNoteOptionsResult {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CommandResult {
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<CommandMessage>,
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub open_uri: Option<String>,
+    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<String>,
 }
@@ -637,3 +622,34 @@ impl From<io::Error> for FrameError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "contract-schema")]
+mod schema {
+    //! Role: Express optional non-null wire fields in derived contract schemas.
+    pub(super) fn non_null(schema: &mut schemars::Schema) {
+        if let Some(types) = schema
+            .get_mut("type")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            types.retain(|kind| kind.as_str() != Some("null"));
+            if types.len() == 1 {
+                let kind = types[0].clone();
+                schema.insert("type".into(), kind);
+            }
+        }
+        for key in ["anyOf", "oneOf"] {
+            if let Some(variants) = schema
+                .get_mut(key)
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                variants.retain(|variant| {
+                    variant.get("type").and_then(serde_json::Value::as_str) != Some("null")
+                });
+                if variants.len() == 1 {
+                    *schema = variants[0].clone().try_into().expect("schema variant");
+                }
+                break;
+            }
+        }
+    }
+}

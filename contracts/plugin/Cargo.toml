@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+fleximark-plugin-api = { path = "../../core/plugin-api" }
 fleximark-model = { path = "../../core/model" }
 caseless.workspace = true
 serde.workspace = true

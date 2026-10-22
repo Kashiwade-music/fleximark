@@ -22,7 +22,7 @@ fn preview_assets() -> BrowserAssets {
 }
 
 fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
-    let frame = RenderFrame::from_snapshot(PreviewSessionId("preview-1".into()), 7, serde_json::from_value(json!({
+    let mut frame = RenderFrame::from_snapshot(PreviewSessionId("preview-1".into()), 7, serde_json::from_value(json!({
         "documentVersion":1,
         "rendererFingerprint":"0000000000000000000000000000000000000000000000000000000000000000",
         "style":null,
@@ -41,6 +41,9 @@ fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
         "annotations":{}
     }))
     .unwrap());
+    frame.source = Arc::from("x\n\nxhello");
+    let frame_event =
+        serde_json::to_string(&fleximark_preview_http::protocol::frame(&frame).unwrap()).unwrap();
     Arc::new(Mutex::new(HashMap::from([(
         token.to_owned(),
         PreviewPage {
@@ -49,12 +52,7 @@ fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
             preview_session_id: "preview-1".into(),
             frame,
             change_event: StoredEvent {
-                encoded: serde_json::to_string(&json!({
-                    "daemonInstanceId":"daemon-1",
-                    "previewSessionId":"preview-1",
-                    "renderRevision":7
-                }))
-                .unwrap(),
+                encoded: frame_event,
                 sequence: 1,
             },
             navigation_event: None,
@@ -315,9 +313,11 @@ fn preview_sse_preserves_wire_format_order_and_acknowledged_sequences() {
     };
 
     let from_start = response(0);
-    let navigation = from_start.find("id: 2\ndata: navigation-2").unwrap();
-    let change = from_start.find("id: 3\ndata: change-3").unwrap();
-    assert!(navigation < change);
+    assert!(
+        !from_start.contains("navigation-2"),
+        "navigation from an older frame must not follow a new frame"
+    );
+    assert!(from_start.contains("id: 3\ndata: change-3"));
 
     let after_navigation = response(2);
     assert!(!after_navigation.contains("id: 2\n"));
@@ -377,4 +377,40 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
             }
         })
     );
+}
+
+#[test]
+fn sse_reconnect_does_not_repeat_unchanged_frame_or_retained_navigation() {
+    let token = "reconnect";
+    let pages = preview_pages(token);
+    pages
+        .lock()
+        .unwrap()
+        .get_mut(token)
+        .unwrap()
+        .durable_navigation = Some(StoredEvent {
+        encoded: "retained-jump".into(),
+        sequence: 2,
+    });
+    let request = |last: Option<u64>| {
+        String::from_utf8(preview_http_request(&pages, None, |port| {
+            let header = last
+                .map(|last| format!("Last-Event-ID: {last}\r\n"))
+                .unwrap_or_default();
+            format!(
+                "GET /preview/{token}/events HTTP/1.1\r\nHost: localhost:{port}\r\n{header}\r\n"
+            )
+            .into_bytes()
+        }))
+        .unwrap()
+    };
+    let initial = request(None);
+    assert!(initial.contains("rendererFingerprint"));
+    assert!(initial.contains("id: 2\ndata: retained-jump"));
+    let interrupted = request(Some(1));
+    assert!(!interrupted.contains("rendererFingerprint"));
+    assert!(interrupted.contains("id: 2\ndata: retained-jump"));
+    let reconnect = request(Some(2));
+    assert!(!reconnect.contains("data:"));
+    assert!(!reconnect.contains("retained-jump"));
 }

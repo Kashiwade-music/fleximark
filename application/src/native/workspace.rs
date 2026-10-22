@@ -3,12 +3,12 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 
+use crate::outcomes::InitializedWorkspace;
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
-use fleximark_application::operations::InitializedWorkspace;
 use fleximark_config::FlexiMarkConfig;
 
-use crate::{ServiceError, path_to_file_uri, workspace_path};
+use crate::native::{ServiceError, path_to_file_uri, workspace_path};
 
 pub(crate) const CONFIG: &str =
     "# FlexiMark workspace configuration\nschema_version = 2\n\n[notes]\nroot = \"notes\"\n";
@@ -144,8 +144,8 @@ pub fn workspace_for_document(document_uri: &str) -> Result<String, ServiceError
 mod tests {
     //! Role: Verify workspace operations and security invariants.
     use super::*;
-    use crate::test_support::test_workspace;
-    use crate::{create_note, get_note_options, load_plugin_host};
+    use crate::native::test_support::test_workspace;
+    use crate::native::{create_note, get_note_options, load_plugin_host};
     #[test]
     fn linked_control_directory_never_reads_or_writes_outside_the_workspace() {
         let root = test_workspace("linked-control-test");
@@ -172,9 +172,13 @@ mod tests {
             Err(ServiceError::LinkedControlDirectory)
         ));
         assert!(matches!(
-            load_plugin_host(&uri, false, 1),
+            load_plugin_host(&uri, true, 1),
             Err(ServiceError::LinkedControlDirectory)
         ));
+        assert!(
+            load_plugin_host(&uri, false, 1).is_ok(),
+            "restricted configuration must not inspect a linked control directory"
+        );
         assert_eq!(
             fs::read_to_string(outside.join("sentinel")).unwrap(),
             "unchanged"

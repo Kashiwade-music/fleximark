@@ -1,19 +1,18 @@
 /** Browser-neutral consumers of the Rust-owned FlexiMark wire contract. */
-import { validateContractDescriptor } from "./contract-validator.mjs";
+import { validateContractSchema } from "./contract-validator.mjs";
 import {
   CLIENT_NOTIFICATION_VALIDATORS,
+  CONTRACT_DEFINITIONS,
   PROTOCOL_VERSION,
   REQUEST_VALIDATORS,
   SERVER_NOTIFICATION_VALIDATORS,
   TYPE_VALIDATORS,
-  VALIDATOR_TYPES,
 } from "./protocol.generated.mjs";
 import type * as Contract from "./protocol.generated.mjs";
 
 export { PROTOCOL_VERSION };
 export type {
   AttachDocumentResult,
-  CheckpointDocumentResult,
   CommandResult,
   CreatePreviewResult,
   ExecuteCommandParams,
@@ -29,7 +28,6 @@ export type {
   RenderBlock,
   RenderFrame,
   RenderStyle,
-  RequestFullTextParams,
   SourceNavigationEvent,
   SourcePosition,
   SourceRange,
@@ -140,7 +138,11 @@ export const hasContractShape = (
   name: ContractTypeName,
   value: unknown,
 ): boolean =>
-  validateContractDescriptor(VALIDATOR_TYPES, TYPE_VALIDATORS[name], value);
+  validateContractSchema(
+    CONTRACT_DEFINITIONS,
+    { $ref: `#/$defs/${TYPE_VALIDATORS[name]}` },
+    value,
+  );
 
 const contractValidator =
   <T,>(
@@ -215,7 +217,14 @@ const serverPreviewEventParamsSemanticsAreValid = (
   return false;
 };
 
-function semanticContractCheck(index: number, value: unknown): boolean {
+function semanticContractCheck(index: string, value: unknown): boolean {
+  if (
+    index === TYPE_VALIDATORS.createPreviewResult ||
+    index === TYPE_VALIDATORS.previewChangedParams
+  )
+    return frameSemanticsAreValid(
+      (value as Contract.CreatePreviewResult).frame,
+    );
   if (index === TYPE_VALIDATORS.renderFrame)
     return frameSemanticsAreValid(value as Contract.RenderFrame);
   if (index === TYPE_VALIDATORS.previewEventParams)
@@ -230,11 +239,14 @@ function semanticContractCheck(index: number, value: unknown): boolean {
 }
 
 const wireValidator =
-  <T,>(descriptorIndex: number): Validator<T> =>
+  <T,>(schemaName: string): Validator<T> =>
   (value): boolean => {
     return (
-      validateContractDescriptor(VALIDATOR_TYPES, descriptorIndex, value) &&
-      semanticContractCheck(descriptorIndex, value)
+      validateContractSchema(
+        CONTRACT_DEFINITIONS,
+        { $ref: `#/$defs/${schemaName}` },
+        value,
+      ) && semanticContractCheck(schemaName, value)
     );
   };
 
@@ -297,14 +309,14 @@ type ClientValidators = {
   >;
 };
 
-const wireValidatorMap = <Descriptor,>(
-  descriptors: Readonly<Record<string, Descriptor>>,
-  select: (descriptor: Descriptor) => number,
+const wireValidatorMap = <Entry,>(
+  entries: Readonly<Record<string, Entry>>,
+  select: (entry: Entry) => string,
 ): Record<string, Validator<unknown>> =>
   Object.fromEntries(
-    Object.entries(descriptors).map(([method, descriptor]) => [
+    Object.entries(entries).map(([method, entry]) => [
       method,
-      wireValidator(select(descriptor)),
+      wireValidator(select(entry)),
     ]),
   );
 

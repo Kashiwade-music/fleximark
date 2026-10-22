@@ -60,30 +60,9 @@ pub struct DocumentAttachmentRequest {
     pub daemon_instance_id: String,
     pub uri: String,
     pub expected_document_version: i64,
-    pub content_hash: String,
 }
 #[derive(Clone, Debug)]
 pub struct DocumentAttachment {
     pub document_session_id: String,
     pub document_version: i64,
-    pub content_hash: String,
-}
-#[derive(Clone, Debug)]
-pub struct DocumentCheckpointRequest {
-    pub daemon_instance_id: String,
-    pub document_session_id: String,
-    pub document_version: i64,
-    pub content_hash: String,
-}
-#[derive(Clone, Debug)]
-pub struct DocumentCheckpoint {
-    pub document_version: i64,
-    pub content_hash: String,
-}
-#[derive(Clone, Debug)]
-pub struct ResyncRequest {
-    pub daemon_instance_id: String,
-    pub uri: String,
-    pub document_session_id: String,
-    pub reason: String,
 }

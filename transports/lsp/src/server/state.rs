@@ -3,7 +3,6 @@ pub(super) use std::collections::{HashMap, HashSet};
 pub(super) use std::sync::mpsc::Sender;
 pub(super) use std::time::Instant;
 
-pub(super) use fleximark_application::operations::WorkspaceServices;
 pub(super) use fleximark_application::{
     DidChangeParams, DidCloseParams, DidOpenParams, SessionError, SessionRegistry,
 };
@@ -12,12 +11,11 @@ pub(super) use fleximark_model::{
 };
 pub(super) use fleximark_plugin_api::CancellationToken;
 pub(super) use fleximark_protocol::{
-    AttachDocumentParams, CONTENT_MODIFIED, CheckpointDocumentParams, CreatePreviewParams,
-    CreatePreviewResult, DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams,
-    IncomingMessage, InitializeParams, InitializeResult, JsSafeU64, Notification, PROTOCOL_VERSION,
-    PreviewChangedParams, PreviewEventParams, PreviewNavigationEvent, PreviewTarget,
-    ReadPreviewParams, ReadPreviewResult, ReconfigureWorkspaceParams, RenderNavigationEvent,
-    RerenderPreviewParams, Response, ServerCapabilities, ServerPreviewEvent,
+    AttachDocumentParams, CONTENT_MODIFIED, CreatePreviewParams, CreatePreviewResult,
+    DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams, IncomingMessage,
+    InitializeParams, InitializeResult, JsSafeU64, PROTOCOL_VERSION, PreviewChangedParams,
+    PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
+    RenderNavigationEvent, RerenderPreviewParams, Response, ServerCapabilities, ServerPreviewEvent,
     ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
     WorkspaceStatus, method,
 };
@@ -29,16 +27,12 @@ pub(super) use crate::preview_http::{PreviewServer, random_token};
 pub(super) use crate::telemetry::{OperationalTrace, log_operational_event};
 
 pub struct Server {
-    pub(super) services: Arc<dyn WorkspaceServices>,
     pub(super) next_client_request: u64,
     pub(super) pending_client_requests: HashSet<String>,
     pub(super) lsp_initialized: bool,
     pub(super) snippet_support: bool,
     pub(super) selection_events: bool,
     pub(super) viewport_events: bool,
-    pub(super) workspaces: HashMap<String, bool>,
-    pub(super) disabled_workspaces: HashSet<String>,
-    pub(super) config_generation: u64,
     pub(super) shutdown: bool,
     pub(crate) exit: bool,
     pub(crate) registry: SessionRegistry,

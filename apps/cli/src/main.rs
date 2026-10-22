@@ -3,12 +3,11 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Instant;
 
 use fleximark_engine::DocumentEngine;
 use fleximark_model::{DocumentUri, PositionEncoding};
-use fleximark_plugin_host::CancellationToken;
+use fleximark_plugin_api::CancellationToken;
 
 fn main() {
     if let Err(error) = run() {
@@ -139,34 +138,34 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let path = path.ok_or("render requires a document")?;
             let source = fs::read_to_string(&path)?;
             let uri = path_to_uri(Path::new(&path))?;
-            let mut session = open_session(uri, source, trusted_workspace)?;
-            let frame =
-                session.render_configured(&fleximark_plugin_host::CancellationToken::default())?;
+            let mut session =
+                fleximark_application::native::open_document(uri, source, trusted_workspace)?;
+            let frame = session.render_configured(&CancellationToken::default())?;
             let html = frame.snapshot.html();
             io::stdout().lock().write_all(html.as_bytes())?;
         }
         "init" | "edit-theme" | "create-note" => {
             let root = PathBuf::from(path.unwrap_or_else(|| ".".into()));
-            let uri = fleximark_workspace::path_to_file_uri(&root)?;
+            let uri = fleximark_application::native::path_to_file_uri(&root)?;
             let resource = match command.as_str() {
-                "init" => fleximark_workspace::initialize_workspace(&uri)?.config_uri,
-                "edit-theme" => fleximark_workspace::edit_theme(&uri)?.uri,
-                _ => fleximark_workspace::create_note(&uri)?.uri,
+                "init" => fleximark_application::native::initialize_workspace(&uri)?.config_uri,
+                "edit-theme" => fleximark_application::native::edit_theme(&uri)?.uri,
+                _ => fleximark_application::native::create_note(&uri)?.uri,
             };
             println!("{resource}");
         }
         "collect-admonitions" => {
             let path = path.ok_or("collect-admonitions requires a document")?;
             let source = fs::read_to_string(&path)?;
-            let session = open_session(
+            let session = fleximark_application::native::open_document(
                 path_to_uri(Path::new(&path))?,
                 source.clone(),
                 trusted_workspace,
             )?;
-            let workspace_uri = fleximark_workspace::workspace_for_document(&path_to_uri(
-                &Path::new(&path).canonicalize()?,
-            )?)?;
-            let result = fleximark_workspace::collect_admonitions(
+            let workspace_uri = fleximark_application::native::workspace_for_document(
+                &path_to_uri(&Path::new(&path).canonicalize()?)?,
+            )?;
+            let result = fleximark_application::native::collect_admonitions(
                 session.document(),
                 &source,
                 &workspace_uri,
@@ -178,7 +177,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let canonical = Path::new(&path).canonicalize()?;
             let source_uri = path_to_uri(&canonical)?;
             let source = fs::read_to_string(&canonical)?;
-            let workspace_uri = fleximark_workspace::workspace_for_document(&source_uri)?;
+            let workspace_uri = fleximark_application::native::workspace_for_document(&source_uri)?;
             let destination_uri = match destination {
                 Some(path) => {
                     let path = PathBuf::from(path);
@@ -189,24 +188,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     let parent = absolute.parent().ok_or("destination has no parent")?;
                     let name = absolute.file_name().ok_or("destination has no name")?;
-                    fleximark_workspace::path_to_file_uri(&parent.canonicalize()?.join(name))?
+                    fleximark_application::native::path_to_file_uri(
+                        &parent.canonicalize()?.join(name),
+                    )?
                 }
-                None => fleximark_workspace::default_export_destination(&source_uri)?,
+                None => fleximark_application::native::default_export_destination(&source_uri)?,
             };
-            let session = open_session(source_uri.clone(), source.clone(), trusted_workspace)?;
-            let result = fleximark_workspace::export_document(
+            let session = fleximark_application::native::open_document(
+                source_uri.clone(),
+                source.clone(),
+                trusted_workspace,
+            )?;
+            let result = fleximark_application::native::export_document(
                 &session,
                 &source_uri,
                 &workspace_uri,
                 &destination_uri,
-                &fleximark_plugin_host::CancellationToken::default(),
+                &CancellationToken::default(),
             )?;
             println!("{}", result.output_uri);
         }
         "ack-export" => {
             let path = path.ok_or("ack-export requires a document")?;
             let source_uri = path_to_uri(&Path::new(&path).canonicalize()?)?;
-            let workspace_uri = fleximark_workspace::workspace_for_document(&source_uri)?;
+            let workspace_uri = fleximark_application::native::workspace_for_document(&source_uri)?;
             let destination_uri = match destination {
                 Some(path) => {
                     let path = PathBuf::from(path);
@@ -217,11 +222,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     let parent = absolute.parent().ok_or("destination has no parent")?;
                     let name = absolute.file_name().ok_or("destination has no name")?;
-                    fleximark_workspace::path_to_file_uri(&parent.canonicalize()?.join(name))?
+                    fleximark_application::native::path_to_file_uri(
+                        &parent.canonicalize()?.join(name),
+                    )?
                 }
-                None => fleximark_workspace::default_export_destination(&source_uri)?,
+                None => fleximark_application::native::default_export_destination(&source_uri)?,
             };
-            fleximark_workspace::acknowledge_export(&source_uri, &workspace_uri, &destination_uri)?;
+            fleximark_application::native::acknowledge_export(
+                &source_uri,
+                &workspace_uri,
+                &destination_uri,
+            )?;
             println!("Export opened and validated; recovery backup released");
         }
         _ => return Err(format!("unknown command: {command}").into()),
@@ -275,53 +286,8 @@ fn peak_memory_bytes() -> Result<u64, Box<dyn std::error::Error>> {
     }
 }
 
-fn open_session(
-    uri: String,
-    source: String,
-    trusted_workspace: bool,
-) -> Result<DocumentEngine, Box<dyn std::error::Error>> {
-    if !trusted_workspace {
-        return Ok(DocumentEngine::open(
-            DocumentUri(uri),
-            1,
-            source,
-            PositionEncoding::Utf8,
-        )?);
-    }
-    match fleximark_workspace::workspace_for_document(&uri) {
-        Ok(workspace_uri) => {
-            let (host, render_config) =
-                fleximark_workspace::load_plugin_host(&workspace_uri, true, 1)?;
-            let host = Arc::new(host);
-            let mut session = DocumentEngine::open_configured(
-                DocumentUri(uri.clone()),
-                1,
-                source,
-                PositionEncoding::Utf8,
-                render_config.clone(),
-                host,
-                &fleximark_plugin_host::CancellationToken::default(),
-            )?;
-            let assets = fleximark_workspace::resolve_render_assets(
-                &uri,
-                &workspace_uri,
-                session.document(),
-            )?;
-            session.reconfigure_render(render_config.with_resolved_assets(assets)?)?;
-            Ok(session)
-        }
-        Err(fleximark_workspace::ServiceError::NotInitialized) => Ok(DocumentEngine::open(
-            DocumentUri(uri),
-            1,
-            source,
-            PositionEncoding::Utf8,
-        )?),
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn path_to_uri(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    Ok(fleximark_workspace::path_to_file_uri(path)?)
+    Ok(fleximark_application::native::path_to_file_uri(path)?)
 }
 
 fn migrate(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
@@ -386,8 +352,8 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir(&root).unwrap();
-        let workspace_uri = fleximark_workspace::path_to_file_uri(&root).unwrap();
-        fleximark_workspace::initialize_workspace(&workspace_uri).unwrap();
+        let workspace_uri = fleximark_application::native::path_to_file_uri(&root).unwrap();
+        fleximark_application::native::initialize_workspace(&workspace_uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
             "schema_version = 2\n[[plugins]]\nid='malicious'\nwasm='missing.wasm'\nmanifest='missing.toml'\nsignature='missing.sig'\nmanifest_sha256='0000000000000000000000000000000000000000000000000000000000000000'\nsigner_public_key='0000000000000000000000000000000000000000000000000000000000000000'\n",
@@ -397,11 +363,12 @@ mod tests {
         fs::write(&document, "# Safe\n").unwrap();
         let document_uri = path_to_uri(&document).unwrap();
         assert_eq!(
-            fleximark_workspace::workspace_for_document(&document_uri).unwrap(),
+            fleximark_application::native::workspace_for_document(&document_uri).unwrap(),
             workspace_uri
         );
-        let session = open_session(document_uri, "# Safe\n".into(), false)
-            .expect("untrusted CLI never loads configured plugins");
+        let session =
+            fleximark_application::native::open_document(document_uri, "# Safe\n".into(), false)
+                .expect("untrusted CLI never loads configured plugins");
         assert_eq!(session.document().blocks.len(), 1);
         fs::remove_dir_all(root).unwrap();
     }

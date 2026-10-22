@@ -7,7 +7,6 @@ import {
 import { highlightCode } from "./enhancers/highlight.mjs";
 import { renderMath } from "./enhancers/math.mjs";
 import { renderMermaid } from "./enhancers/mermaid.mjs";
-import { blockFingerprint } from "./enhancers/shared.mjs";
 import { renderTabs } from "./enhancers/tabs.mjs";
 import type { PreviewRuntimes } from "./enhancers/types.mjs";
 import { renderYouTube } from "./enhancers/youtube.mjs";
@@ -18,9 +17,9 @@ export class PreviewEnhancer {
   readonly #runtimes: PreviewRuntimes;
   readonly #audio = new Set<TrackedAudio>();
   #renderId = 0;
-  #generation = 0;
   #disposed = false;
-  readonly #blockFingerprints = new Map<string, string>();
+  readonly #enhanced = new WeakSet<HTMLElement>();
+  readonly #audioOwners = new Map<TrackedAudio, HTMLElement>();
   readonly #activeTabs = new Map<string, string>();
   readonly #mermaidViews = new Map<HTMLElement, () => void>();
 
@@ -40,27 +39,22 @@ export class PreviewEnhancer {
         this.#mermaidViews.delete(block);
       }
     }
-    const generation = ++this.#generation;
-    stopAudio(this.#audio);
-    const current = () => generation === this.#generation;
+    for (const [handle, block] of this.#audioOwners) {
+      if (!block.isConnected)
+        handle.stop(() => {
+          this.#audio.delete(handle);
+          this.#audioOwners.delete(handle);
+        });
+    }
     const blocks = root.hasAttribute("data-fleximark-kind") ? [root] : [];
     blocks.push(...root.querySelectorAll<HTMLElement>("[data-fleximark-kind]"));
     await Promise.all(
       blocks.map(async (block) => {
-        const id = block.dataset.fleximarkNodeId;
+        const current = () => !this.#disposed && block.isConnected;
         try {
-          const fingerprint = blockFingerprint(block);
-          if (
-            id &&
-            this.#blockFingerprints.get(id) === fingerprint &&
-            block.dataset.fleximarkKind !== "tabs" &&
-            block.dataset.fleximarkKind !== "abc" &&
-            !(
-              block.dataset.fleximarkKind === "youtube" &&
-              !block.querySelector("iframe")
-            )
-          )
-            return;
+          if (this.#enhanced.has(block)) return;
+          // Claim before awaiting so concurrent frames share retained DOM work.
+          this.#enhanced.add(block);
           switch (block.dataset.fleximarkKind) {
             case "mermaid": {
               this.#mermaidViews.get(block)?.();
@@ -84,10 +78,14 @@ export class PreviewEnhancer {
                 track: (synth) => {
                   const handle = trackAudio(synth);
                   this.#audio.add(handle);
+                  this.#audioOwners.set(handle, block);
                   return handle;
                 },
                 release: (handle) => {
-                  handle.stop(() => this.#audio.delete(handle));
+                  handle.stop(() => {
+                    this.#audio.delete(handle);
+                    this.#audioOwners.delete(handle);
+                  });
                 },
                 report: (error) => this.#setError(block, error),
               });
@@ -104,21 +102,20 @@ export class PreviewEnhancer {
           }
           if (!current() || !block.isConnected) return;
           delete block.dataset.fleximarkRenderError;
-          if (id) this.#blockFingerprints.set(id, fingerprint);
         } catch (error) {
-          if (current() && block.isConnected) this.#setError(block, error);
+          this.#enhanced.delete(block);
+          if (current()) this.#setError(block, error);
         }
       }),
     );
-    if (current() && root.isConnected) highlightCode(root);
+    if (!this.#disposed && root.isConnected) highlightCode(root);
   }
 
   dispose(): void {
     if (!this.#disposed) {
       this.#disposed = true;
-      this.#generation++;
-      this.#blockFingerprints.clear();
       this.#activeTabs.clear();
+      this.#audioOwners.clear();
       for (const dispose of this.#mermaidViews.values()) dispose();
       this.#mermaidViews.clear();
     }

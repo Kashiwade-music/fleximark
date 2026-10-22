@@ -100,11 +100,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fleximark-plugin-api"
+version = "0.1.0"
+dependencies = [
+ "fleximark-model",
+ "serde",
+]
+
+[[package]]
 name = "fleximark-plugin-sdk"
 version = "0.1.0"
 dependencies = [
  "caseless",
  "fleximark-model",
+ "fleximark-plugin-api",
  "serde",
  "serde_json",
  "toml",

@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use fleximark_application::RenderFrame;
 use fleximark_protocol::{
-    JsSafeU64, PreviewChangedParams, PreviewNavigationEvent, RenderNavigationEvent,
-    ServerPreviewEvent, ServerPreviewEventParams, SourceNavigationEvent,
+    JsSafeU64, PreviewNavigationEvent, RenderNavigationEvent, ServerPreviewEvent,
+    ServerPreviewEventParams, SourceNavigationEvent,
 };
 use serde_json::Value;
 
@@ -96,11 +96,6 @@ impl PreviewServer {
     ) -> Result<String, protocol::ConversionError> {
         let checked = protocol::frame(frame)?;
         let shell = self.assets.preview_shell(token);
-        let changed = PreviewChangedParams {
-            daemon_instance_id: daemon_instance_id.to_owned(),
-            preview_session_id: preview_session_id.to_owned(),
-            render_revision: checked.render_revision,
-        };
         self.pages.lock().expect("preview map lock").insert(
             token.to_owned(),
             PreviewPage {
@@ -109,7 +104,7 @@ impl PreviewServer {
                 preview_session_id: preview_session_id.to_owned(),
                 frame: frame.clone(),
                 change_event: StoredEvent {
-                    encoded: serde_json::to_string(&changed)
+                    encoded: serde_json::to_string(&checked)
                         .expect("preview change is serializable"),
                     sequence: 1,
                 },
@@ -135,14 +130,11 @@ impl PreviewServer {
         let checked = protocol::frame(frame)?;
         if let Some(page) = self.pages.lock().expect("preview map lock").get_mut(token) {
             page.frame = frame.clone();
+            page.durable_navigation = None;
+            page.navigation_event = None;
             page.document_version = checked.document_version;
             page.change_event = StoredEvent {
-                encoded: serde_json::to_string(&PreviewChangedParams {
-                    daemon_instance_id: page.daemon_instance_id.clone(),
-                    preview_session_id: page.preview_session_id.clone(),
-                    render_revision: checked.render_revision,
-                })
-                .expect("preview change is serializable"),
+                encoded: serde_json::to_string(&checked).expect("preview change is serializable"),
                 sequence: page.next_sequence,
             };
             page.next_sequence += 1;
@@ -165,15 +157,8 @@ impl PreviewServer {
         let Some(page) = pages.get_mut(token) else {
             return false;
         };
-        let sequence = page
-            .durable_navigation
-            .as_ref()
-            .map(|event| event.sequence)
-            .unwrap_or_else(|| {
-                let sequence = page.next_sequence;
-                page.next_sequence += 1;
-                sequence
-            });
+        let sequence = page.next_sequence;
+        page.next_sequence += 1;
         page.durable_navigation = Some(StoredEvent {
             encoded: serde_json::to_string(event).expect("navigation event is serializable"),
             sequence,
@@ -342,7 +327,11 @@ fn serve_request(
             write_empty_response(&mut stream, TOO_MANY_REQUESTS_RESPONSE);
             return;
         }
-        let source_range = match protocol::source_range(&entry.source_range) {
+        let source_range = match protocol::source_range(
+            &entry.source_range,
+            &fleximark_model::SourceIndex::new(&page.frame.source),
+            page.frame.position_encoding,
+        ) {
             Ok(range) => range,
             Err(error) => {
                 write_conversion_error(&mut stream, &error);
@@ -379,12 +368,27 @@ fn serve_request(
     if endpoint == Some("events") {
         let events = pages.lock().ok().and_then(|pages| {
             pages.get(token).map(|page| {
-                let mut events = std::iter::once(&page.change_event)
-                    .chain(page.navigation_event.iter())
-                    .filter(|event| last_event_id.is_none_or(|last| event.sequence > last))
-                    .map(|event| (event.sequence, event.encoded.clone()))
-                    .collect::<Vec<_>>();
-                events.sort_unstable_by_key(|(sequence, _)| *sequence);
+                let mut events = Vec::new();
+                let send_frame = last_event_id.is_none_or(|last| page.change_event.sequence > last);
+                if send_frame {
+                    events.push((
+                        page.change_event.sequence,
+                        page.change_event.encoded.clone(),
+                    ));
+                }
+                if let Some(navigation) = &page.durable_navigation {
+                    if last_event_id.is_none_or(|last| navigation.sequence > last) {
+                        events.push((navigation.sequence, navigation.encoded.clone()));
+                    }
+                }
+                if let Some(navigation) = &page.navigation_event {
+                    if last_event_id.is_none_or(|last| navigation.sequence > last)
+                        && (!send_frame || navigation.sequence > page.change_event.sequence)
+                    {
+                        events.push((navigation.sequence, navigation.encoded.clone()));
+                    }
+                }
+                events.sort_by_key(|(sequence, _)| *sequence);
                 events
             })
         });

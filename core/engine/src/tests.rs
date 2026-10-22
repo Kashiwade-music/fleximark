@@ -4,8 +4,7 @@ use std::collections::BTreeMap;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use fleximark_model::{
-    AnchorAffinity, DocumentUri, GeneratedAnchor, PositionEncoding, SourcePosition,
-    SourceProvenance, TransformId,
+    AnchorAffinity, DocumentUri, GeneratedAnchor, PositionEncoding, SourceProvenance, TransformId,
 };
 use fleximark_plugin_api::CancellationToken;
 use fleximark_plugin_api::{EditOrigin, PreprocessedSource};
@@ -18,21 +17,9 @@ use crate::{
 };
 
 fn utf8_range(source: &str, byte_start: usize, byte_end: usize) -> fleximark_model::SourceRange {
-    let position = |offset: usize| {
-        let before = &source[..offset];
-        let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
-        SourcePosition {
-            line: (before.bytes().filter(|byte| *byte == b'\n').count() as u64),
-            character: ((offset - line_start) as u64),
-            encoding: PositionEncoding::Utf8,
-        }
-    };
-    fleximark_model::SourceRange {
-        byte_start: (byte_start as u64),
-        byte_end: (byte_end as u64),
-        start: position(byte_start),
-        end: position(byte_end),
-    }
+    fleximark_model::SourceIndex::new(source)
+        .range(byte_start..byte_end)
+        .unwrap()
 }
 
 fn open(source: &str) -> DocumentEngine {
@@ -457,7 +444,7 @@ fn navigation_selects_the_smallest_deepest_unicode_block() {
     let selected = session.node_at_source_offset(3).unwrap();
     assert!(session.node_at_source_offset(4).is_none());
     assert!(selected.depth >= 2);
-    assert_eq!(selected.source_range.start.encoding, PositionEncoding::Utf8);
+    assert!(selected.source_range.byte_start <= selected.source_range.byte_end);
     assert!(selected.source_range.byte_start <= 3 && selected.source_range.byte_end >= 5);
     assert_eq!(
         serde_json::to_value(&selected).unwrap()["sourceRange"]["byteStart"],

@@ -8,11 +8,11 @@ use fleximark_config::FlexiMarkConfig;
 use fleximark_engine::RenderConfig;
 use fleximark_plugin_host::{ExecutionLimits, HostPolicy, PluginHost, VerifiedPluginPackage};
 
-use crate::integrity::sha256;
-use crate::paths::reject_linked_path;
-use crate::theme::render_config;
-use crate::workspace::{CONFIG, open_control_directory, open_regular_nofollow};
-use crate::{ServiceError, workspace_path};
+use crate::native::integrity::sha256;
+use crate::native::paths::reject_linked_path;
+use crate::native::theme::render_config;
+use crate::native::workspace::{CONFIG, open_control_directory, open_regular_nofollow};
+use crate::native::{ServiceError, workspace_path};
 
 pub fn load_plugin_host(
     workspace_uri: &str,
@@ -20,6 +20,20 @@ pub fn load_plugin_host(
     generation: u64,
 ) -> Result<(PluginHost, RenderConfig), ServiceError> {
     let workspace = workspace_path(workspace_uri)?;
+    if !trusted {
+        let host = PluginHost::configured(
+            ExecutionLimits::default(),
+            HostPolicy {
+                workspace_trusted: false,
+                workspace_root: workspace.to_string_lossy().into_owned(),
+            },
+            sha256(CONFIG.as_bytes()),
+            generation,
+        )
+        .map_err(|error| ServiceError::PluginConfig(error.to_string()))?;
+        let config = render_config(&workspace, &host, false)?;
+        return Ok((host, config));
+    }
     let control = open_control_directory(&workspace, false)?;
     let config_source = if let Some(control) = &control {
         match open_regular_nofollow(control, Path::new("config.toml")) {
@@ -112,8 +126,8 @@ fn read_plugin_file(directory: &Dir, root: &Path, relative: &str) -> Result<Vec<
 mod tests {
     //! Role: Verify workspace operations and security invariants.
     use super::*;
-    use crate::test_support::test_workspace;
-    use crate::{initialize_workspace, path_to_file_uri};
+    use crate::native::test_support::test_workspace;
+    use crate::native::{initialize_workspace, path_to_file_uri};
     #[test]
     fn plugin_loader_reads_verified_package_files() {
         let root = test_workspace("plugin-loader-test");
@@ -124,8 +138,9 @@ mod tests {
         let wasm = b"\0asm\x01\0\0\0";
         fs::write(plugin_root.join("sample.wasm"), wasm).unwrap();
         let manifest = format!(
-            "schema_version = 1\n[plugin]\nid = \"sample.plugin\"\napi_version = 1\nrequired = false\n[artifact]\nwasm_sha256 = \"{}\"\n[capabilities]\n",
-            sha256(wasm)
+            "schema_version = 1\n[plugin]\nid = \"sample.plugin\"\napi_version = {api_version}\nrequired = false\n[artifact]\nwasm_sha256 = \"{}\"\n[capabilities]\n",
+            sha256(wasm),
+            api_version = fleximark_plugin_sdk::PLUGIN_API_VERSION,
         );
         fs::write(plugin_root.join("sample.toml"), &manifest).unwrap();
         fs::write(plugin_root.join("sample.sig"), [0_u8; 64]).unwrap();

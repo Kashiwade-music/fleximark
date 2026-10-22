@@ -41,7 +41,6 @@ def extension_args(*, production: bool, watch: bool = False) -> list[str]:
 def preview_args(*, production: bool, watch: bool = False) -> list[str]:
     args = [
         "adapters/vscode/webview/vscode-host.mts",
-        "web/preview/browser-host.mts",
         "--bundle",
         "--format=iife",
         "--platform=browser",

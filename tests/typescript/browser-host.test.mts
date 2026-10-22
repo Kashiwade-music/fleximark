@@ -2,7 +2,6 @@ import { parseHTML } from "linkedom";
 import * as assert from "node:assert/strict";
 
 import { BrowserNavigationTransport } from "../../web/preview/browser-navigation.mjs";
-import { deferred } from "./adapter/async-helpers.mjs";
 
 export const suiteName = "Browser preview host";
 
@@ -34,7 +33,7 @@ export function suite(): void {
     navigation.dispose();
   });
 
-  test("reads the latest frame initially and after a coalesced change notification", async () => {
+  test("applies pushed frames and ordered navigation without frame fetches", async () => {
     const names = [
       "document",
       "HTMLElement",
@@ -58,7 +57,6 @@ export function suite(): void {
     );
     let messageHandler: ((event: MessageEvent<string>) => void) | undefined;
     let closeCount = 0;
-    const second = deferred<Response>();
     const fetches: string[] = [];
     const navigationPosts: unknown[] = [];
     class FakeEventSource {
@@ -101,68 +99,55 @@ export function suite(): void {
               return Promise.resolve({ ok: true } as Response);
             }
             fetches.push(input);
-            if (fetches.length === 1)
-              return response(frame(1, "one"), {
-                sequence: 1,
-                event: {
-                  type: "selection",
-                  previewSessionId: "preview",
-                  renderRevision: 1,
-                  nodeIds: ["paragraph"],
-                  activePosition: null,
-                },
-              });
-            return second.promise;
+            assert.fail("frames must arrive over SSE");
           },
         },
         location: { configurable: true, value: { pathname: "/preview" } },
       });
 
       await import("../../web/preview/browser-host.mjs");
-      await Promise.resolve();
-      await Promise.resolve();
+      const send = (value: unknown) =>
+        messageHandler?.({
+          data: JSON.stringify(value),
+        } as MessageEvent<string>);
+      send(frame(1, "one"));
       assert.equal(
         window.document.querySelector("#preview")?.textContent,
         "one",
       );
-      assert.deepEqual(fetches, ["/preview/frame"]);
+      send({
+        type: "selection",
+        previewSessionId: "preview",
+        renderRevision: 1,
+        nodeIds: ["paragraph"],
+        activePosition: null,
+      });
       assert.equal(
         window.document
-          .querySelector("[data-fleximark-node-id]")
+          .querySelector("p")
           ?.getAttribute("data-fleximark-selected"),
         "true",
       );
-
-      messageHandler?.({
-        data: JSON.stringify({
-          daemonInstanceId: "daemon",
-          previewSessionId: "preview",
-          renderRevision: 2,
-        }),
-      } as MessageEvent<string>);
-      assert.deepEqual(fetches, ["/preview/frame", "/preview/frame"]);
-      messageHandler?.({
-        data: JSON.stringify({
-          type: "selection",
-          previewSessionId: "preview",
-          renderRevision: 2,
-          nodeIds: ["paragraph"],
-          activePosition: null,
-        }),
-      } as MessageEvent<string>);
-      second.resolve(await response(frame(2, "two")));
-      await Promise.resolve();
-      await Promise.resolve();
+      // A navigation arriving before its frame is retained until that frame.
+      send({
+        type: "selection",
+        previewSessionId: "preview",
+        renderRevision: 2,
+        nodeIds: ["paragraph"],
+        activePosition: null,
+      });
+      send(frame(2, "two"));
       assert.equal(
         window.document.querySelector("#preview")?.textContent,
         "two",
       );
       assert.equal(
         window.document
-          .querySelector("[data-fleximark-node-id]")
+          .querySelector("p")
           ?.getAttribute("data-fleximark-selected"),
         "true",
       );
+      assert.deepEqual(fetches, []);
       const paragraph = window.document.querySelector("p");
       assert.ok(paragraph);
       paragraph.getBoundingClientRect = () =>
@@ -191,16 +176,6 @@ export function suite(): void {
       }
     }
   });
-}
-
-async function response(
-  frameValue: ReturnType<typeof frame>,
-  navigation?: unknown,
-): Promise<Response> {
-  return {
-    ok: true,
-    json: async () => ({ frame: frameValue, navigation }),
-  } as Response;
 }
 
 function frame(renderRevision: number, text: string) {

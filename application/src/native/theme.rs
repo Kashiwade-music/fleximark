@@ -2,13 +2,13 @@
 use std::fs;
 use std::path::Path;
 
-use fleximark_application::operations::ThemeResource;
+use crate::outcomes::ThemeResource;
 use fleximark_engine::{RenderConfig, RenderStyle};
 use fleximark_plugin_host::PluginHost;
 
-use crate::paths::reject_linked_path;
-use crate::workspace::open_control_directory;
-use crate::{ServiceError, path_to_file_uri, workspace_path};
+use crate::native::paths::reject_linked_path;
+use crate::native::workspace::open_control_directory;
+use crate::native::{ServiceError, path_to_file_uri, workspace_path};
 
 pub fn edit_theme(workspace_uri: &str) -> Result<ThemeResource, ServiceError> {
     let root = workspace_path(workspace_uri)?;
@@ -156,9 +156,9 @@ fn normalize_css(css: &str) -> Result<String, ServiceError> {
 mod tests {
     //! Role: Verify workspace operations and security invariants.
     use super::*;
-    use crate::integrity::sha256;
-    use crate::test_support::test_workspace;
-    use crate::{initialize_workspace, load_plugin_host};
+    use crate::native::integrity::sha256;
+    use crate::native::test_support::test_workspace;
+    use crate::native::{initialize_workspace, load_plugin_host};
     #[test]
     fn trusted_theme_is_typed_and_css_url_bypasses_are_rejected() {
         let root = test_workspace("theme-policy-test");

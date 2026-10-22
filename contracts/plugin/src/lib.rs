@@ -3,11 +3,10 @@ use std::collections::BTreeMap;
 
 use fleximark_model::{
     Block, BlockKind, DocumentMetadata, DocumentUri, Inline, Node, NodeId, SourceProvenance,
-    SourceRange,
 };
 use serde::{Deserialize, Serialize};
 
-pub const PLUGIN_API_VERSION: u32 = 1;
+pub const PLUGIN_API_VERSION: u32 = 2;
 fn is_sha256(value: &str) -> bool {
     value.len() == 64
         && value
@@ -98,15 +97,7 @@ pub enum ManifestError {
     ArtifactHash,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Hook {
-    PreprocessSource,
-    TransformDocument,
-    TransformBlock,
-    ExtendRenderModel,
-    UnsafeExportHtml,
-}
+pub use fleximark_plugin_api::{EditMapSegment, EditOrigin, Hook, PreprocessedSource};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -175,35 +166,6 @@ fn candidate_from_block(block: &Block) -> CandidateBlock {
             })
             .collect(),
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PreprocessedSource {
-    pub text: String,
-    pub segments: Vec<EditMapSegment>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditMapSegment {
-    pub output_start: u64,
-    pub output_end: u64,
-    pub origin: EditOrigin,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum EditOrigin {
-    Original {
-        ranges: Vec<SourceRange>,
-        primary_range_index: u32,
-    },
-    Derived {
-        ranges: Vec<SourceRange>,
-        primary_range_index: u32,
-    },
-    Generated {
-        anchor: Option<SourceRange>,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -328,23 +290,23 @@ mod tests {
     fn manifest_is_deny_by_default_and_rejects_old_api() {
         let artifact = "[artifact]\nwasm_sha256='0000000000000000000000000000000000000000000000000000000000000000'\n";
         let manifest = PluginManifest::from_toml(&format!(
-            "schema_version=1\n[plugin]\nid='example'\napi_version=1\n{artifact}"
+            "schema_version=1\n[plugin]\nid='example'\napi_version={PLUGIN_API_VERSION}\n{artifact}"
         ))
         .unwrap();
         assert_eq!(manifest.capabilities, PluginCapabilities::default());
         assert_eq!(
             PluginManifest::from_toml(&format!(
-                "schema_version=1\n[plugin]\nid='legacy'\napi_version=0\n{artifact}"
+                "schema_version=1\n[plugin]\nid='legacy'\napi_version=1\n{artifact}"
             ))
             .unwrap_err(),
-            ManifestError::ApiVersion(0)
+            ManifestError::ApiVersion(1)
         );
     }
 
     #[test]
     fn component_contract_is_versioned_and_has_one_typed_entrypoint() {
-        let wit = include_str!("../wit/fleximark-plugin-v1.wit");
-        assert!(wit.contains("package fleximark:plugin@1.0.0;"));
+        let wit = include_str!("../wit/fleximark-plugin-v2.wit");
+        assert!(wit.contains("package fleximark:plugin@2.0.0;"));
         assert!(wit.contains("record invocation"));
         assert!(wit.contains("record response"));
         assert_eq!(wit.matches("invoke: func").count(), 1);

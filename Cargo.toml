@@ -16,7 +16,6 @@ members = [
   "apps/cli",
   "contracts/plugin",
   "runtime/wasm-plugins",
-  "runtime/workspace",
   "runtime/preview-assets",
   "contracts/config",
   "migration",

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 import json
 
@@ -249,26 +249,47 @@ def localization(_: Sequence[str]) -> None:
 
 
 def check_localization() -> None:
-    localization(())
-    run("git", "diff", "--exit-code", "--", "adapters/vscode/l10n")
+    check_generated_freshness(lambda: localization(()), [ROOT / "adapters/vscode/l10n"])
 
 
-def verify(_: Sequence[str]) -> None:
-    check_protocol_contract()
+def check_generated_freshness(generate: Callable[[], None], paths: Sequence[Path]) -> None:
+    """Check regeneration against the working tree, including added/deleted files."""
+    def snapshot() -> dict[Path, bytes]:
+        files: dict[Path, bytes] = {}
+        for path in paths:
+            candidates = path.rglob("*") if path.is_dir() else [path]
+            files.update((candidate, candidate.read_bytes()) for candidate in candidates if candidate.is_file())
+        return files
+
+    before = snapshot()
+    generate()
+    after = snapshot()
+    changed = sorted(str(path.relative_to(ROOT) if path.is_relative_to(ROOT) else path) for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+    if changed:
+        raise RuntimeError("generated files were stale; review regenerated output: " + ", ".join(changed))
+
+
+def check_architecture() -> None:
     run("cargo", "xtask", "check")
     run("cargo", "xtask", "check", "--root", "adapters/zed")
     run("cargo", "xtask", "check", "--root", "tests/fixtures/plugin-component")
-    run("git", "diff", "--exit-code", "--", "architecture", "adapters/zed/architecture", "tests/fixtures/plugin-component/architecture")
+
+
+def verify_audit(_: Sequence[str]) -> None:
+    """Network dependency audit required explicitly by CI and release workflows."""
+    run("yarn", "npm", "audit", "--all", "--recursive", "--severity", "high")
+
+
+def verify_quality(_: Sequence[str]) -> None:
+    """Source-only gates shared by local verification, CI, and releases."""
+    check_generated_freshness(generate_versions, [ROOT / name for name in ("adapters/vscode/package.json", "adapters/zed/extension.toml", "apps/server/Cargo.toml", "apps/cli/Cargo.toml", "Cargo.lock")])
+    check_protocol_contract()
+    check_generated_freshness(check_architecture, [ROOT / name for name in ("architecture", "adapters/zed/architecture", "tests/fixtures/plugin-component/architecture")])
     run("python", "-m", "compileall", "-q", "tooling/tasks")
     python_test()
     yarn("tsc", "-b")
     yarn("eslint", "adapters/vscode", "web", "contracts/typescript", "tests/typescript", "tooling/tasks")
     check_localization()
-    build_product()
-    compile_tests()
-    javascript_build.build_pure_tests()
-    run("node", "--test", ".build/tests/unit/pure-tests.cjs")
-    run("node", str(ROOT / "node_modules" / "@vscode" / "vsce" / "vsce"), "ls", "--no-dependencies", cwd=ROOT / ".artifacts" / metadata()["version"] / host_target() / "vscode")
     run("cargo", "fmt", "--all", "--", "--check")
     run("cargo", "fmt", "--manifest-path", "adapters/zed/Cargo.toml", "--", "--check")
     run("cargo", "test", "--manifest-path", "adapters/zed/Cargo.toml", "--target-dir", "target/zed", "--locked")
@@ -288,15 +309,53 @@ def verify(_: Sequence[str]) -> None:
         "-D",
         "warnings",
     )
+    run("cargo", "build", "--manifest-path", "adapters/zed/Cargo.toml", "--target", "wasm32-wasip2", "--target-dir", "target/zed", "--locked")
+    pure_test(())
+
+
+def verify_built_product(package_args: Sequence[str] = ()) -> None:
+    """Host gates that require the assembled native and editor product."""
     check_performance_budgets()
+    compile_tests()
     run_editor_integration()
+    vsix = package_built_product(package_args)
+    from release_artifact import create_identity, verify_identity
+    source_head = os.environ.get("SOURCE_GIT_HEAD") or subprocess.check_output(
+        [executable("git"), "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    tag = f'v{metadata()["version"]}'
+    identity = vsix.with_suffix(".vsix.identity.json")
+    create_identity(vsix, identity, expected_version=metadata()["version"], git_tag=tag, source_git_head=source_head)
+    verify_identity(vsix, identity, expected_git_tag=tag, expected_source_git_head=source_head)
+    smoke_vsix(vsix)
+
+
+def verify_product(_: Sequence[str]) -> None:
+    check_protocol_contract()
+    build_vscode_product(build_runtime())
+    verify_built_product()
+
+
+def verify(_: Sequence[str]) -> None:
+    os.environ.setdefault("FLEXIMARK_BROWSER_DOM", "true")
+    verify_quality(())
+    build_product()
+    verify_built_product()
 
 
 def package_vsix(args: Sequence[str]) -> None:
-    verify(())
+    os.environ.setdefault("FLEXIMARK_BROWSER_DOM", "true")
+    verify_quality(())
+    build_product()
+    verify_built_product(args)
+
+
+def package_built_product(args: Sequence[str]) -> Path:
     target = host_target()
     output = ROOT / ".artifacts" / metadata()["version"] / target
     run("node", str(ROOT / "node_modules" / "@vscode" / "vsce" / "vsce"), "package", "--no-dependencies", "--target", next(name for name, rust in __import__("distribution").TARGETS.items() if rust == target), "--out", str(output / f'fleximark-{metadata()["version"]}-{target}.vsix'), *args, cwd=output / "vscode")
+
+    return output / f'fleximark-{metadata()["version"]}-{target}.vsix'
 
 
 def smoke(args: Sequence[str]) -> None:
@@ -323,6 +382,9 @@ TASKS = {
     "smoke": smoke,
     "test": integration_test,
     "verify": verify,
+    "verify-quality": verify_quality,
+    "verify-audit": verify_audit,
+    "verify-product": verify_product,
     "vscode-prepublish": vscode_prepublish,
 }
 

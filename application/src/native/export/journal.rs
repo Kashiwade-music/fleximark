@@ -13,7 +13,7 @@ use super::filesystem::{
     write_json,
 };
 use super::model::{ExportJournal, ExportJournalRecord, ExportJournalState, ObjectIdentity};
-use crate::ServiceError;
+use crate::native::ServiceError;
 
 pub(super) fn create_journal(path: &Path) -> Result<ObjectIdentity, ServiceError> {
     let (parent, name) = open_parent(path)?;

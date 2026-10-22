@@ -82,7 +82,6 @@ fn optional_present_fixture_matches_directional_public_dtos() {
         }],
         capabilities: ServerCapabilities {
             html_render: true,
-            document_checkpoint: true,
             selection_events: true,
             viewport_events: true,
             workspace_commands: vec!["editTheme"],
@@ -95,6 +94,7 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
     let create_preview = case(&fixture, "createPreviewResult");
     let create_preview_result = CreatePreviewResult {
+        frame: serde_json::from_value(create_preview["frame"].clone()).unwrap(),
         preview_session_id: "preview".into(),
         url: Some("http://127.0.0.1:3000/preview".into()),
     };

@@ -46,14 +46,9 @@ fn session_errors_preserve_their_wire_codes_and_messages() {
             "document version does not match",
         ),
         (
-            SessionError::HashMismatch,
-            CONTENT_MODIFIED,
-            "content hash does not match",
-        ),
-        (
             SessionError::InvalidRange,
             -32602,
-            "incremental edit range is invalid",
+            "document position or full-text change is invalid",
         ),
         (
             SessionError::EmptyChange,

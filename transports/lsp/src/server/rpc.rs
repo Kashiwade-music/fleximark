@@ -27,53 +27,25 @@ impl Server {
                 ),
             )));
         }
-        let generation = self.config_generation + 1;
-        let mut configured = Vec::new();
-        let mut grants = HashMap::new();
-        let mut workspace_statuses = Vec::new();
-        let mut disabled_workspaces = HashSet::new();
-        for workspace in params.workspaces {
-            if grants
-                .insert(workspace.uri.clone(), workspace.trusted)
-                .is_some()
-            {
-                return Some(response_value(Response::error(
-                    id,
-                    -32602,
-                    "workspace URI is duplicated",
-                )));
-            }
-            match self
-                .services
-                .load_plugin_host(&workspace.uri, workspace.trusted, generation)
-            {
-                Ok((host, render_config)) => {
-                    configured.push((workspace.uri.clone(), host, render_config));
-                    workspace_statuses.push(WorkspaceStatus {
-                        uri: workspace.uri,
-                        enabled: true,
-                        error: None,
-                    });
-                }
-                Err(error) => {
-                    grants.insert(workspace.uri.clone(), false);
-                    disabled_workspaces.insert(workspace.uri.clone());
-                    workspace_statuses.push(WorkspaceStatus {
-                        uri: workspace.uri,
-                        enabled: false,
-                        error: Some(error.to_string()),
-                    });
-                }
-            }
-        }
-        if let Err(error) = self.registry.configure_workspaces(configured) {
-            return Some(session_error(id, error));
-        }
-        self.config_generation = generation;
+        let workspace_statuses = match self.registry.configure_native_workspaces(
+            params
+                .workspaces
+                .into_iter()
+                .map(|workspace| (workspace.uri, workspace.trusted))
+                .collect(),
+        ) {
+            Ok(statuses) => statuses
+                .into_iter()
+                .map(|status| WorkspaceStatus {
+                    uri: status.uri,
+                    enabled: status.enabled,
+                    error: status.error,
+                })
+                .collect(),
+            Err(error) => return Some(session_error(id, error)),
+        };
         self.selection_events = params.capabilities.selection_events;
         self.viewport_events = params.capabilities.viewport_events;
-        self.workspaces = grants;
-        self.disabled_workspaces = disabled_workspaces;
         Some(response_value(Response::success(
             id,
             InitializeResult {
@@ -82,7 +54,6 @@ impl Server {
                 workspace_statuses,
                 capabilities: ServerCapabilities {
                     html_render: true,
-                    document_checkpoint: true,
                     selection_events: self.selection_events,
                     viewport_events: self.viewport_events,
                     workspace_commands: vec![
@@ -167,43 +138,15 @@ impl Server {
             },
         );
         Some(response_value(Response::success(
-            id,
+            id.clone(),
             CreatePreviewResult {
                 preview_session_id: preview_id,
+                frame: match wire_frame(&frame) {
+                    Ok(frame) => frame,
+                    Err(error) => return Some(boundary_error(id.clone(), error)),
+                },
                 url,
             },
-        )))
-    }
-
-    pub(super) fn read_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        let id = id?;
-        let params = match deserialize_params::<ReadPreviewParams>(&id, params) {
-            Ok(params) => params,
-            Err(response) => return Some(response),
-        };
-        let Some(state) = self.preview_states.get(&params.preview_session_id) else {
-            return Some(response_value(Response::error(
-                id,
-                -32602,
-                "unknown preview session",
-            )));
-        };
-        let frame = match self.registry.read_preview(
-            &params.daemon_instance_id,
-            &state.document_session_id,
-            &params.preview_session_id,
-            params.after_revision.map(|revision| revision.get()),
-        ) {
-            Ok(frame) => frame,
-            Err(error) => return Some(session_error(id, error)),
-        };
-        let frame = match frame.as_ref().map(wire_frame).transpose() {
-            Ok(frame) => frame,
-            Err(error) => return Some(boundary_error(id, error)),
-        };
-        Some(response_value(Response::success(
-            id,
-            ReadPreviewResult { frame },
         )))
     }
 
@@ -237,28 +180,11 @@ impl Server {
             Ok(frame) => frame,
             Err(error) => return Some(session_error(id, error)),
         };
-        if self.publication_cancellation.is_cancelled() {
-            return None;
+        match self.publish_frame(&params.preview_session_id, &frame) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(error) => return Some(boundary_error(id, error)),
         }
-        if let Some(token) = &state.token {
-            if let Err(error) = self.previews.update(token, &frame) {
-                return Some(boundary_error(id, error));
-            }
-        }
-        self.preview_states
-            .get_mut(&params.preview_session_id)
-            .expect("preview state remains present")
-            .delivered_revision = frame.render_revision;
-        let _ = self.refresh_explicit_jump(&params.preview_session_id);
-        self.outgoing_events
-            .push(preview_changed_notification(PreviewChangedParams {
-                daemon_instance_id: params.daemon_instance_id,
-                preview_session_id: params.preview_session_id,
-                render_revision: match counter(frame.render_revision) {
-                    Ok(revision) => revision,
-                    Err(error) => return Some(boundary_error(id, error)),
-                },
-            }));
         Some(response_value(Response::success(id, Value::Null)))
     }
 
@@ -286,31 +212,7 @@ impl Server {
     }
 
     pub(super) fn refresh_assets(&mut self, uri: &str) -> Result<(), SessionError> {
-        let session_id = self
-            .registry
-            .session_id_for_uri(uri)
-            .ok_or(SessionError::UnknownSession)?
-            .to_owned();
-        let daemon = self.registry.daemon_instance_id().to_owned();
-        let version = self.registry.current_version(&daemon, &session_id)?;
-        let session = self.registry.document(&daemon, &session_id, version)?;
-        let Some(workspace_uri) = session.workspace_uri().map(str::to_owned) else {
-            return Ok(());
-        };
-        if !self
-            .workspaces
-            .get(&workspace_uri)
-            .copied()
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-        let document = session.document().clone();
-        let assets = self
-            .services
-            .resolve_render_assets(uri, &workspace_uri, &document)
-            .map_err(|error| SessionError::Engine(error.to_string()))?;
-        self.registry.reconfigure_document_assets(uri, assets)
+        self.registry.refresh_document_assets(uri)
     }
 
     pub(super) fn set_selection(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
@@ -488,15 +390,33 @@ impl Server {
             }
             Err(error) => return id.map(|id| session_error(id, error)),
         };
+        let source_frame = match self.registry.read_preview(
+            &params.daemon_instance_id,
+            &state.document_session_id,
+            &params.preview_session_id,
+            None,
+        ) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => return id.map(|id| session_error(id, SessionError::UnknownSession)),
+            Err(error) => return id.map(|id| session_error(id, error)),
+        };
         let event = match navigation {
             PreviewNavigationEvent::SelectNode { .. } => SourceNavigationEvent::SelectSource {
-                source_range: match range(&entry.source_range) {
+                source_range: match range(
+                    &entry.source_range,
+                    &source_frame.source,
+                    source_frame.position_encoding,
+                ) {
                     Ok(range) => range,
                     Err(error) => return id.map(|id| boundary_error(id, error)),
                 },
             },
             PreviewNavigationEvent::RevealNode { .. } => SourceNavigationEvent::RevealSource {
-                source_range: match range(&entry.source_range) {
+                source_range: match range(
+                    &entry.source_range,
+                    &source_frame.source,
+                    source_frame.position_encoding,
+                ) {
                     Ok(range) => range,
                     Err(error) => return id.map(|id| boundary_error(id, error)),
                 },
@@ -528,62 +448,30 @@ impl Server {
         if params.daemon_instance_id != self.registry.daemon_instance_id() {
             return Some(session_error(id, SessionError::WrongDaemon));
         }
-        if !self.workspaces.contains_key(&params.workspace_uri) {
+        if !self
+            .registry
+            .workspace_statuses()
+            .iter()
+            .any(|(uri, _, _)| uri == &params.workspace_uri)
+        {
             return Some(response_value(Response::error(
                 id,
                 -32602,
                 "workspace is not registered",
             )));
         }
-        let generation = self.config_generation + 1;
-        let (host, render_config) =
-            match self
-                .services
-                .load_plugin_host(&params.workspace_uri, params.trusted, generation)
-            {
-                Ok(configured) => configured,
-                Err(error) => {
-                    return Some(response_value(Response::error(
-                        id,
-                        -32022,
-                        error.to_string(),
-                    )));
-                }
-            };
-        let mut assets = HashMap::new();
-        for (uri, document) in self.registry.workspace_documents(&params.workspace_uri) {
-            let resolved = if params.trusted {
-                match self
-                    .services
-                    .resolve_render_assets(&uri, &params.workspace_uri, &document)
-                {
-                    Ok(assets) => assets,
-                    Err(error) => {
-                        return Some(response_value(Response::error(
-                            id,
-                            -32022,
-                            error.to_string(),
-                        )));
-                    }
-                }
-            } else {
-                fleximark_engine::ResolvedAssets::default()
-            };
-            assets.insert(uri, resolved);
-        }
-        if let Err(error) = self.registry.reconfigure_workspace(
+        if let Err(error) = self.registry.reconfigure_native_workspace(
+            &params.daemon_instance_id,
             &params.workspace_uri,
-            host,
-            render_config,
-            assets,
+            params.trusted,
             &self.work_cancellation,
         ) {
-            return Some(session_error(id, error));
+            return Some(response_value(Response::error(
+                id,
+                -32022,
+                error.to_string(),
+            )));
         }
-        self.config_generation = generation;
-        self.workspaces
-            .insert(params.workspace_uri.clone(), params.trusted);
-        self.disabled_workspaces.remove(&params.workspace_uri);
 
         let daemon = self.registry.daemon_instance_id().to_owned();
         let sessions = self
@@ -613,45 +501,21 @@ impl Server {
                 Ok(frame) => frame,
                 Err(error) => return Some(session_error(id, error)),
             };
-            if self.publication_cancellation.is_cancelled() {
-                return None;
+            match self.publish_frame(&preview_id, &frame) {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(error) => return Some(boundary_error(id, error)),
             }
-            if let Some(token) = &state.token {
-                if let Err(error) = self.previews.update(token, &frame) {
-                    return Some(boundary_error(id, error));
-                }
-            }
-            if let Some(current) = self.preview_states.get_mut(&preview_id) {
-                current.delivered_revision = frame.render_revision;
-            }
-            self.outgoing_events
-                .push(preview_changed_notification(PreviewChangedParams {
-                    daemon_instance_id: daemon.clone(),
-                    preview_session_id: preview_id,
-                    render_revision: match counter(frame.render_revision) {
-                        Ok(revision) => revision,
-                        Err(error) => return Some(boundary_error(id, error)),
-                    },
-                }));
         }
         Some(response_value(Response::success(id, Value::Null)))
     }
 
     pub(super) fn workspace_grants_write(&self, requested_uri: &str) -> bool {
-        self.workspaces.iter().any(|(granted_uri, trusted)| {
-            *trusted && self.services.same_workspace(granted_uri, requested_uri)
-        })
+        self.registry.workspace_grants_write(requested_uri)
     }
 
     pub(super) fn workspace_for_document(&self, document_uri: &str) -> Option<(String, bool)> {
-        self.workspaces
-            .iter()
-            .filter(|(workspace_uri, _)| {
-                self.services
-                    .document_is_in_workspace(document_uri, workspace_uri)
-            })
-            .max_by_key(|(workspace_uri, _)| workspace_uri.len())
-            .map(|(uri, trusted)| (uri.clone(), *trusted))
+        self.registry.workspace_for_document(document_uri)
     }
 }
 impl Server {

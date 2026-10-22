@@ -11,11 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 fleximark-lsp-transport = { path = "../../transports/lsp" }
-fleximark-workspace = { path = "../../runtime/workspace" }
+fleximark-application = { path = "../../application" }
 fleximark-preview-assets = { path = "../../runtime/preview-assets" }
 
 [dev-dependencies]
-fleximark-application = { path = "../../application" }
 fleximark-model = { path = "../../core/model" }
 fleximark-plugin-api = { path = "../../core/plugin-api" }
 fleximark-protocol = { path = "../../contracts/protocol" }

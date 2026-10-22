@@ -1,5 +1,5 @@
 //! Role: Reject linked path components before native workspace access.
-use crate::ServiceError;
+use crate::native::ServiceError;
 use std::{fs, path::Path};
 pub(crate) fn reject_linked_path(
     root: &Path,

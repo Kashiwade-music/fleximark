@@ -1,20 +1,11 @@
 //! Role: Execute and validate sandboxed WASM plugins.
-use fleximark_model::{PositionEncoding, SourcePosition, SourceProvenance, SourceRange};
+use fleximark_model::{SourceIndex, SourceProvenance, SourceRange};
 use fleximark_plugin_sdk::{EditOrigin, PreprocessedSource};
 
 pub(super) fn identity_edit_map(source: &str) -> Vec<fleximark_plugin_sdk::EditMapSegment> {
     if source.is_empty() {
         return Vec::new();
     }
-    let (line, character) = source.rfind('\n').map_or((0, source.len()), |index| {
-        (
-            source[..=index]
-                .bytes()
-                .filter(|byte| *byte == b'\n')
-                .count(),
-            source.len() - index - 1,
-        )
-    });
     vec![fleximark_plugin_sdk::EditMapSegment {
         output_start: 0,
         output_end: source.len() as u64,
@@ -22,16 +13,6 @@ pub(super) fn identity_edit_map(source: &str) -> Vec<fleximark_plugin_sdk::EditM
             ranges: vec![SourceRange {
                 byte_start: 0,
                 byte_end: (source.len() as u64),
-                start: SourcePosition {
-                    line: 0,
-                    character: 0,
-                    encoding: PositionEncoding::Utf8,
-                },
-                end: SourcePosition {
-                    line: (line as u64),
-                    character: (character as u64),
-                    encoding: PositionEncoding::Utf8,
-                },
             }],
             primary_range_index: 0,
         },
@@ -238,25 +219,14 @@ fn map_input_range(
 }
 
 fn utf8_source_range(source: &str, start: u64, end: u64) -> Result<SourceRange, String> {
-    let position = |offset: u64| -> Result<SourcePosition, String> {
-        let offset = usize::try_from(offset).map_err(|_| "source offset is too large")?;
-        if !source.is_char_boundary(offset) {
-            return Err("source offset is not a UTF-8 boundary".to_owned());
-        }
-        let before = &source[..offset];
-        let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
-        Ok(SourcePosition {
-            line: before.bytes().filter(|byte| *byte == b'\n').count() as u64,
-            character: (offset - line_start) as u64,
-            encoding: PositionEncoding::Utf8,
-        })
-    };
-    Ok(SourceRange {
+    let range = SourceRange {
         byte_start: start,
         byte_end: end,
-        start: position(start)?,
-        end: position(end)?,
-    })
+    };
+    SourceIndex::new(source)
+        .validate_range(&range)
+        .map_err(|error| error.to_string())?;
+    Ok(range)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "cases": [
     {
       "name": "wrong JSON-RPC version",
@@ -152,6 +152,17 @@
         "client": {
           "name": "contract-test",
           "version": "1"
+        }
+      }
+    },
+    {
+      "name": "previous protocol version is incompatible",
+      "definition": "initializeParams",
+      "value": {
+        "protocolVersion": 6,
+        "client": {
+          "name": "old-runtime",
+          "version": "0.16.14"
         }
       }
     }

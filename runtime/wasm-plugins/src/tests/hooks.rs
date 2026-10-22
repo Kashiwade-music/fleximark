@@ -358,3 +358,67 @@ fn optional_transform_block_failure_rolls_back_every_block_before_the_next_plugi
         &[BTreeMap::new(), BTreeMap::new()]
     );
 }
+
+#[test]
+fn inline_nodes_and_nesting_obey_candidate_budgets_for_both_transform_hooks() {
+    let source = "**hello**\n";
+    let original = parse(DocumentUri("file:///inline-budget.md".into()), 1, source).unwrap();
+    for hook in [Hook::TransformDocument, Hook::TransformBlock] {
+        for limits in [
+            ExecutionLimits {
+                max_nodes: 2,
+                ..ExecutionLimits::default()
+            },
+            ExecutionLimits {
+                max_depth: 2,
+                ..ExecutionLimits::default()
+            },
+        ] {
+            let mut host = trusted_host(limits);
+            register_hook_runtime(
+                &mut host,
+                &hook,
+                "budget",
+                false,
+                passing_hook_runtime(Arc::new(AtomicBool::new(false))),
+            );
+            let run = match hook {
+                Hook::TransformDocument => {
+                    host.transform_document(source, &original, &CancellationToken::default())
+                }
+                Hook::TransformBlock => {
+                    host.transform_blocks(source, &original, &CancellationToken::default())
+                }
+                _ => panic!("unexpected test hook"),
+            }
+            .unwrap();
+            assert_eq!(run.value, original);
+            let diagnostics = run.diagnostics;
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].kind, PluginFailureKind::InvalidCandidate);
+        }
+    }
+}
+
+#[test]
+fn block_hook_budget_applies_to_the_whole_document() {
+    let source = "first\n\nsecond\n";
+    let original = parse(DocumentUri("file:///budget.md".into()), 1, source).unwrap();
+    let mut host = trusted_host(ExecutionLimits {
+        max_nodes: 3,
+        ..ExecutionLimits::default()
+    });
+    register_hook_runtime(
+        &mut host,
+        &Hook::TransformBlock,
+        "budget",
+        false,
+        passing_hook_runtime(Arc::new(AtomicBool::new(false))),
+    );
+    let run = host
+        .transform_blocks(source, &original, &CancellationToken::default())
+        .unwrap();
+    assert_eq!(run.value, original);
+    assert_eq!(run.diagnostics.len(), 1);
+    assert_eq!(run.diagnostics[0].kind, PluginFailureKind::InvalidCandidate);
+}

@@ -35,6 +35,7 @@ export interface JsonRpcRequest {
 interface PendingRequest {
   method: string;
   validateResult?: Validator<unknown>;
+  receive?: (value: unknown) => void;
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
   timer: NodeJS.Timeout;
@@ -102,6 +103,7 @@ export class JsonRpcConnection extends EventEmitter {
     method: Method,
     params: CustomRequestMap[Method]["params"],
     timeoutMs?: number,
+    receive?: (result: CustomRequestMap[Method]["result"]) => void,
   ): Promise<CustomRequestMap[Method]["result"]> {
     const validator = customRequestParamsValidators[
       method
@@ -113,6 +115,7 @@ export class JsonRpcConnection extends EventEmitter {
       params,
       customRequestResultValidators[method] as Validator<unknown>,
       timeoutMs,
+      receive as ((value: unknown) => void) | undefined,
     ) as Promise<CustomRequestMap[Method]["result"]>;
   }
 
@@ -177,6 +180,7 @@ export class JsonRpcConnection extends EventEmitter {
     params: object | JsonValue[] | undefined,
     validateResult: Validator<unknown> | undefined,
     timeoutMs = 15_000,
+    receive?: (value: unknown) => void,
   ): Promise<unknown> {
     if (this.#closed)
       return Promise.reject(new Error("JSON-RPC connection is closed"));
@@ -186,7 +190,14 @@ export class JsonRpcConnection extends EventEmitter {
         this.#pending.delete(id);
         reject(new Error(`JSON-RPC request timed out: ${method}`));
       }, timeoutMs);
-      this.#pending.set(id, { method, validateResult, resolve, reject, timer });
+      this.#pending.set(id, {
+        method,
+        validateResult,
+        receive,
+        resolve,
+        reject,
+        timer,
+      });
       this.#write({ jsonrpc: "2.0", id, method, params });
     });
   }
@@ -261,7 +272,15 @@ export class JsonRpcConnection extends EventEmitter {
       if (!pending.validateResult || pending.validateResult(message.result)) {
         this.#pending.delete(message.id);
         clearTimeout(pending.timer);
-        pending.resolve(message.result);
+        try {
+          // Bind response-owned state before dispatching the next wire message.
+          pending.receive?.(message.result);
+          pending.resolve(message.result);
+        } catch (error) {
+          pending.reject(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
         return;
       }
       this.close(new Error(`Invalid protocol result for ${pending.method}`));

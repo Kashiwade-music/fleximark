@@ -1,7 +1,7 @@
 //! Role: Remap plugin-preprocessed source provenance to original source ranges.
 use fleximark_model::{
-    AnchorAffinity, Block, Document, GeneratedAnchor, Inline, InlineKind, Node, PositionEncoding,
-    SourcePosition, SourceProvenance, TransformId,
+    AnchorAffinity, Block, Document, GeneratedAnchor, Inline, InlineKind, Node, SourceIndex,
+    SourceProvenance, TransformId,
 };
 use fleximark_plugin_api::{EditOrigin, PreprocessedSource};
 
@@ -65,32 +65,18 @@ fn remap_provenance(
     let mut ranges = Vec::new();
     let mut primary_range = None;
     let mut generated_anchor = None;
-    let source_range = |byte_start: u64, byte_end: u64| {
-        let start = usize::try_from(byte_start)
-            .map_err(|_| EngineError::Plugin("preprocess origin offset overflowed".to_owned()))?;
-        let end = usize::try_from(byte_end)
-            .map_err(|_| EngineError::Plugin("preprocess origin offset overflowed".to_owned()))?;
-        if !original_source.is_char_boundary(start) || !original_source.is_char_boundary(end) {
-            return Err(EngineError::Plugin(
-                "preprocess edit map cannot be clipped at UTF-8 boundaries".to_owned(),
-            ));
-        }
-        let position = |offset: usize| {
-            let before = &original_source[..offset];
-            let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
-            SourcePosition {
-                line: (before.bytes().filter(|byte| *byte == b'\n').count() as u64),
-                character: ((offset - line_start) as u64),
-                encoding: PositionEncoding::Utf8,
-            }
+    let source_index = SourceIndex::new(original_source);
+    let source_range =
+        |byte_start: u64, byte_end: u64| -> Result<fleximark_model::SourceRange, EngineError> {
+            let range = fleximark_model::SourceRange {
+                byte_start,
+                byte_end,
+            };
+            source_index.validate_range(&range).map_err(|error| {
+                EngineError::Plugin(format!("invalid preprocess origin: {error}"))
+            })?;
+            Ok(range)
         };
-        Ok(fleximark_model::SourceRange {
-            byte_start,
-            byte_end,
-            start: position(start),
-            end: position(end),
-        })
-    };
     let range_start = range.byte_start;
     let range_end = range.byte_end;
     for segment in &preprocessed.segments {

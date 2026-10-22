@@ -2,7 +2,9 @@ import * as assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 
+import { validateContractSchema } from "../../contracts/typescript/contract-validator.mjs";
 import {
+  PROTOCOL_VERSION,
   clientNotificationValidators,
   customRequestParamsValidators,
   customRequestResultValidators,
@@ -16,6 +18,169 @@ import {
 export const suiteName = "TypeScript protocol contract";
 
 export function suite(): void {
+  test("shared schema fixtures use the production validator", () => {
+    const read = (name: string) => JSON.parse(readFileSync(name, "utf8"));
+    const schema = read("contracts/schemas/protocol.schema.json");
+    const check = (definition: string, value: unknown) =>
+      validateContractSchema(schema.$defs, schema.$defs[definition], value);
+    const fixture = read("tests/fixtures/protocol/contract.json");
+    const results = schema.$defs.methodResults.properties;
+    assert.deepEqual(
+      Object.keys(results).sort(),
+      fixture.methods.map((item: { method: string }) => item.method).sort(),
+    );
+    for (const item of fixture.methods) {
+      const envelope = {
+        jsonrpc: "2.0",
+        method: item.method,
+        params: item.params,
+        ...(item.kind === "request" ? { id: 7 } : {}),
+      };
+      assert.equal(
+        check(
+          item.kind === "request" ? "customRequest" : "customNotification",
+          envelope,
+        ),
+        true,
+        item.method,
+      );
+      if (results[item.method])
+        assert.equal(
+          validateContractSchema(
+            schema.$defs,
+            results[item.method],
+            item.result,
+          ),
+          true,
+          item.method,
+        );
+      if (item.kind === "request")
+        assert.equal(
+          check("response", { jsonrpc: "2.0", id: 7, result: item.result }),
+          true,
+        );
+      else assert.equal(item.result, null);
+    }
+    const server = read("tests/fixtures/protocol/bidirectional-server.json");
+    assert.deepEqual(
+      server.notifications
+        .map((item: { method: string }) => item.method)
+        .sort(),
+      fixture.methods
+        .filter(
+          (item: { direction: string }) => item.direction === "bidirectional",
+        )
+        .map((item: { method: string }) => item.method)
+        .sort(),
+    );
+    for (const item of server.notifications)
+      assert.equal(
+        check("serverToClientCustomNotification", {
+          jsonrpc: "2.0",
+          method: item.method,
+          params: item.params,
+        }),
+        true,
+      );
+    for (const item of read("tests/fixtures/protocol/invalid.json").cases)
+      assert.equal(check(item.definition, item.value), false, item.name);
+    for (const item of read("tests/fixtures/protocol/optional-present.json")
+      .cases)
+      assert.equal(check(item.definition, item.value), true, item.name);
+    for (const event of read("tests/fixtures/protocol/render-navigation.json")
+      .events)
+      assert.equal(check("renderNavigationEvent", event), true);
+  });
+  test("schema combinators, siblings, JSON equality and depth stay exact", () => {
+    const check = (schema: unknown, value: unknown) =>
+      validateContractSchema({}, schema, value);
+    assert.equal(
+      check({ oneOf: [{ type: "integer" }, { type: "number" }] }, 1),
+      false,
+    );
+    assert.equal(
+      check(
+        { anyOf: [{ type: "integer" }, { type: "number" }], maximum: 2 },
+        3,
+      ),
+      false,
+    );
+    assert.equal(
+      check({ allOf: [{ type: "integer" }, { minimum: 2 }] }, 1),
+      false,
+    );
+    assert.equal(check({ const: { a: [1, true] } }, { a: [1, true] }), true);
+    assert.equal(check({ const: true }, 1), false);
+    assert.equal(
+      check({ type: "integer" }, Number.MAX_SAFE_INTEGER + 1),
+      false,
+    );
+    assert.equal(
+      check(
+        {
+          type: "object",
+          properties: { x: { type: "string" } },
+          additionalProperties: false,
+        },
+        {},
+      ),
+      true,
+    );
+    assert.equal(
+      check(
+        {
+          type: "object",
+          properties: { x: { type: "string" } },
+          additionalProperties: false,
+        },
+        { x: null },
+      ),
+      false,
+    );
+    assert.equal(
+      check({ type: "object", additionalProperties: false }, { x: 1 }),
+      false,
+    );
+    const recursive = { type: "array", items: { $ref: "#/$defs/tree" } };
+    let nested: unknown = [];
+    for (let index = 0; index < 150; index++) nested = [nested];
+    assert.equal(
+      validateContractSchema({ tree: recursive }, recursive, nested),
+      false,
+    );
+  });
+  test("distribution schema binds target to exact payload paths", () => {
+    const schema = JSON.parse(
+      readFileSync(
+        "contracts/distribution/runtime-manifest.schema.json",
+        "utf8",
+      ),
+    );
+    const check = (value: unknown) =>
+      validateContractSchema(schema.$defs, schema, value);
+    for (const target of schema.properties.target.enum) {
+      const kind = target.includes("windows") ? "windowsFiles" : "unixFiles";
+      const files = Object.fromEntries(
+        schema.$defs[kind].required.map((name: string) => [
+          name,
+          "a".repeat(64),
+        ]),
+      );
+      const manifest = {
+        schemaVersion: 1,
+        protocolVersion: PROTOCOL_VERSION,
+        version: "1.0.0",
+        target,
+        files,
+      };
+      assert.equal(check(manifest), true);
+      manifest.target = target.includes("windows")
+        ? "aarch64-unknown-linux-gnu"
+        : "aarch64-pc-windows-msvc";
+      assert.equal(check(manifest), false);
+    }
+  });
+
   test("accepts large assets while preserving base64 and reference validation", () => {
     const frame = JSON.parse(
       readFileSync("tests/fixtures/protocol/rust-render-frame.json", "utf8"),
@@ -31,7 +196,10 @@ export function suite(): void {
     }));
     assert.equal(isRenderFrame(frame), true);
     assert.equal(
-      customRequestResultValidators["fleximark/readPreview"]({ frame }),
+      customRequestResultValidators["fleximark/createPreview"]({
+        previewSessionId: "preview",
+        frame,
+      }),
       true,
     );
     const original = frame.assets[0];
@@ -162,7 +330,6 @@ export function suite(): void {
       daemonInstanceId: "daemon",
       uri: "file:///document.md",
       expectedDocumentVersion,
-      contentHash: "hash",
     });
 
     assert.equal(validate(params(-Number.MAX_SAFE_INTEGER)), true);

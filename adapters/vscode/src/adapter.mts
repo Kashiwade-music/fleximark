@@ -24,11 +24,9 @@ import {
 } from "./diagnostics.mjs";
 import {
   type DaemonOrigin,
-  checkpointDocument,
   changeDocument as coordinateDocumentChange,
   closeDocument as coordinateDocumentClose,
   syncDocument as coordinateDocumentSync,
-  handleRequestFullText,
   replayDocumentSessions,
   resetDocumentSessions,
 } from "./document-coordinator.mjs";
@@ -74,11 +72,7 @@ import {
   reconcileRuntimeMembership,
   runtimeKey,
 } from "./runtime-membership.mjs";
-import type {
-  DocumentRuntime,
-  DocumentState,
-  PreviewState,
-} from "./runtime-state.mjs";
+import type { DocumentRuntime, PreviewState } from "./runtime-state.mjs";
 import { isShowDocumentParams, showDocument } from "./show-document.mjs";
 import { applySourceNavigation } from "./source-navigation.mjs";
 import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
@@ -394,17 +388,12 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   changeDocument(document: vscode.TextDocument): void {
     const runtime = this.#runtimeForDocument(document);
-    const state = runtime?.documents.get(document.uri.toString());
     const origin = this.#daemonOrigin();
     coordinateDocumentChange(
       runtime,
       document,
       origin?.rpc,
       () => this.syncDocument(document),
-      () =>
-        runtime && state
-          ? this.#checkpoint(document, state, origin)
-          : Promise.resolve(),
       (error) => this.#report(error),
     );
   }
@@ -474,8 +463,8 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
       throw new Error("preview navigation seam is only available in tests");
     this.#runtimes.set(runtimeKey(runtime.workspace), runtime);
-    runtime.previews.set(preview.previewSessionId, preview);
-    this.#testOrigin = preview.origin;
+    runtime.previews.set(preview.binding.previewSessionId, preview);
+    this.#testOrigin = preview.binding.origin;
     await this.#applySourceNavigation(runtime, preview, event);
   }
 
@@ -655,7 +644,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         [...this.#runtimes.values()].flatMap((runtime) =>
           [...runtime.previews.values()].map((preview) => [
             preview.documentUri,
-            preview.previewSessionId,
+            preview.binding.previewSessionId,
           ]),
         ),
       ),
@@ -663,7 +652,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
         [...this.#runtimes.values()].flatMap((runtime) =>
           [...runtime.previews.values()].map((preview) => [
             preview.documentUri,
-            preview.renderRevision || undefined,
+            preview.binding.renderRevision || undefined,
           ]),
         ),
       ),
@@ -698,7 +687,8 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   #previewOwner(preview: PreviewState): DocumentRuntime | undefined {
     return [...this.#runtimes.values()].find(
-      (runtime) => runtime.previews.get(preview.previewSessionId) === preview,
+      (runtime) =>
+        runtime.previews.get(preview.binding.previewSessionId) === preview,
     );
   }
 
@@ -745,8 +735,8 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     return (
       !this.#disposed &&
       this.#runtimes.get(runtimeKey(runtime.workspace)) === runtime &&
-      previewIsCurrent(runtime, preview, preview.previewSessionId) &&
-      sameDaemonOrigin(origin, preview.origin)
+      previewIsCurrent(runtime, preview, preview.binding.previewSessionId) &&
+      sameDaemonOrigin(origin, preview.binding.origin)
     );
   }
 
@@ -773,9 +763,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   #stop(runtime: DocumentRuntime): void {
-    for (const state of runtime.documents.values()) {
-      if (state.checkpoint) clearTimeout(state.checkpoint);
-    }
     for (const [uri] of runtime.documents)
       this.#supervisor.rpc?.notifyLsp("textDocument/didClose", {
         textDocument: { uri },
@@ -892,19 +879,9 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       document,
       target,
       () => this.#daemonOrigin(),
-      (openedDocument, state, origin) =>
-        this.#checkpoint(openedDocument, state, origin),
       (candidate) => this.#previewCandidateIdentityIsCurrent(candidate),
       disposePreviewCandidate,
     );
-  }
-
-  async #checkpoint(
-    document: vscode.TextDocument,
-    state: DocumentState,
-    origin = this.#daemonOrigin(),
-  ): Promise<void> {
-    await checkpointDocument(document, state, origin);
   }
 
   async #recreatePreviews(runtime: DocumentRuntime): Promise<void> {
@@ -972,16 +949,6 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       );
       return;
     }
-    if (
-      handleRequestFullText(
-        message,
-        connection,
-        this.#runtimes.values(),
-        this.#supervisor.daemonInstanceId,
-        vscode.workspace.textDocuments,
-      )
-    )
-      return;
     if (
       message.method === "textDocument/publishDiagnostics" &&
       isPublishDiagnosticsParams(message.params)

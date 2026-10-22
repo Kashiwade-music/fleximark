@@ -1,7 +1,11 @@
-//! Role: Own document and workspace sessions through abstract runtime ports.
+//! Role: Own native document, workspace, and preview services.
 mod document;
+mod outcomes;
+mod registry;
+pub use registry::SessionRegistry;
 mod error;
 mod index;
+pub mod native;
 pub mod operations;
 mod positions;
 mod preview_state;
@@ -10,11 +14,14 @@ mod preview_tests;
 mod requests;
 mod snapshots;
 pub use document::DocumentSession;
+#[cfg(test)]
 pub use positions::content_hash;
 use positions::position_offset;
 pub use requests::*;
 pub use snapshots::{PreviewSessionId, RenderFrame};
 mod workspace;
+mod workspace_config;
+pub use workspace_config::WorkspaceConfigurationStatus;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,14 +42,6 @@ use workspace::WorkspaceAuthority;
 
 static NEXT_DAEMON: AtomicU64 = AtomicU64::new(1);
 
-pub struct SessionRegistry {
-    daemon_instance_id: String,
-    position_encoding: PositionEncoding,
-    index: SessionIndex,
-    events: Vec<ResyncRequest>,
-    workspaces: WorkspaceAuthority,
-}
-
 impl SessionRegistry {
     pub fn new(position_encoding: PositionEncoding) -> Self {
         let serial = NEXT_DAEMON.fetch_add(1, Ordering::Relaxed);
@@ -53,10 +52,10 @@ impl SessionRegistry {
         let seed = format!("{}:{nanos}:{serial}", std::process::id());
         let digest = blake3::hash(seed.as_bytes()).to_hex().to_string();
         Self {
+            config_generation: 0,
             daemon_instance_id: format!("daemon-{}", &digest[..24]),
             position_encoding,
             index: SessionIndex::default(),
-            events: Vec::new(),
             workspaces: WorkspaceAuthority::default(),
         }
     }
@@ -80,36 +79,39 @@ impl SessionRegistry {
                 "workspaces must be configured before opening documents".into(),
             ));
         }
-        self.workspaces.replace_roots(workspaces);
+        self.workspaces.replace_roots(workspaces)?;
         Ok(())
     }
 
-    pub fn reconfigure_document_assets(
-        &mut self,
-        uri: &str,
-        assets: ResolvedAssets,
-    ) -> Result<(), SessionError> {
-        let workspace_uri = self
-            .index
-            .by_uri(uri)
-            .ok_or(SessionError::NotOpen)?
-            .workspace_uri
-            .clone();
-        let config = workspace_uri
-            .as_deref()
-            .and_then(|workspace_uri| self.workspaces.exact(workspace_uri))
-            .map(|(_, config)| config.clone())
-            .ok_or_else(|| SessionError::Engine("render configuration is missing".into()))?
-            .with_resolved_assets(assets)
-            .map_err(engine_error)?;
-        self.index
-            .by_uri_mut(uri)
-            .ok_or(SessionError::NotOpen)?
-            .engine
-            .reconfigure_render(config)
-            .map_err(engine_error)
+    pub fn workspace_statuses(&self) -> Vec<(String, bool, bool)> {
+        self.workspaces.status()
     }
-
+    pub fn set_workspace_status(&mut self, uri: &str, trusted: bool, enabled: bool) {
+        self.workspaces.set_status(uri, trusted, enabled);
+    }
+    pub fn workspace_grants_write(&self, uri: &str) -> bool {
+        self.workspaces.grants_write(uri)
+    }
+    pub fn workspace_for_document(&self, document: &str) -> Option<(String, bool)> {
+        self.workspaces.document_workspace(document)
+    }
+    pub fn refresh_document_assets(&mut self, uri: &str) -> Result<(), SessionError> {
+        let id = self
+            .session_id_for_uri(uri)
+            .ok_or(SessionError::UnknownSession)?
+            .to_owned();
+        let version = self.current_version(self.daemon_instance_id(), &id)?;
+        let document = self.document(self.daemon_instance_id(), &id, version)?;
+        let Some(workspace) = document.workspace_uri().map(str::to_owned) else {
+            return Ok(());
+        };
+        if !self.workspace_grants_write(&workspace) {
+            return Ok(());
+        }
+        let session = self.index.by_uri_mut(uri).ok_or(SessionError::NotOpen)?;
+        native::refresh_document_assets(&mut session.engine, &workspace)
+            .map_err(|error| SessionError::Engine(error.to_string()))
+    }
     pub fn open_documents(&self) -> Vec<(String, fleximark_model::Document)> {
         self.index
             .iter()
@@ -176,6 +178,18 @@ impl SessionRegistry {
         cancellation: &CancellationToken,
     ) -> Result<(), SessionError> {
         let item = params.text_document;
+        if self
+            .workspace_for_document(&item.uri)
+            .is_some_and(|(uri, _)| {
+                self.workspace_statuses()
+                    .iter()
+                    .any(|(root, _, enabled)| root == &uri && !enabled)
+            })
+        {
+            return Err(SessionError::Engine(
+                "workspace configuration is disabled".into(),
+            ));
+        }
         let version = u64::try_from(item.version).map_err(|_| SessionError::StaleVersion)?;
         let workspace = self
             .workspaces
@@ -183,7 +197,7 @@ impl SessionRegistry {
             .map(|(workspace_uri, host, config)| {
                 (workspace_uri.to_owned(), Arc::clone(host), config.clone())
             });
-        let workspace_uri = workspace.as_ref().map(|(uri, _, _)| uri.clone());
+        let workspace_uri = self.workspace_for_document(&item.uri).map(|(uri, _)| uri);
         let engine = match workspace {
             Some((_, host, config)) => EngineSession::open_configured(
                 DocumentUri(item.uri.clone()),
@@ -204,11 +218,9 @@ impl SessionRegistry {
             .map_err(engine_error),
         }?;
         let id = format!("document-{}", NEXT_DAEMON.fetch_add(1, Ordering::Relaxed));
-        let content_hash = content_hash(&item.text);
         self.index.insert(DocumentSession {
             id,
             uri: item.uri,
-            content_hash,
             workspace_uri,
             engine,
             previews: HashMap::new(),
@@ -253,31 +265,10 @@ impl SessionRegistry {
             return Err(SessionError::ContentModified);
         }
 
-        let mut text = current.engine.source().to_owned();
-        if is_full_replacement {
-            text = params.content_changes[0].text.clone();
-        } else {
-            for change in params.content_changes {
-                let Some(range) = change.range else {
-                    self.mark_out_of_sync(&uri, "mixed full and incremental changes");
-                    return Err(SessionError::InvalidRange);
-                };
-                let Some(start) = position_offset(&text, range.start, self.position_encoding)
-                else {
-                    self.mark_out_of_sync(&uri, "invalid incremental edit range");
-                    return Err(SessionError::InvalidRange);
-                };
-                let Some(end) = position_offset(&text, range.end, self.position_encoding) else {
-                    self.mark_out_of_sync(&uri, "invalid incremental edit range");
-                    return Err(SessionError::InvalidRange);
-                };
-                if start > end {
-                    self.mark_out_of_sync(&uri, "reversed incremental edit range");
-                    return Err(SessionError::InvalidRange);
-                }
-                text.replace_range(start..end, &change.text);
-            }
+        if !is_full_replacement {
+            return Err(SessionError::InvalidRange);
         }
+        let text = params.content_changes[0].text.clone();
 
         let session = self.index.by_uri_mut(&uri).ok_or(SessionError::NotOpen)?;
         let result = if session.engine.is_out_of_sync() {
@@ -292,7 +283,6 @@ impl SessionRegistry {
             )
         };
         result.map_err(engine_error)?;
-        session.content_hash = content_hash(&text);
         Ok(())
     }
 
@@ -317,42 +307,9 @@ impl SessionRegistry {
         if params.expected_document_version != version {
             return Err(SessionError::VersionMismatch);
         }
-        if params.content_hash != session.content_hash {
-            return Err(SessionError::HashMismatch);
-        }
         Ok(DocumentAttachment {
             document_session_id: session.id.clone(),
             document_version: version,
-            content_hash: session.content_hash.clone(),
-        })
-    }
-
-    pub fn checkpoint(
-        &mut self,
-        params: &DocumentCheckpointRequest,
-    ) -> Result<DocumentCheckpoint, SessionError> {
-        self.verify_daemon(&params.daemon_instance_id)?;
-        let session = self
-            .index
-            .by_session(&params.document_session_id)
-            .ok_or(SessionError::UnknownSession)?;
-        let uri = session.uri.clone();
-        if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
-        }
-        let version = i64::try_from(session.engine.document().document_version)
-            .map_err(|_| SessionError::VersionMismatch)?;
-        if params.document_version != version {
-            self.mark_out_of_sync(&uri, "checkpoint version mismatch");
-            return Err(SessionError::VersionMismatch);
-        }
-        if params.content_hash != session.content_hash {
-            self.mark_out_of_sync(&uri, "checkpoint content hash mismatch");
-            return Err(SessionError::HashMismatch);
-        }
-        Ok(DocumentCheckpoint {
-            document_version: version,
-            content_hash: session.content_hash.clone(),
         })
     }
 
@@ -497,11 +454,7 @@ impl SessionRegistry {
         Ok(&source[line_start..offset])
     }
 
-    pub fn take_full_text_requests(&mut self) -> Vec<ResyncRequest> {
-        std::mem::take(&mut self.events)
-    }
-
-    fn verify_daemon(&self, daemon: &str) -> Result<(), SessionError> {
+    pub(crate) fn verify_daemon(&self, daemon: &str) -> Result<(), SessionError> {
         if daemon == self.daemon_instance_id {
             Ok(())
         } else {
@@ -509,15 +462,9 @@ impl SessionRegistry {
         }
     }
 
-    fn mark_out_of_sync(&mut self, uri: &str, reason: &str) {
+    fn mark_out_of_sync(&mut self, uri: &str, _reason: &str) {
         if let Some(session) = self.index.by_uri_mut(uri) {
             session.engine.mark_out_of_sync();
-            self.events.push(ResyncRequest {
-                daemon_instance_id: self.daemon_instance_id.clone(),
-                uri: session.uri.clone(),
-                document_session_id: session.id.clone(),
-                reason: reason.to_owned(),
-            });
         }
     }
 }

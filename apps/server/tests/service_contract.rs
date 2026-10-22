@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fleximark_workspace::{
+use fleximark_application::native::{
     ServiceError, acknowledge_export, export_html_with_safety, initialize_workspace,
     path_to_file_uri,
 };

@@ -8,8 +8,7 @@ use comrak::{
 };
 use fleximark_model::{
     Block, BlockKind, DOCUMENT_SCHEMA_VERSION, Document, DocumentMetadata, DocumentUri, Inline,
-    InlineKind, Node, NodeId, PositionEncoding, SourcePosition, SourceProvenance, SourceRange,
-    ValidationError,
+    InlineKind, Node, NodeId, PositionEncoding, SourceIndex, SourceProvenance, ValidationError,
 };
 
 #[derive(Debug)]
@@ -61,7 +60,7 @@ pub fn parse(
     options.extension.front_matter_delimiter = Some("---".to_owned());
 
     let root = parse_document(&arena, source, &options);
-    let positions = SourceIndex::new(source);
+    let positions = ParserSourceIndex::new(source);
     let mut next_id = 0;
     let mut metadata = DocumentMetadata::default();
     let mut blocks = Vec::new();
@@ -87,7 +86,7 @@ pub fn parse(
 
 fn convert_block<'a>(
     node: &'a AstNode<'a>,
-    positions: &SourceIndex,
+    positions: &ParserSourceIndex,
     next_id: &mut usize,
 ) -> Result<Option<Block>, ParseError> {
     let data = node.data();
@@ -287,7 +286,7 @@ fn is_youtube_url(url: &str) -> bool {
 
 fn block_nodes<'a>(
     node: &'a AstNode<'a>,
-    positions: &SourceIndex,
+    positions: &ParserSourceIndex,
     next_id: &mut usize,
 ) -> Result<Vec<Node>, ParseError> {
     let mut children = Vec::new();
@@ -301,7 +300,7 @@ fn block_nodes<'a>(
 
 fn mixed_nodes<'a>(
     node: &'a AstNode<'a>,
-    positions: &SourceIndex,
+    positions: &ParserSourceIndex,
     next_id: &mut usize,
 ) -> Result<Vec<Node>, ParseError> {
     let mut children = Vec::new();
@@ -317,7 +316,7 @@ fn mixed_nodes<'a>(
 
 fn inline_nodes<'a>(
     node: &'a AstNode<'a>,
-    positions: &SourceIndex,
+    positions: &ParserSourceIndex,
 ) -> Result<Vec<Node>, ParseError> {
     node.children()
         .filter_map(|child| convert_inline(child, positions).transpose())
@@ -327,7 +326,7 @@ fn inline_nodes<'a>(
 
 fn convert_inline<'a>(
     node: &'a AstNode<'a>,
-    positions: &SourceIndex,
+    positions: &ParserSourceIndex,
 ) -> Result<Option<Inline>, ParseError> {
     let data = node.data();
     let provenance = positions.provenance(data.sourcepos)?;
@@ -424,18 +423,16 @@ fn parse_code_info(info: &str) -> (Option<String>, Option<String>, bool) {
     (language, title, line_numbers)
 }
 
-struct SourceIndex<'a> {
+struct ParserSourceIndex<'a> {
     source: &'a str,
-    line_starts: Vec<usize>,
+    index: SourceIndex<'a>,
 }
 
-impl<'a> SourceIndex<'a> {
+impl<'a> ParserSourceIndex<'a> {
     fn new(source: &'a str) -> Self {
-        let mut line_starts = vec![0];
-        line_starts.extend(source.match_indices('\n').map(|(index, _)| index + 1));
         Self {
             source,
-            line_starts,
+            index: SourceIndex::new(source),
         }
     }
 
@@ -463,7 +460,11 @@ impl<'a> SourceIndex<'a> {
             })
             .filter(|range| {
                 start.is_some_and(|start| range.byte_start >= start as u64)
-                    && end_line.is_some_and(|line| range.end.line == line as u64)
+                    && end_line.is_some_and(|line| {
+                        self.index
+                            .byte_to_position(range.byte_end as usize, PositionEncoding::Utf8)
+                            .is_some_and(|position| position.line == line as u64)
+                    })
             })
             .max_by_key(|range| range.byte_end)
             .map(|range| range.byte_end as usize);
@@ -485,12 +486,11 @@ impl<'a> SourceIndex<'a> {
             (Some(start), Some(end)) if start <= end => (start, end),
             _ => return Err(self.invalid(sourcepos)),
         };
-        Ok(SourceProvenance::original(SourceRange {
-            byte_start: (start as u64),
-            byte_end: (end as u64),
-            start: self.position(start),
-            end: self.position(end),
-        }))
+        Ok(SourceProvenance::original(
+            self.index
+                .range(start..end)
+                .map_err(|_| self.invalid(sourcepos))?,
+        ))
     }
 
     fn sourcepos_start(&self, sourcepos: Sourcepos) -> Option<usize> {
@@ -498,7 +498,7 @@ impl<'a> SourceIndex<'a> {
             .start
             .line
             .checked_sub(1)
-            .and_then(|line| self.line_starts.get(line))?;
+            .and_then(|line| self.index.line_start(line))?;
         let column = sourcepos.start.column.checked_sub(1)?;
         let offset = line.checked_add(column)?;
         (offset <= self.source.len() && self.source.is_char_boundary(offset)).then_some(offset)
@@ -509,23 +509,11 @@ impl<'a> SourceIndex<'a> {
             .end
             .line
             .checked_sub(1)
-            .and_then(|line| self.line_starts.get(line))?;
+            .and_then(|line| self.index.line_start(line))?;
         // Comrak columns are one-based and its end is inclusive, so the numeric end column is
         // already the zero-based exclusive byte offset within that line.
         let offset = line.checked_add(sourcepos.end.column)?;
         (offset <= self.source.len()).then_some(offset)
-    }
-
-    fn position(&self, byte_offset: usize) -> SourcePosition {
-        let line = self
-            .line_starts
-            .partition_point(|start| *start <= byte_offset)
-            .saturating_sub(1);
-        SourcePosition {
-            line: (line as u64),
-            character: ((byte_offset - self.line_starts[line]) as u64),
-            encoding: PositionEncoding::Utf8,
-        }
     }
 
     fn invalid(&self, sourcepos: Sourcepos) -> ParseError {
@@ -600,7 +588,13 @@ mod tests {
         let document = parse(DocumentUri("file:///unicode.md".into()), 1, source).unwrap();
         let range = document.blocks[0].provenance.primary_range().unwrap();
         assert_eq!((range.byte_start, range.byte_end), (0, 6));
-        assert_eq!(range.end.character, 6);
+        assert_eq!(
+            SourceIndex::new(source)
+                .byte_to_position(range.byte_end as usize, PositionEncoding::Utf8)
+                .unwrap()
+                .character,
+            6
+        );
     }
 
     #[test]

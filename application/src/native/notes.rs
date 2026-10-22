@@ -4,16 +4,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fleximark_application::operations::{
-    CollectedAdmonitions, CreatedNote, NoteCategory, NoteOptions,
-};
+use crate::outcomes::{CollectedAdmonitions, CreatedNote, NoteCategory, NoteOptions};
 use fleximark_config::{NoteCategoryConfig, is_safe_note_category_name};
 use fleximark_model::{Block, BlockKind, Document, Node};
 
-use crate::workspace::{
+use crate::native::workspace::{
     open_control_directory, reject_link, safe_workspace_relative_path, validate_config,
 };
-use crate::{ServiceError, path_to_file_uri, workspace_path};
+use crate::native::{ServiceError, path_to_file_uri, workspace_path};
 
 pub fn get_note_options(workspace_uri: &str) -> Result<NoteOptions, ServiceError> {
     let root = workspace_path(workspace_uri)?;
@@ -287,8 +285,8 @@ pub fn collect_admonitions(
 mod tests {
     //! Role: Verify workspace operations and security invariants.
     use super::*;
-    use crate::initialize_workspace;
-    use crate::test_support::test_workspace;
+    use crate::native::initialize_workspace;
+    use crate::native::test_support::test_workspace;
     #[test]
     fn create_note_applies_category_template_filename_date_and_snippets() {
         let root = test_workspace("note-options-test");

@@ -81,7 +81,7 @@ pub(super) struct ExportJournal {
     pub(super) next_registry_identity: Option<ObjectIdentity>,
 }
 
-pub(crate) use crate::integrity::ObjectIdentity;
+pub(crate) use crate::native::integrity::ObjectIdentity;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(super) struct RecordedObject {

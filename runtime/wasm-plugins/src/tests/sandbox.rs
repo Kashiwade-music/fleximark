@@ -377,16 +377,6 @@ fn original_edit_map_requires_ordered_exact_utf8_source_bytes() {
     let range = |start: u64, end: u64| SourceRange {
         byte_start: start,
         byte_end: end,
-        start: SourcePosition {
-            line: 0,
-            character: start,
-            encoding: PositionEncoding::Utf8,
-        },
-        end: SourcePosition {
-            line: 0,
-            character: end,
-            encoding: PositionEncoding::Utf8,
-        },
     };
     let cases = [
         ("unordered", "ba", vec![range(5, 6), range(0, 1)]),

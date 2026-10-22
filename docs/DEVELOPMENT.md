@@ -18,7 +18,7 @@ rustup target add wasm32-wasip2
 
 ## core と application
 
-native の文書処理・セッション検証には browser bundle の事前生成を要求しない。
+native の文書処理・セッション検証には browser bundle の事前生成を要求しない。pure core は実 WASM host に依存せず、application は統合した native 操作と filesystem も検証する。
 
 ```sh
 cargo check -p fleximark-application --offline
@@ -51,7 +51,7 @@ mise run protocol-generate
 mise run protocol-check
 ```
 
-Rust の現在の公開契約から `contracts/schemas/protocol.schema.json`、`contracts/typescript/protocol.generated.mts` と protocol fixture を生成する。型や外部形式を変えたら generator を実行し、Rust と TypeScript の conversion・validator・fixture も合わせて確認する。core の domain 型へ Schema derive や JavaScript の整数制約を追加しない。
+Rust の現在の公開契約から `contracts/schemas/protocol.schema.json`、`contracts/typescript/protocol.generated.mts` と protocol fixture を生成する。optional/null、範囲、定数等の規則は Rust の宣言に記述し、名前に応じた generator の補正を追加しない。生成した schema は共通の TypeScript validator で検証し、独自 descriptor 言語や Python の別 validator は持たない。型や外部形式を変えたら generator を実行し、Rust と TypeScript の conversion・validator・fixture も合わせて確認する。core の domain 型へ Schema derive や JavaScript の整数制約を追加しない。
 
 ## 製品 build と出力
 
@@ -120,7 +120,7 @@ fleximark migrate /absolute/workspace --dry-run
 fleximark migrate /absolute/workspace
 ```
 
-旧 editor settings を指定する場合は `--settings /absolute/settings.json` を使う。未指定なら workspace の `.vscode/settings.json` を読み、JSONC と `.code-workspace` の settings にも対応する。CLI は計画を JSON で出力し、適用時に入力 snapshot を再検査して backup を作る。現設定が移行結果と一致する場合、または旧設定が残っていない場合は `alreadyCurrent` を返し、内容が競合する場合は書き込まない。中断した移行は `fleximark migrate /absolute/workspace --recover` で復旧する。旧 JavaScript plugin は実行・変換せず、保持と無効化を報告する。editor の migration command もこの CLI を明示起動する。通常 activation や設定読込みでは migration を呼ばない。
+旧 editor settings を指定する場合は `--settings /absolute/settings.json` を使う。未指定なら workspace の `.vscode/settings.json` を読み、JSONC と `.code-workspace` の settings にも対応する。CLI は計画を JSON で出力し、適用時に入力 snapshot を再検査して backup を作る。現設定が移行結果と一致する場合、または旧設定が残っていない場合は `alreadyCurrent` を返し、内容が競合する場合は書き込まない。中断した移行は `fleximark migrate /absolute/workspace --recover` で復旧する。旧 JavaScript plugin は実行・変換せず、保持と無効化を報告する。editor の migration command も同じ library を直接呼ぶ明示操作である。通常 activation や設定読込みでは migration を呼ばない。
 
 現在の workspace 書込みを CLI で実行する場合は `--trusted-workspace` を明示する。例えば `fleximark init /absolute/workspace --trusted-workspace` を使う。untrusted の render は workspace plugin を読み込まない。
 
@@ -130,10 +130,15 @@ fleximark migrate /absolute/workspace
 mise run test-pure
 mise run test
 mise run verify
+mise run verify-audit
 mise run package
 ```
 
-`test-pure` は Node 上の protocol・preview・adapter unit tests、`test` は build と VS Code integration suite を実行する。`verify` は codegen、root/Zed/WASM fixture の xtask と追跡 SVG の差分、Python tests、TypeScript・ESLint、localization、製品 build、Rust fmt/test/clippy、WASM fixture、performance budget、VS Code integration を組み合わせる。Linux の GUI integration 環境では必要に応じて `xvfb-run -a mise run test` を使う。
+`test-pure` は Node 上の protocol・preview・adapter unit tests、`test` は build と VS Code integration suite を実行する。`verify-quality` は codegen、root/Zed/WASM fixture の xtask、Python tests、TypeScript・ESLint、localization、Rust fmt/test/clippy と WASM fixture を検証する。`verify-product` は native と VS Code 製品を build し、performance budget、VS Code integration、VSIX の identity と clean-install smoke を検証する。`verify` は両方の検証と Zed 製品 build をまとめて実行する。共通 browser bundle は一度だけ build する。CI/release も同じ phase を利用する。
+
+生成物の freshness は再生成前後のファイル集合と内容を比較する。正しく再生成済みなら未コミットの変更があっても検証できる。依存関係の network audit は `verify-audit` として明示実行し、CI/release では必須である。
+
+ローカル `verify` / `package` は実 Chrome/Edge の DOM 受け入れ試験も実行する。browser を自動検出できない場合は `FLEXIMARK_BROWSER` に実行ファイルの絶対パスを指定する。未保存編集による数式の実描画、browser から editor への移動、daemon 復旧を一連の操作で確認する。CI/release では代表の Linux x64 製品で `FLEXIMARK_BROWSER_DOM=true` を指定し、全 6 製品では editor integration と配布検証を実行する。Linux の GUI integration 環境では必要に応じて `xvfb-run -a mise run verify` を使う。
 
 `package` は verify 後、host target の staging から dependency-free VSIX を `.artifacts/<version>/<Rust target>` に出力する。完成 VSIX は次で smoke を実行する。
 

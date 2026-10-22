@@ -3,7 +3,6 @@ import type * as vscode from "vscode";
 
 import {
   type CreatePreviewResult,
-  type CustomRequestMap,
   type EditorNavigationEvent,
   type PreviewChangedParams,
   type PreviewTarget,
@@ -13,7 +12,6 @@ import {
 } from "../../../contracts/typescript/protocol.mjs";
 import { isWebviewInboundMessage } from "../webview/bridge.mjs";
 import type { DaemonOrigin } from "./document-coordinator.mjs";
-import { JsonRpcResponseError } from "./rpc.mjs";
 import type {
   DocumentRuntime,
   DocumentState,
@@ -31,6 +29,7 @@ export interface PreviewCandidateOrigin {
 
 export interface PreviewCandidate extends PreviewCandidateOrigin {
   readonly result: CreatePreviewResult;
+  readonly preview?: PreviewState;
 }
 
 export interface PreviewCandidateCurrentState {
@@ -52,20 +51,14 @@ export function sameDaemonOrigin(
   );
 }
 
-function capturePreviewIncarnation(
-  preview: PreviewState,
-): Pick<PreviewState, "previewSessionId" | "origin"> {
-  return { previewSessionId: preview.previewSessionId, origin: preview.origin };
-}
-
 function previewOwnsIncarnation(
   runtime: DocumentRuntime,
   preview: PreviewState,
-  expected: Pick<PreviewState, "previewSessionId" | "origin">,
+  expected: PreviewState["binding"],
 ): boolean {
   return (
-    previewIsCurrent(runtime, preview, expected.previewSessionId) &&
-    preview.origin === expected.origin
+    preview.binding === expected &&
+    previewIsCurrent(runtime, preview, expected.previewSessionId)
   );
 }
 
@@ -98,6 +91,12 @@ export function previewCandidateIdentityIsCurrent(
 export async function disposePreviewCandidate(
   candidate: PreviewCandidate,
 ): Promise<void> {
+  if (
+    candidate.preview &&
+    candidate.runtime.previews.get(candidate.result.previewSessionId) ===
+      candidate.preview
+  )
+    candidate.runtime.previews.delete(candidate.result.previewSessionId);
   try {
     await candidate.origin.rpc.request("fleximark/disposePreview", {
       daemonInstanceId: candidate.origin.daemonInstanceId,
@@ -113,11 +112,6 @@ export async function requestPreviewCandidate(
   document: vscode.TextDocument,
   target: PreviewTarget,
   currentOrigin: () => DaemonOrigin | undefined,
-  checkpoint: (
-    document: vscode.TextDocument,
-    state: DocumentState,
-    origin: DaemonOrigin,
-  ) => Promise<void>,
   identityCurrent: (candidate: PreviewCandidateOrigin) => boolean,
   reject: (candidate: PreviewCandidate) => Promise<void>,
 ): Promise<PreviewCandidate | undefined> {
@@ -134,21 +128,39 @@ export async function requestPreviewCandidate(
       documentSessionId: state.sessionId,
       documentVersion,
     };
-    await checkpoint(document, state, origin);
     if (!identityCurrent(candidateOrigin)) return;
     if (
       document.version !== documentVersion ||
       state.version !== documentVersion
     )
       continue;
-    const result = await origin.rpc.request("fleximark/createPreview", {
-      daemonInstanceId: origin.daemonInstanceId,
-      documentSessionId: state.sessionId,
-      expectedDocumentVersion: documentVersion,
-      target,
-    });
+    let preview: PreviewState | undefined;
+    const result = await origin.rpc.request(
+      "fleximark/createPreview",
+      {
+        daemonInstanceId: origin.daemonInstanceId,
+        documentSessionId: state.sessionId,
+        expectedDocumentVersion: documentVersion,
+        target,
+      },
+      undefined,
+      (result) => {
+        preview = {
+          documentUri: candidateOrigin.documentUri,
+          target,
+          binding: {
+            origin,
+            previewSessionId: result.previewSessionId,
+            active: true,
+            renderRevision: 0,
+            frame: result.frame,
+          },
+        };
+        runtime.previews.set(result.previewSessionId, preview);
+      },
+    );
     if (!result) return;
-    const candidate: PreviewCandidate = { ...candidateOrigin, result };
+    const candidate: PreviewCandidate = { ...candidateOrigin, result, preview };
     if (!identityCurrent(candidate)) return candidate;
     if (
       document.version !== documentVersion ||
@@ -169,8 +181,8 @@ export function previewIsCurrent(
 ): boolean {
   return (
     !runtime.removed &&
-    preview.remoteSessionActive &&
-    preview.previewSessionId === expectedSessionId &&
+    preview.binding.active &&
+    preview.binding.previewSessionId === expectedSessionId &&
     runtime.previews.get(expectedSessionId) === preview
   );
 }
@@ -192,7 +204,7 @@ export async function rerenderPreviewLifecycle(
   dependencies: PreviewFramePort,
 ): Promise<boolean> {
   if (!dependencies.previewCurrent(runtime, preview)) return false;
-  const incarnation = capturePreviewIncarnation(preview);
+  const incarnation = preview.binding;
   try {
     await incarnation.origin.rpc.request("fleximark/rerenderPreview", {
       daemonInstanceId: incarnation.origin.daemonInstanceId,
@@ -212,96 +224,62 @@ export async function rerenderPreviewLifecycle(
   );
 }
 
-/** Coalesces changed notifications into one latest-frame read at a time. */
-export function synchronizePreviewLifecycle(
+/** Delivers the latest complete frame; connection identity fences async completion. */
+export async function synchronizePreviewLifecycle(
   runtime: DocumentRuntime,
   preview: PreviewState,
   dependencies: PreviewFramePort,
   force = false,
 ): Promise<void> {
-  if (force) preview.forceRead = true;
-  if (preview.readInFlight) {
-    preview.readAgain = true;
-    return preview.readInFlight;
-  }
   if (
     !preview.panel ||
     !preview.webviewReady ||
     !dependencies.previewCurrent(runtime, preview)
   )
-    return Promise.resolve();
-
-  const operation = Promise.resolve().then(async () => {
-    try {
-      do {
-        preview.readAgain = false;
-        const incarnation = capturePreviewIncarnation(preview);
-        const forceRead = preview.forceRead === true;
-        preview.forceRead = false;
-        const afterRevision =
-          forceRead || preview.renderRevision === 0
-            ? undefined
-            : preview.renderRevision;
-        const notifiedRevision = preview.notifiedRevision;
-        let result: CustomRequestMap["fleximark/readPreview"]["result"];
-        try {
-          result = await incarnation.origin.rpc.request(
-            "fleximark/readPreview",
-            {
-              daemonInstanceId: incarnation.origin.daemonInstanceId,
-              previewSessionId: incarnation.previewSessionId,
-              ...(afterRevision === undefined ? {} : { afterRevision }),
-            },
-          );
-        } catch (error) {
-          if (!previewOwnsIncarnation(runtime, preview, incarnation)) return;
-          if (
-            !(error instanceof JsonRpcResponseError) ||
-            (error.code !== -32800 && error.code !== -32801)
-          )
-            throw error;
-          // Editing can supersede reads while full-text recovery is pending.
-          // Read a notification that arrived during the rejected request once;
-          // otherwise wait for the recovery's next published frame.
-          if (
-            preview.readAgain &&
-            preview.notifiedRevision > notifiedRevision &&
-            dependencies.previewCurrent(runtime, preview)
-          )
-            continue;
-          return;
-        }
-        if (!previewOwnsIncarnation(runtime, preview, incarnation)) return;
-        const frame = result?.frame;
-        if (frame) {
-          if (frame.previewSessionId !== incarnation.previewSessionId)
-            throw new Error("readPreview returned another preview session");
-          const delivered = await preview.panel?.webview.postMessage({
-            type: "previewFrame",
-            messageToken: preview.messageToken,
-            frame,
-          });
-          if (!previewOwnsIncarnation(runtime, preview, incarnation)) return;
-          if (!delivered) return;
-          preview.renderRevision = frame.renderRevision;
-        }
-        if (!frame && preview.notifiedRevision > preview.renderRevision)
-          throw new Error("preview changed without an available frame");
-        if (preview.notifiedRevision > preview.renderRevision)
-          preview.readAgain = true;
-      } while (
-        preview.readAgain &&
-        dependencies.previewCurrent(runtime, preview)
+    return;
+  const binding = preview.binding;
+  const frame = binding.frame;
+  if (!force && frame.renderRevision <= binding.renderRevision) return;
+  try {
+    const delivered = await preview.panel.webview.postMessage({
+      type: "previewFrame",
+      messageToken: preview.messageToken,
+      frame,
+    });
+    if (delivered && previewOwnsIncarnation(runtime, preview, binding)) {
+      binding.renderRevision = Math.max(
+        binding.renderRevision,
+        frame.renderRevision,
       );
-    } catch (error) {
-      if (dependencies.previewCurrent(runtime, preview))
-        dependencies.report(error);
-    } finally {
-      if (preview.readInFlight === operation) preview.readInFlight = undefined;
+      const navigation = binding.pendingNavigation;
+      if (navigation && navigation.renderRevision <= binding.renderRevision) {
+        binding.pendingNavigation = undefined;
+        if (navigation.renderRevision === binding.renderRevision)
+          await preview.panel.webview.postMessage({
+            type: "previewEvent",
+            messageToken: preview.messageToken,
+            event: navigation,
+          });
+      }
     }
-  });
-  preview.readInFlight = operation;
-  return operation;
+  } catch (error) {
+    if (previewOwnsIncarnation(runtime, preview, binding))
+      dependencies.report(error);
+  }
+}
+
+function candidateBinding(
+  candidate: PreviewCandidate,
+): PreviewState["binding"] {
+  return (
+    candidate.preview?.binding ?? {
+      origin: candidate.origin,
+      previewSessionId: candidate.result.previewSessionId,
+      active: true,
+      renderRevision: 0,
+      frame: candidate.result.frame,
+    }
+  );
 }
 
 function createPreviewState(
@@ -309,16 +287,13 @@ function createPreviewState(
   sourceViewColumn: vscode.ViewColumn | undefined,
   target: PreviewTarget,
 ): PreviewState {
-  return {
-    origin: candidate.origin,
+  const preview = candidate.preview ?? {
+    binding: candidateBinding(candidate),
     documentUri: candidate.documentUri,
-    sourceViewColumn,
-    previewSessionId: candidate.result.previewSessionId,
     target,
-    remoteSessionActive: true,
-    renderRevision: 0,
-    notifiedRevision: 0,
   };
+  preview.sourceViewColumn = sourceViewColumn;
+  return preview;
 }
 
 export interface PreviewLifecycleDependencies {
@@ -399,7 +374,7 @@ export async function openPreviewLifecycle(
     runtime.previews.set(result.previewSessionId, preview);
     const candidateOwnsState = () =>
       runtime.previews.get(result.previewSessionId) === preview &&
-      preview.origin === candidate.origin;
+      preview.binding.origin === candidate.origin;
     try {
       await dependencies.openExternal(result.url);
     } catch (error) {
@@ -453,8 +428,8 @@ export async function openPreviewLifecycle(
       if (
         shouldForwardEditorNavigation(
           event,
-          preview.previewSessionId,
-          preview.renderRevision,
+          preview.binding.previewSessionId,
+          preview.binding.renderRevision,
         )
       )
         dependencies.notifyNavigation({
@@ -501,7 +476,7 @@ export async function followActiveDocumentLifecycle(
           preview.target === "embeddedHtml" &&
           preview.sourceViewColumn === sourceViewColumn &&
           (preview.documentUri !== document.uri.toString() ||
-            !preview.remoteSessionActive),
+            !preview.binding.active),
       )
       .map((preview) => ({ runtime, preview })),
   );
@@ -512,8 +487,8 @@ export async function followActiveDocumentLifecycle(
 
   await Promise.all(
     followers.map(async ({ runtime: previousRuntime, preview }) => {
-      const previousId = preview.previewSessionId;
-      const previousOrigin = preview.origin;
+      const previousId = preview.binding.previewSessionId;
+      const previousOrigin = preview.binding.origin;
       const candidate = await dependencies.request(
         targetRuntime,
         document,
@@ -533,19 +508,12 @@ export async function followActiveDocumentLifecycle(
         return;
       }
 
-      const previousRemoteSessionActive = preview.remoteSessionActive;
+      const previousRemoteSessionActive = preview.binding.active;
       previousRuntime.previews.delete(previousId);
-      preview.origin = candidate.origin;
+      preview.binding = candidateBinding(candidate);
       preview.documentUri = candidate.documentUri;
       preview.sourceViewColumn = sourceViewColumn;
-      preview.previewSessionId = candidate.result.previewSessionId;
-      preview.remoteSessionActive = true;
-      preview.renderRevision = 0;
-      preview.notifiedRevision = 0;
-      preview.readAgain = false;
-      preview.forceRead = true;
-      preview.readInFlight = undefined;
-      targetRuntime.previews.set(preview.previewSessionId, preview);
+      targetRuntime.previews.set(preview.binding.previewSessionId, preview);
       if (preview.panel)
         preview.panel.title = `FlexiMark: ${path.basename(document.fileName)}`;
       if (previousRemoteSessionActive)
@@ -568,16 +536,16 @@ export async function disposePreviewLifecycle(
   preview: PreviewState,
   reportFailure: (message: string) => void,
 ): Promise<void> {
-  const previewSessionId = preview.previewSessionId;
+  const previewSessionId = preview.binding.previewSessionId;
   if (
     runtime.previews.get(previewSessionId) !== preview ||
     !runtime.previews.delete(previewSessionId)
   )
     return;
-  if (preview.remoteSessionActive)
+  if (preview.binding.active)
     try {
-      await preview.origin.rpc.request("fleximark/disposePreview", {
-        daemonInstanceId: preview.origin.daemonInstanceId,
+      await preview.binding.origin.rpc.request("fleximark/disposePreview", {
+        daemonInstanceId: preview.binding.origin.daemonInstanceId,
         previewSessionId,
       });
     } catch (error) {
@@ -593,7 +561,7 @@ export async function recreatePreviewsLifecycle(
   for (const [previousId, preview] of [...runtime.previews]) {
     const document = dependencies.document(preview.documentUri);
     if (!document) {
-      preview.remoteSessionActive = false;
+      preview.binding.active = false;
       if (!preview.panel) await dependencies.dispose(runtime, preview);
       continue;
     }
@@ -616,15 +584,8 @@ export async function recreatePreviewsLifecycle(
         throw new Error("daemon omitted the external preview URL");
       }
       runtime.previews.delete(previousId);
-      preview.origin = candidate.origin;
-      preview.previewSessionId = candidate.result.previewSessionId;
-      preview.remoteSessionActive = true;
-      preview.renderRevision = 0;
-      preview.notifiedRevision = 0;
-      preview.readAgain = false;
-      preview.forceRead = true;
-      preview.readInFlight = undefined;
-      runtime.previews.set(preview.previewSessionId, preview);
+      preview.binding = candidateBinding(candidate);
+      runtime.previews.set(preview.binding.previewSessionId, preview);
       if (preview.panel) await dependencies.synchronize(runtime, preview, true);
       else if (candidate.result.url)
         await dependencies.openExternal(candidate.result.url);
@@ -651,22 +612,31 @@ export async function handlePreviewEventLifecycle(
   if (
     !runtime ||
     !preview ||
-    !preview.remoteSessionActive ||
-    !sameDaemonOrigin(preview.origin, origin)
+    !preview.binding.active ||
+    !sameDaemonOrigin(preview.binding.origin, origin)
   )
     return false;
-  // Browser frames are read over HTTP, so the initial frame (and a frame
-  // restored after daemon recovery) may arrive without a changed notification
-  // observed by the adapter. The daemon has already checked source navigation
-  // against its authoritative frame before forwarding it over this connection.
+  // Browser SSE delivery is independent of the adapter. The daemon validates
+  // source navigation against its current frame before forwarding it here.
   if (!preview.panel && preview.target === "externalBrowser") {
     if (
       event.renderRevision <
-      Math.max(preview.renderRevision, preview.notifiedRevision)
+      Math.max(
+        preview.binding.renderRevision,
+        preview.binding.frame.renderRevision,
+      )
     )
       return true;
-    preview.renderRevision = event.renderRevision;
-  } else if (event.renderRevision !== preview.renderRevision) return true;
+    preview.binding.renderRevision = event.renderRevision;
+  } else if (event.renderRevision !== preview.binding.renderRevision) {
+    if (
+      event.renderRevision === preview.binding.frame.renderRevision &&
+      event.event.type !== "selectSource" &&
+      event.event.type !== "revealSource"
+    )
+      preview.binding.pendingNavigation = event.event;
+    return true;
+  }
   if (
     event.event.type === "selectSource" ||
     event.event.type === "revealSource"
@@ -696,19 +666,19 @@ export function handlePreviewChangedLifecycle(
   if (
     !runtime ||
     !preview ||
-    !preview.remoteSessionActive ||
-    !sameDaemonOrigin(preview.origin, origin)
+    !preview.binding.active ||
+    !sameDaemonOrigin(preview.binding.origin, origin)
   )
     return false;
-  preview.notifiedRevision = Math.max(
-    preview.notifiedRevision,
-    changed.renderRevision,
-  );
-  if (!preview.panel)
-    preview.renderRevision = Math.max(
-      preview.renderRevision,
-      changed.renderRevision,
-    );
+  if (
+    changed.frame.previewSessionId !== preview.binding.previewSessionId ||
+    changed.frame.renderRevision !== changed.renderRevision
+  )
+    return false;
+  if (changed.renderRevision <= preview.binding.frame.renderRevision)
+    return true;
+  preview.binding.frame = changed.frame;
+  if (!preview.panel) preview.binding.renderRevision = changed.renderRevision;
   if (preview.panel && preview.webviewReady) synchronize(runtime, preview);
   return true;
 }

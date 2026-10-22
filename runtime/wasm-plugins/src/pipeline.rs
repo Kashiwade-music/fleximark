@@ -10,7 +10,9 @@ use fleximark_plugin_sdk::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::candidate::{resolve_block_invocation, validate_candidate};
+use crate::candidate::{
+    resolve_block_invocation, resolve_document_candidate, validate_document_budget,
+};
 use crate::edit_map::{compose_edit_map, identity_edit_map, validate_edit_map};
 use crate::error::{
     Failure, HostError, PluginDiagnostic, PluginFailureKind, PluginRun, UnsafeExportOutput,
@@ -182,33 +184,60 @@ impl PluginHost {
         document: &Document,
         cancellation: &CancellationToken,
     ) -> Result<PluginRun<Document>, HostError> {
+        self.transform(source, document, cancellation, Hook::TransformDocument)
+    }
+
+    fn transform(
+        &self,
+        source: &str,
+        document: &Document,
+        cancellation: &CancellationToken,
+        hook: Hook,
+    ) -> Result<PluginRun<Document>, HostError> {
         let mut current = document.clone();
         let mut diagnostics = Vec::new();
         for plugin in &self.plugins {
-            let request = HookRequest::TransformDocument {
-                document: current.clone(),
-            };
-            let invocation = self.invoke_trusted(plugin, || Ok(request), cancellation);
-            let candidate = match invocation {
-                Ok(HookResponse::Document { candidate }) => validate_candidate(
-                    &current,
-                    candidate,
-                    source,
-                    &plugin.manifest.plugin.id,
-                    &self.limits,
+            let result = if hook == Hook::TransformBlock {
+                self.transform_plugin_blocks(plugin, &current, cancellation)
+            } else {
+                self.invoke_trusted(
+                    plugin,
+                    || {
+                        Ok(HookRequest::TransformDocument {
+                            document: current.clone(),
+                        })
+                    },
+                    cancellation,
                 )
-                .map_err(|message| Failure::new(PluginFailureKind::InvalidCandidate, message)),
-                Ok(_) => Err(Failure::new(
-                    PluginFailureKind::MalformedOutput,
-                    "transform_document returned a response for another hook",
-                )),
-                Err(failure) => Err(failure),
-            };
-            match candidate {
-                Ok(value) => current = value,
-                Err(failure) => {
-                    record_or_abort(plugin, Hook::TransformDocument, failure, &mut diagnostics)?
-                }
+                .and_then(|response| match response {
+                    HookResponse::Document { candidate } => resolve_document_candidate(
+                        &current,
+                        candidate,
+                        &plugin.manifest.plugin.id,
+                        &self.limits,
+                    )
+                    .map_err(|message| Failure::new(PluginFailureKind::InvalidCandidate, message)),
+                    _ => Err(Failure::new(
+                        PluginFailureKind::MalformedOutput,
+                        "transform_document returned a response for another hook",
+                    )),
+                })
+            }
+            .and_then(|candidate| {
+                validate_document_budget(&candidate, &self.limits)
+                    .and_then(|()| {
+                        candidate
+                            .validate(source)
+                            .map_err(|error| error.to_string())
+                    })
+                    .map_err(|message| {
+                        Failure::new(PluginFailureKind::InvalidCandidate, message)
+                    })?;
+                Ok(candidate)
+            });
+            match result {
+                Ok(candidate) => current = candidate,
+                Err(failure) => record_or_abort(plugin, hook.clone(), failure, &mut diagnostics)?,
             }
         }
         Ok(PluginRun {
@@ -279,74 +308,43 @@ impl PluginHost {
         document: &Document,
         cancellation: &CancellationToken,
     ) -> Result<PluginRun<Document>, HostError> {
-        let mut current = document.clone();
-        let mut diagnostics = Vec::new();
-        for plugin in &self.plugins {
-            let mut transformed = current.clone();
-            let mut invocation_failure = None;
-            for (index, block) in current.blocks.iter().enumerate() {
-                let result = self.invoke_trusted(
-                    plugin,
-                    || {
-                        Ok(HookRequest::TransformBlock {
-                            document_version: current.document_version,
-                            block: block.clone(),
-                        })
-                    },
-                    cancellation,
-                );
-                match result {
-                    Ok(HookResponse::Block { candidate: block }) => {
-                        match resolve_block_invocation(
-                            &current,
-                            block,
-                            &plugin.manifest.plugin.id,
-                            &format!("{}:{}", index, current.blocks[index].id.0),
-                            &self.limits,
-                        ) {
-                            Ok(block) => transformed.blocks[index] = block,
-                            Err(message) => {
-                                invocation_failure = Some(Failure::new(
-                                    PluginFailureKind::InvalidCandidate,
-                                    message,
-                                ));
-                                break;
-                            }
-                        }
-                    }
-                    Ok(_) => {
-                        invocation_failure = Some(Failure::new(
-                            PluginFailureKind::MalformedOutput,
-                            "transform_block returned a response for another hook",
-                        ));
-                        break;
-                    }
-                    Err(failure) => {
-                        invocation_failure = Some(failure);
-                        break;
-                    }
-                }
-            }
-            let result = match invocation_failure {
-                Some(failure) => Err(failure),
-                None => transformed
-                    .validate(source)
-                    .map(|()| transformed)
-                    .map_err(|error| {
-                        Failure::new(PluginFailureKind::InvalidCandidate, error.to_string())
-                    }),
+        self.transform(source, document, cancellation, Hook::TransformBlock)
+    }
+
+    fn transform_plugin_blocks(
+        &self,
+        plugin: &RegisteredPlugin,
+        current: &Document,
+        cancellation: &CancellationToken,
+    ) -> Result<Document, Failure> {
+        let mut transformed = current.clone();
+        for (index, block) in current.blocks.iter().enumerate() {
+            let response = self.invoke_trusted(
+                plugin,
+                || {
+                    Ok(HookRequest::TransformBlock {
+                        document_version: current.document_version,
+                        block: block.clone(),
+                    })
+                },
+                cancellation,
+            )?;
+            let HookResponse::Block { candidate } = response else {
+                return Err(Failure::new(
+                    PluginFailureKind::MalformedOutput,
+                    "transform_block returned a response for another hook",
+                ));
             };
-            match result {
-                Ok(document) => current = document,
-                Err(failure) => {
-                    record_or_abort(plugin, Hook::TransformBlock, failure, &mut diagnostics)?
-                }
-            }
+            transformed.blocks[index] = resolve_block_invocation(
+                current,
+                candidate,
+                &plugin.manifest.plugin.id,
+                &format!("{}:{}", index, block.id.0),
+                &self.limits,
+            )
+            .map_err(|message| Failure::new(PluginFailureKind::InvalidCandidate, message))?;
         }
-        Ok(PluginRun {
-            value: current,
-            diagnostics,
-        })
+        Ok(transformed)
     }
 
     pub fn extend_render_model(

@@ -11,6 +11,172 @@ import { PreviewNavigation } from "../../web/preview/navigation.mjs";
 export function registerExtendedPreviewTests(
   current: () => { root: HTMLElement; preview: PreviewDocument },
 ): void {
+  test("enhances unchanged Mermaid inside a rebuilt parent after a sibling edit", async () => {
+    const { root, preview } = current();
+    const runtimes = inertRuntimes();
+    let renders = 0;
+    runtimes.mermaid.render = async () => ({
+      svg: `<svg><text>diagram ${++renders}</text></svg>`,
+    });
+    const enhancer = new PreviewEnhancer(runtimes);
+    const parentFrame = (revision: number, text: string): RenderFrame => ({
+      ...frame(revision, []),
+      blocks: [
+        {
+          id: "parent",
+          nodeIds: ["parent", "paragraph", "special"],
+          html: `<div data-fleximark-node-id="parent"><p data-fleximark-node-id="paragraph">${text}</p>${specialFrame("mermaid", "graph TD; A-->B").blocks[0].html}</div>`,
+        },
+      ],
+      navigation: [
+        entry("parent", 0),
+        entry("paragraph", 1),
+        entry("special", 2),
+      ],
+    });
+    try {
+      assert.equal(preview.apply(parentFrame(1, "before")), true);
+      await enhancer.render(root);
+      const first = root.querySelector("svg");
+      assert.ok(first);
+      assert.equal(preview.apply(parentFrame(2, "after")), true);
+      await enhancer.render(root);
+      assert.equal(root.querySelector("p")?.textContent, "after");
+      assert.ok(root.querySelector("svg"));
+      assert.notEqual(root.querySelector("svg"), first);
+      assert.equal(renders, 2);
+      await enhancer.render(root);
+      assert.equal(renders, 2, "retained DOM is enhanced only once");
+      assert.equal(
+        preview.apply({
+          ...parentFrame(3, "after"),
+          rendererFingerprint: "b".repeat(64),
+        }),
+        true,
+      );
+      await enhancer.render(root);
+      assert.equal(renders, 3);
+      assert.equal(
+        preview.apply({
+          ...parentFrame(1, "after"),
+          previewSessionId: "replacement",
+        }),
+        true,
+      );
+      await enhancer.render(root);
+      assert.equal(renders, 4, "new session DOM is always enhanced");
+    } finally {
+      enhancer.dispose();
+    }
+  });
+
+  test("retained asynchronous Mermaid completion survives another frame", async () => {
+    const { root, preview } = current();
+    const runtimes = inertRuntimes();
+    let complete: ((value: { svg: string }) => void) | undefined;
+    let renders = 0;
+    runtimes.mermaid.render = () => {
+      renders++;
+      return new Promise((resolve) => {
+        complete = resolve;
+      });
+    };
+    const enhancer = new PreviewEnhancer(runtimes);
+    const initial = specialFrame("mermaid", "graph TD; A-->B");
+    try {
+      assert.equal(preview.apply(initial), true);
+      const pending = enhancer.render(root);
+      assert.equal(
+        preview.apply({ ...initial, renderRevision: 2, documentVersion: 2 }),
+        true,
+      );
+      await enhancer.render(root);
+      complete?.({ svg: "<svg><text>completed</text></svg>" });
+      await pending;
+      assert.equal(renders, 1);
+      assert.equal(root.querySelector("svg")?.textContent, "completed");
+      assert.ok(root.querySelector(".fleximark-mermaid-enlarge"));
+    } finally {
+      enhancer.dispose();
+    }
+  });
+
+  test("retains pending ABC playback across frames and stops removed audio", async () => {
+    const { root, preview } = current();
+    const animation = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "requestAnimationFrame",
+    );
+    const cancellation = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "cancelAnimationFrame",
+    );
+    Object.defineProperties(globalThis, {
+      requestAnimationFrame: { configurable: true, value: () => 1 },
+      cancelAnimationFrame: { configurable: true, value: () => undefined },
+    });
+    const runtimes = inertRuntimes();
+    runtimes.abc.render = () => [{}];
+    runtimes.abc.supportsAudio = () => true;
+    const timing = runtimes.abc.createTiming(
+      {},
+      { beat: () => undefined, event: () => undefined },
+    );
+    runtimes.abc.createTiming = () => ({ ...timing, duration: () => 1000 });
+    let initialized: (() => void) | undefined;
+    let started = 0;
+    let stopped = 0;
+    runtimes.abc.createSynth = () => ({
+      init: () =>
+        new Promise<void>((resolve) => {
+          initialized = resolve;
+        }),
+      prime: async () => undefined,
+      start: () => {
+        started++;
+      },
+      stop: () => {
+        stopped++;
+      },
+    });
+    const enhancer = new PreviewEnhancer(runtimes);
+    const initial = specialFrame("abc", "X:1\nK:C\nC");
+    try {
+      assert.equal(preview.apply(initial), true);
+      await enhancer.render(root);
+      const button = root.querySelector<HTMLButtonElement>(
+        ".fleximark-audio-toggle",
+      );
+      assert.ok(button);
+      button.click();
+      assert.equal(
+        preview.apply({ ...initial, renderRevision: 2, documentVersion: 2 }),
+        true,
+      );
+      await enhancer.render(root);
+      assert.equal(root.querySelector(".fleximark-audio-toggle"), button);
+      initialized?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(started, 1);
+      assert.equal(stopped, 0);
+      assert.equal(button.dataset.fleximarkAudioState, "pause");
+      assert.equal(
+        preview.apply(frame(3, [block("replacement", "changed")])),
+        true,
+      );
+      await enhancer.render(root);
+      assert.equal(stopped, 1);
+    } finally {
+      enhancer.dispose();
+      if (animation)
+        Object.defineProperty(globalThis, "requestAnimationFrame", animation);
+      else Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+      if (cancellation)
+        Object.defineProperty(globalThis, "cancelAnimationFrame", cancellation);
+      else Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
+    }
+  });
+
   test("enlarges only the Mermaid diagram and restores it when closed", async () => {
     const { root, preview } = current();
     assert.equal(

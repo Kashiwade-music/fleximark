@@ -93,9 +93,7 @@ impl Server {
                 return Some(invalid_params(id, "migration requires a trusted workspace"));
             }
             let result = (|| -> Result<Value, String> {
-                let output = self
-                    .services
-                    .migrate_workspace(&workspace)
+                let output = fleximark_application::native::migrate_workspace(&workspace)
                     .map_err(|error| error.to_string())?;
                 Ok(json!({"message":{"level":"info","text":output.stdout}}))
             })();

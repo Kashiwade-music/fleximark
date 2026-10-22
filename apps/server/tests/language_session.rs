@@ -1,6 +1,5 @@
 //! Role: Verify standard LSP initialization and authoritative document language features.
 mod support;
-use fleximark_application::content_hash;
 use fleximark_protocol::method;
 use serde_json::json;
 use support::*;
@@ -10,7 +9,7 @@ fn lifecycle_advertises_complete_editor_commands_and_rejects_removed_handshakes(
     let mut server = native_server();
     let result = initialize(&mut server, json!([]));
     assert_eq!(result["capabilities"]["positionEncoding"], "utf-8");
-    assert_eq!(result["capabilities"]["textDocumentSync"]["change"], 2);
+    assert_eq!(result["capabilities"]["textDocumentSync"]["change"], 1);
     let commands = result["capabilities"]["executeCommandProvider"]["commands"]
         .as_array()
         .unwrap();
@@ -112,8 +111,7 @@ fn completion_uses_authoritative_open_document_and_position() {
         4,
         method::ATTACH_DOCUMENT,
         json!({"daemonInstanceId":server.sessions().daemon_instance_id(),
-                "uri":"file:///completion.md","expectedDocumentVersion":7,
-                "contentHash":content_hash("::")}),
+                "uri":"file:///completion.md","expectedDocumentVersion":7}),
     );
     assert!(attach[0]["result"]["documentSessionId"].is_string());
     let invalid = server.request(
@@ -197,4 +195,17 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
         assert_eq!(invalid.len(), 1, "{method} dropped its request");
         assert_eq!(invalid[0]["error"]["code"], -32602, "{method}");
     }
+}
+
+#[test]
+fn previous_protocol_is_rejected_before_workspace_or_document_setup() {
+    let mut server = native_server();
+    let response = server.request(1, "initialize", json!({"capabilities":{},"initializationOptions":{"fleximark":{"protocolVersion":fleximark_protocol::PROTOCOL_VERSION - 1}}}));
+    assert_eq!(response[0]["error"]["code"], -32001);
+    assert!(server.sessions().open_documents().is_empty());
+    let current = initialize(&mut server, json!([]));
+    assert_eq!(
+        current["capabilities"]["experimental"]["fleximark"]["protocolVersion"],
+        fleximark_protocol::PROTOCOL_VERSION
+    );
 }

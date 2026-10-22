@@ -15,11 +15,11 @@ use fleximark_engine::{
 };
 use fleximark_model::{BlockKind, Document, InlineKind, Node, SourceRange};
 
-use crate::integrity::{ObjectIdentity, sha256};
-use crate::paths::reject_linked_path;
-use crate::uri::percent_decode;
-use crate::workspace::{CONFIG, safe_workspace_relative_path, validate_config};
-use crate::{ServiceError, workspace_path};
+use crate::native::integrity::{ObjectIdentity, sha256};
+use crate::native::paths::reject_linked_path;
+use crate::native::uri::percent_decode;
+use crate::native::workspace::{CONFIG, safe_workspace_relative_path, validate_config};
+use crate::native::{ServiceError, workspace_path};
 
 pub struct ExportAsset {
     pub(crate) source: Option<PathBuf>,
@@ -500,8 +500,8 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::test_support::test_workspace;
-    use crate::{initialize_workspace, path_to_file_uri};
+    use crate::native::test_support::test_workspace;
+    use crate::native::{initialize_workspace, path_to_file_uri};
 
     #[test]
     fn avif_signatures_require_a_complete_file_type_box_and_image_brand() {
@@ -745,11 +745,13 @@ mod tests {
                     .source_range
                     .as_ref()
                     .expect("parsed images carry source ranges")
-                    .start
-                    .line
+                    .byte_start
             })
             .collect::<Vec<_>>();
-        assert_eq!(missing_lines, [0, 4]);
+        assert_eq!(
+            missing_lines,
+            [0, source.find("![second missing]").unwrap() as u64]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

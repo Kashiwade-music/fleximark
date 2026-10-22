@@ -23,7 +23,10 @@ fn selection_wire_always_includes_null_or_object_active_position() {
         }),
     };
 
-    assert_eq!(fixture["schemaVersion"], 6);
+    assert_eq!(
+        fixture["schemaVersion"],
+        fleximark_protocol::PROTOCOL_VERSION
+    );
     assert_eq!(fixture["events"].as_array().unwrap().len(), 3);
     assert_eq!(
         serde_json::to_value(&without_active).unwrap(),

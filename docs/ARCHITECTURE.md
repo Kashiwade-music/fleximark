@@ -1,6 +1,6 @@
 # FlexiMark アーキテクチャ
 
-FlexiMark は、エディターに依存しない文書処理、文書・プレビューのセッション管理、実行環境、通信、エディター製品をそれぞれ独立した所有者に分けている。VS Code と通常版 Zed は同じ native runtime を利用する。
+FlexiMark は、純粋な文書処理、状態と native I/O をまとめた application、通信、エディター製品で構成する。VS Code と通常版 Zed は同じ native runtime を利用する。同じ状態や値型を層ごとに複製せず、一つの所有者から利用する。
 
 Cargo の実依存関係は [生成された crate 図](../architecture/crates.svg)、crate 内の参照関係は [生成された module 図](../architecture/modules/) を参照する。Zed 拡張には [独立 workspace の図](../adapters/zed/architecture/crates.svg)、WASM fixture にも [独立 workspace の図](../tests/fixtures/plugin-component/architecture/crates.svg) がある。これらは `cargo xtask check` が生成する追跡対象であり、説明用の手描き図ではない。
 
@@ -8,14 +8,13 @@ Cargo の実依存関係は [生成された crate 図](../architecture/crates.s
 
 | 配置 | 責務 |
 | --- | --- |
-| `core/model` | 文書 IR、NodeId、UTF ソース位置、生成元情報とモデル検証 |
+| `core/model` | 文書 IR、NodeId、UTF-8 byte 範囲、共有 SourceIndex、生成元情報とモデル検証 |
 | `core/parser` | comrak の解析結果から検証済み文書 IR を生成 |
 | `core/render-html` | IR から安全化した HTML、ノード一覧、navigation を生成 |
 | `core/engine` | ソース前処理、解析、NodeId 照合、変換、描画 snapshot、export の処理段階 |
 | `core/language` | 補完候補と構文の意味分類。LSP の数値 kind や相対 token 配列は生成しない |
 | `core/plugin-api` | object-safe な `PluginExecutor`、中断 token、hook 値、診断、実行結果 |
-| `application` | 文書・workspace・preview の権威状態、更新、再同期、revision、キャッシュ、I/O port と型付き操作結果 |
-| `runtime/workspace` | ファイル、設定、theme、note、アセット解決、export transaction と port の native 実装 |
+| `application` | 文書・workspace・preview の権威状態、更新と公開、ファイル・設定・theme・note・アセット・export の native 実装と型付き操作結果 |
 | `runtime/wasm-plugins` | 署名・manifest 検証、Wasmtime、権限、時間・memory・fuel・出力量制限 |
 | `runtime/preview-assets` | インストール済み runtime manifest と browser 資源の検証・読込み |
 | `transports/lsp` | 標準 LSP、FlexiMark の preview/workspace 契約、application と外部 DTO の変換 |
@@ -27,9 +26,11 @@ Cargo の実依存関係は [生成された crate 図](../architecture/crates.s
 | `migration` | 明示操作でのみ使う旧ユーザーデータの読取り・変換 |
 | `tooling` / `dev/xtask` | codegen、build・検証・配布タスク、構造検査 |
 
-core は concrete runtime、protocol DTO、filesystem、browser bundle に依存しない。ソース位置や文書 counter は native `u64` で扱う。JavaScript の数値制約、JSON Schema、外部 DTO は contracts と transport の所有である。
+core は concrete runtime、protocol DTO、filesystem、browser bundle に依存しない。内部ソース範囲は UTF-8 byte offset だけを保持し、行・文字位置は共有 SourceIndex から通信境界で生成する。文書 counter は native `u64` で扱う。JavaScript の数値制約、JSON Schema、外部 DTO は contracts と transport の所有である。
 
-application は `WorkspaceServices` と `PluginExecutor` を通じて実行を要求する。runtime は `CreatedNote`、`ThemeResource`、`ExportReceipt` などの型付き結果を返す。外部向けの message、URI、JSON 応答の組立ては transport が担当する。CLI と daemon の package 間に依存はない。
+完全 frame 配送の wire protocol は version 7、byte 範囲を共有する文書 schema と plugin API/WIT は version 2 である。旧 protocol と旧 plugin API は境界で拒否し、旧形式用の実行経路は維持しない。plugin manifest 自体の schema は version 1 のままである。
+
+application は workspace 所属・trust・設定と文書状態を一か所で管理し、native 関数を直接実行する。転送専用の `WorkspaceServices` / `NativeWorkspace` は置かない。`CreatedNote`、`ThemeResource`、`ExportReceipt` などの型付き結果を返し、外部向けの message と JSON 応答は transport が組み立てる。CLI と daemon は共通の native 処理を利用し、両 package 間に依存はない。`PluginExecutor` は pure core と WASM runtime の実行境界として残す。
 
 ## 起動と文書同期
 
@@ -37,7 +38,7 @@ application は `WorkspaceServices` と `PluginExecutor` を通じて実行を�
 
 接続は標準 LSP `initialize` 一回で成立する。`initializationOptions.fleximark` に workspace ごとの URI・trust と追加能力を渡す。通常の `workspaceFolders` / `rootUri` も使え、明示されない trust は false になる。応答の `capabilities.experimental.fleximark` が daemon identity、現在の protocol 能力、workspace 状態を返す。その後は標準の `initialized` 通知を送る。
 
-文書本文の権威経路は `textDocument/didOpen`、`didChange`、`didClose` だけである。プレビューの接続確認や checkpoint は version・hash を照合し、別の本文管理経路を作らない。位置符号化は UTF-8、UTF-16、UTF-32 を扱い、LSP が交渉した単位を application で UTF-8 offset に変換する。保存前の編集も同じ文書状態を更新する。
+文書本文の権威経路は `textDocument/didOpen`、`didChange`、`didClose` だけである。本文は全文同期し、再接続では現在の本文を開き直す。位置符号化は UTF-8、UTF-16、UTF-32 を扱い、共有 SourceIndex が LSP の交渉した単位と UTF-8 offset を変換する。保存前の編集も同じ文書状態を更新する。
 
 LSP transport は補完、Semantic Tokens、hover、document symbols、diagnostics、Code Action、executeCommand を配送する。core/language の絶対位置・意味分類を LSP の kind と差分 token 配列へ変換するのは transport である。
 
@@ -53,13 +54,15 @@ LSP transport は補完、Semantic Tokens、hover、document symbols、diagnosti
 
 core の `RenderSnapshot` は document version、ブロック HTML、style、assets、annotations、navigation、renderer fingerprint を持つ。daemon ID、preview ID、render revision、購読状態を含まない。
 
-application が snapshot に `PreviewSessionId` と単調な revision を付け、preview ごとに最新の完全な `RenderFrame` を保存する。読取りは revision を進めず、プラグインも再実行しない。描画に失敗した場合、中断された場合、revision が上限に達した場合は前の frame を保持する。文書を閉じるとキャッシュを破棄する。再設定しても preview identity と revision の系列を維持する。
+application が immutable な snapshot を `PreviewSessionId` と単調な revision で包み、preview ごとに最新の完全な `RenderFrame` を保存する。初回と変更時に完全 frame を配送し、クライアントが通知後に再取得する経路は設けない。読取りは revision を進めず、プラグインも再実行しない。描画に失敗した場合、中断された場合、revision が上限に達した場合は前の frame を保持する。文書を閉じるとキャッシュを破棄する。再設定しても preview identity と revision の系列を維持する。
 
 navigation は daemon identity、文書 session、文書 version、preview revision と NodeId を照合する。元ソース変更後の frame による古い移動要求は拒否する。source-to-preview の明示移動と browser-to-source の移動には同じ対応表を使う。
 
 ## エディター製品とブラウザ
 
 VS Code は native Webview の埋め込みプレビューと外部ブラウザの両方を持つ。`adapters/vscode/webview` が VS Code API との bridge を所有し、共通の `web/preview` はエディター API を import しない。
+
+表示側は変更のない top-level DOM を保持し、新しい DOM だけを強化する。強化済み記録は HTMLElement にひもづけ、NodeId を描画完了の証拠に使わない。非同期処理と audio/dialog の寿命は対応 DOM と画面の破棄に従う。VS Code の安定した view 記録には交換可能な接続 binding を持たせ、session の切替時に binding ごと交換する。
 
 VS Code の文書 runtime は workspace を任意とし、単独の Markdown ファイルや未保存文書にも同じ LSP 同期・preview・再接続処理を使う。workspace に属さない文書の親 directory を workspace として登録せず、設定・plugin・local asset の権限も推測しない。制限モードでも本文のプレビューは利用でき、workspace 書込みや明示移行は trust を必要とする。
 
@@ -69,7 +72,7 @@ Zed は通常版の公式 editor と外部ブラウザを使う。Code Action �
 
 共通 workspace UI は文書・workspace の選択、note のカテゴリ・template・名前、theme、初期化、admonition 収集、export のフォームを提供する。文書 context がない command は開いている文書・workspace を画面で選択させる。
 
-HTTP は `127.0.0.1` の動的 port に bind し、page token、Host、Origin を検証する。SSE は更新を通知し、最新 frame と navigation 状態を取得できる。外部 browser は daemon が動く host の loopback に到達する必要がある。これは公開 HTTP service ではない。
+HTTP は `127.0.0.1` の動的 port に bind し、page token、Host、Origin を検証する。SSE は初回・再接続と更新時に完全 frame を配送し、対応する navigation の順序を維持する。外部 browser は daemon が動く host の loopback に到達する必要がある。これは公開 HTTP service ではない。
 
 ## runtime と配布
 
@@ -94,7 +97,7 @@ VS Code adapter は Node extension host から native process を起動する de
 
 通常の設定は `contracts/config` の現形式だけを読む。`.fleximark/config.toml` の semantic validation と、workspace trust・plugin grants・アセット containment の検証を実行する。unsafe HTML plugin 出力は、安全な portable render と export 構成の後に明示的に許可される処理段階へ限定する。
 
-旧 JSON、旧 theme、旧 editor 設定は `fleximark migrate` の明示実行だけで読む。`migration` crate への依存は CLI に限定し、editor の migration command も共有 CLI を起動する。通常起動で旧設定を探索・通知・import しない。移行は計画の JSON、dry run、入力 snapshot の再検査、backup と復旧可能な適用を提供する。旧 JavaScript plugin は実行せず、保持して無効化を報告する。
+旧 JSON、旧 theme、旧 editor 設定は明示的な migration 操作だけで読む。CLI と editor の migration command は同じ `migration` library を直接利用する。通常起動で旧設定を探索・通知・import しない。移行は計画の JSON、dry run、入力 snapshot の再検査、backup と復旧可能な適用を提供する。旧 JavaScript plugin は実行せず、保持して無効化を報告する。
 
 ## 検証
 

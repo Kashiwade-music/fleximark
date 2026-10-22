@@ -10,7 +10,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::model::{ExportJournal, ObjectIdentity, OwnershipPayload, RecordedObject};
-use crate::ServiceError;
+use crate::native::ServiceError;
 
 pub(super) fn read_json_regular<T: serde::de::DeserializeOwned>(
     path: &Path,

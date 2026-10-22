@@ -19,9 +19,8 @@ export async function applySourceNavigation(
   echoes: PreviewEchoState,
   isCurrent: (runtime: DocumentRuntime, preview: PreviewState) => boolean,
 ): Promise<void> {
-  const expectedRevision = preview.renderRevision;
-  const expectedSession = preview.previewSessionId;
-  const expectedOrigin = preview.origin;
+  const expectedRevision = preview.binding.renderRevision;
+  const expectedBinding = preview.binding;
   const document = vscode.workspace.textDocuments.find(
     (item) => item.uri.toString() === preview.documentUri,
   );
@@ -52,9 +51,8 @@ export async function applySourceNavigation(
     }));
   if (
     !isCurrent(runtime, preview) ||
-    preview.previewSessionId !== expectedSession ||
-    preview.origin !== expectedOrigin ||
-    preview.renderRevision !== expectedRevision ||
+    preview.binding !== expectedBinding ||
+    preview.binding.renderRevision !== expectedRevision ||
     !vscode.workspace.textDocuments.includes(document) ||
     document.version !== expectedDocumentVersion ||
     editor.document !== document

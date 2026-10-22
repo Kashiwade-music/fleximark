@@ -4,6 +4,7 @@ mod diagnostics;
 mod language;
 mod lsp;
 mod protocol;
+mod publication;
 mod routing;
 mod rpc;
 mod standard_commands;

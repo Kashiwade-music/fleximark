@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-pub const DOCUMENT_SCHEMA_VERSION: u32 = 1;
+pub const DOCUMENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -170,6 +170,16 @@ pub enum PositionEncoding {
     Utf32,
 }
 
+impl PositionEncoding {
+    pub fn encoded_len(self, text: &str) -> u64 {
+        match self {
+            Self::Utf8 => text.len() as u64,
+            Self::Utf16 => text.encode_utf16().count() as u64,
+            Self::Utf32 => text.chars().count() as u64,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourcePosition {
@@ -183,8 +193,6 @@ pub struct SourcePosition {
 pub struct SourceRange {
     pub byte_start: u64,
     pub byte_end: u64,
-    pub start: SourcePosition,
-    pub end: SourcePosition,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,15 +261,13 @@ impl SourceProvenance {
         match self {
             Self::Original { .. } | Self::Derived { .. } => self.primary_range().cloned(),
             Self::Generated { anchor, .. } => anchor.as_ref().map(|anchor| {
-                let (byte_offset, position) = match anchor.affinity {
-                    AnchorAffinity::Before => (anchor.range.byte_start, anchor.range.start.clone()),
-                    AnchorAffinity::After => (anchor.range.byte_end, anchor.range.end.clone()),
+                let byte_offset = match anchor.affinity {
+                    AnchorAffinity::Before => anchor.range.byte_start,
+                    AnchorAffinity::After => anchor.range.byte_end,
                 };
                 SourceRange {
                     byte_start: byte_offset,
                     byte_end: byte_offset,
-                    start: position.clone(),
-                    end: position,
                 }
             }),
         }
@@ -320,7 +326,7 @@ pub enum ValidationError {
     OverlappingProvenanceRanges,
     InvalidRange,
     InvalidUtf8Boundary,
-    InvalidPosition,
+    InvalidChildShape,
 }
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -348,9 +354,9 @@ impl std::fmt::Display for ValidationError {
             Self::InvalidUtf8Boundary => {
                 write!(f, "source range does not fall on UTF-8 boundaries")
             }
-            Self::InvalidPosition => write!(
+            Self::InvalidChildShape => write!(
                 f,
-                "tagged source position does not match its UTF-8 byte offset"
+                "document block contains children incompatible with its kind"
             ),
         }
     }
@@ -407,6 +413,50 @@ fn validate_block(
         return Err(ValidationError::DuplicateNodeId(block.id.0.clone()));
     }
     block.provenance.validate_with_index(source)?;
+    let valid_children = block.children.iter().all(|child| match &block.kind {
+        BlockKind::Paragraph | BlockKind::Heading { .. } | BlockKind::TableCell { .. } => {
+            matches!(child, Node::Inline(_))
+        }
+        BlockKind::Table => matches!(
+            child,
+            Node::Block(Block {
+                kind: BlockKind::TableRow { .. },
+                ..
+            })
+        ),
+        BlockKind::TableRow { .. } => matches!(
+            child,
+            Node::Block(Block {
+                kind: BlockKind::TableCell { .. },
+                ..
+            })
+        ),
+        BlockKind::Tabs => matches!(
+            child,
+            Node::Block(Block {
+                kind: BlockKind::Tab { .. },
+                ..
+            })
+        ),
+        BlockKind::List { .. } => matches!(
+            child,
+            Node::Block(Block {
+                kind: BlockKind::ListItem { .. },
+                ..
+            })
+        ),
+        BlockKind::CodeBlock { .. }
+        | BlockKind::Mermaid { .. }
+        | BlockKind::AbcNotation { .. }
+        | BlockKind::Math { .. }
+        | BlockKind::ThematicBreak
+        | BlockKind::Media { .. } => false,
+        _ => true,
+    });
+    if !valid_children {
+        return Err(ValidationError::InvalidChildShape);
+    }
+
     for child in &block.children {
         match child {
             Node::Block(block) => validate_block(block, source, ids)?,
@@ -441,21 +491,16 @@ fn validate_range(range: &SourceRange, source: &SourceIndex<'_>) -> Result<(), V
     if !source.source.is_char_boundary(start) || !source.source.is_char_boundary(end) {
         return Err(ValidationError::InvalidUtf8Boundary);
     }
-    if source.position_to_byte(&range.start) != Some(start)
-        || source.position_to_byte(&range.end) != Some(end)
-    {
-        return Err(ValidationError::InvalidPosition);
-    }
     Ok(())
 }
 
-struct SourceIndex<'a> {
+pub struct SourceIndex<'a> {
     source: &'a str,
     line_starts: Vec<usize>,
 }
 
 impl<'a> SourceIndex<'a> {
-    fn new(source: &'a str) -> Self {
+    pub fn new(source: &'a str) -> Self {
         let mut line_starts = vec![0];
         line_starts.extend(source.match_indices('\n').map(|(index, _)| index + 1));
         Self {
@@ -464,14 +509,69 @@ impl<'a> SourceIndex<'a> {
         }
     }
 
-    fn position_to_byte(&self, position: &SourcePosition) -> Option<usize> {
+    pub fn source(&self) -> &'a str {
+        self.source
+    }
+
+    pub fn line_start(&self, line: usize) -> Option<usize> {
+        self.line_starts.get(line).copied()
+    }
+
+    pub fn validate_range(&self, range: &SourceRange) -> Result<(), ValidationError> {
+        validate_range(range, self)
+    }
+
+    pub fn range(&self, range: std::ops::Range<usize>) -> Result<SourceRange, ValidationError> {
+        let range = SourceRange {
+            byte_start: range.start as u64,
+            byte_end: range.end as u64,
+        };
+        self.validate_range(&range)?;
+        Ok(range)
+    }
+
+    pub fn byte_to_position(
+        &self,
+        offset: usize,
+        encoding: PositionEncoding,
+    ) -> Option<SourcePosition> {
+        if !self.source.is_char_boundary(offset) {
+            return None;
+        }
+        let line = self
+            .line_starts
+            .partition_point(|start| *start <= offset)
+            .saturating_sub(1);
+        let line_end = self.line_content_end(line);
+        let text = &self.source[self.line_starts[line]..offset.min(line_end)];
+        let character = encoding.encoded_len(text);
+        Some(SourcePosition {
+            line: line as u64,
+            character,
+            encoding,
+        })
+    }
+
+    fn line_content_end(&self, line: usize) -> usize {
+        let end = self
+            .line_starts
+            .get(line + 1)
+            .map_or(self.source.len(), |next| next - 1);
+        if self.line_starts.get(line + 1).is_some()
+            && end > self.line_starts[line]
+            && self.source.as_bytes()[end - 1] == b'\r'
+        {
+            end - 1
+        } else {
+            end
+        }
+    }
+
+    pub fn position_to_byte(&self, position: &SourcePosition) -> Option<usize> {
         let line = usize::try_from(position.line).ok()?;
         let character = usize::try_from(position.character).ok()?;
         let line_start = *self.line_starts.get(line)?;
-        let line_end = self
-            .line_starts
-            .get(line + 1)
-            .map_or(self.source.len(), |next_start| next_start - 1);
+        let line_end = self.line_content_end(line);
         let line_text = &self.source[line_start..line_end];
         let mut units = 0;
         for (offset, value) in line_text.char_indices() {
@@ -500,16 +600,6 @@ mod tests {
         SourceRange {
             byte_start: start,
             byte_end: end,
-            start: SourcePosition {
-                line: 0,
-                character: start,
-                encoding: PositionEncoding::Utf8,
-            },
-            end: SourcePosition {
-                line: 0,
-                character: end,
-                encoding: PositionEncoding::Utf8,
-            },
         }
     }
 
@@ -568,39 +658,138 @@ mod tests {
     #[test]
     fn validates_utf16_positions_without_accepting_surrogate_midpoints() {
         let source = "a🦀b";
-        let valid = SourceRange {
-            byte_start: 1,
-            byte_end: 5,
-            start: SourcePosition {
-                line: 0,
-                character: 1,
-                encoding: PositionEncoding::Utf16,
-            },
-            end: SourcePosition {
-                line: 0,
-                character: 3,
-                encoding: PositionEncoding::Utf16,
-            },
+        let index = SourceIndex::new(source);
+        let position = SourcePosition {
+            line: 0,
+            character: 3,
+            encoding: PositionEncoding::Utf16,
         };
-        assert_eq!(SourceProvenance::original(valid).validate(source), Ok(()));
-
-        let invalid = SourceRange {
-            byte_start: 1,
-            byte_end: 5,
-            start: SourcePosition {
+        assert_eq!(index.position_to_byte(&position), Some(5));
+        assert_eq!(
+            index.byte_to_position(5, PositionEncoding::Utf16),
+            Some(position)
+        );
+        assert_eq!(
+            index.position_to_byte(&SourcePosition {
                 line: 0,
                 character: 2,
-                encoding: PositionEncoding::Utf16,
-            },
-            end: SourcePosition {
-                line: 0,
-                character: 3,
-                encoding: PositionEncoding::Utf16,
-            },
+                encoding: PositionEncoding::Utf16
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn index_round_trips_every_unicode_boundary_and_encoding() {
+        let source = "a🦀é\r\n日本語\n";
+        let index = SourceIndex::new(source);
+        for offset in 0..=source.len() {
+            for encoding in [
+                PositionEncoding::Utf8,
+                PositionEncoding::Utf16,
+                PositionEncoding::Utf32,
+            ] {
+                let position = index.byte_to_position(offset, encoding);
+                if source.is_char_boundary(offset) {
+                    let expected = if source.as_bytes().get(offset) == Some(&b'\n')
+                        && offset > 0
+                        && source.as_bytes()[offset - 1] == b'\r'
+                    {
+                        offset - 1
+                    } else {
+                        offset
+                    };
+                    assert_eq!(index.position_to_byte(&position.unwrap()), Some(expected));
+                } else {
+                    assert_eq!(position, None);
+                }
+            }
+        }
+        assert_eq!(index.range(2..5), Err(ValidationError::InvalidUtf8Boundary));
+        assert_eq!(
+            index.range(std::ops::Range { start: 5, end: 2 }),
+            Err(ValidationError::InvalidRange)
+        );
+    }
+
+    #[test]
+    fn external_positions_exclude_crlf_and_preserve_final_empty_line() {
+        let source = "🦀\r\né\n";
+        let index = SourceIndex::new(source);
+        let position = |line, character| SourcePosition {
+            line,
+            character,
+            encoding: PositionEncoding::Utf16,
+        };
+        assert_eq!(index.position_to_byte(&position(0, 1)), None);
+        assert_eq!(index.position_to_byte(&position(0, 2)), Some(4));
+        assert_eq!(index.position_to_byte(&position(0, 3)), None);
+        assert_eq!(
+            index.byte_to_position(4, PositionEncoding::Utf16),
+            Some(position(0, 2))
+        );
+        assert_eq!(
+            index.byte_to_position(5, PositionEncoding::Utf16),
+            Some(position(0, 2))
+        );
+        assert_eq!(
+            index.byte_to_position(6, PositionEncoding::Utf16),
+            Some(position(1, 0))
+        );
+        assert_eq!(
+            index.byte_to_position(source.len(), PositionEncoding::Utf16),
+            Some(position(2, 0))
+        );
+        assert_eq!(index.position_to_byte(&position(2, 0)), Some(source.len()));
+        assert_eq!(index.position_to_byte(&position(2, 1)), None);
+    }
+
+    #[test]
+    fn rejects_incompatible_children_without_rejecting_container_forms() {
+        let leaf = Block {
+            id: NodeId("child".into()),
+            provenance: SourceProvenance::original(range(0, 1)),
+            kind: BlockKind::Paragraph,
+            attributes: BTreeMap::new(),
+            children: vec![],
+        };
+        for kind in [
+            BlockKind::Paragraph,
+            BlockKind::Heading { level: 1 },
+            BlockKind::Table,
+            BlockKind::TableRow { header: false },
+            BlockKind::Tabs,
+        ] {
+            let parent = Block {
+                id: NodeId("parent".into()),
+                provenance: leaf.provenance.clone(),
+                kind,
+                attributes: BTreeMap::new(),
+                children: vec![Node::Block(leaf.clone())],
+            };
+            let document = Document {
+                schema_version: DOCUMENT_SCHEMA_VERSION,
+                document_version: 1,
+                uri: DocumentUri("test".into()),
+                metadata: DocumentMetadata::default(),
+                blocks: vec![parent],
+            };
+            assert_eq!(
+                document.validate("x"),
+                Err(ValidationError::InvalidChildShape)
+            );
+        }
+        let mut ids = HashSet::new();
+        let parent = Block {
+            id: NodeId("parent".into()),
+            provenance: leaf.provenance.clone(),
+            kind: BlockKind::ListItem { checked: None },
+            attributes: BTreeMap::new(),
+            children: vec![Node::Block(leaf)],
         };
         assert_eq!(
-            SourceProvenance::original(invalid).validate(source),
-            Err(ValidationError::InvalidPosition)
+            validate_block(&parent, &SourceIndex::new("x"), &mut ids),
+            Ok(())
         );
     }
 

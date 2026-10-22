@@ -69,6 +69,18 @@ run = "uv run --frozen python tooling/tasks/tasks.py test-pure"
 description = "Run the complete local release gate"
 run = "uv run --frozen python tooling/tasks/tasks.py verify"
 
+[tasks.verify-quality]
+description = "Run the source quality gates shared by CI and releases"
+run = "uv run --frozen python tooling/tasks/tasks.py verify-quality"
+
+[tasks.verify-product]
+description = "Build once and verify host performance, editor integration, packaging and clean installation"
+run = "uv run --frozen python tooling/tasks/tasks.py verify-product"
+
+[tasks.verify-audit]
+description = "Run the network dependency audit required by CI and releases"
+run = "uv run --frozen python tooling/tasks/tasks.py verify-audit"
+
 [tasks.package]
 description = "Verify and package a dependency-free VSIX"
 run = "uv run --frozen python tooling/tasks/tasks.py package"

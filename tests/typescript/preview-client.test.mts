@@ -833,6 +833,21 @@ export function suite(): void {
       root.querySelectorAll("[role=tab]")[1]?.getAttribute("aria-selected"),
       "true",
     );
+    const rebuilt = {
+      ...tabs,
+      html: tabs.html.replace("first", "updated first"),
+    };
+    assert.equal(
+      preview.apply(frame(3, [rebuilt, block("outside", "after")])),
+      true,
+    );
+    assert.notEqual(root.firstElementChild, originalTabs);
+    await enhancer.render(root);
+    assert.equal(
+      root.querySelectorAll("[role=tab]")[1]?.getAttribute("aria-selected"),
+      "true",
+      "semantic tab selection survives rebuilt DOM",
+    );
     enhancer.dispose();
   });
 

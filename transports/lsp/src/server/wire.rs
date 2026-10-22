@@ -28,10 +28,7 @@ pub(crate) fn session_error(id: Value, error: SessionError) -> Value {
     let engine_rejection = matches!(error, SessionError::Engine(_));
     let code = if matches!(
         error,
-        SessionError::ContentModified
-            | SessionError::StaleVersion
-            | SessionError::VersionMismatch
-            | SessionError::HashMismatch
+        SessionError::ContentModified | SessionError::StaleVersion | SessionError::VersionMismatch
     ) {
         CONTENT_MODIFIED
     } else {

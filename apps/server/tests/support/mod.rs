@@ -7,13 +7,9 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 pub fn native_server() -> Server {
-    Server::new(
-        Arc::new(fleximark_workspace::NativeWorkspace),
-        browser_assets(),
-    )
+    Server::new(browser_assets())
 }
 pub fn browser_assets() -> BrowserAssets {
     BrowserAssets {
@@ -76,13 +72,18 @@ pub fn preview(server: &mut Server, uri: &str, version: i64, target: &str) -> Va
     response[0]["result"].clone()
 }
 pub fn read_frame(server: &mut Server, preview: &str) -> Value {
-    let response = server.request(
-        4,
-        fleximark_protocol::method::READ_PREVIEW,
-        json!({"daemonInstanceId":daemon(server),"previewSessionId":preview}),
-    );
-    assert!(response[0].get("result").is_some(), "{response:?}");
-    response[0]["result"]["frame"].clone()
+    let registry = server.sessions();
+    for (uri, _) in registry.open_documents() {
+        let session = registry.session_id_for_uri(&uri).unwrap();
+        if let Some(frame) = registry
+            .read_preview(registry.daemon_instance_id(), session, preview, None)
+            .unwrap()
+        {
+            return serde_json::to_value(fleximark_preview_http::protocol::frame(&frame).unwrap())
+                .unwrap();
+        }
+    }
+    panic!("preview frame was not published")
 }
 pub fn http(url: &str, suffix: &str, method: &str, body: Option<&str>) -> String {
     let (address, path) = url
@@ -131,7 +132,7 @@ pub fn test_directory(label: &str) -> TestDirectory {
     TestDirectory(path)
 }
 pub fn uri(path: &Path) -> String {
-    fleximark_workspace::path_to_file_uri(path).unwrap()
+    fleximark_application::native::path_to_file_uri(path).unwrap()
 }
 
 pub fn installed_resources() -> TestDirectory {

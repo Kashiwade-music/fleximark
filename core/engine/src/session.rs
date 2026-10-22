@@ -23,6 +23,21 @@ pub struct DocumentEngine {
 }
 
 impl DocumentEngine {
+    pub fn clear_configuration(&mut self) -> Result<(), EngineError> {
+        self.plugins = None;
+        self.render_config = RenderConfig::default();
+        self.plugin_diagnostics.clear();
+        let result = self.install_current_source(
+            self.document.document_version,
+            self.source.clone(),
+            &CancellationToken::default(),
+        );
+        if result.is_err() {
+            self.mark_out_of_sync();
+        }
+        result
+    }
+
     pub fn open(
         uri: DocumentUri,
         version: u64,

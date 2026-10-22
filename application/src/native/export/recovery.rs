@@ -9,7 +9,7 @@ use super::filesystem::{
 use super::journal::{append_journal, read_journal};
 use super::model::ExportJournalState;
 use super::ownership::{inspect_export, verify_installed};
-use crate::ServiceError;
+use crate::native::ServiceError;
 
 pub(super) fn recover_export(
     journal_path: &Path,

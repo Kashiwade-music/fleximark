@@ -687,26 +687,39 @@ dependencies = [
 name = "fleximark-application"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "ed25519-dalek",
+ "fleximark-config",
  "fleximark-engine",
  "fleximark-language",
+ "fleximark-migration",
  "fleximark-model",
  "fleximark-plugin-api",
+ "fleximark-plugin-host",
+ "fleximark-plugin-sdk",
+ "fleximark-preview-assets",
  "fleximark-render-html",
+ "getrandom 0.2.17",
  "serde",
+ "serde_json",
  "sha2",
+ "toml 0.9.12+spec-1.1.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "fleximark-cli"
 version = "0.16.14"
 dependencies = [
+ "fleximark-application",
  "fleximark-engine",
  "fleximark-migration",
  "fleximark-model",
- "fleximark-plugin-host",
+ "fleximark-plugin-api",
  "fleximark-render-html",
- "fleximark-workspace",
  "libc",
  "serde_json",
  "windows-sys 0.59.0",
@@ -820,6 +833,7 @@ version = "0.1.0"
 dependencies = [
  "caseless",
  "fleximark-model",
+ "fleximark-plugin-api",
  "serde",
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
@@ -841,6 +855,7 @@ name = "fleximark-preview-http"
 version = "0.1.0"
 dependencies = [
  "fleximark-application",
+ "fleximark-engine",
  "fleximark-model",
  "fleximark-protocol",
  "getrandom 0.2.17",
@@ -891,31 +906,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fleximark-workspace"
-version = "0.1.0"
-dependencies = [
- "base64",
- "cap-fs-ext",
- "cap-std",
- "ed25519-dalek",
- "fleximark-application",
- "fleximark-config",
- "fleximark-engine",
- "fleximark-model",
- "fleximark-plugin-api",
- "fleximark-plugin-host",
- "fleximark-plugin-sdk",
- "fleximark-preview-assets",
- "fleximark-render-html",
- "getrandom 0.2.17",
- "serde",
- "serde_json",
- "sha2",
- "toml 0.9.12+spec-1.1.0",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "fleximarkd"
 version = "0.16.14"
 dependencies = [
@@ -926,7 +916,6 @@ dependencies = [
  "fleximark-preview-assets",
  "fleximark-preview-http",
  "fleximark-protocol",
- "fleximark-workspace",
  "serde",
  "serde_json",
  "sha2",

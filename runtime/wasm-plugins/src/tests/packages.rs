@@ -115,8 +115,9 @@ fn assert_verified_package_rejections_are_retryable() {
     ];
     let wasm = fixture_component();
     let manifest = format!(
-        "schema_version = 1\n\n[plugin]\nid = \"verified\"\napi_version = 1\nrequired = false\n\n[artifact]\nwasm_sha256 = \"{}\"\n\n[capabilities]\n",
-        sha256(wasm)
+        "schema_version = 1\n\n[plugin]\nid = \"verified\"\napi_version = {api_version}\nrequired = false\n\n[artifact]\nwasm_sha256 = \"{}\"\n\n[capabilities]\n",
+        sha256(wasm),
+        api_version = fleximark_plugin_sdk::PLUGIN_API_VERSION,
     );
     let modified_manifest = manifest.replace("required = false", "required = true");
     let manifest_hash = sha256(manifest.as_bytes());
@@ -242,8 +243,9 @@ enum VerifiedPackageCorruption {
 fn verified_registration_rejects_noncanonical_config_order_without_mutating_the_host() {
     let wasm = fixture_component();
     let manifest = format!(
-        "schema_version = 1\n\n[plugin]\nid = \"ordered\"\napi_version = 1\nrequired = false\n\n[artifact]\nwasm_sha256 = \"{}\"\n\n[capabilities]\n",
-        sha256(wasm)
+        "schema_version = 1\n\n[plugin]\nid = \"ordered\"\napi_version = {api_version}\nrequired = false\n\n[artifact]\nwasm_sha256 = \"{}\"\n\n[capabilities]\n",
+        sha256(wasm),
+        api_version = fleximark_plugin_sdk::PLUGIN_API_VERSION,
     );
     let signing_key = SigningKey::from_bytes(&[19; 32]);
     let signature = signing_key.sign(manifest.as_bytes()).to_bytes();
@@ -288,4 +290,35 @@ fn verified_registration_rejects_noncanonical_config_order_without_mutating_the_
             if message == "plugins must be registered once in canonical config order"
     ));
     assert_eq!(host.plugin_set_hash(), registered_hash);
+}
+
+#[test]
+fn signed_legacy_plugin_api_is_rejected_before_runtime_loading() {
+    let wasm = b"legacy artifact";
+    let manifest = format!(
+        "schema_version = 1\n[plugin]\nid = \"legacy\"\napi_version = 1\n[artifact]\nwasm_sha256 = \"{}\"\n",
+        sha256(wasm)
+    );
+    let signing_key = SigningKey::from_bytes(&[12; 32]);
+    let signature = signing_key.sign(manifest.as_bytes()).to_bytes();
+    let public_key = signing_public_key(&signing_key);
+    let mut host = trusted_host(ExecutionLimits::default());
+    let original_hash = host.plugin_set_hash();
+    let error = host
+        .register_verified(VerifiedPluginPackage {
+            configured_id: "legacy",
+            config_order: 0,
+            manifest_bytes: manifest.as_bytes(),
+            expected_manifest_sha256: &sha256(manifest.as_bytes()),
+            wasm_bytes: wasm,
+            signature_bytes: &signature,
+            signer_public_key: &public_key,
+            grants: PluginCapabilities::default(),
+            environment: BTreeMap::new(),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(error, HostError::InvalidManifest(message) if message == "plugin API version 1 is unsupported")
+    );
+    assert_eq!(host.plugin_set_hash(), original_hash);
 }

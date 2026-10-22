@@ -35,7 +35,7 @@ connection.request("fleximark/getNoteOptions", {
   command: "editTheme",
 });
 
-// @ts-expect-error requestFullText is daemon-to-client, not a request.
+// @ts-expect-error the removed recovery method is outside the current protocol.
 connection.request("fleximark/requestFullText", {
   daemonInstanceId: "daemon",
   uri: "file:///document.md",

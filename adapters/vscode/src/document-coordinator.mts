@@ -1,12 +1,6 @@
-import { createHash } from "node:crypto";
 import type * as vscode from "vscode";
 
-import type { RequestFullTextParams } from "../../../contracts/typescript/protocol.mjs";
-import {
-  type JsonRpcConnection,
-  type JsonRpcRequest,
-  JsonRpcResponseError,
-} from "./rpc.mjs";
+import { type JsonRpcConnection, JsonRpcResponseError } from "./rpc.mjs";
 import type {
   DocumentRuntime,
   DocumentState,
@@ -14,10 +8,7 @@ import type {
 } from "./runtime-state.mjs";
 
 function deactivatePreviewSession(preview: PreviewState): void {
-  preview.remoteSessionActive = false;
-  preview.readInFlight = undefined;
-  preview.readAgain = false;
-  preview.forceRead = false;
+  preview.binding.active = false;
 }
 
 export interface DaemonOrigin {
@@ -25,16 +16,6 @@ export interface DaemonOrigin {
   readonly daemonInstanceId: string;
   readonly generation: number;
 }
-
-export interface DocumentClock {
-  schedule(callback: () => void, delay: number): NodeJS.Timeout;
-  cancel(handle: NodeJS.Timeout): void;
-}
-
-const systemDocumentClock: DocumentClock = {
-  schedule: (callback, delay) => setTimeout(callback, delay),
-  cancel: (handle) => clearTimeout(handle),
-};
 
 export async function syncDocument(
   runtime: DocumentRuntime,
@@ -63,7 +44,6 @@ export async function syncDocument(
       daemonInstanceId: origin.daemonInstanceId,
       uri,
       expectedDocumentVersion: version,
-      contentHash: createHash("sha256").update(text).digest("hex"),
     });
     if (!attached) return;
     if (!isCurrent(runtime, document, state, origin)) return;
@@ -85,9 +65,7 @@ export function changeDocument(
   document: vscode.TextDocument,
   rpc: JsonRpcConnection | undefined,
   synchronize: () => Promise<void>,
-  checkpoint: () => Promise<void>,
   report: (error: unknown) => void,
-  clock: DocumentClock = systemDocumentClock,
 ): void {
   if (document.languageId !== "markdown") return;
   const state = runtime?.documents.get(document.uri.toString());
@@ -101,10 +79,6 @@ export function changeDocument(
     textDocument: { uri: document.uri.toString(), version: document.version },
     contentChanges: [{ text: document.getText() }],
   });
-  if (state.checkpoint) clock.cancel(state.checkpoint);
-  state.checkpoint = clock.schedule(() => {
-    void checkpoint().catch(report);
-  }, 150);
 }
 
 export function closeDocument(
@@ -114,68 +88,14 @@ export function closeDocument(
 ): void {
   if (!runtime) return;
   const uri = document.uri.toString();
-  const state = runtime.documents.get(uri);
-  if (state?.checkpoint) clearTimeout(state.checkpoint);
   rpc?.notifyLsp("textDocument/didClose", { textDocument: { uri } });
   for (const preview of runtime.previews.values())
     if (preview.documentUri === uri) {
       deactivatePreviewSession(preview);
-      if (!preview.panel) runtime.previews.delete(preview.previewSessionId);
+      if (!preview.panel)
+        runtime.previews.delete(preview.binding.previewSessionId);
     }
   runtime.documents.delete(uri);
-}
-
-export async function checkpointDocument(
-  document: vscode.TextDocument,
-  state: DocumentState,
-  origin: DaemonOrigin | undefined,
-): Promise<void> {
-  if (!origin || origin.rpc.closed || !state.sessionId) return;
-  const sessionId = state.sessionId;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const version = document.version;
-    try {
-      await origin.rpc.request("fleximark/checkpointDocument", {
-        daemonInstanceId: origin.daemonInstanceId,
-        documentSessionId: sessionId,
-        documentVersion: version,
-        contentHash: createHash("sha256")
-          .update(document.getText())
-          .digest("hex"),
-      });
-      return;
-    } catch (error) {
-      if (
-        origin.rpc.closed ||
-        document.isClosed ||
-        state.sessionId !== sessionId
-      )
-        return;
-      if (!(error instanceof JsonRpcResponseError)) throw error;
-      if (error.code === -32800) {
-        // A delayed full-text recovery can cancel this read without changing
-        // the editor version. Retry the latest snapshot within the same bound;
-        // continuing edits already schedule their own checkpoint.
-        if (attempt === 2) return;
-        continue;
-      }
-      if (attempt === 2) throw error;
-      if (error.code === -32801) {
-        // The daemon may request recovery separately. Identical full-text
-        // replays are safe, so repair before checking the latest snapshot.
-        state.version = document.version;
-        origin.rpc.notifyLsp("textDocument/didChange", {
-          textDocument: {
-            uri: document.uri.toString(),
-            version: document.version,
-          },
-          contentChanges: [{ text: document.getText() }],
-        });
-      } else {
-        throw error;
-      }
-    }
-  }
 }
 
 export function resetDocumentSessions(
@@ -214,31 +134,4 @@ function isEngineDocumentRejection(
     !Array.isArray(error.data) &&
     error.data.kind === "engine"
   );
-}
-
-export function handleRequestFullText(
-  message: JsonRpcRequest,
-  connection: JsonRpcConnection,
-  runtimes: Iterable<DocumentRuntime>,
-  daemonInstanceId: string | undefined,
-  documents: readonly vscode.TextDocument[],
-): boolean {
-  if (message.method !== "fleximark/requestFullText") return false;
-  const params = message.params as RequestFullTextParams;
-  const state = [...runtimes]
-    .map((runtime) => runtime.documents.get(params.uri))
-    .find(Boolean);
-  if (
-    params.daemonInstanceId !== daemonInstanceId ||
-    state?.sessionId !== params.documentSessionId
-  )
-    return true;
-  const document = documents.find((item) => item.uri.toString() === params.uri);
-  if (document)
-    connection.notifyLsp("textDocument/didChange", {
-      textDocument: { uri: params.uri, version: document.version },
-      contentChanges: [{ text: document.getText() }],
-    });
-  if (message.id !== undefined) connection.respond(message.id, null);
-  return true;
 }

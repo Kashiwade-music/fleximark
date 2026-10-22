@@ -75,6 +75,7 @@ export function suite(): void {
     const bytes = Buffer.alloc(13 * 1024 * 1024, 7);
     const contentHash = createHash("sha256").update(bytes).digest("hex");
     const result = {
+      previewSessionId: "preview",
       frame: {
         previewSessionId: "preview",
         documentVersion: 1,
@@ -95,9 +96,11 @@ export function suite(): void {
         annotations: {},
       },
     };
-    const pending = connection.request("fleximark/readPreview", {
+    const pending = connection.request("fleximark/createPreview", {
       daemonInstanceId: "daemon",
-      previewSessionId: "preview",
+      documentSessionId: "document",
+      expectedDocumentVersion: 1,
+      target: "embeddedHtml",
     });
     const response = frame({ jsonrpc: "2.0", id: 1, result });
     assert.ok(response.length > 16 * 1024 * 1024);
@@ -111,6 +114,37 @@ export function suite(): void {
     );
 
     assert.deepEqual(await pending, result);
+    assert.equal(connection.closed, false);
+    assert.deepEqual(messages, [EMPTY_DIAGNOSTICS]);
+    connection.close();
+  });
+
+  test("rejects a receive callback exception and continues dispatching", async () => {
+    const { connection, daemonOutput, messages } = rpcHarness();
+    const failure = new Error("cannot bind result");
+    const pending = connection.request(
+      "fleximark/attachDocument",
+      {
+        daemonInstanceId: "daemon",
+        uri: "file:///document.md",
+        expectedDocumentVersion: 1,
+      },
+      undefined,
+      () => {
+        throw failure;
+      },
+    );
+    daemonOutput.write(
+      Buffer.concat([
+        frame({
+          jsonrpc: "2.0",
+          id: 1,
+          result: { documentSessionId: "document", documentVersion: 1 },
+        }),
+        frame(EMPTY_DIAGNOSTICS),
+      ]),
+    );
+    await assert.rejects(pending, failure);
     assert.equal(connection.closed, false);
     assert.deepEqual(messages, [EMPTY_DIAGNOSTICS]);
     connection.close();
@@ -178,14 +212,8 @@ export function suite(): void {
   test("dispatches multiple frames from one chunk in wire order", async () => {
     const { connection, daemonOutput, messages } = rpcHarness();
     const first = {
-      jsonrpc: "2.0",
-      method: "fleximark/requestFullText",
-      params: {
-        daemonInstanceId: "daemon",
-        uri: "file:///document.md",
-        documentSessionId: "document",
-        reason: "contentHashMismatch",
-      },
+      ...EMPTY_DIAGNOSTICS,
+      params: { ...EMPTY_DIAGNOSTICS.params, uri: "file:///first.md" },
     };
     const second = EMPTY_DIAGNOSTICS;
 
@@ -199,11 +227,10 @@ export function suite(): void {
 
   test("preserves JSON-RPC error code, message, and data", async () => {
     const { connection, daemonOutput } = rpcHarness();
-    const pending = connection.request("fleximark/checkpointDocument", {
+    const pending = connection.request("fleximark/attachDocument", {
       daemonInstanceId: "daemon",
-      documentSessionId: "document",
-      documentVersion: 4,
-      contentHash: "after",
+      uri: "file:///document.md",
+      expectedDocumentVersion: 4,
     });
 
     daemonOutput.write(
@@ -264,7 +291,7 @@ export function suite(): void {
         description: "malformed envelope",
         message: {
           jsonrpc: "1.0",
-          method: "fleximark/requestFullText",
+          method: "fleximark/previewChanged",
           params: {},
         },
         closed: true,
@@ -287,12 +314,11 @@ export function suite(): void {
         description: "malformed known notification",
         message: {
           jsonrpc: "2.0",
-          method: "fleximark/requestFullText",
+          method: "fleximark/previewChanged",
           params: {
             daemonInstanceId: "daemon",
-            uri: "file:///document.md",
-            documentSessionId: "document",
-            reason: 7,
+            previewSessionId: "preview",
+            renderRevision: "invalid",
           },
         },
         closed: false,

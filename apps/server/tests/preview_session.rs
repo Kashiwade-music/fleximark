@@ -4,7 +4,7 @@ use fleximark_lsp_transport::Server;
 use fleximark_plugin_api::CancellationToken;
 use fleximark_protocol::{CONTENT_MODIFIED, method};
 use serde_json::json;
-use std::sync::{Arc, mpsc};
+use std::sync::mpsc;
 use std::time::Duration;
 use support::*;
 
@@ -20,10 +20,7 @@ fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_c
     let path = root.join("standalone.md");
     std::fs::write(&path, "disk contents").unwrap();
     let document = uri(&path);
-    let mut server = Server::new(
-        Arc::new(fleximark_workspace::NativeWorkspace),
-        browser_assets(),
-    );
+    let mut server = Server::new(browser_assets());
     let initialized = server.request(1, "initialize", json!({"capabilities": {}}));
     assert_eq!(
         initialized[0]["result"]["capabilities"]["experimental"]["fleximark"]["workspaceStatuses"],
@@ -70,11 +67,7 @@ fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_c
 #[test]
 fn explicit_preview_selection_survives_initial_browser_load_and_returns_to_source() {
     let (sender, events) = mpsc::channel();
-    let mut server = Server::with_assets(
-        Arc::new(fleximark_workspace::NativeWorkspace),
-        Some(sender),
-        browser_assets(),
-    );
+    let mut server = Server::with_assets(Some(sender), browser_assets());
     let result=server.request(1,"initialize",json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}},"initializationOptions":{"fleximark":{"capabilities":{"selectionEvents":false,"viewportEvents":false}}}}));
     assert!(result[0].get("result").is_some());
     let document = "file:///unsaved-selection.md";
@@ -138,7 +131,10 @@ fn explicit_preview_selection_survives_initial_browser_load_and_returns_to_sourc
     assert!(frame["renderRevision"].as_u64().unwrap() > revision);
     let updated_response = http(url, "/frame", "GET", None);
     let updated_payload = http_payload::parse(&updated_response);
-    assert_eq!(updated_payload["navigation"]["sequence"], jump_sequence);
+    assert!(
+        updated_payload["navigation"]["sequence"].as_u64().unwrap()
+            > jump_sequence.as_u64().unwrap()
+    );
     assert_eq!(
         updated_payload["navigation"]["event"]["renderRevision"],
         frame["renderRevision"]
@@ -183,17 +179,16 @@ fn stale_navigation_is_rejected_when_changed_document_cannot_publish() {
 }
 
 #[test]
-fn stale_document_notifications_request_full_text_without_replacing_authoritative_source() {
+fn stale_notifications_preserve_source_and_next_full_sync_recovers() {
     let mut server = native_server();
     initialize(&mut server, json!([]));
     let document = "file:///resync.md";
     open(&mut server, document, "old", 2);
     let outgoing=server.notify("textDocument/didChange",json!({"textDocument":{"uri":document,"version":2},"contentChanges":[{"text":"invalid stale replacement"}]}));
-    let recovery = outgoing
-        .iter()
-        .find(|message| message["method"] == method::REQUEST_FULL_TEXT)
-        .unwrap();
-    assert_eq!(recovery["params"]["uri"], document);
-    assert_eq!(recovery["params"]["daemonInstanceId"], daemon(&server));
+    assert!(
+        outgoing
+            .iter()
+            .all(|message| message["method"] != "fleximark/requestFullText")
+    );
     assert_eq!(server.sessions().source_for_uri(document).unwrap(), "old");
 }

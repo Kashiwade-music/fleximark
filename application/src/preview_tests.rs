@@ -184,13 +184,19 @@ fn exhausted_revision_keeps_the_last_published_frame() {
 fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
     let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
     let initial: Arc<dyn PluginExecutor> = Arc::new(TestPlugins {
+        calls: None,
+        marker: None,
         hash: content_hash("initial"),
     });
     let config = RenderConfig::for_plugins(Default::default(), None, initial.as_ref());
     registry
-        .configure_workspaces(vec![("file:///workspace".into(), initial, config)])
+        .configure_workspaces(vec![(
+            crate::tests::workspace_uri().into(),
+            initial,
+            config,
+        )])
         .unwrap();
-    let uri = "file:///workspace/reconfigure.md";
+    let uri = crate::tests::workspace_document_uri("reconfigure.md");
     registry
         .open_with_cancellation(
             DidOpenParams {
@@ -215,12 +221,14 @@ fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
         )
         .unwrap();
     let replacement: Arc<dyn PluginExecutor> = Arc::new(TestPlugins {
+        calls: None,
+        marker: None,
         hash: content_hash("replacement"),
     });
     let config = RenderConfig::for_plugins(Default::default(), None, replacement.as_ref());
     registry
         .reconfigure_workspace(
-            "file:///workspace",
+            crate::tests::workspace_uri(),
             replacement,
             config,
             HashMap::new(),

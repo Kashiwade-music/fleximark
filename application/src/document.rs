@@ -5,7 +5,6 @@ use fleximark_model::{NavigationEntry, PositionEncoding};
 pub struct DocumentSession {
     pub id: String,
     pub uri: String,
-    pub content_hash: String,
     pub(crate) workspace_uri: Option<String>,
     pub(crate) engine: EngineSession,
     pub(crate) previews: std::collections::HashMap<String, RenderFrame>,

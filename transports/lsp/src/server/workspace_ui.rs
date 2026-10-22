@@ -67,8 +67,8 @@ impl Server {
                         .and_then(|uri| self.workspace_for_document(uri).map(|(uri, _)| uri))
                 })
         });
-        let mut workspaces = self.workspaces.iter().map(|(uri, trusted)| {
-            let options = if *trusted { self.services.get_note_options(uri).ok().map(commands::note_options_value) } else { None };
+        let mut workspaces = self.registry.workspace_statuses().iter().map(|(uri, trusted, _)| {
+            let options = if *trusted { fleximark_application::native::get_note_options(uri).ok().map(commands::note_options_value) } else { None };
             json!({"uri":uri,"name":uri.rsplit('/').next().unwrap_or(uri),"trusted":trusted,"noteOptions":options})
         }).collect::<Vec<_>>();
         workspaces.sort_by(|a, b| a["uri"].as_str().cmp(&b["uri"].as_str()));
@@ -86,7 +86,7 @@ impl Server {
         let options = selected
             .as_deref()
             .filter(|uri| self.workspace_grants_write(uri))
-            .and_then(|uri| self.services.get_note_options(uri).ok())
+            .and_then(|uri| fleximark_application::native::get_note_options(uri).ok())
             .map(commands::note_options_value);
         Ok(without_nulls(
             json!({"workspaces":workspaces,"documents":documents,"noteOptions":options,"command":request.get("command"),"context":context}),

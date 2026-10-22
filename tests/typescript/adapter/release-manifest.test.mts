@@ -59,6 +59,7 @@ export function suite(): void {
       null,
       {},
       { ...manifest(), target: "aarch64-apple-darwin" },
+      { ...manifest(), protocolVersion: PROTOCOL_VERSION - 1 },
       { schemaVersion: 1, protocolVersion: 5, artifacts: [] },
     ])
       await assert.rejects(

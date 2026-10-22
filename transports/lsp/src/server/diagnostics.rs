@@ -108,10 +108,22 @@ fn inline_text(inline: &Inline, output: &mut String) {
     }
 }
 
-pub(super) fn collect_heading_symbols(blocks: &[Block], output: &mut Vec<Value>) {
+pub(super) fn collect_heading_symbols(
+    blocks: &[Block],
+    output: &mut Vec<Value>,
+    source: &fleximark_model::SourceIndex,
+    encoding: PositionEncoding,
+) {
     for block in blocks {
         if let BlockKind::Heading { .. } = block.kind {
             if let Some(range) = block.provenance.navigation_range() {
+                let Some(start) = source.byte_to_position(range.byte_start as usize, encoding)
+                else {
+                    continue;
+                };
+                let Some(end) = source.byte_to_position(range.byte_end as usize, encoding) else {
+                    continue;
+                };
                 let mut name = String::new();
                 for child in &block.children {
                     if let Node::Inline(inline) = child {
@@ -121,8 +133,8 @@ pub(super) fn collect_heading_symbols(blocks: &[Block], output: &mut Vec<Value>)
                 output.push(json!({
                     "name": if name.is_empty() { "Heading" } else { &name },
                     "kind": 13,
-                    "range": {"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}},
-                    "selectionRange": {"start":{"line":range.start.line,"character":range.start.character},"end":{"line":range.end.line,"character":range.end.character}}
+                    "range": {"start":{"line":start.line,"character":start.character},"end":{"line":end.line,"character":end.character}},
+                    "selectionRange": {"start":{"line":start.line,"character":start.character},"end":{"line":end.line,"character":end.character}}
                 }));
             }
         }
@@ -134,19 +146,26 @@ pub(super) fn collect_heading_symbols(blocks: &[Block], output: &mut Vec<Value>)
                 _ => None,
             })
             .collect::<Vec<_>>();
-        collect_heading_symbols(&children, output);
+        collect_heading_symbols(&children, output, source, encoding);
     }
 }
 
 fn collect_session_diagnostics(document: &fleximark_application::DocumentSession) -> Vec<Value> {
+    let source = fleximark_model::SourceIndex::new(document.source());
     let mut output = Vec::new();
     for diagnostic in document.asset_diagnostics() {
         let range = diagnostic.source_range.as_ref().map_or_else(
             || json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}}),
             |range| {
+                let start = source
+                    .byte_to_position(range.byte_start as usize, document.position_encoding())
+                    .expect("validated range");
+                let end = source
+                    .byte_to_position(range.byte_end as usize, document.position_encoding())
+                    .expect("validated range");
                 json!({
-                    "start":{"line":range.start.line,"character":range.start.character},
-                    "end":{"line":range.end.line,"character":range.end.character}
+                    "start":{"line":start.line,"character":start.character},
+                    "end":{"line":end.line,"character":end.character}
                 })
             },
         );

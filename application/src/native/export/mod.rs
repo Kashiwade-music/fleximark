@@ -10,18 +10,20 @@ use std::fs;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
 
+use crate::outcomes::ExportReceipt;
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
-use fleximark_application::operations::ExportReceipt;
 use fleximark_engine::DocumentEngine;
 use fleximark_plugin_host::CancellationToken;
 use fleximark_render_html::{HtmlTarget, RenderContext};
 
-use crate::ServiceError;
-use crate::assets::{ExportAsset, compose_portable_html, resolve_export_assets};
-use crate::uri::{file_uri_path, path_to_file_uri, path_to_file_uri_unchecked, workspace_path};
-use crate::workspace::{reject_link, validate_config};
+use crate::native::ServiceError;
+use crate::native::assets::{ExportAsset, compose_portable_html, resolve_export_assets};
+use crate::native::uri::{
+    file_uri_path, path_to_file_uri, path_to_file_uri_unchecked, workspace_path,
+};
+use crate::native::workspace::{reject_link, validate_config};
 use commit::commit_installed_export;
 pub(crate) use filesystem::sha256;
 use filesystem::{

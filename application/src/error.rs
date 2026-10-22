@@ -10,7 +10,6 @@ pub enum SessionError {
     ContentModified,
     StaleVersion,
     VersionMismatch,
-    HashMismatch,
     InvalidRange,
     EmptyChange,
     Engine(String),
@@ -25,8 +24,7 @@ impl std::fmt::Display for SessionError {
             Self::ContentModified => write!(f, "document is out of sync"),
             Self::StaleVersion => write!(f, "document version is stale"),
             Self::VersionMismatch => write!(f, "document version does not match"),
-            Self::HashMismatch => write!(f, "content hash does not match"),
-            Self::InvalidRange => write!(f, "incremental edit range is invalid"),
+            Self::InvalidRange => write!(f, "document position or full-text change is invalid"),
             Self::EmptyChange => write!(f, "a change notification must contain edits"),
             Self::Engine(value) => write!(f, "engine rejected the document: {0}", value),
         }

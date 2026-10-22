@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 pub(crate) struct TestPlugins {
     pub hash: String,
+    pub calls: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
+    pub marker: Option<String>,
 }
 
 impl PluginExecutor for TestPlugins {
@@ -25,6 +27,9 @@ impl PluginExecutor for TestPlugins {
         source: &str,
         _: &CancellationToken,
     ) -> Result<PluginRun<PreprocessedSource>, HostError> {
+        if let Some(calls) = &self.calls {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
         Ok(PluginRun {
             value: PreprocessedSource {
                 text: source.into(),
@@ -50,8 +55,12 @@ impl PluginExecutor for TestPlugins {
         doc: &Document,
         _: &CancellationToken,
     ) -> Result<PluginRun<Document>, HostError> {
+        let mut doc = doc.clone();
+        if let Some(marker) = &self.marker {
+            doc.metadata.front_matter = Some(marker.clone());
+        }
         Ok(PluginRun {
-            value: doc.clone(),
+            value: doc,
             diagnostics: vec![],
         })
     }

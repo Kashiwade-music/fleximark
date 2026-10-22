@@ -45,6 +45,7 @@ pub struct SourceRange {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NavigationEntry {
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
     pub node_id: NodeId,
     pub source_range: SourceRange,
     pub depth: u32,
@@ -55,6 +56,10 @@ pub struct NavigationEntry {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenderStyle {
     pub css: String,
+    #[cfg_attr(
+        feature = "contract-schema",
+        schemars(regex(pattern = "^[0-9a-f]{64}$"))
+    )]
     pub fingerprint: String,
 }
 
@@ -62,10 +67,20 @@ pub struct RenderStyle {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenderAsset {
+    #[cfg_attr(
+        feature = "contract-schema",
+        schemars(regex(pattern = "^fleximark-asset:[0-9a-f]{64}$"))
+    )]
     pub reference: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("enum" = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "audio/mpeg", "audio/ogg", "audio/wav"])))]
     pub media_type: String,
+    #[cfg_attr(
+        feature = "contract-schema",
+        schemars(regex(pattern = "^[0-9a-f]{64}$"))
+    )]
     pub content_hash: String,
     pub byte_length: JsSafeU64,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("contentEncoding" = "base64")))]
     pub data: String,
 }
 
@@ -75,6 +90,7 @@ pub struct RenderAsset {
 pub struct RenderBlock {
     pub id: NodeId,
     pub html: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("minItems" = 1, "uniqueItems" = true, "items" = {"type":"string","minLength":1})))]
     pub node_ids: Vec<NodeId>,
 }
 
@@ -84,6 +100,7 @@ pub struct RenderBlock {
 pub struct RenderFrame {
     pub preview_session_id: PreviewSessionId,
     pub document_version: JsSafeU64,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("minimum" = 1)))]
     pub render_revision: JsSafeU64,
     pub renderer_fingerprint: String,
     pub style: Option<RenderStyle>,

@@ -12,8 +12,8 @@ fn nested_roots_keep_independent_trust_and_render_configuration() {
     std::fs::create_dir_all(&untrusted).unwrap();
     let trusted_uri = uri(&trusted);
     let untrusted_uri = uri(&untrusted);
-    fleximark_workspace::initialize_workspace(&trusted_uri).unwrap();
-    fleximark_workspace::initialize_workspace(&untrusted_uri).unwrap();
+    fleximark_application::native::initialize_workspace(&trusted_uri).unwrap();
+    fleximark_application::native::initialize_workspace(&untrusted_uri).unwrap();
     std::fs::write(
         trusted.join(".fleximark/theme.css"),
         ":root { color: red; }",
@@ -89,8 +89,8 @@ fn invalid_configuration_disables_only_its_root() {
     std::fs::create_dir(&invalid).unwrap();
     let valid_uri = uri(&valid);
     let invalid_uri = uri(&invalid);
-    fleximark_workspace::initialize_workspace(&valid_uri).unwrap();
-    fleximark_workspace::initialize_workspace(&invalid_uri).unwrap();
+    fleximark_application::native::initialize_workspace(&valid_uri).unwrap();
+    fleximark_application::native::initialize_workspace(&invalid_uri).unwrap();
     std::fs::write(
         invalid.join(".fleximark/config.toml"),
         "schema_version=2\nunknown=true\n",
@@ -162,7 +162,7 @@ fn workspace_writes_require_explicit_trust_before_command_arguments() {
 fn asset_errors_have_precise_ranges_without_blocking_safe_images() {
     let root = test_directory("assets");
     let workspace_uri = uri(&root);
-    fleximark_workspace::initialize_workspace(&workspace_uri).unwrap();
+    fleximark_application::native::initialize_workspace(&workspace_uri).unwrap();
     std::fs::write(root.join("valid.png"), b"\x89PNG\r\n\x1a\nvalid").unwrap();
     let document_uri = uri(&root.join("doc.md"));
     let text = "![missing](missing.png)\n\n![valid](valid.png)\n";

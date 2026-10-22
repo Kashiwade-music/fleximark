@@ -12,9 +12,9 @@ path = "src/main.rs"
 [dependencies]
 fleximark-engine = { path = "../../core/engine" }
 fleximark-model = { path = "../../core/model" }
-fleximark-plugin-host = { path = "../../runtime/wasm-plugins" }
+fleximark-plugin-api = { path = "../../core/plugin-api" }
 fleximark-render-html = { path = "../../core/render-html" }
-fleximark-workspace = { path = "../../runtime/workspace" }
+fleximark-application = { path = "../../application" }
 fleximark-migration = { path = "../../migration" }
 serde_json.workspace = true
 

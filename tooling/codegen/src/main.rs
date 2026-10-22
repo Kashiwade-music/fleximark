@@ -1,8 +1,6 @@
 //! Role: Generate schemas and TypeScript from the current Rust wire contract.
-mod descriptors;
 mod fixtures;
 mod typescript;
-use descriptors::DescriptorCompiler;
 use fixtures::{generate_render_frame_fixture, render_fixture};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
@@ -10,14 +8,13 @@ use std::fs;
 use typescript::schema_to_typescript;
 
 use fleximark_protocol::{
-    AttachDocumentParams, AttachDocumentResult, CheckpointDocumentParams, CheckpointDocumentResult,
-    ClientCapabilities, ClientInfo, CommandMessage, CommandResult, CreatePreviewParams,
-    CreatePreviewResult, DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams,
-    GetNoteOptionsResult, InitializeParams, InitializeResult, MAX_SAFE_INTEGER, METHOD_SPECS,
-    MethodDirection, MethodKind, MethodSpec, NavigationEntry, NodeId, NoteCategoryOption,
-    PROTOCOL_VERSION, PreviewChangedParams, PreviewEventParams, PreviewNavigationEvent,
-    PreviewTarget, ReadPreviewParams, ReadPreviewResult, ReconfigureWorkspaceParams,
-    RenderNavigationEvent, RequestFullTextParams, RerenderPreviewParams, RpcId, ServerCapabilities,
+    AttachDocumentParams, AttachDocumentResult, ClientCapabilities, ClientInfo, CommandMessage,
+    CommandResult, CreatePreviewParams, CreatePreviewResult, DisposePreviewParams,
+    ExecuteCommandParams, GetNoteOptionsParams, GetNoteOptionsResult, InitializeParams,
+    InitializeResult, MAX_SAFE_INTEGER, METHOD_SPECS, MethodDirection, MethodKind, MethodSpec,
+    NavigationEntry, NodeId, NoteCategoryOption, PROTOCOL_VERSION, PreviewChangedParams,
+    PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
+    RenderNavigationEvent, RerenderPreviewParams, RpcId, ServerCapabilities,
     ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
     SourcePosition, SourceRange, TextPosition, TextRange, TextSelection, WireType, WorkspaceGrant,
     WorkspaceStatus,
@@ -128,15 +125,13 @@ fn derived_schema<T: JsonSchema>(contract: Contract) -> Value {
             object.remove(key);
         }
     }
-    normalize_schema(&mut value, None);
+    normalize_schema(&mut value);
     value
 }
 
-fn normalize_schema(value: &mut Value, property_name: Option<&str>) {
+fn normalize_schema(value: &mut Value) {
     match value {
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| normalize_schema(item, property_name)),
+        Value::Array(items) => items.iter_mut().for_each(normalize_schema),
         Value::Object(object) => {
             if schema_declares_type(object, "integer") {
                 if object
@@ -161,92 +156,28 @@ fn normalize_schema(value: &mut Value, property_name: Option<&str>) {
                     .entry("additionalProperties")
                     .or_insert(Value::Bool(false));
             }
-            match property_name {
-                Some("protocolVersion") => {
-                    object.clear();
-                    object.insert("const".to_owned(), json!(PROTOCOL_VERSION));
-                }
-                Some("nodeExists") => {
-                    object.clear();
-                    object.insert("const".to_owned(), Value::Bool(true));
-                }
-                Some("renderRevision") => {
-                    object.insert("minimum".to_owned(), json!(1));
-                    object.insert("maximum".to_owned(), json!(MAX_SAFE_INTEGER));
-                }
-                Some("byteLength") => {
-                    object.insert("minimum".to_owned(), json!(0));
-                    object.insert("maximum".to_owned(), json!(MAX_SAFE_INTEGER));
-                }
-                Some("line" | "character" | "byteStart" | "byteEnd" | "depth") => {
-                    object.insert("minimum".to_owned(), json!(0));
-                    object.insert("maximum".to_owned(), json!(MAX_SAFE_INTEGER));
-                }
-                _ => {}
-            }
             if let Some(Value::Object(properties)) = object.get_mut("properties") {
-                for (name, schema) in properties {
-                    normalize_schema(schema, Some(name));
-                    if matches!(name.as_str(), "error" | "url" | "message" | "openUri") {
-                        remove_null_variant(schema);
-                    }
-                }
-            }
-            if object
-                .get("properties")
-                .and_then(Value::as_object)
-                .is_some_and(|properties| properties.contains_key("activePosition"))
-            {
-                if let Some(Value::Array(required)) = object.get_mut("required") {
-                    required.retain(|field| field.as_str() != Some("activePosition"));
+                for schema in properties.values_mut() {
+                    normalize_schema(schema);
                 }
             }
             if let Some(Value::Object(definitions)) = object.get_mut("$defs") {
                 for schema in definitions.values_mut() {
-                    normalize_schema(schema, None);
+                    normalize_schema(schema);
                 }
             }
             for key in ["items", "additionalProperties", "not", "if", "then", "else"] {
                 if let Some(child) = object.get_mut(key) {
-                    normalize_schema(child, property_name);
+                    normalize_schema(child);
                 }
             }
             for key in ["oneOf", "anyOf", "allOf"] {
                 if let Some(Value::Array(children)) = object.get_mut(key) {
-                    children
-                        .iter_mut()
-                        .for_each(|child| normalize_schema(child, property_name));
+                    children.iter_mut().for_each(normalize_schema);
                 }
             }
         }
         _ => {}
-    }
-}
-
-fn remove_null_variant(schema: &mut Value) {
-    if schema.get("type").is_some_and(Value::is_array) {
-        let remaining_types = schema["type"]
-            .as_array()
-            .expect("type was checked as an array")
-            .iter()
-            .filter(|kind| kind.as_str() != Some("null"))
-            .cloned()
-            .collect::<Vec<_>>();
-        schema["type"] = if remaining_types.len() == 1 {
-            remaining_types[0].clone()
-        } else {
-            Value::Array(remaining_types)
-        };
-        return;
-    }
-    for key in ["anyOf", "oneOf"] {
-        if let Some(variants) = schema.get_mut(key).and_then(Value::as_array_mut) {
-            variants.retain(|variant| variant.get("type").and_then(Value::as_str) != Some("null"));
-            if variants.len() == 1 {
-                *schema = variants[0].clone();
-            }
-            return;
-        }
     }
 }
 
@@ -294,27 +225,12 @@ fn named_schemas() -> Vec<NamedSchema> {
             WireType::AttachDocumentResult => {
                 derived_schema::<AttachDocumentResult>(Contract::Serialize)
             }
-            WireType::CheckpointDocumentParams => {
-                derived_schema::<CheckpointDocumentParams>(Contract::Deserialize)
-            }
-            WireType::CheckpointDocumentResult => {
-                derived_schema::<CheckpointDocumentResult>(Contract::Serialize)
-            }
-            WireType::RequestFullTextParams => {
-                derived_schema::<RequestFullTextParams>(Contract::Serialize)
-            }
             WireType::CreatePreviewParams => {
                 derived_schema::<CreatePreviewParams>(Contract::Deserialize)
             }
             WireType::PreviewTarget => derived_schema::<PreviewTarget>(Contract::Deserialize),
             WireType::CreatePreviewResult => {
                 derived_schema::<CreatePreviewResult>(Contract::Serialize)
-            }
-            WireType::ReadPreviewParams => {
-                derived_schema::<ReadPreviewParams>(Contract::Deserialize)
-            }
-            WireType::ReadPreviewResult => {
-                derived_schema::<ReadPreviewResult<RenderFrame>>(Contract::Serialize)
             }
             WireType::PreviewChangedParams => {
                 derived_schema::<PreviewChangedParams>(Contract::Serialize)
@@ -470,62 +386,8 @@ fn shared_definitions(named: &[NamedSchema]) -> Result<Map<String, Value>, Strin
             }
         }
     }
-    apply_semantic_overlays(&mut shared);
     flatten_tagged_variants(&mut shared)?;
     Ok(shared)
-}
-
-fn apply_semantic_overlays(definitions: &mut Map<String, Value>) {
-    for (schema, property, keyword, value) in [
-        (
-            "RenderStyle",
-            "fingerprint",
-            "pattern",
-            json!("^[0-9a-f]{64}$"),
-        ),
-        ("NavigationEntry", "nodeId", "minLength", json!(1)),
-    ] {
-        if let Some(schema) = definitions.get_mut(schema) {
-            schema["properties"][property][keyword] = value;
-        }
-    }
-    if let Some(asset) = definitions.get_mut("RenderAsset") {
-        asset["properties"]["reference"]["pattern"] = json!("^fleximark-asset:[0-9a-f]{64}$");
-        asset["properties"]["mediaType"] = json!({ "enum": [
-            "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif",
-            "audio/mpeg", "audio/ogg", "audio/wav"
-        ] });
-        asset["properties"]["contentHash"]["pattern"] = json!("^[0-9a-f]{64}$");
-        asset["properties"]["data"]["contentEncoding"] = json!("base64");
-    }
-    if let Some(block) = definitions.get_mut("RenderBlock") {
-        block["properties"]["nodeIds"]["minItems"] = json!(1);
-        block["properties"]["nodeIds"]["uniqueItems"] = json!(true);
-        block["properties"]["nodeIds"]["items"]["minLength"] = json!(1);
-    }
-    for name in ["PreviewNavigationEvent", "RenderNavigationEvent"] {
-        if let Some(schema) = definitions.get_mut(name) {
-            add_nonempty_node_ids(schema);
-        }
-    }
-    if let Some(options) = definitions.get_mut("GetNoteOptionsResult") {
-        options["properties"]["categories"]["uniqueItems"] = json!(true);
-        options["properties"]["templates"]["uniqueItems"] = json!(true);
-    }
-    if let Some(category) = definitions.get_mut("NoteCategoryOption") {
-        category["properties"]["name"]["minLength"] = json!(1);
-    }
-    if let Some(params) = definitions.get_mut("ExecuteCommandParams") {
-        let path = &mut params["properties"]["noteCategoryPath"];
-        remove_null_variant(path);
-        path["minItems"] = json!(1);
-        path["maxItems"] = json!(32);
-        path["items"]["minLength"] = json!(1);
-        let file_name = &mut params["properties"]["noteFileName"];
-        remove_null_variant(file_name);
-        file_name["minLength"] = json!(1);
-        file_name["maxLength"] = json!(255);
-    }
 }
 
 fn visit_schema_mut(schema: &mut Value, visitor: &mut impl FnMut(&mut Map<String, Value>)) {
@@ -541,24 +403,6 @@ fn visit_schema_mut(schema: &mut Value, visitor: &mut impl FnMut(&mut Map<String
         }
         _ => {}
     }
-}
-
-fn add_nonempty_node_ids(schema: &mut Value) {
-    visit_schema_mut(schema, &mut |object| {
-        if let Some(Value::Object(properties)) = object.get_mut("properties") {
-            for (name, value) in properties {
-                if matches!(
-                    name.as_str(),
-                    "nodeId" | "parentId" | "currentParentId" | "previewSessionId"
-                ) {
-                    value["minLength"] = json!(1);
-                } else if matches!(name.as_str(), "nodeIds" | "contentNodeIds") {
-                    value["items"]["minLength"] = json!(1);
-                    value["uniqueItems"] = json!(true);
-                }
-            }
-        }
-    });
 }
 
 fn schema_declares_type(object: &Map<String, Value>, expected: &str) -> bool {
@@ -638,12 +482,6 @@ fn flatten_tagged_schema(
 
 fn contract_root(item: &NamedSchema, definitions: &Map<String, Value>) -> Result<Value, String> {
     let mut root = root_schema(&item.value);
-    let mut singleton = Map::new();
-    singleton.insert(item.ts_name.to_owned(), root);
-    apply_semantic_overlays(&mut singleton);
-    root = singleton
-        .remove(item.ts_name)
-        .expect("semantic overlay preserves its root");
     flatten_tagged_schema(&mut root, definitions)?;
     Ok(root)
 }
@@ -718,7 +556,7 @@ fn generate_protocol_schema(named: &[NamedSchema]) -> Result<String, String> {
     definitions.insert("response".to_owned(), response_schema());
     let mut result_properties = Map::new();
     for spec in METHOD_SPECS {
-        if spec.name != fleximark_protocol::method::REQUEST_FULL_TEXT {
+        {
             result_properties.insert(
                 spec.name.to_owned(),
                 spec.result_type
@@ -745,7 +583,7 @@ fn generate_protocol_schema(named: &[NamedSchema]) -> Result<String, String> {
         ],
         "$defs": definitions
     });
-    normalize_schema(&mut document, None);
+    normalize_schema(&mut document);
     serde_json::to_string(&document)
         .map(|mut text| {
             text.push('\n');
@@ -847,19 +685,14 @@ fn generate_typescript(named: &[NamedSchema]) -> Result<String, String> {
         contract_definitions.insert(item.schema_name.to_owned(), root.clone());
         validator_roots.insert(item.schema_name.to_owned(), root);
     }
-    let mut compiler = DescriptorCompiler::new(&contract_definitions);
     let type_validators = validator_roots
-        .iter()
-        .map(|(name, schema)| {
-            compiler
-                .compile_named(name, schema)
-                .map(|index| (name.clone(), json!(index)))
-        })
-        .collect::<Result<Map<_, _>, _>>()?;
-    write_json_const(&mut output, "VALIDATOR_TYPES", &compiler.pool)?;
+        .keys()
+        .map(|name| (name.clone(), json!(name)))
+        .collect::<Map<_, _>>();
+    write_json_const(&mut output, "CONTRACT_DEFINITIONS", &contract_definitions)?;
     write_json_const(&mut output, "TYPE_VALIDATORS", &type_validators)?;
     let (requests, client_notifications, server_notifications) =
-        method_validator_descriptors(&type_validators)?;
+        method_validator_schemas(&type_validators)?;
     for (name, value) in &[
         ("REQUEST_VALIDATORS", requests),
         ("CLIENT_NOTIFICATION_VALIDATORS", client_notifications),
@@ -914,16 +747,16 @@ fn write_json_const<T: serde::Serialize>(
     Ok(())
 }
 
-type MethodValidatorDescriptors = (Map<String, Value>, Map<String, Value>, Map<String, Value>);
+type MethodValidatorSchemas = (Map<String, Value>, Map<String, Value>, Map<String, Value>);
 
-fn method_validator_descriptors(
+fn method_validator_schemas(
     type_validators: &Map<String, Value>,
-) -> Result<MethodValidatorDescriptors, String> {
-    let index = |wire_type: WireType| -> Result<usize, String> {
+) -> Result<MethodValidatorSchemas, String> {
+    let index = |wire_type: WireType| -> Result<String, String> {
         type_validators
             .get(wire_type.schema_name())
-            .and_then(Value::as_u64)
-            .map(|value| value as usize)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
             .ok_or_else(|| format!("missing validator root: {}", wire_type.schema_name()))
     };
     let mut requests = Map::new();

@@ -8,7 +8,7 @@ use fleximark_plugin_sdk::{CandidateIdentity, CandidateNode, HookRequest, HookRe
 
 fn document() -> Document {
     Document {
-        schema_version: 1,
+        schema_version: fleximark_model::DOCUMENT_SCHEMA_VERSION,
         document_version: 7,
         uri: DocumentUri("file:///fixture.md".into()),
         metadata: DocumentMetadata::default(),

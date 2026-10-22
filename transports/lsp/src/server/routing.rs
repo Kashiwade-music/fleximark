@@ -14,29 +14,21 @@ impl Server {
         self.previews.set_workspace_handler(handler);
     }
 
-    pub fn new(
-        services: Arc<dyn WorkspaceServices>,
-        assets: crate::preview_http::BrowserAssets,
-    ) -> Self {
-        Self::with_assets(services, None, assets)
+    pub fn new(assets: crate::preview_http::BrowserAssets) -> Self {
+        Self::with_assets(None, assets)
     }
 
     pub fn with_assets(
-        services: Arc<dyn WorkspaceServices>,
         sender: Option<Sender<Value>>,
         assets: crate::preview_http::BrowserAssets,
     ) -> Self {
         Self {
-            services,
             next_client_request: 1,
             pending_client_requests: HashSet::new(),
             lsp_initialized: false,
             snippet_support: false,
             selection_events: false,
             viewport_events: false,
-            workspaces: HashMap::new(),
-            disabled_workspaces: HashSet::new(),
-            config_generation: 0,
             shutdown: false,
             exit: false,
             registry: SessionRegistry::new(PositionEncoding::Utf16),
@@ -122,9 +114,7 @@ impl Server {
             "textDocument/codeAction" => self.code_actions(id, &message.params),
             "workspace/executeCommand" => self.standard_execute_command(id, message.params),
             method::ATTACH_DOCUMENT => self.attach_document(id, message.params),
-            method::CHECKPOINT_DOCUMENT => self.checkpoint_document(id, message.params),
             method::CREATE_PREVIEW => self.create_preview(id, message.params),
-            method::READ_PREVIEW => self.read_preview(id, message.params),
             method::RERENDER_PREVIEW => self.rerender_preview(id, message.params),
             method::DISPOSE_PREVIEW => self.dispose_preview(id, message.params),
             method::SET_SELECTION => self.set_selection(id, message.params),
@@ -137,24 +127,6 @@ impl Server {
         };
 
         let mut outgoing = response.into_iter().collect::<Vec<_>>();
-        outgoing.extend(
-            self.registry
-                .take_full_text_requests()
-                .into_iter()
-                .map(|params| {
-                    serde_json::to_value(Notification {
-                        jsonrpc: "2.0",
-                        method: method::REQUEST_FULL_TEXT,
-                        params: fleximark_protocol::RequestFullTextParams {
-                            daemon_instance_id: params.daemon_instance_id,
-                            uri: params.uri,
-                            document_session_id: params.document_session_id,
-                            reason: params.reason,
-                        },
-                    })
-                    .unwrap()
-                }),
-        );
         outgoing.append(&mut self.outgoing_events);
         outgoing
     }

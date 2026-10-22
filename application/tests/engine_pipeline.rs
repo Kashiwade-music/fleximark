@@ -24,10 +24,10 @@ fn fixture_component() -> &'static [u8] {
     COMPONENT.get_or_init(|| {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let fixture_manifest = manifest_dir
-            .join("../../tests/fixtures/plugin-component/Cargo.toml")
+            .join("../tests/fixtures/plugin-component/Cargo.toml")
             .canonicalize()
             .unwrap();
-        let fixture_target = manifest_dir.join("../../target/fixture-wasm");
+        let fixture_target = manifest_dir.join("../target/fixture-wasm");
         let status = Command::new(env!("CARGO"))
             .args([
                 "build",
@@ -51,8 +51,9 @@ fn fixture_component() -> &'static [u8] {
 fn fixture_host(required: bool) -> Arc<PluginHost> {
     let wasm = fixture_component();
     let manifest = format!(
-        "schema_version = 1\n\n[plugin]\nid = \"engine-fixture\"\napi_version = 1\nrequired = {required}\n\n[artifact]\nwasm_sha256 = \"{}\"\n\n[capabilities]\n",
-        content_hash_bytes(wasm)
+        "schema_version = 1\n\n[plugin]\nid = \"engine-fixture\"\napi_version = {api_version}\nrequired = {required}\n\n[artifact]\nwasm_sha256 = \"{}\"\n\n[capabilities]\n",
+        content_hash_bytes(wasm),
+        api_version = fleximark_plugin_sdk::PLUGIN_API_VERSION,
     );
     let signing_key = SigningKey::from_bytes(&[11; 32]);
     let signature = signing_key.sign(manifest.as_bytes()).to_bytes();

@@ -1,6 +1,6 @@
 //! Role: Generate deterministic current wire fixtures from native document rendering.
 use fleximark_engine::DocumentEngine;
-use fleximark_model::{DocumentUri, PositionEncoding};
+use fleximark_model::{DocumentUri, PositionEncoding, SourceIndex};
 use fleximark_protocol::RenderFrame;
 use fleximark_render_html::RenderContext;
 use serde_json::json;
@@ -20,10 +20,11 @@ pub(super) fn render_fixture(
     source: String,
     preview: &str,
 ) -> Result<String, String> {
+    let index = SourceIndex::new(&source);
     let mut session = DocumentEngine::open(
         DocumentUri(uri.to_owned()),
         version,
-        source,
+        source.clone(),
         PositionEncoding::Utf8,
     )
     .map_err(|error| format!("failed to open render-frame fixture: {error}"))?;
@@ -31,6 +32,21 @@ pub(super) fn render_fixture(
         .render(&RenderContext::default())
         .map_err(|error| format!("failed to render frame fixture: {error}"))?;
     let mut frame = serde_json::to_value(frame).map_err(|error| error.to_string())?;
+    for entry in frame["navigation"]
+        .as_array_mut()
+        .expect("navigation array")
+    {
+        for (byte_key, position_key) in [("byteStart", "start"), ("byteEnd", "end")] {
+            let offset = entry["sourceRange"][byte_key]
+                .as_u64()
+                .expect("byte offset");
+            let position = index
+                .byte_to_position(offset as usize, PositionEncoding::Utf8)
+                .ok_or_else(|| "invalid fixture source offset".to_owned())?;
+            entry["sourceRange"][position_key] =
+                serde_json::to_value(position).map_err(|error| error.to_string())?;
+        }
+    }
     frame["previewSessionId"] = json!(preview);
     frame["renderRevision"] = json!(1);
     let frame: RenderFrame = serde_json::from_value(frame).map_err(|error| error.to_string())?;

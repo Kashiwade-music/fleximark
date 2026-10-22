@@ -1,7 +1,7 @@
 //! Role: Native workspace uri operations and validation.
 use std::path::{Path, PathBuf};
 
-use crate::ServiceError;
+use crate::native::ServiceError;
 
 pub fn workspace_path(uri: &str) -> Result<PathBuf, ServiceError> {
     file_uri_path(uri)?.canonicalize().map_err(ServiceError::Io)
@@ -25,9 +25,51 @@ pub fn document_is_in_workspace(
     document_uri: &str,
     workspace_uri: &str,
 ) -> Result<bool, ServiceError> {
-    let document = workspace_path(document_uri)?;
+    let document = match canonical_document_path(document_uri) {
+        Ok(document) => document,
+        Err(ServiceError::InvalidWorkspaceUri) if document_uri.starts_with("file://") => {
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
     let workspace = workspace_path(workspace_uri)?;
     Ok(document != workspace && document.starts_with(workspace))
+}
+
+pub(crate) fn canonical_document_path(document_uri: &str) -> Result<PathBuf, ServiceError> {
+    let document = file_uri_path(document_uri)?;
+    if document.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    }) {
+        return Err(ServiceError::InvalidWorkspaceUri);
+    }
+    let mut ancestor = document.as_path();
+    let mut missing = Vec::new();
+    let document = loop {
+        match ancestor.canonicalize() {
+            Ok(mut resolved) => {
+                for component in missing.iter().rev() {
+                    resolved.push(component);
+                }
+                break resolved;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = ancestor.file_name() else {
+                    return Err(error.into());
+                };
+                missing.push(name.to_owned());
+                let Some(parent) = ancestor.parent() else {
+                    return Err(error.into());
+                };
+                ancestor = parent;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    Ok(document)
 }
 
 pub fn path_to_file_uri(path: &Path) -> Result<String, ServiceError> {
@@ -106,5 +148,42 @@ mod tests {
             workspace_path("https://example.test/x"),
             Err(ServiceError::InvalidWorkspaceUri)
         ));
+    }
+    #[test]
+    fn new_documents_inherit_only_canonical_contained_workspace_authority() {
+        let root = crate::native::test_support::test_workspace("membership");
+        let outside = crate::native::test_support::test_workspace("membership-outside");
+        let workspace = path_to_file_uri(&root).unwrap();
+        let new_document = format!("{workspace}/new/sub/document.md");
+        assert!(document_is_in_workspace(&new_document, &workspace).unwrap());
+        assert!(
+            !document_is_in_workspace(&format!("{workspace}/../escape.md"), &workspace).unwrap()
+        );
+        assert!(
+            !document_is_in_workspace(&format!("{workspace}/%2E%2E/escape.md"), &workspace)
+                .unwrap()
+        );
+        assert!(document_is_in_workspace("untitled:new", &workspace).is_err());
+        assert!(
+            document_is_in_workspace(&new_document, "file:///definitely-missing-workspace")
+                .is_err()
+        );
+        let linked = root.join("outside");
+        #[cfg(unix)]
+        let linked_result = std::os::unix::fs::symlink(&outside, &linked);
+        #[cfg(windows)]
+        let linked_result = std::os::windows::fs::symlink_dir(&outside, &linked);
+        if linked_result.is_ok() {
+            assert!(
+                !document_is_in_workspace(
+                    &format!("{workspace}/outside/missing/new.md"),
+                    &workspace
+                )
+                .unwrap()
+            );
+            std::fs::remove_dir(&linked).unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(outside).unwrap();
     }
 }

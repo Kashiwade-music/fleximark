@@ -11,9 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ed25519_dalek::{Signer, SigningKey};
-use fleximark_model::{
-    Document, DocumentUri, NodeId, PositionEncoding, SourcePosition, SourceRange,
-};
+use fleximark_model::{Document, DocumentUri, NodeId, SourceRange};
 use fleximark_parser::parse;
 use fleximark_plugin_sdk::{
     CandidateDocument, CandidateIdentity, EditOrigin, Hook, HookRequest, HookResponse,
@@ -53,7 +51,7 @@ fn manifest(id: &str, required: bool) -> PluginManifest {
         schema_version: 1,
         plugin: fleximark_plugin_sdk::PluginMetadata {
             id: id.to_owned(),
-            api_version: 1,
+            api_version: fleximark_plugin_sdk::PLUGIN_API_VERSION,
             required,
         },
         artifact: fleximark_plugin_sdk::PluginArtifact {
@@ -112,7 +110,7 @@ fn candidate_block(
     block: fleximark_model::Block,
 ) -> fleximark_plugin_sdk::CandidateBlock {
     CandidateDocument::from_document(&Document {
-        schema_version: 1,
+        schema_version: fleximark_model::DOCUMENT_SCHEMA_VERSION,
         document_version,
         uri: DocumentUri(uri.into()),
         metadata: Default::default(),

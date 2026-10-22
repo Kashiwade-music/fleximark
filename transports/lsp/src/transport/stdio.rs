@@ -11,10 +11,7 @@ use crate::cancellation::{CancellationCoordinator, WorkPermit};
 use crate::server::{Server, response_value};
 use crate::telemetry::log_operational_event;
 
-pub fn run(
-    services: Arc<dyn fleximark_application::operations::WorkspaceServices>,
-    assets: crate::preview_http::BrowserAssets,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std::error::Error>> {
     let output = CoalescingOutput::default();
     let writer_output = output.clone();
     thread::spawn(move || {
@@ -87,7 +84,7 @@ pub fn run(
             }
         }
     });
-    let mut server = Server::with_assets(services, Some(browser_outgoing), assets);
+    let mut server = Server::with_assets(Some(browser_outgoing), assets);
     server.set_workspace_handler(Arc::new(move |request| {
         let (reply, response) = mpsc::channel();
         input_sender
@@ -340,10 +337,7 @@ mod tests {
     fn suppresses_cancelled_and_obsolete_work_before_publication() {
         let coordinator = CancellationCoordinator::default();
         let (outgoing, incoming) = mpsc::channel();
-        let mut server = Server::new(
-            Arc::new(crate::test_services::NoWorkspace),
-            crate::test_services::assets(),
-        );
+        let mut server = Server::new(crate::test_services::assets());
 
         let cancelled_request = message(Some(80), "unknown/request", json!({}));
         let cancelled_permit = coordinator.prepare(&cancelled_request).unwrap();
@@ -417,10 +411,7 @@ mod tests {
     fn obsolete_lsp_change_applies_mutation_but_suppresses_all_publication() {
         let coordinator = CancellationCoordinator::default();
         let (outgoing, incoming) = mpsc::channel();
-        let mut server = Server::new(
-            Arc::new(crate::test_services::NoWorkspace),
-            crate::test_services::assets(),
-        );
+        let mut server = Server::new(crate::test_services::assets());
         let initialized =
             server.handle(message(Some(11), "initialize", json!({"capabilities":{}})));
         let daemon_id = initialized[0]["result"]["capabilities"]["experimental"]["fleximark"]["daemonInstanceId"]

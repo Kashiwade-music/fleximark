@@ -1,6 +1,6 @@
 //! Role: Deliver LSP and RPC requests and session events over the daemon transport.
 use super::diagnostics::{collect_heading_symbols, find_block};
-use super::protocol::{counter, native_position};
+use super::protocol::native_position;
 use super::state::*;
 use super::wire::*;
 
@@ -9,6 +9,15 @@ impl Server {
         let id = id?;
         if self.lsp_initialized {
             return Some(invalid_params(id, "server is already initialized"));
+        }
+        if let Some(version) = params.pointer("/initializationOptions/fleximark/protocolVersion") {
+            if version.as_u64() != Some(u64::from(PROTOCOL_VERSION)) {
+                return Some(response_value(Response::error(
+                    id,
+                    -32001,
+                    format!("unsupported protocol version {version}; expected {PROTOCOL_VERSION}"),
+                )));
+            }
         }
         self.snippet_support = params
             .pointer("/capabilities/textDocument/completion/completionItem/snippetSupport")
@@ -76,7 +85,7 @@ impl Server {
             json!({
                 "capabilities": {
                     "positionEncoding": position_encoding,
-                    "textDocumentSync": { "openClose": true, "change": 2 },
+                    "textDocumentSync": { "openClose": true, "change": 1 },
                     "completionProvider": {"triggerCharacters":[":","`",">"]},
                     "hoverProvider": true,
                     "documentSymbolProvider": true,
@@ -282,7 +291,12 @@ impl Server {
             )));
         };
         let mut symbols = Vec::new();
-        collect_heading_symbols(&document.document().blocks, &mut symbols);
+        collect_heading_symbols(
+            &document.document().blocks,
+            &mut symbols,
+            &fleximark_model::SourceIndex::new(document.source()),
+            document.position_encoding(),
+        );
         Some(response_value(Response::success(id, symbols)))
     }
 
@@ -358,13 +372,6 @@ impl Server {
             return None;
         }
         let uri = params.text_document.uri.clone();
-        if self
-            .workspace_for_document(&uri)
-            .is_some_and(|(workspace_uri, _)| self.disabled_workspaces.contains(&workspace_uri))
-        {
-            log_operational_event("document-open-denied", Some(&uri), None, None);
-            return None;
-        }
         if let Err(error) = self
             .registry
             .open_with_cancellation(params, &self.work_cancellation)
@@ -513,29 +520,10 @@ impl Server {
                     continue;
                 }
             };
-            if self.publication_cancellation.is_cancelled() {
+            if let Err(error) = self.publish_frame(&preview_id, &frame) {
+                self.outgoing_events.push(json!({"jsonrpc":"2.0","method":"window/logMessage","params":{"type":1,"message":error.to_string()}}));
                 return;
             }
-            if let Some(token) = self
-                .preview_states
-                .get(&preview_id)
-                .and_then(|state| state.token.as_deref())
-            {
-                if let Err(error) = self.previews.update(token, &frame) {
-                    self.outgoing_events.push(json!({"jsonrpc":"2.0","method":"window/logMessage","params":{"type":1,"message":error.to_string()}}));
-                    return;
-                }
-            }
-            if let Some(state) = self.preview_states.get_mut(&preview_id) {
-                state.delivered_revision = frame.render_revision;
-            }
-            let _ = self.refresh_explicit_jump(&preview_id);
-            self.outgoing_events
-                .push(preview_changed_notification(PreviewChangedParams {
-                    daemon_instance_id: daemon_id.clone(),
-                    preview_session_id: preview_id,
-                    render_revision: match counter(frame.render_revision) { Ok(revision)=>revision,Err(error)=>{ self.outgoing_events.push(json!({"jsonrpc":"2.0","method":"window/logMessage","params":{"type":1,"message":error.to_string()}}));return; } },
-                }));
         }
     }
 }

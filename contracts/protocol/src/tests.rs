@@ -154,24 +154,14 @@ fn accept_contract_params(case: &ContractCase, spec: &MethodSpec) {
             assert!(params.workspaces.is_empty());
         }
         WireType::AttachDocumentParams => drop(accept::<AttachDocumentParams>(case)),
-        WireType::CheckpointDocumentParams => drop(accept::<CheckpointDocumentParams>(case)),
-        WireType::RequestFullTextParams => {
-            let params = RequestFullTextParams {
-                daemon_instance_id: case.params["daemonInstanceId"].as_str().unwrap().into(),
-                uri: case.params["uri"].as_str().unwrap().into(),
-                document_session_id: case.params["documentSessionId"].as_str().unwrap().into(),
-                reason: case.params["reason"].as_str().unwrap().into(),
-            };
-            assert_eq!(serde_json::to_value(params).unwrap(), case.params);
-        }
         WireType::CreatePreviewParams => {
             let params = accept::<CreatePreviewParams>(case);
             assert_eq!(params.target, PreviewTarget::ExternalBrowser);
         }
-        WireType::ReadPreviewParams => drop(accept::<ReadPreviewParams>(case)),
         WireType::RerenderPreviewParams => drop(accept::<RerenderPreviewParams>(case)),
         WireType::PreviewChangedParams => {
             let params = PreviewChangedParams {
+                frame: serde_json::from_value(case.params["frame"].clone()).unwrap(),
                 daemon_instance_id: case.params["daemonInstanceId"].as_str().unwrap().into(),
                 preview_session_id: case.params["previewSessionId"].as_str().unwrap().into(),
                 render_revision: JsSafeU64::new(case.params["renderRevision"].as_u64().unwrap())
@@ -210,7 +200,6 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
             daemon_instance_id: string("daemonInstanceId"),
             capabilities: ServerCapabilities {
                 html_render: true,
-                document_checkpoint: true,
                 selection_events: true,
                 viewport_events: false,
                 workspace_commands: vec!["editTheme"],
@@ -225,17 +214,10 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
         Some(WireType::AttachDocumentResult) => serde_json::to_value(AttachDocumentResult {
             document_session_id: string("documentSessionId"),
             document_version: integer("documentVersion"),
-            content_hash: string("contentHash"),
         })
         .unwrap(),
-        Some(WireType::CheckpointDocumentResult) => {
-            serde_json::to_value(CheckpointDocumentResult {
-                document_version: integer("documentVersion"),
-                content_hash: string("contentHash"),
-            })
-            .unwrap()
-        }
         Some(WireType::CreatePreviewResult) => serde_json::to_value(CreatePreviewResult {
+            frame: serde_json::from_value(case.result["frame"].clone()).unwrap(),
             preview_session_id: string("previewSessionId"),
             url: case
                 .result
@@ -244,7 +226,7 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
                 .map(str::to_owned),
         })
         .unwrap(),
-        Some(WireType::ReadPreviewResult | WireType::RenderFrame) => case.result.clone(),
+        Some(WireType::RenderFrame) => case.result.clone(),
         Some(WireType::GetNoteOptionsResult) => serde_json::to_value(GetNoteOptionsResult {
             categories: case.result["categories"]
                 .as_array()
@@ -470,7 +452,7 @@ fn navigation_and_editor_positions_have_typed_camel_case_wire_forms() {
 fn inbound_dtos_reject_fields_not_declared_by_the_wire_schema() {
     assert!(
         serde_json::from_value::<InitializeParams>(json!({
-            "protocolVersion":6,
+            "protocolVersion":PROTOCOL_VERSION,
             "client":{"name":"test","version":"1"},
             "unexpected":true
         }))
@@ -492,8 +474,7 @@ fn attachments_enforce_json_integer_boundaries() {
         json!({
             "daemonInstanceId": "daemon",
             "uri": "file:///document.md",
-            "expectedDocumentVersion": document_version,
-            "contentHash": "hash"
+            "expectedDocumentVersion": document_version
         })
     };
     for version in [-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER] {

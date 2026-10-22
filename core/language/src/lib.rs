@@ -492,11 +492,7 @@ fn push_token(
 }
 
 fn encoded_len(value: &str, encoding: PositionEncoding) -> u64 {
-    match encoding {
-        PositionEncoding::Utf8 => value.len() as u64,
-        PositionEncoding::Utf16 => value.encode_utf16().count() as u64,
-        PositionEncoding::Utf32 => value.chars().count() as u64,
-    }
+    encoding.encoded_len(value)
 }
 
 #[cfg(test)]

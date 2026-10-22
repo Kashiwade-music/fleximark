@@ -21,40 +21,10 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-toolchain
-      - name: Check generated product versions
-        run: |
-          python tooling/tasks/distribution.py versions
-          git diff --exit-code -- adapters/vscode/package.json adapters/zed/extension.toml apps/server/Cargo.toml apps/cli/Cargo.toml Cargo.lock
-      - name: Install Rust fixture target
-        run: rustup target add wasm32-wasip2
-      - name: Rust quality and generated architecture freshness
-        run: |
-          cargo xtask check
-          cargo xtask check --root adapters/zed
-          cargo xtask check --root tests/fixtures/plugin-component
-          git diff --exit-code -- architecture adapters/zed/architecture tests/fixtures/plugin-component/architecture
-          cargo build --manifest-path adapters/zed/Cargo.toml --target wasm32-wasip2 --target-dir target/zed --locked
-          cargo fmt --all -- --check
-          cargo test --workspace --all-targets --locked
-          cargo clippy --workspace --all-targets --locked -- -D warnings
-          cargo fmt --manifest-path adapters/zed/Cargo.toml -- --check
-          cargo test --manifest-path adapters/zed/Cargo.toml --target-dir target/zed --locked
-          cargo clippy --manifest-path adapters/zed/Cargo.toml --target-dir target/zed --all-targets --locked -- -D warnings
-          cargo fmt --manifest-path tests/fixtures/plugin-component/Cargo.toml -- --check
-          cargo clippy --manifest-path tests/fixtures/plugin-component/Cargo.toml --target-dir target/fixture-native --all-targets --locked -- -D warnings
-          cargo test --manifest-path tests/fixtures/plugin-component/Cargo.toml --target-dir target/fixture-native --locked
-          cargo check --manifest-path tests/fixtures/plugin-component/Cargo.toml --target wasm32-wasip2 --target-dir target/fixture-wasm --locked
-      - name: Generated contracts and build tooling
-        run: |
-          python tooling/tasks/protocol_codegen.py check
-          python -m unittest discover -s tooling/tasks/tests -p 'test_*.py'
-          node --test tooling/tasks/tests/semantic_release_package.test.mjs
-          yarn exec tsc -b
-          yarn exec eslint adapters/vscode web contracts/typescript tests/typescript tooling/tasks
-          python tooling/tasks/tasks.py test-pure
-          python tooling/tasks/l10n_export.py
-          git diff --exit-code -- adapters/vscode/l10n
-          yarn npm audit --all --recursive --severity high
+      - name: Verify source quality
+        run: python tooling/tasks/tasks.py verify-quality
+      - name: Audit dependencies
+        run: python tooling/tasks/tasks.py verify-audit
 
   zed-product:
     name: Build universal Zed extension
@@ -117,49 +87,17 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-toolchain
-      - name: Build native independently of JavaScript
-        run: python tooling/tasks/distribution.py native --target ${{ matrix.target }}
-      - name: Build browser and adapter outputs
-        run: |
-          python tooling/tasks/build.py browser
-          python tooling/tasks/build.py workspace
-          python tooling/tasks/build.py extension --production
-      - name: Assemble shared runtime and target VSIX
-        shell: bash
+      - name: Verify native and editor product on Linux
+        if: runner.os == 'Linux'
         env:
-          TARGET: ${{ matrix.target }}
-          VSCODE_TARGET: ${{ matrix.vscode }}
           SOURCE_GIT_HEAD: ${{ github.sha }}
-        run: |
-          VERSION=$(python -c 'import tomllib; print(tomllib.load(open("release.toml","rb"))["version"])')
-          python tooling/tasks/distribution.py versions
-          git diff --exit-code -- adapters/vscode/package.json adapters/zed/extension.toml
-          python tooling/tasks/distribution.py runtime --target "$TARGET"
-          ARCHIVE=".artifacts/$VERSION/$TARGET/fleximark-$VERSION-$TARGET.zip"
-          python tooling/tasks/distribution.py vscode --target "$TARGET" --archive "$ARCHIVE"
-          PRODUCT=".artifacts/$VERSION/$TARGET/vscode"
-          VSIX="$(pwd)/.artifacts/$VERSION/$TARGET/fleximark-$VERSION-$TARGET.vsix"
-          VSCE="$(pwd)/node_modules/@vscode/vsce/vsce"
-          (cd "$PRODUCT" && node "$VSCE" package --no-dependencies --target "$VSCODE_TARGET" --out "$VSIX")
-          python tooling/tasks/release_artifact.py create --vsix "$VSIX" --identity "$VSIX.identity.json" --expected-version "$VERSION" --git-tag "v$VERSION" --source-git-head "$SOURCE_GIT_HEAD"
-          python tooling/tasks/release_artifact.py verify --vsix "$VSIX" --identity "$VSIX.identity.json" --expected-git-tag "v$VERSION" --expected-source-git-head "$SOURCE_GIT_HEAD"
-      - name: Build Electron integration tests
-        run: python tooling/tasks/build.py tests
-      - name: Integration tests on Linux
-        if: runner.os == 'Linux'
-        shell: bash
-        run: xvfb-run -a python tooling/tasks/tasks.py test --prebuilt
-      - name: Integration tests on macOS and Windows
+          FLEXIMARK_BROWSER_DOM: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
+        run: xvfb-run -a python tooling/tasks/tasks.py verify-product
+      - name: Verify native and editor product on macOS and Windows
         if: runner.os != 'Linux'
-        run: python tooling/tasks/tasks.py test --prebuilt
-      - name: Clean install smoke on Linux
-        if: runner.os == 'Linux'
-        shell: bash
-        run: xvfb-run -a python tooling/tasks/tasks.py smoke "$(find .artifacts -name '*.vsix' -type f)"
-      - name: Clean install smoke on macOS and Windows
-        if: runner.os != 'Linux'
-        shell: bash
-        run: python tooling/tasks/tasks.py smoke "$(find .artifacts -name '*.vsix' -type f)"
+        env:
+          SOURCE_GIT_HEAD: ${{ github.sha }}
+        run: python tooling/tasks/tasks.py verify-product
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: product-${{ matrix.target }}

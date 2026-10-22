@@ -12,3 +12,6 @@ fleximark-protocol = { path = "../../contracts/protocol" }
 serde.workspace = true
 serde_json.workspace = true
 getrandom = "0.2.17"
+
+[dev-dependencies]
+fleximark-engine = { path = "../../core/engine" }

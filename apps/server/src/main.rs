@@ -25,8 +25,5 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         workspace_css: resources.read_path("resources/workspace/workspace.css")?,
         workspace_html: include_str!("../../../web/workspace-ui/index.html").to_owned(),
     };
-    fleximark_lsp_transport::run(
-        std::sync::Arc::new(fleximark_workspace::NativeWorkspace),
-        assets,
-    )
+    fleximark_lsp_transport::run(assets)
 }

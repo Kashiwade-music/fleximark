@@ -22,7 +22,10 @@ impl DocumentSession {
             .render_configured(cancellation)
             .map_err(engine_error)?
             .snapshot;
-        let frame = RenderFrame::from_snapshot(PreviewSessionId(id.to_owned()), revision, snapshot);
+        let mut frame =
+            RenderFrame::from_snapshot(PreviewSessionId(id.to_owned()), revision, snapshot);
+        frame.source = std::sync::Arc::from(self.engine.source());
+        frame.position_encoding = self.engine.position_encoding();
         self.previews.insert(id.to_owned(), frame.clone());
         Ok(frame)
     }

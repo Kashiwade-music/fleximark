@@ -4,7 +4,7 @@ use super::filesystem::{
     read_regular_at, safe_relative_path, sha256,
 };
 use super::model::{ManagedExport, OwnershipMarker, RegistryRecord};
-use crate::ServiceError;
+use crate::native::ServiceError;
 use cap_std::{ambient_authority, fs::Dir};
 use std::path::Path;
 pub(super) fn inspect_export(

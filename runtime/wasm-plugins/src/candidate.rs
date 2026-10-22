@@ -1,15 +1,14 @@
 //! Role: Execute and validate sandboxed WASM plugins.
 use std::collections::HashSet;
 
-use fleximark_model::{Block, Document, Node, NodeId};
+use fleximark_model::{Block, Document, Inline, InlineKind, Node, NodeId};
 use fleximark_plugin_sdk::{CandidateBlock, CandidateDocument, CandidateIdentity, CandidateNode};
 
 use crate::runtime_types::ExecutionLimits;
 
-pub(super) fn validate_candidate(
+pub(super) fn resolve_document_candidate(
     current: &Document,
     candidate: CandidateDocument,
-    source: &str,
     plugin_id: &str,
     limits: &ExecutionLimits,
 ) -> Result<Document, String> {
@@ -45,9 +44,6 @@ pub(super) fn validate_candidate(
         metadata: candidate.metadata,
         blocks,
     };
-    document
-        .validate(source)
-        .map_err(|error| error.to_string())?;
     Ok(document)
 }
 
@@ -135,7 +131,10 @@ fn resolve_block(
                 depth + 1,
                 node_count,
             )?),
-            CandidateNode::Inline(inline) => Node::Inline(inline),
+            CandidateNode::Inline(inline) => {
+                validate_inline_budget(&inline, depth + 1, node_count, limits)?;
+                Node::Inline(inline)
+            }
         });
     }
     Ok(Block {
@@ -156,4 +155,52 @@ fn collect_ids(blocks: &[Block], output: &mut HashSet<NodeId>) {
             }
         }
     }
+}
+
+fn validate_inline_budget(
+    inline: &Inline,
+    depth: usize,
+    node_count: &mut usize,
+    limits: &ExecutionLimits,
+) -> Result<(), String> {
+    let mut pending = vec![(inline, depth)];
+    while let Some((inline, depth)) = pending.pop() {
+        *node_count += 1;
+        if *node_count > limits.max_nodes || depth > limits.max_depth {
+            return Err("candidate exceeds node count or depth limit".to_owned());
+        }
+        let children = match &inline.kind {
+            InlineKind::Emphasis { children }
+            | InlineKind::Strong { children }
+            | InlineKind::Strikethrough { children }
+            | InlineKind::Link { children, .. }
+            | InlineKind::Image { children, .. } => children,
+            _ => continue,
+        };
+        pending.extend(children.iter().map(|child| (child, depth + 1)));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_document_budget(
+    document: &Document,
+    limits: &ExecutionLimits,
+) -> Result<(), String> {
+    let mut count = 0;
+    let mut pending: Vec<_> = document.blocks.iter().map(|block| (block, 1)).collect();
+    while let Some((block, depth)) = pending.pop() {
+        count += 1;
+        if count > limits.max_nodes || depth > limits.max_depth {
+            return Err("candidate exceeds node count or depth limit".to_owned());
+        }
+        for child in &block.children {
+            match child {
+                Node::Block(block) => pending.push((block, depth + 1)),
+                Node::Inline(inline) => {
+                    validate_inline_budget(inline, depth + 1, &mut count, limits)?
+                }
+            }
+        }
+    }
+    Ok(())
 }

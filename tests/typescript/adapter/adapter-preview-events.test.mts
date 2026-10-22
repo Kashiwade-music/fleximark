@@ -99,9 +99,13 @@ export function suite(): void {
       ["membership", ({ runtime }) => void runtime.previews.clear()],
       [
         "origin",
-        ({ preview }) => void (preview.origin = origin("replacement", [])),
+        ({ preview }) =>
+          void (preview.binding = {
+            ...preview.binding,
+            origin: origin("replacement", []),
+          }),
       ],
-      ["revision", ({ preview }) => void (preview.renderRevision += 1)],
+      ["revision", ({ preview }) => void (preview.binding.renderRevision += 1)],
       ["open document", () => void vscode.textDocuments.splice(0)],
       ["document version", ({ document }) => void (document.version += 1)],
     ];
@@ -229,14 +233,15 @@ function testState(): TestState {
     removed: false,
   } as unknown as DocumentRuntime;
   const preview = {
-    origin: activeOrigin,
+    binding: {
+      origin: activeOrigin,
+      previewSessionId: "preview",
+      active: true,
+      renderRevision: 1,
+    },
     documentUri: opened.uri.toString(),
-    previewSessionId: "preview",
-    remoteSessionActive: true,
     target: "embeddedHtml",
-    renderRevision: 1,
-    notifiedRevision: 1,
-  } as PreviewState;
+  } as unknown as PreviewState;
   vscode.workspaceFolder = workspace;
   vscode.textDocuments = [opened];
   const adapter = new FlexiMarkAdapter({

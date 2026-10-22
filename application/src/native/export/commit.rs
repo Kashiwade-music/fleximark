@@ -3,7 +3,7 @@ use super::filesystem::{object_identity, sync_directory, verify_directory_tree};
 use super::journal::{append_journal, replace_staged_json, stage_json};
 use super::model::{ExportJournal, ExportJournalState};
 use super::ownership::verify_installed;
-use crate::{ServiceError, workspace::reject_link};
+use crate::native::{ServiceError, workspace::reject_link};
 use std::{fs, path::Path};
 pub(super) fn commit_installed_export(
     journal: &mut ExportJournal,

@@ -100,32 +100,14 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
         electron = suite_members("tests/typescript/extension.test.mts", "suite")
         standalone = suite_members("tests/typescript/standalone.test.mts", "suite")
 
-        expected_pure = [
-            "./adapter/rpc.test.mjs",
-            "./adapter/adapter-preview-events.test.mjs",
-            "./adapter/daemon-supervisor.test.mjs",
-            "./adapter/document-coordinator.test.mjs",
-            "./adapter/note-options.test.mjs",
-            "./adapter/preview-coordinator.test.mjs",
-            "./adapter/release-manifest.test.mjs",
-            "./browser-host.test.mjs",
-            "./preview-client.test.mjs",
-            "./vscode-host.test.mjs",
-            "./protocol-contract.test.mjs",
-            "./workspace-ui.test.mjs",
-        ]
-        expected_electron = [
-            "./contributions.test.mjs",
-            "./adapter/daemon-runtime.test.mjs",
-            "./adapter/browser-navigation-runtime.test.mjs",
-            "./adapter/document-lifecycle.test.mjs",
-            "./adapter/export-ack.test.mjs",
-            "./adapter/wiring.test.mjs",
-            "./adapter/workspace-selection.test.mjs",
-            "./adapter/multi-root-runtime.test.mjs",
-        ]
-        self.assertEqual(pure, expected_pure)
-        self.assertEqual(electron, expected_electron)
+        expected = {
+            "./" + path.relative_to(ROOT / "tests/typescript").with_suffix(".mjs").as_posix()
+            for path in (ROOT / "tests/typescript").rglob("*.test.mts")
+            if "export const suiteName" in path.read_text(encoding="utf-8")
+        }
+        registered = pure + electron + standalone
+        self.assertEqual(set(registered), expected, "every exported suite must run")
+        self.assertEqual(len(registered), len(set(registered)), "suites must run exactly once")
         self.assertEqual(standalone, ["./adapter/standalone-runtime.test.mjs"])
         self.assertFalse(set(standalone).intersection(pure + electron))
 
@@ -223,7 +205,7 @@ class CargoBoundaryContract(unittest.TestCase):
                 read(workflow) + actions,
                 re.M,
             )
-            self.assertTrue(cargo_commands, workflow)
+            self.assertIn("tasks.py verify-quality", read(workflow))
             for command in cargo_commands:
                 with self.subTest(owner=workflow, command=command):
                     if not command.startswith(("cargo fmt ", "cargo xtask ")):

@@ -1,4 +1,4 @@
-package fleximark:plugin@1.0.0;
+package fleximark:plugin@2.0.0;
 
 interface hooks {
   record invocation {

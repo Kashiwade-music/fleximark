@@ -1,7 +1,7 @@
 //! Role: Convert transport DTOs into native document and preview values.
 use super::state::*;
 use super::wire::*;
-use fleximark_application::{DocumentAttachmentRequest, DocumentCheckpointRequest};
+use fleximark_application::DocumentAttachmentRequest;
 
 impl Server {
     pub(super) fn attach_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
@@ -14,7 +14,6 @@ impl Server {
             daemon_instance_id: params.daemon_instance_id,
             uri: params.uri,
             expected_document_version: params.expected_document_version.get(),
-            content_hash: params.content_hash,
         };
         Some(match self.registry.attach(&request) {
             Ok(result) => response_value(Response::success(
@@ -25,38 +24,6 @@ impl Server {
                         Ok(version) => version,
                         Err(error) => return Some(boundary_error(id, error)),
                     },
-                    content_hash: result.content_hash,
-                },
-            )),
-            Err(error) => session_error(id, error),
-        })
-    }
-
-    pub(super) fn checkpoint_document(
-        &mut self,
-        id: Option<Value>,
-        params: Value,
-    ) -> Option<Value> {
-        let id = id?;
-        let params = match deserialize_params::<CheckpointDocumentParams>(&id, params) {
-            Ok(params) => params,
-            Err(response) => return Some(response),
-        };
-        let request = DocumentCheckpointRequest {
-            daemon_instance_id: params.daemon_instance_id,
-            document_session_id: params.document_session_id,
-            document_version: params.document_version.get(),
-            content_hash: params.content_hash,
-        };
-        Some(match self.registry.checkpoint(&request) {
-            Ok(result) => response_value(Response::success(
-                id.clone(),
-                fleximark_protocol::CheckpointDocumentResult {
-                    document_version: match result.document_version.try_into() {
-                        Ok(version) => version,
-                        Err(error) => return Some(boundary_error(id, error)),
-                    },
-                    content_hash: result.content_hash,
                 },
             )),
             Err(error) => session_error(id, error),
@@ -88,8 +55,14 @@ pub(super) fn counter(
 }
 pub(super) fn range(
     range: &fleximark_model::SourceRange,
+    source: &str,
+    encoding: PositionEncoding,
 ) -> Result<fleximark_protocol::SourceRange, crate::preview_http::protocol::ConversionError> {
-    crate::preview_http::protocol::source_range(range)
+    crate::preview_http::protocol::source_range(
+        range,
+        &fleximark_model::SourceIndex::new(source),
+        encoding,
+    )
 }
 pub(super) fn wire_frame(
     frame: &fleximark_application::RenderFrame,
