@@ -22,6 +22,7 @@ export class PreviewEnhancer {
   #disposed = false;
   readonly #blockFingerprints = new Map<string, string>();
   readonly #activeTabs = new Map<string, string>();
+  readonly #mermaidViews = new Map<HTMLElement, () => void>();
 
   constructor(runtimes: PreviewRuntimes) {
     this.#runtimes = runtimes;
@@ -33,6 +34,12 @@ export class PreviewEnhancer {
 
   async render(root: HTMLElement): Promise<void> {
     if (this.#disposed) return;
+    for (const [block, dispose] of this.#mermaidViews) {
+      if (!block.isConnected) {
+        dispose();
+        this.#mermaidViews.delete(block);
+      }
+    }
     const generation = ++this.#generation;
     stopAudio(this.#audio);
     const current = () => generation === this.#generation;
@@ -55,14 +62,22 @@ export class PreviewEnhancer {
           )
             return;
           switch (block.dataset.fleximarkKind) {
-            case "mermaid":
-              await renderMermaid(
+            case "mermaid": {
+              this.#mermaidViews.get(block)?.();
+              this.#mermaidViews.delete(block);
+              const dispose = await renderMermaid(
                 block,
                 this.#runtimes.mermaid,
                 `fleximark-mermaid-${++this.#renderId}`,
                 current,
               );
+              if (dispose) {
+                if (current() && block.isConnected)
+                  this.#mermaidViews.set(block, dispose);
+                else dispose();
+              }
               break;
+            }
             case "abc":
               renderAbc(block, this.#runtimes.abc, {
                 current,
@@ -104,6 +119,8 @@ export class PreviewEnhancer {
       this.#generation++;
       this.#blockFingerprints.clear();
       this.#activeTabs.clear();
+      for (const dispose of this.#mermaidViews.values()) dispose();
+      this.#mermaidViews.clear();
     }
     stopAudio(this.#audio);
   }

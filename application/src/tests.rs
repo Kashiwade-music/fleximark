@@ -109,18 +109,14 @@ fn render_fingerprint(
         .renderer_fingerprint
 }
 
-fn assets_exceeding_total_limit() -> ResolvedAssets {
-    (0_u8..9)
-        .map(|index| {
-            fleximark_engine::ResolvedRenderAsset::from_validated_bytes(
-                format!("file:///asset-{index}.bin"),
-                "application/octet-stream".into(),
-                &vec![index; 1024 * 1024],
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>()
-        .into()
+fn assets_with_duplicate_sources() -> ResolvedAssets {
+    let asset = fleximark_engine::ResolvedRenderAsset::from_validated_bytes(
+        "file:///asset.bin".into(),
+        "application/octet-stream".into(),
+        b"asset content",
+    )
+    .unwrap();
+    vec![asset.clone(), asset].into()
 }
 
 #[test]
@@ -188,6 +184,40 @@ fn stale_change_marks_session_out_of_sync_until_full_text() {
             .engine
             .is_out_of_sync()
     );
+}
+
+#[test]
+fn repeated_full_text_recovery_keeps_the_document_in_sync() {
+    let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
+    open(&mut registry, "old", 1);
+    let session = session_id(&registry, DOCUMENT_URI).to_owned();
+    let bad_checkpoint = checkpoint_params(&registry, &session, 1, content_hash("different"));
+    assert_eq!(
+        registry.checkpoint(&bad_checkpoint).unwrap_err(),
+        SessionError::HashMismatch
+    );
+    assert_eq!(registry.take_full_text_requests().len(), 1);
+
+    // The next ordinary edit can arrive before its full-text recovery reply.
+    for _ in 0..2 {
+        registry
+            .change_with_cancellation(
+                change(DOCUMENT_URI, 2, None, "latest 😀"),
+                &CancellationToken::default(),
+            )
+            .unwrap();
+    }
+
+    registry
+        .checkpoint(&checkpoint_params(
+            &registry,
+            &session,
+            2,
+            content_hash("latest 😀"),
+        ))
+        .unwrap();
+    assert!(registry.take_full_text_requests().is_empty());
+    assert_eq!(document(&registry, DOCUMENT_URI, 2).source(), "latest 😀");
 }
 
 #[test]
@@ -454,21 +484,23 @@ fn workspace_reconfiguration_is_transactional() {
         .collect::<Vec<_>>();
     assert_eq!(stage_order.len(), 2);
     let failing_uri = stage_order.last().unwrap().clone();
-    let mut oversized_assets = HashMap::new();
-    oversized_assets.insert(failing_uri, assets_exceeding_total_limit());
+    let mut invalid_assets = HashMap::new();
+    invalid_assets.insert(failing_uri, assets_with_duplicate_sources());
     let (mismatched_host, mismatched_config) = configured_host("mismatched", true);
     let error = workspace
         .reconfigure_workspace(
             "file:///workspace",
             mismatched_host,
             mismatched_config,
-            oversized_assets,
+            invalid_assets,
             &CancellationToken::default(),
         )
         .unwrap_err();
     assert_eq!(
         error,
-        SessionError::Engine("invalid resolved render asset: resolved assets exceed 8 MiB".into())
+        SessionError::Engine(
+            "invalid resolved render asset: resolved asset sources must be unique".into()
+        )
     );
     for (uri, session_id, source, version, fingerprint) in &baseline {
         assert_eq!(workspace.session_id_for_uri(uri), Some(session_id.as_str()));

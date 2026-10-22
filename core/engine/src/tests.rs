@@ -11,7 +11,7 @@ use fleximark_plugin_api::CancellationToken;
 use fleximark_plugin_api::{EditOrigin, PreprocessedSource};
 use fleximark_render_html::{HtmlTarget, RenderContext};
 
-use crate::assets::MAX_RENDER_ASSET_BYTES;
+use crate::identity::content_hash_bytes;
 use crate::provenance::remap_provenance_for_test;
 use crate::{
     DocumentEngine, EngineError, RenderConfig, RenderSnapshot, RenderStyle, ResolvedRenderAsset,
@@ -159,7 +159,7 @@ fn snapshots_are_independent_document_results_with_navigation() {
 }
 
 #[test]
-fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths() {
+fn resolved_assets_are_published_and_fingerprinted_without_source_paths() {
     let mut session = open("![diagram](private/diagram.png)\n");
     let first_asset = ResolvedRenderAsset::from_validated_bytes(
         "private/diagram.png".to_owned(),
@@ -206,9 +206,9 @@ fn resolved_assets_are_bounded_published_and_fingerprinted_without_source_paths(
 
     assert!(
         ResolvedRenderAsset::from_validated_bytes(
-            "too-large.bin".to_owned(),
+            "".to_owned(),
             "application/octet-stream".to_owned(),
-            &vec![0; MAX_RENDER_ASSET_BYTES + 1],
+            b"asset",
         )
         .is_err()
     );
@@ -238,6 +238,32 @@ fn resolved_assets_share_one_publication_across_source_aliases() {
     assert_eq!(
         config.context.resolved_resources["images/first.png"],
         config.context.resolved_resources["images/second.png"]
+    );
+}
+
+#[test]
+fn resolved_assets_accept_large_content_and_still_validate_integrity() {
+    let bytes = vec![0_u8; 9 * 1024 * 1024];
+    let asset = ResolvedRenderAsset::from_validated_bytes(
+        "large.png".to_owned(),
+        "image/png".to_owned(),
+        &bytes,
+    )
+    .unwrap();
+    let config = RenderConfig::default()
+        .with_resolved_assets(vec![asset.clone()])
+        .unwrap();
+    let published = config.assets().next().unwrap();
+    assert_eq!(published.byte_length, bytes.len() as u64);
+    assert_eq!(BASE64.decode(&published.data).unwrap(), bytes);
+    assert_eq!(published.content_hash, content_hash_bytes(&bytes));
+
+    let mut corrupted = asset;
+    corrupted.published.content_hash = "0".repeat(64);
+    assert!(
+        RenderConfig::default()
+            .with_resolved_assets(vec![corrupted])
+            .is_err()
     );
 }
 

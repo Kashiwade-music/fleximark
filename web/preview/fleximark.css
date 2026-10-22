@@ -332,7 +332,10 @@ body {
 
   & pre {
     padding: 1rem;
-    overflow: auto;
+    height: auto;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
     font-size: 0.9rem;
     line-height: 1.5;
     border-radius: 6px;
@@ -371,10 +374,17 @@ body {
     background-color: transparent !important;
   }
 
-  & figure[data-shiki-figure] > pre > code,
   & figure[data-fleximark-kind="code"] > pre > code {
+    display: block;
+  }
+
+  & figure[data-shiki-figure] > pre > code,
+  &
+    figure[data-fleximark-kind="code"]
+    > pre
+    > code:has(> .fleximark-code-line) {
     display: grid;
-    grid-auto-rows: 1.35rem;
+    grid-auto-rows: minmax(1.35rem, auto);
   }
 
   & figure[data-shiki-figure] > pre > code span.highlighted-word {
@@ -575,6 +585,29 @@ body {
     overflow-x: auto;
   }
 
+  & [data-fleximark-kind="mermaid"] > [data-fleximark-output] {
+    position: relative;
+    margin: 1rem 0;
+  }
+
+  & [data-fleximark-kind="mermaid"] > [data-fleximark-output] > svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  & .fleximark-mermaid-enlarge {
+    display: block;
+    margin: 0 0 0.5rem auto;
+    padding: 0.3rem 0.65rem;
+    color: #0969da;
+    font: inherit;
+    cursor: pointer;
+    background: #f6f8fa;
+    border: 1px solid #dadde1;
+    border-radius: 4px;
+  }
+
   & [data-fleximark-kind="abc"] > [data-fleximark-output] {
     min-width: 0;
     max-width: 100%;
@@ -717,4 +750,68 @@ body {
     outline: 2px solid #0969da;
     outline-offset: 2px;
   }
+}
+
+.fleximark-mermaid-dialog {
+  box-sizing: border-box;
+  width: calc(100vw - 2rem);
+  max-width: none;
+  height: calc(100vh - 2rem);
+  max-height: none;
+  padding: 0;
+  color: #1a1a1a;
+  background: #fff;
+  border: 1px solid #dadde1;
+  border-radius: 6px;
+}
+
+.fleximark-mermaid-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.fleximark-mermaid-dialog::backdrop {
+  background: #0009;
+}
+
+.fleximark-mermaid-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.65rem;
+  border-bottom: 1px solid #dadde1;
+}
+
+.fleximark-mermaid-toolbar > button {
+  padding: 0.3rem 0.65rem;
+  color: #0969da;
+  font: inherit;
+  cursor: pointer;
+  background: #f6f8fa;
+  border: 1px solid #dadde1;
+  border-radius: 4px;
+}
+
+.fleximark-mermaid-toolbar > button:last-child {
+  margin-left: auto;
+}
+
+.fleximark-mermaid-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.fleximark-mermaid-viewport > svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.fleximark-mermaid-enlarge:focus-visible,
+.fleximark-mermaid-toolbar > button:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 2px;
 }

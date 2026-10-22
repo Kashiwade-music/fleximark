@@ -9,6 +9,7 @@ pub use registry::*;
 pub use rendering::*;
 pub const PROTOCOL_VERSION: u32 = 6;
 pub const CONTENT_MODIFIED: i64 = -32801;
+/// Limits incoming control messages; outgoing render frames may contain large assets.
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 /// A JSON-RPC request identifier that can be represented exactly by JavaScript.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -600,9 +601,6 @@ pub fn read_frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>, FrameErr
 
 pub fn write_frame(writer: &mut impl Write, value: &impl Serialize) -> Result<(), FrameError> {
     let body = serde_json::to_vec(value).expect("serializable protocol message");
-    if body.len() > MAX_MESSAGE_BYTES {
-        return Err(FrameError::MessageTooLarge);
-    }
     write!(writer, "Content-Length: {}\r\n\r\n", body.len())?;
     writer.write_all(&body)?;
     writer.flush()?;

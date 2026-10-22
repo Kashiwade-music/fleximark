@@ -228,6 +228,15 @@ impl SessionRegistry {
         let version_u64 = u64::try_from(version).map_err(|_| SessionError::StaleVersion)?;
         let is_full_replacement =
             params.content_changes.len() == 1 && params.content_changes[0].range.is_none();
+        // Recovery replies can race with an ordinary change at the same version.
+        // An identical full-text replay already represents the authoritative state.
+        if !current.engine.is_out_of_sync()
+            && is_full_replacement
+            && version_u64 == current_version
+            && params.content_changes[0].text == current.engine.source()
+        {
+            return Ok(());
+        }
         let same_version_recovery = current.engine.is_out_of_sync()
             && is_full_replacement
             && version_u64 == current_version;

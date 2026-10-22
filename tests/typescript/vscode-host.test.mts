@@ -29,6 +29,10 @@ export function suite(): void {
     const messages: unknown[] = [];
     const originalRender = previewRuntimes.mermaid.render;
     try {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { origin: "vscode-webview://test" },
+      });
       previewRuntimes.mermaid.render = async () => ({ svg: "<svg></svg>" });
       Object.defineProperties(globalThis, {
         document: { configurable: true, value: window.document },
@@ -51,6 +55,10 @@ export function suite(): void {
       await import("../../adapters/vscode/webview/vscode-host.mjs");
       assert.deepEqual(messages, [{ type: "ready" }]);
       const event = new window.Event("message");
+      Object.defineProperties(event, {
+        origin: { value: "" },
+        source: { value: null },
+      });
       Object.defineProperty(event, "data", {
         value: {
           type: "previewFrame",
@@ -65,6 +73,10 @@ export function suite(): void {
       assert.deepEqual(messages, [{ type: "ready" }]);
 
       const invalid = new window.Event("message");
+      Object.defineProperties(invalid, {
+        origin: { value: "" },
+        source: { value: null },
+      });
       Object.defineProperty(invalid, "data", {
         value: {
           type: "previewFrame",
@@ -72,6 +84,20 @@ export function suite(): void {
           frame: { ...frame(), blocks: "invalid" },
         },
       });
+      const foreign = new window.Event("message");
+      Object.defineProperties(foreign, {
+        origin: { value: "https://untrusted.example" },
+        source: { value: {} },
+        data: {
+          value: {
+            type: "previewFrame",
+            messageToken: "token",
+            frame: { ...frame(), blocks: "invalid" },
+          },
+        },
+      });
+      window.dispatchEvent(foreign);
+      assert.deepEqual(messages, [{ type: "ready" }]);
       window.dispatchEvent(invalid);
       assert.ok(window.document.querySelector("svg"));
       window.dispatchEvent(invalid);

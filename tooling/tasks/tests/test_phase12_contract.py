@@ -104,6 +104,7 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
             "./adapter/adapter-preview-events.test.mjs",
             "./adapter/daemon-supervisor.test.mjs",
             "./adapter/document-coordinator.test.mjs",
+            "./adapter/note-options.test.mjs",
             "./adapter/preview-coordinator.test.mjs",
             "./adapter/release-manifest.test.mjs",
             "./browser-host.test.mjs",
@@ -115,9 +116,9 @@ class TypeScriptTestBoundaryContract(unittest.TestCase):
         expected_electron = [
             "./contributions.test.mjs",
             "./adapter/daemon-runtime.test.mjs",
+            "./adapter/browser-navigation-runtime.test.mjs",
             "./adapter/document-lifecycle.test.mjs",
             "./adapter/export-ack.test.mjs",
-            "./adapter/note-options.test.mjs",
             "./adapter/wiring.test.mjs",
             "./adapter/workspace-selection.test.mjs",
             "./adapter/multi-root-runtime.test.mjs",

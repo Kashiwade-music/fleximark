@@ -19,6 +19,7 @@ import {
 } from "../../web/preview/index.mjs";
 import { PreviewNavigation } from "../../web/preview/navigation.mjs";
 import { deferred } from "./adapter/async-helpers.mjs";
+import { registerExtendedPreviewTests } from "./preview-extended.test.mjs";
 
 export const suiteName = "Preview client";
 
@@ -497,6 +498,100 @@ export function suite(): void {
     assert.equal(requested, 2);
   });
 
+  test("accepts AVIF frame assets and binds them with their image media type", () => {
+    const avif: RenderAsset = {
+      ...asset("AQ==", "6".repeat(64)),
+      mediaType: "image/avif",
+    };
+    const avifFrame = {
+      ...frame(1, [assetBlock("avif", avif.reference)]),
+      assets: [avif],
+    };
+    assert.equal(
+      isPreviewHostMessage({
+        type: "previewFrame",
+        messageToken: "secret",
+        frame: avifFrame,
+      }),
+      true,
+    );
+    const createObjectURL = URL.createObjectURL;
+    const revokeObjectURL = URL.revokeObjectURL;
+    const revoked: string[] = [];
+    let mediaType: string | undefined;
+    URL.createObjectURL = (blob) => {
+      assert.ok(blob instanceof Blob);
+      mediaType = blob.type;
+      return "blob:avif-image";
+    };
+    URL.revokeObjectURL = (url) => revoked.push(url);
+    try {
+      assert.equal(preview.apply(avifFrame), true);
+      assert.equal(mediaType, "image/avif");
+      assert.equal(
+        root.querySelector("img")?.getAttribute("src"),
+        "blob:avif-image",
+      );
+      preview.dispose();
+      assert.deepEqual(revoked, ["blob:avif-image"]);
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
+  });
+
+  test("binds individual assets above 1 MiB and frames above 8 MiB", () => {
+    const byteLength = 4 * 1024 * 1024 + 1;
+    const data = Buffer.alloc(byteLength).toString("base64");
+    const assets: RenderAsset[] = ["7", "8"].map((digit) => ({
+      ...asset(data, digit.repeat(64)),
+      byteLength,
+      mediaType: "image/avif",
+    }));
+    const largeFrame = {
+      ...frame(
+        1,
+        assets.map((image, index) =>
+          assetBlock(`image-${index}`, image.reference),
+        ),
+      ),
+      assets,
+    };
+    assert.equal(
+      isPreviewHostMessage({
+        type: "previewFrame",
+        messageToken: "secret",
+        frame: largeFrame,
+      }),
+      true,
+    );
+    const createObjectURL = URL.createObjectURL;
+    const revokeObjectURL = URL.revokeObjectURL;
+    const blobSizes: number[] = [];
+    const revoked: string[] = [];
+    URL.createObjectURL = (blob) => {
+      assert.ok(blob instanceof Blob);
+      blobSizes.push(blob.size);
+      return `blob:large-image-${blobSizes.length}`;
+    };
+    URL.revokeObjectURL = (url) => revoked.push(url);
+    try {
+      assert.equal(preview.apply(largeFrame), true);
+      assert.deepEqual(blobSizes, [byteLength, byteLength]);
+      assert.deepEqual(
+        [...root.querySelectorAll("img")].map((image) =>
+          image.getAttribute("src"),
+        ),
+        ["blob:large-image-1", "blob:large-image-2"],
+      );
+      preview.dispose();
+      assert.deepEqual(revoked, ["blob:large-image-1", "blob:large-image-2"]);
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
+  });
+
   test("applies validated theme CSS from the latest frame", () => {
     const style = { css: ":root{color:red}", fingerprint: "3".repeat(64) };
     assert.equal(
@@ -813,6 +908,8 @@ export function suite(): void {
     );
     navigation.dispose();
   });
+
+  registerExtendedPreviewTests(() => ({ root, preview }));
 }
 
 function frame(

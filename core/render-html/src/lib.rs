@@ -809,6 +809,7 @@ fn resolve_resource(
             "data:image/jpeg;base64,",
             "data:image/gif;base64,",
             "data:image/webp;base64,",
+            "data:image/avif;base64,",
         ]
         .iter()
         .any(|prefix| lower.starts_with(prefix));

@@ -92,7 +92,7 @@ fn sanitizes_raw_html_links_and_image_resources() {
     );
     assert!(
         resolve_resource(
-            "data:image/avif;base64,AA==",
+            "data:image/heic;base64,AA==",
             &permissive,
             ResourceUse::Image
         )
@@ -108,6 +108,22 @@ fn sanitizes_raw_html_links_and_image_resources() {
     );
     assert!(
         resolve_resource("data:image/png;base64,AA==", &permissive, ResourceUse::Link).is_err()
+    );
+    assert!(
+        resolve_resource(
+            "data:image/avif;base64,AA==",
+            &permissive,
+            ResourceUse::Image
+        )
+        .is_ok()
+    );
+    assert!(
+        resolve_resource(
+            "data:image/avif;base64,AA==",
+            &permissive,
+            ResourceUse::Link
+        )
+        .is_err()
     );
 }
 

@@ -92,6 +92,8 @@ VS Code の `Run Extension` launch configuration は `.build/vscode/product` を
 4. editor から preview への移動、preview から元ソースへの移動を確認する。
 5. workspace UI で note の category/template/name、theme、admonition 収集と HTML export を試す。
 6. daemon の再接続後に、開いている文書と preview が現在の内容で再作成されることを確認する。
+7. browser をスクロールして対応ソースへの移動を確認し、Mermaid の `Enlarge diagram` で拡大・zoom・Escape による終了を確認する。
+8. 長いコードブロックの全行と、大きな AVIF 画像が表示されることを確認する。note のファイル名入力をキャンセルした場合は作成しないことも確認する。
 
 ログは VS Code の FlexiMark Output と daemon の標準エラーで確認する。標準出力へ通常ログを追加しない。
 

@@ -12,6 +12,31 @@ use serde_json::json;
 use super::*;
 
 #[test]
+fn outgoing_frames_can_exceed_the_incoming_control_message_limit() {
+    let message = json!({
+        "jsonrpc": "2.0", "id": 1,
+        "result": { "data": "A".repeat(MAX_MESSAGE_BYTES + 1) }
+    });
+    let mut bytes = Vec::new();
+    write_frame(&mut bytes, &message).unwrap();
+    let header_end = bytes
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .unwrap();
+    let body = &bytes[header_end + 4..];
+    assert!(body.len() > MAX_MESSAGE_BYTES);
+    assert_eq!(
+        &bytes[..header_end],
+        format!("Content-Length: {}", body.len()).as_bytes()
+    );
+    assert_eq!(serde_json::from_slice::<Value>(body).unwrap(), message);
+    assert!(matches!(
+        read_frame(&mut Cursor::new(bytes)),
+        Err(FrameError::MessageTooLarge)
+    ));
+}
+
+#[test]
 fn rpc_id_domain_accepts_safe_values_and_rejects_invalid_values() {
     for id in [-MAX_SAFE_INTEGER, MAX_SAFE_INTEGER] {
         let message: IncomingMessage = serde_json::from_value(json!({

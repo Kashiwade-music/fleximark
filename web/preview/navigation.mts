@@ -32,7 +32,7 @@ export class PreviewNavigation {
     ReturnType<typeof setTimeout>
   >();
   #scrollTimer?: ReturnType<typeof setTimeout>;
-  #suppressScroll = false;
+  #editorScrollY?: number;
 
   constructor(root: HTMLElement, send: (event: PreviewNodeEvent) => void) {
     this.#root = root;
@@ -48,17 +48,14 @@ export class PreviewNavigation {
         this.#send({ type: "selectNode", nodeId });
     };
     this.#onScroll = () => {
-      if (this.#suppressScroll) {
-        this.#suppressScroll = false;
-        return;
-      }
       if (this.#scrollTimer) clearTimeout(this.#scrollTimer);
+      const editorScrollY = this.#editorScrollY;
+      this.#editorScrollY = undefined;
+      if (editorScrollY !== undefined && window.scrollY === editorScrollY)
+        return;
       this.#scrollTimer = setTimeout(() => {
-        const node = [
-          ...this.#root.querySelectorAll<HTMLElement>(
-            "[data-fleximark-node-id]",
-          ),
-        ].find((element) => element.getBoundingClientRect().bottom >= 0);
+        this.#scrollTimer = undefined;
+        const node = this.#visibleNode();
         const nodeId = node?.dataset.fleximarkNodeId;
         if (nodeId && this.#knownIds.has(nodeId))
           this.#send({ type: "revealNode", nodeId });
@@ -96,9 +93,41 @@ export class PreviewNavigation {
       ...this.#root.querySelectorAll<HTMLElement>("[data-fleximark-node-id]"),
     ].find((element) => element.dataset.fleximarkNodeId === event.nodeId);
     if (node) {
-      this.#suppressScroll = true;
-      node.scrollIntoView({ block: "start" });
+      if (this.#scrollTimer) clearTimeout(this.#scrollTimer);
+      this.#scrollTimer = undefined;
+      this.#editorScrollY = undefined;
+      const previousScrollY = window.scrollY;
+      node.scrollIntoView({ block: "start", behavior: "instant" });
+      if (window.scrollY !== previousScrollY)
+        this.#editorScrollY = window.scrollY;
     }
+  }
+
+  #visibleNode(): HTMLElement | undefined {
+    const candidates = [
+      ...this.#root.querySelectorAll<HTMLElement>("[data-fleximark-node-id]"),
+    ]
+      .filter((node) => this.#knownIds.has(node.dataset.fleximarkNodeId ?? ""))
+      .map((node) => ({ node, rect: node.getBoundingClientRect() }))
+      .filter(
+        ({ rect }) =>
+          rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight,
+      );
+    const containers = new Set<HTMLElement>();
+    for (const { node } of candidates) {
+      let parent = node.parentElement;
+      while (parent && parent !== this.#root) {
+        containers.add(parent);
+        parent = parent.parentElement;
+      }
+    }
+    let closest: { node: HTMLElement; distance: number } | undefined;
+    for (const { node, rect } of candidates) {
+      if (containers.has(node)) continue;
+      const distance = Math.max(0, rect.top);
+      if (!closest || distance < closest.distance) closest = { node, distance };
+    }
+    return closest?.node;
   }
 
   dispose(): void {

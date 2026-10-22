@@ -148,7 +148,7 @@
   },
   "releaseNotes": {
     "architecture-v1.adapter-settings": "Adapter settings were replaced by the v1 names.",
-    "architecture-v1.assets": "Assets use typed bounded offline-safe delivery.",
+    "architecture-v1.assets": "Assets use typed, integrity-checked offline-safe delivery.",
     "architecture-v1.config": "Only .fleximark/config.toml schema version 1 is supported.",
     "architecture-v1.lsp": "Language features are served by the authoritative daemon session.",
     "architecture-v1.multi-root": "One daemon isolates multiple workspace authorities.",

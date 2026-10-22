@@ -22,6 +22,7 @@ const messageToken = document.querySelector<HTMLMetaElement>(
 )?.content;
 if (!messageToken) throw new Error("preview message token is missing");
 let recoveryRequested = false;
+const trustedMessageOrigins = new Set([window.location.origin, "null", ""]);
 const state: { preview?: PreviewHost } = {};
 const failure = new PreviewFailureGuard(
   () => undefined,
@@ -44,6 +45,14 @@ state.preview = preview;
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (failure.failed) return;
+  if (
+    event.source !== null &&
+    event.source !== window &&
+    event.source !== window.parent
+  )
+    return;
+  if (event.origin === "" && event.source !== null) return;
+  if (!trustedMessageOrigins.has(event.origin)) return;
   if (!isPreviewHostMessageEvent(event.data, messageToken)) {
     if (isInvalidAuthenticatedFrameMessage(event.data, messageToken))
       requestRecovery();
