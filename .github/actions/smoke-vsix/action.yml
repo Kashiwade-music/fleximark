@@ -1,7 +1,18 @@
-name: Smoke-test VSIX
-description: Install the packaged extension and verify its daemon manifest and startup
+name: Smoke-test target VSIX
+description: Install a packaged target extension and verify its runtime hashes and startup
+inputs:
+  vsix:
+    description: VSIX path
+    required: true
 runs:
   using: composite
   steps:
     - shell: bash
-      run: ${{ runner.os == 'Linux' && 'xvfb-run -a mise run smoke -- fleximark.vsix' || 'mise run smoke -- fleximark.vsix' }}
+      env:
+        VSIX: ${{ inputs.vsix }}
+      run: |
+        if [ "$RUNNER_OS" = Linux ]; then
+          xvfb-run -a python tooling/tasks/tasks.py smoke "$VSIX"
+        else
+          python tooling/tasks/tasks.py smoke "$VSIX"
+        fi

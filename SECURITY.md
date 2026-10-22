@@ -25,8 +25,10 @@ The extension does not support virtual workspaces.
 
 ## Release integrity
 
-The universal VSIX attestation is the release trust root. `bin/manifest.json`
-hashes only detect bundled-daemon corruption or platform mix-ups; they are not
-signatures. The extension checks before each launch, while a user-supplied
-`fleximark.daemonPath` is outside this model. Release ordering is architecture
-[trust boundary 8](ARCHITECTURE.md#trust-boundaries).
+GitHub artifact attestations bind every native runtime archive and platform
+VSIX to the release source. Each VSIX consumes the exact shared native archive;
+release verification compares their bytes before publication. Runtime
+`manifest.json` hashes cover both binaries and browser resources and detect
+corruption and target mix-ups. They are not signatures. The extension checks
+runtime hashes before launch. A user-supplied `fleximark.daemonPath` selects a
+separately managed runtime outside this release integrity model.

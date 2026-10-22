@@ -4,7 +4,6 @@ import { type AdapterRecoveryState, FlexiMarkAdapter } from "./adapter.mjs";
 import { registerCommands } from "./commands.mjs";
 import { registerEditorEvents } from "./events.mjs";
 import { registerProviders } from "./providers.mjs";
-import { LegacyWorkspaceMigrator } from "./workspace-migration.mjs";
 
 let adapter: FlexiMarkAdapter | undefined;
 
@@ -19,27 +18,6 @@ export async function activate(
   adapter = new FlexiMarkAdapter(context);
   const activatedAdapter = adapter;
   const isActive = () => adapter === activatedAdapter;
-  const migrator = new LegacyWorkspaceMigrator((workspace, command, args) =>
-    activatedAdapter.executeMigrationCommand(workspace, command, args),
-  );
-  let migrationQueue = Promise.resolve();
-  const offerMigration = (workspace: vscode.WorkspaceFolder): Promise<void> => {
-    const result = migrationQueue.then(async () => {
-      if (!isActive() || !vscode.workspace.isTrusted) return;
-      const stillOpen = vscode.workspace.workspaceFolders?.some(
-        (folder) => folder.uri.toString() === workspace.uri.toString(),
-      );
-      if (!stillOpen) return;
-      await Promise.all(
-        (vscode.workspace.workspaceFolders ?? []).map((folder) =>
-          activatedAdapter.start(folder),
-        ),
-      );
-      if (isActive()) await migrator.offer(workspace);
-    });
-    migrationQueue = result.catch(() => undefined);
-    return result;
-  };
   context.subscriptions.push(activatedAdapter);
   context.subscriptions.push(
     ...registerProviders(activatedAdapter, undefined, isActive),
@@ -47,25 +25,12 @@ export async function activate(
   );
 
   context.subscriptions.push(
-    ...registerEditorEvents(activatedAdapter, undefined, isActive, {
-      removed: (workspace) => migrator.forget(workspace),
-      added: (workspace) => {
-        void offerMigration(workspace).catch((error: unknown) => {
-          if (isActive()) activatedAdapter.report(error);
-        });
-      },
-      trustGranted: () => {
-        for (const workspace of vscode.workspace.workspaceFolders ?? [])
-          void offerMigration(workspace).catch((error: unknown) => {
-            if (isActive()) activatedAdapter.report(error);
-          });
-      },
-    }),
+    ...registerEditorEvents(activatedAdapter, undefined, isActive),
   );
 
   for (const workspace of vscode.workspace.workspaceFolders ?? []) {
     if (!isActive()) return;
-    void offerMigration(workspace).catch((error: unknown) => {
+    void activatedAdapter.start(workspace).catch((error: unknown) => {
       if (isActive()) activatedAdapter.report(error);
     });
   }

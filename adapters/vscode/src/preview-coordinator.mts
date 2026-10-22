@@ -1,7 +1,6 @@
 import * as path from "node:path";
 import type * as vscode from "vscode";
 
-import type { DaemonOrigin } from "./document-coordinator.mjs";
 import {
   type CreatePreviewResult,
   type EditorNavigationEvent,
@@ -9,9 +8,10 @@ import {
   type PreviewTarget,
   type ServerPreviewEventParams,
   type SourceNavigationEvent,
-  isWebviewInboundMessage,
   shouldForwardEditorNavigation,
-} from "./protocol.mjs";
+} from "../../../contracts/typescript/protocol.mjs";
+import { isWebviewInboundMessage } from "../webview/bridge.mjs";
+import type { DaemonOrigin } from "./document-coordinator.mjs";
 import type {
   DocumentState,
   PreviewState,

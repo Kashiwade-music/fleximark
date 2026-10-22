@@ -5,8 +5,10 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   {
     ignores: [
-      "web/preview-client/browser-host.js",
-      "web/preview-client/protocol.generated.mts",
+      ".build/**",
+      ".artifacts/**",
+      "tooling/xtask-core/**",
+      "contracts/typescript/protocol.generated.mts",
     ],
   },
   eslint.configs.recommended,

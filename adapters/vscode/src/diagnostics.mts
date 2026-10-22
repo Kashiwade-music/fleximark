@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import {
   type PublishDiagnosticsParams,
   serverNotificationValidators,
-} from "./protocol.mjs";
+} from "../../../contracts/typescript/protocol.mjs";
 
 export function isPublishDiagnosticsParams(
   value: unknown,

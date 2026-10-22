@@ -1,219 +1,29 @@
 {
-  "name": "fleximark",
+  "name": "fleximark-tooling",
+  "private": true,
   "type": "module",
-  "displayName": "FlexiMark",
-  "description": "Flexible Markdown Preview and Note Taking for VSCode. Supports ABC Notation, Mermaid Diagrams, and more.",
-  "version": "0.16.14",
-  "publisher": "Kashiwade",
-  "license": "MIT",
-  "homepage": "https://github.com/Kashiwade-music/fleximark#readme",
-  "bugs": {
-    "url": "https://github.com/Kashiwade-music/fleximark/issues"
-  },
-  "galleryBanner": {
-    "color": "#1f2937",
-    "theme": "dark"
-  },
-  "pricing": "Free",
-  "engines": {
-    "vscode": "^1.137.0"
-  },
-  "categories": [
-    "Notebooks",
-    "Other"
+  "workspaces": [
+    "contracts/typescript",
+    "web/preview",
+    "web/workspace-ui",
+    "adapters/vscode"
   ],
-  "keywords": [
-    "markdown",
-    "note",
-    "flexible",
-    "vscode",
-    "preview",
-    "browser",
-    "abc",
-    "abc notation",
-    "mermaid"
-  ],
-  "icon": "assets/logo_icon.png",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Kashiwade-music/fleximark.git"
-  },
-  "preview": true,
-  "capabilities": {
-    "untrustedWorkspaces": {
-      "supported": false,
-      "description": "FlexiMark requires explicit trust for workspace writes, local assets, and optional WebAssembly components."
+  "packageManager": "yarn@4.18.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.21.0",
+      "onFail": "error"
     },
-    "virtualWorkspaces": {
-      "supported": false,
-      "description": "FlexiMark requires local workspace files and local preview servers."
+    "packageManager": {
+      "name": "yarn",
+      "version": "4.18.0",
+      "onFail": "error"
     }
   },
-  "activationEvents": [
-    "onLanguage:markdown",
-    "workspaceContains:.fleximark/config.toml",
-    "workspaceContains:.fleximark/fleximark.json"
-  ],
-  "main": "./dist/extension.cjs",
-  "contributes": {
-    "commands": [
-      {
-        "command": "fleximark.previewMarkdown",
-        "title": "%command.previewMarkdown%",
-        "category": "FlexiMark",
-        "icon": "$(eye)"
-      },
-      {
-        "command": "fleximark.previewMarkdownOnVscode",
-        "title": "%command.previewMarkdownOnVscode%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.previewMarkdownOnBrowser",
-        "title": "%command.previewMarkdownOnBrowser%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.forceReloadPreview",
-        "title": "%command.forceReloadPreview%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.exportHtml",
-        "title": "%command.exportHtml%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.editTheme",
-        "title": "%command.editTheme%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.createNote",
-        "title": "%command.createNote%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.initializeWorkspace",
-        "title": "%command.initializeWorkspace%",
-        "category": "FlexiMark"
-      },
-      {
-        "command": "fleximark.collectAdmonitions",
-        "title": "%command.collectAdmonitions%",
-        "category": "FlexiMark"
-      }
-    ],
-    "menus": {
-      "editor/title": [
-        {
-          "command": "fleximark.previewMarkdown",
-          "group": "navigation",
-          "when": "editorLangId == markdown"
-        }
-      ]
-    },
-    "configuration": {
-      "title": "%configuration.title%",
-      "type": "object",
-      "properties": {
-        "fleximark.daemonPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "description": "%configuration.daemonPath.description%"
-        },
-        "fleximark.previewTarget": {
-          "type": "string",
-          "default": "embeddedHtml",
-          "scope": "resource",
-          "enum": [
-            "embeddedHtml",
-            "externalBrowser"
-          ],
-          "description": "%configuration.previewTarget.description%"
-        },
-        "fleximark.previewColumn": {
-          "type": "string",
-          "default": "beside",
-          "enum": [
-            "active",
-            "beside"
-          ],
-          "description": "%configuration.previewColumn.description%"
-        },
-        "fleximark.autoOpenPreview": {
-          "type": "boolean",
-          "default": false,
-          "description": "%configuration.autoOpenPreview.description%"
-        },
-        "fleximark.logLevel": {
-          "type": "string",
-          "default": "info",
-          "enum": [
-            "off",
-            "error",
-            "info",
-            "debug"
-          ],
-          "description": "%configuration.logLevel.description%"
-        }
-      }
-    },
-    "languages": [
-      {
-        "id": "abc",
-        "aliases": [
-          "ABC Notation",
-          "abc"
-        ],
-        "extensions": [
-          ".abc"
-        ],
-        "configuration": "./language-support/abc/language-configuration.json"
-      }
-    ],
-    "grammars": [
-      {
-        "path": "./syntaxes/markdown-mermaid.tmLanguage.json",
-        "scopeName": "custom.markdown.mermaid",
-        "injectTo": [
-          "text.html.markdown"
-        ],
-        "embeddedLanguages": {
-          "meta.embedded.block.mermaid": "mermaid"
-        }
-      },
-      {
-        "path": "./syntaxes/markdown-abc.tmLanguage.json",
-        "scopeName": "custom.markdown.abc",
-        "injectTo": [
-          "text.html.markdown"
-        ],
-        "embeddedLanguages": {
-          "meta.embedded.block.abc": "abc"
-        }
-      },
-      {
-        "language": "abc",
-        "scopeName": "source.abc",
-        "path": "./language-support/abc/abc.tmLanguage.json"
-      }
-    ]
-  },
-  "l10n": "./l10n",
-  "scripts": {
-    "vscode:prepublish": "python scripts/tasks.py vscode-prepublish",
-    "clean": "mise run clean",
-    "build": "mise run build",
-    "protocol:generate": "mise run protocol-generate",
-    "protocol:check": "mise run protocol-check",
-    "dev": "mise run dev",
-    "test": "mise run test",
-    "verify": "mise run verify",
-    "package": "mise run package --",
-    "smoke": "mise run smoke --",
-    "l10n": "mise run l10n"
+  "resolutions": {
+    "diff": "8.0.3",
+    "serialize-javascript": "7.0.5"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -241,26 +51,10 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.0"
   },
-  "packageManager": "yarn@4.18.0",
-  "devEngines": {
-    "runtime": {
-      "name": "node",
-      "version": "24.21.0",
-      "onFail": "error"
-    },
-    "packageManager": {
-      "name": "yarn",
-      "version": "4.18.0",
-      "onFail": "error"
-    }
-  },
-  "resolutions": {
-    "diff": "8.0.3",
-    "serialize-javascript": "7.0.5"
-  },
-  "dependencies": {
-    "abcjs": "6.7.0",
-    "katex": "0.16.47",
-    "mermaid": "11.17.2"
+  "scripts": {
+    "build": "python tooling/tasks/tasks.py build",
+    "verify": "python tooling/tasks/tasks.py verify",
+    "test": "python tooling/tasks/tasks.py test-pure",
+    "package": "python tooling/tasks/tasks.py package"
   }
 }

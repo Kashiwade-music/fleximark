@@ -16,6 +16,17 @@ runs:
     - name: Install Rust components
       shell: bash
       run: rustup component add rustfmt clippy
+    - name: Install editor and fixture WebAssembly target
+      shell: bash
+      run: rustup target add wasm32-wasip2
+    - name: Restore Rust dependencies and owned workspace outputs
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'Cargo.lock', 'adapters/zed/Cargo.lock', 'tests/fixtures/plugin-component/Cargo.lock', '.gitmodules') }}
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="601.160" height="184.000" viewBox="0 0 601.160 184.000" data-layout-engine="ELK" role="img"><title>Workspace crate dependencies (consumer -&gt; provider)</title><rect width="100%" height="100%" fill="white"/><text x="300.580" y="27.300" text-anchor="middle" font-family="Consolas, Noto Sans Mono, monospace" font-size="18.000" fill="#0f172a">Workspace crate dependencies (consumer -&gt; provider)</text><g class="graph" transform="translate(16 42)">
+<g class="bridges">
+</g>
+<g class="node" data-node-id="fleximark-fixture-plugin"><title>fleximark-fixture-plugin
+Expose the sandbox fixture hooks and generated component registration.</title><rect x="24.000" y="24.000" width="340.480" height="78.000" rx="2" fill="white" stroke="#334155" stroke-width="1.2"/><text x="194.240" y="49.900" text-anchor="middle" font-family="Consolas, Noto Sans Mono, monospace" font-size="14.000" fill="#0f172a">fleximark-fixture-plugin</text><text x="194.240" y="67.900" text-anchor="middle" font-family="Consolas, Noto Sans Mono, monospace" font-size="14.000" fill="#0f172a">Expose the sandbox fixture hooks and</text><text x="194.240" y="85.900" text-anchor="middle" font-family="Consolas, Noto Sans Mono, monospace" font-size="14.000" fill="#0f172a"> generated component registration.</text></g>
+</g></svg>

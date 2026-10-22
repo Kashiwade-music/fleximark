@@ -1,4 +1,4 @@
-import type { SourcePosition } from "./protocol.mjs";
+import type { SourcePosition } from "../../../contracts/typescript/protocol.mjs";
 
 export function sourcePositionToCharacter(
   line: string,

@@ -1,0 +1,25 @@
+[package]
+name = "fleximarkd"
+version = "0.16.14"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "fleximarkd"
+path = "src/main.rs"
+
+[dependencies]
+fleximark-lsp-transport = { path = "../../transports/lsp" }
+fleximark-workspace = { path = "../../runtime/workspace" }
+fleximark-preview-assets = { path = "../../runtime/preview-assets" }
+
+[dev-dependencies]
+fleximark-application = { path = "../../application" }
+fleximark-model = { path = "../../core/model" }
+fleximark-plugin-api = { path = "../../core/plugin-api" }
+fleximark-protocol = { path = "../../contracts/protocol" }
+fleximark-preview-http = { path = "../../transports/preview-http" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

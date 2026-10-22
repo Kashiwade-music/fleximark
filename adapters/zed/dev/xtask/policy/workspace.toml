@@ -1,0 +1,13 @@
+output = "architecture"
+[limits]
+max_code_lines = 1000
+max_role_chars = 80
+[diagrams]
+targets = "lib-bin"
+[visible_to]
+fleximark-zed = []
+
+# Official API ABI/WASI glue only, isolated in src/registration.rs.
+# All handwritten adapter/release logic remains fully analyzed.
+[analysis]
+trusted_macros = ["zed::register_extension"]

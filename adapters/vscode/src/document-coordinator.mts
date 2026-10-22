@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type * as vscode from "vscode";
 
-import type { RequestFullTextParams } from "./protocol.mjs";
+import type { RequestFullTextParams } from "../../../contracts/typescript/protocol.mjs";
 import {
   type JsonRpcConnection,
   type JsonRpcRequest,
@@ -56,11 +56,14 @@ export async function syncDocument(
   const operation = (async () => {
     const version = document.version;
     const text = document.getText();
-    const attached = await origin.rpc.request("fleximark/openDocument", {
+    origin.rpc.notifyLsp("textDocument/didOpen", {
+      textDocument: { uri, languageId: document.languageId, version, text },
+    });
+    const attached = await origin.rpc.request("fleximark/attachDocument", {
       daemonInstanceId: origin.daemonInstanceId,
       uri,
-      documentVersion: version,
-      text,
+      expectedDocumentVersion: version,
+      contentHash: createHash("sha256").update(text).digest("hex"),
     });
     if (!attached) return;
     if (!isCurrent(runtime, document, state, origin)) return;

@@ -1,0 +1,25 @@
+[package]
+name = "fleximark-cli"
+version = "0.16.14"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "fleximark"
+path = "src/main.rs"
+
+[dependencies]
+fleximark-engine = { path = "../../core/engine" }
+fleximark-model = { path = "../../core/model" }
+fleximark-plugin-host = { path = "../../runtime/wasm-plugins" }
+fleximark-render-html = { path = "../../core/render-html" }
+fleximark-workspace = { path = "../../runtime/workspace" }
+fleximark-migration = { path = "../../migration" }
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59.0", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2.186"

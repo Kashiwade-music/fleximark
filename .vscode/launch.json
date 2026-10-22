@@ -13,9 +13,9 @@
         "${input:targetWorkspace}",
         "--disable-extensions",
         "--disable-extension=GitHub.copilot-chat",
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}/.build/vscode/product"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "outFiles": ["${workspaceFolder}/.build/vscode/product/dist/**/*.cjs"],
       "preLaunchTask": "${defaultBuildTask}"
     },
     {
@@ -26,9 +26,9 @@
         "${workspaceFolder}",
         "--disable-extensions",
         "--disable-extension=GitHub.copilot-chat",
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}/.build/vscode/product"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "outFiles": ["${workspaceFolder}/.build/vscode/product/dist/**/*.cjs"],
       "preLaunchTask": "${defaultBuildTask}"
     }
   ],

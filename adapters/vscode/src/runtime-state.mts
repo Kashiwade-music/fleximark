@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
+import type { PreviewTarget } from "../../../contracts/typescript/protocol.mjs";
 import type { DaemonOrigin } from "./document-coordinator.mjs";
-import type { PreviewTarget } from "./protocol.mjs";
 
 export interface DocumentState {
   sessionId?: string;

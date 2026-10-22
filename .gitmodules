@@ -1,0 +1,3 @@
+[submodule "tooling/xtask-core"]
+	path = tooling/xtask-core
+	url = https://github.com/Kashiwade-music/xtask-core.git

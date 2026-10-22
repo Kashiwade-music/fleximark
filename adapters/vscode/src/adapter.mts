@@ -2,8 +2,17 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 
-import defaultPreviewCss from "../../../web/preview-client/fleximark.css";
-import katexCss from "../../../web/preview-client/katex.css";
+import {
+  type ExecuteCommandParams,
+  type LspMethod,
+  type PreviewChangedParams,
+  type PreviewTarget,
+  type ServerPreviewEventParams,
+  type SourceNavigationEvent,
+  PROTOCOL_VERSION as protocolVersion,
+} from "../../../contracts/typescript/protocol.mjs";
+import defaultPreviewCss from "../../../web/preview/fleximark.css";
+import katexCss from "../../../web/preview/katex.css";
 import { executeCreateNote, openCommandResult } from "./commands.mjs";
 import {
   DaemonSupervisor,
@@ -23,9 +32,8 @@ import {
   replayDocumentSessions,
   resetDocumentSessions,
 } from "./document-coordinator.mjs";
+import { initializeEditor, migrateWorkspace } from "./editor-service.mjs";
 import { errorMessage, redactSensitiveText } from "./error-policy.mjs";
-import { sourcePositionWithinLine } from "./position.mjs";
-import { sourcePositionToCharacter } from "./position.mjs";
 import {
   type PreviewCandidate,
   type PreviewCandidateCurrentState,
@@ -47,17 +55,6 @@ import {
   sameDaemonOrigin,
   synchronizePreviewLifecycle,
 } from "./preview-coordinator.mjs";
-import type { SourcePosition } from "./protocol.mjs";
-import {
-  type CommandResult,
-  type ExecuteCommandParams,
-  type LspMethod,
-  type PreviewChangedParams,
-  type PreviewTarget,
-  type ServerPreviewEventParams,
-  type SourceNavigationEvent,
-  protocolVersion,
-} from "./protocol.mjs";
 import {
   nodeReleaseManifestEnvironment,
   verifiedBundledDaemon,
@@ -72,10 +69,9 @@ import type {
   PreviewState,
   WorkspaceRuntime,
 } from "./runtime-state.mjs";
-import {
-  findVisibleSourceEditor,
-  selectWorkspaceUriWithPlaceholder,
-} from "./workspace-selection.mjs";
+import { isShowDocumentParams, showDocument } from "./show-document.mjs";
+import { applySourceNavigation } from "./source-navigation.mjs";
+import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
 
 export {
   sourcePositionToCharacter,
@@ -106,6 +102,11 @@ export interface AdapterRecoveryState {
 }
 
 export class FlexiMarkAdapter implements vscode.Disposable {
+  #initialized?: {
+    daemonInstanceId: string;
+    protocolVersion: number;
+    workspaceStatuses: { enabled: boolean; error?: string }[];
+  };
   readonly #context: vscode.ExtensionContext;
   readonly #output = vscode.window.createOutputChannel("FlexiMark");
   readonly #diagnostics =
@@ -153,8 +154,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
           vscode.Uri.joinPath(
             this.#context.extensionUri,
             "dist",
-            "web",
-            "preview-client",
+            "webview",
             "vscode-host.js",
           ),
         )
@@ -308,26 +308,17 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
   }
 
-  async executeMigrationCommand(
-    workspace: vscode.WorkspaceFolder,
-    command: "inspectLegacyWorkspace" | "migrateWorkspace",
-    args: readonly string[] = [],
-  ): Promise<CommandResult> {
-    if (!(await this.start(workspace)))
-      throw new Error("FlexiMark adapter is unavailable");
-    const rpc = this.#supervisor.rpc;
-    const daemonInstanceId = this.#supervisor.daemonInstanceId;
-    if (!rpc || !daemonInstanceId)
-      throw new Error("FlexiMark daemon is unavailable");
-    const result = await rpc.request("fleximark/executeCommand", {
-      daemonInstanceId,
-      command,
-      workspaceUri: workspace.uri.toString(),
-      arguments: [...args],
-    });
-    if (command === "migrateWorkspace")
+  async migrateWorkspace(): Promise<void> {
+    const workspace = await migrateWorkspace(
+      this.#context.extensionUri.fsPath,
+      (value) => this.#appendOutput(value),
+    );
+    if (workspace) {
       await this.reconfigureWorkspace(workspace);
-    return result;
+      void vscode.window.showInformationMessage(
+        "FlexiMark workspace migration completed.",
+      );
+    }
   }
 
   async requestLanguageFeature<T>(
@@ -482,6 +473,53 @@ export class FlexiMarkAdapter implements vscode.Disposable {
 
   async execute(command: string): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
+    if (
+      command === "workspace" ||
+      command === "previewAt" ||
+      ((!document || document.languageId !== "markdown") &&
+        ["exportHtml", "collectAdmonitions", "editTheme"].includes(command))
+    ) {
+      const first = vscode.workspace.workspaceFolders?.[0];
+      if (!first) {
+        this.#showNoWorkspace();
+        return;
+      }
+      await this.start(first);
+      if (!this.#supervisor.rpc) return;
+      const editor = vscode.window.activeTextEditor;
+      const workspace = document
+        ? vscode.workspace.getWorkspaceFolder(document.uri)
+        : undefined;
+      await this.#supervisor.rpc.requestLsp("workspace/executeCommand", {
+        command: "fleximark." + command,
+        arguments: [
+          {
+            ...(workspace ? { workspaceUri: workspace.uri.toString() } : {}),
+            ...(document
+              ? {
+                  documentUri: document.uri.toString(),
+                  documentVersion: document.version,
+                }
+              : {}),
+            ...(editor
+              ? {
+                  range: {
+                    start: {
+                      line: editor.selection.start.line,
+                      character: editor.selection.start.character,
+                    },
+                    end: {
+                      line: editor.selection.end.line,
+                      character: editor.selection.end.character,
+                    },
+                  },
+                }
+              : {}),
+          },
+        ],
+      });
+      return;
+    }
     const folders = vscode.workspace.workspaceFolders ?? [];
     const activeWorkspace = document
       ? vscode.workspace.getWorkspaceFolder(document.uri)
@@ -760,29 +798,11 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #initializeProtocol(rpc: JsonRpcConnection): Promise<void> {
-    await rpc.requestLsp("initialize", {
-      processId: process.pid,
-      clientInfo: {
-        name: "FlexiMark VS Code",
-        version: this.#context.extension.packageJSON.version,
-      },
-      rootUri: null,
-      capabilities: {
-        general: { positionEncodings: ["utf-16"] },
-        textDocument: {
-          completion: { completionItem: { snippetSupport: true } },
-          semanticTokens: {
-            requests: { full: true },
-            tokenTypes: ["keyword", "string", "operator", "type", "property"],
-            tokenModifiers: [],
-            formats: ["relative"],
-            overlappingTokenSupport: false,
-            multilineTokenSupport: false,
-          },
-        },
-      },
-    });
-    rpc.notifyLsp("initialized", {});
+    this.#initialized = await initializeEditor(
+      rpc,
+      this.#context.extension.packageJSON.version,
+      [...this.#runtimes.values()].map((r) => r.workspace),
+    );
   }
 
   async #replayDocuments(): Promise<void> {
@@ -829,23 +849,17 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async #initializeWorkspaces(rpc: JsonRpcConnection): Promise<string> {
-    const initialized = await rpc.request("fleximark/initialize", {
-      protocolVersion,
-      client: {
-        name: "vscode",
-        version: this.#context.extension.packageJSON.version,
+    const initialized = this.#initialized;
+    if (!initialized)
+      throw new Error("FlexiMark initialization is unavailable");
+    rpc.notifyLsp("workspace/didChangeWorkspaceFolders", {
+      event: {
+        added: [...this.#runtimes.values()].map(({ workspace }) => ({
+          uri: workspace.uri.toString(),
+          name: workspace.name,
+        })),
+        removed: [],
       },
-      capabilities: {
-        embeddedHtml: true,
-        structuredPreview: false,
-        selectionEvents: true,
-        viewportEvents: true,
-        openExternal: true,
-      },
-      workspaces: [...this.#runtimes.values()].map(({ workspace }) => ({
-        uri: workspace.uri.toString(),
-        trusted: vscode.workspace.isTrusted,
-      })),
     });
     if (initialized.protocolVersion !== protocolVersion) {
       throw new Error(
@@ -900,6 +914,23 @@ export class FlexiMarkAdapter implements vscode.Disposable {
       generation !== this.#supervisor.connectionGeneration
     )
       return;
+    if (message.method === "window/showDocument" && message.id !== undefined) {
+      if (!isShowDocumentParams(message.params)) {
+        connection.respond(message.id, undefined, {
+          code: -32602,
+          message: "Invalid showDocument parameters",
+        });
+        return;
+      }
+      try {
+        connection.respond(message.id, {
+          success: await showDocument(message.params),
+        });
+      } catch {
+        connection.respond(message.id, { success: false });
+      }
+      return;
+    }
     if (message.method === "fleximark/previewEvent") {
       const event = message.params as ServerPreviewEventParams;
       if (event.daemonInstanceId !== this.#supervisor.daemonInstanceId) return;
@@ -955,78 +986,13 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     preview: PreviewState,
     event: SourceNavigationEvent,
   ): Promise<void> {
-    const expectedRevision = preview.renderRevision;
-    const expectedSession = preview.previewSessionId;
-    const expectedOrigin = preview.origin;
-    const document = vscode.workspace.textDocuments.find(
-      (item) => item.uri.toString() === preview.documentUri,
+    await applySourceNavigation(
+      runtime,
+      preview,
+      event,
+      this.#previewEchoes,
+      (owner, candidate) => this.#previewIsActive(owner, candidate),
     );
-    if (!document) return;
-    const expectedDocumentVersion = document.version;
-    const { start, end } = event.sourceRange;
-    if (
-      !this.#sourcePositionInDocument(document, start) ||
-      !this.#sourcePositionInDocument(document, end)
-    )
-      return;
-    const range = new vscode.Range(
-      start.line,
-      sourcePositionToCharacter(document.lineAt(start.line).text, start),
-      end.line,
-      sourcePositionToCharacter(document.lineAt(end.line).text, end),
-    );
-    const editor =
-      findVisibleSourceEditor(
-        vscode.window.visibleTextEditors,
-        preview.documentUri,
-        preview.sourceViewColumn,
-      ) ??
-      (await vscode.window.showTextDocument(document, {
-        viewColumn: preview.sourceViewColumn,
-        preserveFocus: true,
-        preview: false,
-      }));
-    if (
-      !this.#previewIsActive(runtime, preview) ||
-      preview.previewSessionId !== expectedSession ||
-      preview.origin !== expectedOrigin ||
-      preview.renderRevision !== expectedRevision ||
-      !vscode.workspace.textDocuments.includes(document) ||
-      document.version !== expectedDocumentVersion ||
-      editor.document !== document
-    )
-      return;
-    const clearEcho = (type: keyof PreviewEchoState, token: object) =>
-      setTimeout(() => {
-        if (this.#previewEchoes[type] === token)
-          this.#previewEchoes[type] = undefined;
-      }, 500);
-    const viewportEcho = { uri: preview.documentUri };
-    this.#previewEchoes.viewport = viewportEcho;
-    if (event.type === "selectSource") {
-      const selection = new vscode.Selection(range.start, range.end);
-      const selectionEcho = {
-        uri: preview.documentUri,
-        value: `${selection.anchor.line}:${selection.anchor.character}-${selection.active.line}:${selection.active.character}`,
-      };
-      this.#previewEchoes.selection = selectionEcho;
-      editor.selection = selection;
-      clearEcho("selection", selectionEcho);
-      editor.revealRange(
-        range,
-        vscode.TextEditorRevealType.InCenterIfOutsideViewport,
-      );
-    } else editor.revealRange(range, vscode.TextEditorRevealType.AtTop);
-    clearEcho("viewport", viewportEcho);
-  }
-
-  #sourcePositionInDocument(
-    document: vscode.TextDocument,
-    position: SourcePosition,
-  ): boolean {
-    if (position.line < 0 || position.line >= document.lineCount) return false;
-    const line = document.lineAt(position.line).text;
-    return sourcePositionWithinLine(line, position);
   }
 
   async #disposePreview(

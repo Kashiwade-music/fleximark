@@ -7,7 +7,7 @@ import type {
   GetNoteOptionsResult,
   NoteCategoryOption,
   PreviewTarget,
-} from "./protocol.mjs";
+} from "../../../contracts/typescript/protocol.mjs";
 import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
 
 export async function executeCreateNote(
@@ -157,6 +157,7 @@ export async function selectWorkspaceUri(
 }
 
 interface CommandAdapter {
+  migrateWorkspace?(): Promise<void>;
   execute(command: string): Promise<void>;
   forceReload(): Promise<void>;
   openPreview(target: PreviewTarget): Promise<void>;
@@ -180,6 +181,10 @@ export function registerCommands(
     };
   const run = (action: () => void | Promise<void>) => guarded(action, true);
   return [
+    registrar.registerCommand(
+      "fleximark.migrate",
+      run(() => adapter.migrateWorkspace?.()),
+    ),
     registrar.registerCommand(
       "fleximark.previewMarkdown",
       run(() => {
@@ -205,6 +210,8 @@ export function registerCommands(
       guarded(() => adapter.forceReload(), false),
     ),
     ...[
+      "workspace",
+      "previewAt",
       "exportHtml",
       "createNote",
       "initializeWorkspace",

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import type { LspMethod } from "./protocol.mjs";
+import type { LspMethod } from "../../../contracts/typescript/protocol.mjs";
 
 interface ProviderAdapter {
   requestLanguageFeature<T>(

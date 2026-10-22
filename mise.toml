@@ -14,48 +14,69 @@ description = "Install the locked JavaScript and Python dependencies"
 run = [
   "yarn install --immutable",
   "uv sync --frozen",
+  "rustup target add wasm32-wasip2",
 ]
 
 [tasks.build]
-description = "Build the browser client, daemon, manifest, and VS Code adapter"
-run = "uv run --frozen python scripts/tasks.py build"
+description = "Build the shared runtime and both complete editor products"
+run = "uv run --frozen python tooling/tasks/tasks.py build"
+
+[tasks.build-all]
+description = "Build all shared runtime and editor products"
+run = "uv run --frozen python tooling/tasks/tasks.py build-all"
+
+[tasks.build-core]
+description = "Build independent Rust document and application libraries"
+run = "uv run --frozen python tooling/tasks/tasks.py build-core"
+
+[tasks.build-runtime]
+description = "Build and assemble the native runtime with external browser resources"
+run = "uv run --frozen python tooling/tasks/tasks.py build-runtime"
+
+[tasks.build-vscode]
+description = "Build the complete VS Code product with the shared native runtime"
+run = "uv run --frozen python tooling/tasks/tasks.py build-vscode"
+
+[tasks.build-zed]
+description = "Build the Zed extension and its shared runtime distribution"
+run = "uv run --frozen python tooling/tasks/tasks.py build-zed"
 
 [tasks.protocol-generate]
 description = "Regenerate Rust-owned protocol Schema and TypeScript artifacts"
-run = "uv run --frozen python scripts/tasks.py protocol-generate"
+run = "uv run --frozen python tooling/tasks/tasks.py protocol-generate"
 
 [tasks.protocol-check]
 description = "Fail when generated protocol artifacts differ from the Rust contract"
-run = "uv run --frozen python scripts/tasks.py protocol-check"
+run = "uv run --frozen python tooling/tasks/tasks.py protocol-check"
 
 [tasks.clean]
 description = "Remove generated JavaScript and test output"
-run = "uv run --frozen python scripts/tasks.py clean"
+run = "uv run --frozen python tooling/tasks/tasks.py clean"
 
 [tasks.dev]
 description = "Watch the VS Code adapter, preview bundles, and TypeScript types"
-run = "uv run --frozen python scripts/tasks.py dev"
+run = "uv run --frozen python tooling/tasks/tasks.py dev"
 
 [tasks.test]
 description = "Build the product and run the VS Code integration suite"
-run = "uv run --frozen python scripts/tasks.py test"
+run = "uv run --frozen python tooling/tasks/tasks.py test"
 
 [tasks.test-pure]
 description = "Run RPC and preview tests in Node without VS Code Electron"
-run = "uv run --frozen python scripts/tasks.py test-pure"
+run = "uv run --frozen python tooling/tasks/tasks.py test-pure"
 
 [tasks.verify]
 description = "Run the complete local release gate"
-run = "uv run --frozen python scripts/tasks.py verify"
+run = "uv run --frozen python tooling/tasks/tasks.py verify"
 
 [tasks.package]
 description = "Verify and package a dependency-free VSIX"
-run = "uv run --frozen python scripts/tasks.py package"
+run = "uv run --frozen python tooling/tasks/tasks.py package"
 
 [tasks.smoke]
 description = "Smoke-test a packaged VSIX"
-run = "uv run --frozen python scripts/tasks.py smoke"
+run = "uv run --frozen python tooling/tasks/tasks.py smoke"
 
 [tasks.l10n]
 description = "Regenerate the English localization bundle"
-run = "uv run --frozen python scripts/tasks.py l10n"
+run = "uv run --frozen python tooling/tasks/tasks.py l10n"

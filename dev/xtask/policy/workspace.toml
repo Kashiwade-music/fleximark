@@ -1,0 +1,37 @@
+output = "architecture"
+
+[limits]
+max_code_lines = 1000
+max_role_chars = 80
+
+[diagrams]
+targets = "lib-bin"
+
+[visible_to]
+fleximark-model = ["fleximark-parser", "fleximark-render-html", "fleximark-engine", "fleximark-language", "fleximark-plugin-api", "fleximark-application", "fleximark-workspace", "fleximark-plugin-host", "fleximark-lsp-transport", "fleximark-preview-http", "fleximark-cli", "fleximarkd", "fleximark-plugin-sdk", "fleximark-protocol-codegen"]
+fleximark-parser = ["fleximark-engine", "fleximark-language", "fleximark-render-html", "fleximark-application", "fleximark-plugin-host"]
+fleximark-render-html = ["fleximark-engine", "fleximark-application", "fleximark-language", "fleximark-workspace", "fleximark-cli", "fleximark-protocol-codegen"]
+fleximark-engine = ["fleximark-language", "fleximark-application", "fleximark-workspace", "fleximark-lsp-transport", "fleximark-cli", "fleximarkd", "fleximark-protocol-codegen"]
+fleximark-language = ["fleximark-application", "fleximark-lsp-transport", "fleximark-cli", "fleximarkd"]
+fleximark-plugin-api = ["fleximark-engine", "fleximark-language", "fleximark-application", "fleximark-plugin-host", "fleximark-workspace", "fleximark-lsp-transport", "fleximark-cli", "fleximarkd"]
+fleximark-application = ["fleximark-workspace", "fleximark-plugin-host", "fleximark-preview-assets", "fleximark-lsp-transport", "fleximark-preview-http", "fleximark-cli", "fleximarkd"]
+fleximark-workspace = ["fleximark-cli", "fleximarkd"]
+fleximark-plugin-host = ["fleximark-workspace", "fleximark-cli", "fleximarkd"]
+fleximark-preview-assets = ["fleximark-workspace", "fleximark-cli", "fleximarkd"]
+fleximark-lsp-transport = ["fleximarkd"]
+fleximark-preview-http = ["fleximark-lsp-transport", "fleximarkd"]
+fleximark-protocol = ["fleximark-lsp-transport", "fleximark-preview-http", "fleximarkd", "fleximark-protocol-codegen"]
+fleximark-wire = ["fleximark-protocol", "fleximark-protocol-codegen", "fleximark-cli", "fleximarkd", "fleximark-workspace", "fleximark-lsp-transport", "fleximark-preview-http"]
+fleximark-migration = ["fleximark-cli"]
+fleximark-cli = []
+fleximarkd = []
+fleximark-config = ["fleximark-application", "fleximark-workspace", "fleximark-cli", "fleximarkd", "fleximark-migration"]
+fleximark-plugin-sdk = ["fleximark-config", "fleximark-plugin-host", "fleximark-workspace", "fleximark-cli", "fleximarkd", "fleximark-migration"]
+
+# Established serialization/schema derives generate external trait impls.
+# No repository function-like macros are exempted from reference analysis.
+[analysis]
+trusted_attributes = ["serde"]
+trusted_derives = ["Serialize", "Deserialize", "JsonSchema", "serde::Serialize", "serde::Deserialize", "schemars::JsonSchema"]
+# This isolated invocation emits Wasmtime's WIT ABI bindings, not handwritten logic.
+trusted_macros = ["wasmtime::component::bindgen"]

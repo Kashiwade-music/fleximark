@@ -4,8 +4,12 @@
     "lib": ["ES2024", "DOM"],
     "types": [],
     "rootDir": ".",
-    "outDir": "out/types/browser",
-    "tsBuildInfoFile": "out/types/.tsbuildinfo/browser.tsbuildinfo"
+    "outDir": ".build/types/browser",
+    "tsBuildInfoFile": ".build/types/.tsbuildinfo/browser.tsbuildinfo"
   },
-  "include": ["web/**/*.mts"]
+  "include": [
+    "web/**/*.mts",
+    "contracts/typescript/**/*.mts",
+    "adapters/vscode/webview/**/*.mts"
+  ]
 }

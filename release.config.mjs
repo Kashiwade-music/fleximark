@@ -4,17 +4,19 @@ export default {
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     "@semantic-release/changelog",
-    [
-      "@semantic-release/npm",
-      {
-        npmPublish: false,
-      },
-    ],
-    "./scripts/semantic-release-package.mjs",
+    "./tooling/tasks/semantic-release-package.mjs",
     [
       "@semantic-release/git",
       {
-        assets: ["CHANGELOG.md", "package.json", "yarn.lock"],
+        assets: [
+          "CHANGELOG.md",
+          "release.toml",
+          "adapters/vscode/package.json",
+          "adapters/zed/extension.toml",
+          "apps/server/Cargo.toml",
+          "apps/cli/Cargo.toml",
+          "Cargo.lock",
+        ],
         message:
           "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}",
       },
@@ -27,16 +29,6 @@ export default {
         labels: false,
         releasedLabels: false,
         draftRelease: true,
-        assets: [
-          {
-            path: "fleximark.vsix",
-            label: "FlexiMark VS Code extension",
-          },
-          {
-            path: "fleximark.vsix.identity.json",
-            label: "FlexiMark release identity",
-          },
-        ],
       },
     ],
   ],

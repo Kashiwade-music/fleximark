@@ -1,5 +1,5 @@
-out
-dist
+.build/
+.artifacts/
 node_modules
 .venv/
 .yarn/
@@ -10,5 +10,3 @@ __pycache__/
 *.vsix
 debug/
 target/
-bin/
-web/preview-client/browser-host.js

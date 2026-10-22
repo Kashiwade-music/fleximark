@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/logo.webp" alt="FlexiMark Logo" height="150"/>
   <h1>FlexiMark</h1>
-  <p><strong>Next-Level Markdown Preview and Note-Taking for VSCode</strong></p>
+  <p><strong>Markdown preview and note workflows for VS Code, Zed and the browser</strong></p>
 
   <p>
     <a href="https://marketplace.visualstudio.com/items?itemName=kashiwade.fleximark">
@@ -19,6 +19,20 @@
 </p>
 
 ## 🚀 Overview
+
+The shared native runtime serves both editor adapters and the browser workspace.
+Install the VS Code product from its platform-specific VSIX, or use the Zed
+extension with the matching runtime release. Both include note creation,
+workspace initialization, theme editing, admonition collection and HTML export.
+Migration of old workspace data is an explicit command.
+
+Developers: `mise run install`, `mise run build`, and `mise run verify` run from
+the repository root. `release.toml` is the product version source. Sources live
+under `core`, `application`, `runtime`, `transports`, `apps`, `contracts`, `web`
+and `adapters`; JavaScript output goes to `.build/<component>` and product
+staging to `.artifacts/<version>/<target>/<product>`. Rust keeps its root `target`
+directory. `cargo xtask check` enforces Rust quality and regenerates tracked
+architecture diagrams; verification also checks their Git freshness.
 
 FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interactive workspace.  
 Write, preview, organize, and present your notes — all without leaving your editor.
@@ -102,7 +116,7 @@ code --install-extension kashiwade.fleximark
 
 3. Customize note categories in the generated `.fleximark/config.toml` file. Old JavaScript plugins are unsupported and are never loaded.
 
-   Workspaces created by FlexiMark 0.16.14 or earlier are detected automatically. If you approve the migration prompt, FlexiMark creates the current configuration, carries over note settings and the workspace theme, and keeps the legacy files as a backup. A cancelled migration is offered again the next time the workspace is opened. Legacy JavaScript plugins are retained but remain disabled.
+   To convert old workspace data, explicitly run `FlexiMark: Migrate legacy FlexiMark workspace` (`fleximark.migrate`), or run `fleximark migrate <workspace> --dry-run` to review the conversion plan and `fleximark migrate <workspace>` to apply it. Use `fleximark migrate <workspace> --recover` to recover an interrupted conversion. Migration retains backups and reports unsupported JavaScript plugins. Normal startup does not inspect or import old configuration.
 
 4. Start writing! Use the Command Palette and select:
    `FlexiMark: Create New Note`

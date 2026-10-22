@@ -4,9 +4,9 @@
     "lib": ["ES2024"],
     "types": ["node", "vscode"],
     "rootDir": ".",
-    "outDir": "out/types/adapter",
-    "tsBuildInfoFile": "out/types/.tsbuildinfo/adapter.tsbuildinfo"
+    "outDir": ".build/types/adapter",
+    "tsBuildInfoFile": ".build/types/.tsbuildinfo/adapter.tsbuildinfo"
   },
-  "include": ["adapters/**/*.mts"],
+  "include": ["adapters/vscode/src/**/*.mts"],
   "references": [{ "path": "./tsconfig.browser.json" }]
 }

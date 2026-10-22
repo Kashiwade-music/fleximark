@@ -61,7 +61,12 @@ export function registerEditorEvents(
         adapter.removeWorkspace(workspace);
         workspaceLifecycle?.removed(workspace);
       }
-      for (const workspace of added) workspaceLifecycle?.added(workspace);
+      for (const workspace of added) {
+        workspaceLifecycle?.added(workspace);
+        void adapter.reconfigureWorkspace(workspace).catch((error: unknown) => {
+          if (isActive()) adapter.report(error);
+        });
+      }
     }),
     workspacePolicyWatcher,
     workspacePolicyWatcher.onDidCreate(reconfigureFor),

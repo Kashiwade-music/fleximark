@@ -16,7 +16,7 @@ import {
   isJsonRpcResponseEnvelope,
   isServerNotificationMethod,
   serverNotificationValidators,
-} from "./protocol.mjs";
+} from "../../../contracts/typescript/protocol.mjs";
 
 export interface JsonRpcResponse {
   jsonrpc: "2.0";

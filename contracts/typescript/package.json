@@ -1,0 +1,6 @@
+{
+  "name": "@fleximark/contracts",
+  "private": true,
+  "type": "module",
+  "exports": "./protocol.mts"
+}

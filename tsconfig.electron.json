@@ -4,20 +4,19 @@
     "lib": ["ES2024"],
     "types": ["node", "mocha", "vscode"],
     "rootDir": ".",
-    "outDir": "out/types/electron",
-    "tsBuildInfoFile": "out/types/.tsbuildinfo/electron.tsbuildinfo"
+    "outDir": ".build/types/electron",
+    "tsBuildInfoFile": ".build/types/.tsbuildinfo/electron.tsbuildinfo"
   },
   "include": [
-    "test/extension.test.mts",
-    "test/contributions.test.mts",
-    "test/adapter/daemon-runtime.test.mts",
-    "test/adapter/document-lifecycle.test.mts",
-    "test/adapter/export-ack.test.mts",
-    "test/adapter/note-options.test.mts",
-    "test/adapter/wiring.test.mts",
-    "test/adapter/workspace-selection.test.mts",
-    "test/adapter/workspace-migration-runtime.test.mts",
-    "test/adapter/multi-root-runtime.test.mts"
+    "tests/typescript/extension.test.mts",
+    "tests/typescript/contributions.test.mts",
+    "tests/typescript/adapter/daemon-runtime.test.mts",
+    "tests/typescript/adapter/document-lifecycle.test.mts",
+    "tests/typescript/adapter/export-ack.test.mts",
+    "tests/typescript/adapter/note-options.test.mts",
+    "tests/typescript/adapter/wiring.test.mts",
+    "tests/typescript/adapter/workspace-selection.test.mts",
+    "tests/typescript/adapter/multi-root-runtime.test.mts"
   ],
   "references": [
     { "path": "./tsconfig.adapter.json" },
