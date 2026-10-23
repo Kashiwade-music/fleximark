@@ -164,7 +164,8 @@ def smoke_vsix(vsix: Path) -> None:
     vsix = vsix.resolve()
     if not vsix.is_file():
         raise RuntimeError(f"VSIX does not exist: {vsix}")
-    code = vscode_cli(vscode_executable())
+    executable_path = vscode_executable()
+    code = vscode_cli(executable_path)
 
     with tempfile.TemporaryDirectory(prefix="fleximark-install-") as temp:
         scratch = Path(temp)
@@ -194,6 +195,11 @@ def smoke_vsix(vsix: Path) -> None:
         suffix = ".exe" if sys.platform == "win32" else ""
         daemon = runtime / "bin" / ("fleximarkd" + suffix)
         initialize_daemon(daemon, metadata()["protocol_version"])
+        run(
+            "node", "tooling/tasks/smoke_webview.mjs",
+            str(executable_path), str(scratch), str(extensions),
+            timeout=120,
+        )
 
 
 

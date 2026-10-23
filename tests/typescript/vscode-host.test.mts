@@ -6,7 +6,7 @@ import { previewRuntimes } from "../../web/preview/runtimes.mjs";
 export const suiteName = "VS Code preview host";
 
 export function suite(): void {
-  test("applies a frame without a rendered acknowledgement", async () => {
+  test("authenticates and pins the host when VS Code hides window.parent before startup", async () => {
     const names = [
       "document",
       "HTMLElement",
@@ -27,11 +27,17 @@ export function suite(): void {
       '<!doctype html><html><head><meta name="fleximark-message-token" content="token"></head><body><main id="preview"></main></body></html>',
     );
     const messages: unknown[] = [];
+    const hostWindow = {};
     const originalRender = previewRuntimes.mermaid.render;
     try {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: { origin: "vscode-webview://test" },
+      });
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        writable: true,
+        value: window,
       });
       previewRuntimes.mermaid.render = async () => ({ svg: "<svg></svg>" });
       Object.defineProperties(globalThis, {
@@ -56,8 +62,8 @@ export function suite(): void {
       assert.deepEqual(messages, [{ type: "ready" }]);
       const event = new window.Event("message");
       Object.defineProperties(event, {
-        origin: { value: "" },
-        source: { value: null },
+        origin: { value: window.location.origin },
+        source: { value: hostWindow },
       });
       Object.defineProperty(event, "data", {
         value: {
@@ -74,8 +80,8 @@ export function suite(): void {
 
       const invalid = new window.Event("message");
       Object.defineProperties(invalid, {
-        origin: { value: "" },
-        source: { value: null },
+        origin: { value: window.location.origin },
+        source: { value: hostWindow },
       });
       Object.defineProperty(invalid, "data", {
         value: {
@@ -84,20 +90,27 @@ export function suite(): void {
           frame: { ...frame(), blocks: "invalid" },
         },
       });
-      const foreign = new window.Event("message");
-      Object.defineProperties(foreign, {
-        origin: { value: "https://untrusted.example" },
-        source: { value: {} },
-        data: {
-          value: {
-            type: "previewFrame",
-            messageToken: "token",
-            frame: { ...frame(), blocks: "invalid" },
+      for (const [origin, source, token] of [
+        [window.location.origin, {}, "token"],
+        ["https://untrusted.example", hostWindow, "token"],
+        [window.location.origin, hostWindow, "wrong-token"],
+      ]) {
+        const foreign = new window.Event("message");
+        Object.defineProperties(foreign, {
+          origin: { value: origin },
+          source: { value: source },
+          data: {
+            value: {
+              type: "previewFrame",
+              messageToken: token,
+              frame: { ...frame(), blocks: "invalid" },
+            },
           },
-        },
-      });
-      window.dispatchEvent(foreign);
-      assert.deepEqual(messages, [{ type: "ready" }]);
+        });
+        window.dispatchEvent(foreign);
+        assert.deepEqual(messages, [{ type: "ready" }]);
+        assert.ok(window.document.querySelector("svg"));
+      }
       window.dispatchEvent(invalid);
       assert.ok(window.document.querySelector("svg"));
       window.dispatchEvent(invalid);

@@ -22,7 +22,9 @@ const messageToken = document.querySelector<HTMLMetaElement>(
 )?.content;
 if (!messageToken) throw new Error("preview message token is missing");
 let recoveryRequested = false;
-const trustedMessageOrigins = new Set([window.location.origin, "null", ""]);
+// VS Code's injected API shim hides window.parent before this script runs.
+// Authenticate the first host message by origin and token, then pin its source.
+let hostWindow: MessageEventSource | undefined;
 const state: { preview?: PreviewHost } = {};
 const failure = new PreviewFailureGuard(
   () => undefined,
@@ -45,19 +47,16 @@ state.preview = preview;
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (failure.failed) return;
-  if (
-    event.source !== null &&
-    event.source !== window &&
-    event.source !== window.parent
-  )
-    return;
-  if (event.origin === "" && event.source !== null) return;
-  if (!trustedMessageOrigins.has(event.origin)) return;
+  if (event.source === null || event.origin !== window.location.origin) return;
+  if (hostWindow !== undefined && event.source !== hostWindow) return;
   if (!isPreviewHostMessageEvent(event.data, messageToken)) {
-    if (isInvalidAuthenticatedFrameMessage(event.data, messageToken))
+    if (isInvalidAuthenticatedFrameMessage(event.data, messageToken)) {
+      hostWindow = event.source;
       requestRecovery();
+    }
     return;
   }
+  hostWindow = event.source;
   const value =
     event.data.type === "previewFrame" ? event.data.frame : event.data.event;
   if (event.data.type !== "previewFrame") {

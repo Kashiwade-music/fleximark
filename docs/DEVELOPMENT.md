@@ -33,7 +33,7 @@ mise run setup
 | `mise run package all` | runtime・Zed ZIP と VS Code VSIX を作る |
 | `mise run verify` | check → test → audit → 全製品 build → 性能・editor テスト → VSIX・identity → clean-install smoke |
 | `mise run audit` | registry へ問い合わせて JavaScript 依存の high/critical 脆弱性を検査する |
-| `mise run smoke <VSIXのパス>` | 既存 VSIX を隔離した VS Code profile にインストールして動作検証する |
+| `mise run smoke <VSIXのパス>` | 既存 VSIX を隔離 VS Code に入れ、daemon 起動・本文描画・ライブ更新を実画面で検証する |
 | `mise run clean` | `.build` 内の JS/TS・test 出力を削除する。`target` と `.artifacts` は残す |
 
 `build` / `package` は対象指定が必須。ビルドはエディタを起動せず、`package` はテスト・公開を行わない。
