@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "types": ["node", "mocha", "vscode"],
+    "rootDir": ".",
+    "outDir": ".build/types/electron",
+    "tsBuildInfoFile": ".build/types/.tsbuildinfo/electron.tsbuildinfo"
+  },
+  "include": [
+    "tests/typescript/extension.test.mts",
+    "tests/typescript/standalone.test.mts",
+    "tests/typescript/adapter/standalone-runtime.test.mts",
+    "tests/typescript/contributions.test.mts",
+    "tests/typescript/adapter/daemon-runtime.test.mts",
+    "tests/typescript/adapter/document-lifecycle.test.mts",
+    "tests/typescript/adapter/export-ack.test.mts",
+    "tests/typescript/adapter/browser-navigation-runtime.test.mts",
+    "tests/typescript/adapter/browser-dom-harness.mts",
+    "tests/typescript/adapter/wiring.test.mts",
+    "tests/typescript/adapter/workspace-selection.test.mts",
+    "tests/typescript/adapter/multi-root-runtime.test.mts"
+  ],
+  "references": [
+    { "path": "./tsconfig.adapter.json" },
+    { "path": "./tsconfig.unit.json" }
+  ]
+}

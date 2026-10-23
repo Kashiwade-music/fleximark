@@ -1,0 +1,18 @@
+{
+  "Select a note template": "Select a note template",
+  "Enter a file name": "Enter a file name",
+  "File name cannot be empty": "File name cannot be empty",
+  "Use this category": "Use this category",
+  "Back": "Back",
+  "Select a note category in {0}": "Select a note category in {0}",
+  "Select a note category": "Select a note category",
+  "Select a FlexiMark workspace": "Select a FlexiMark workspace",
+  "FlexiMark daemon stopped; reconnecting…": "FlexiMark daemon stopped; reconnecting…",
+  "FlexiMark recovered": "FlexiMark recovered",
+  "FlexiMark daemon repeatedly failed.": "FlexiMark daemon repeatedly failed.",
+  "Retry": "Retry",
+  "Open Output": "Open Output",
+  "Open a Markdown document first.": "Open a Markdown document first.",
+  "Open the Markdown document inside a workspace first.": "Open the Markdown document inside a workspace first.",
+  "FlexiMark failed: {0}": "FlexiMark failed: {0}"
+}

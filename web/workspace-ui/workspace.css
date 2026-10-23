@@ -1,0 +1,48 @@
+:root {
+  color-scheme: light dark;
+  font:
+    16px/1.5 system-ui,
+    sans-serif;
+}
+body {
+  margin: 0 auto;
+  max-width: 64rem;
+  padding: 2rem;
+}
+fieldset {
+  border: 1px solid #8886;
+  border-radius: 0.6rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.7rem 0;
+}
+input,
+select,
+button {
+  font: inherit;
+  padding: 0.6rem;
+  border: 1px solid #8889;
+  border-radius: 0.3rem;
+}
+button {
+  cursor: pointer;
+  margin-right: 0.5rem;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+#status {
+  min-height: 1.5rem;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[hidden] {
+  display: none !important;
+}

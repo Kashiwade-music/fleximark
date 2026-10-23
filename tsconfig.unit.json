@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node", "mocha"],
+    "rootDir": ".",
+    "outDir": ".build/types/unit",
+    "tsBuildInfoFile": ".build/types/.tsbuildinfo/unit.tsbuildinfo"
+  },
+  "include": [
+    "tests/typescript/pure.test.mts",
+    "tests/typescript/adapter/async-helpers.mts",
+    "tests/typescript/adapter/adapter-preview-events.test.mts",
+    "tests/typescript/adapter/rpc.test.mts",
+    "tests/typescript/adapter/daemon-supervisor.test.mts",
+    "tests/typescript/adapter/document-coordinator.test.mts",
+    "tests/typescript/adapter/note-options.test.mts",
+    "tests/typescript/adapter/preview-coordinator.test.mts",
+    "tests/typescript/adapter/release-manifest.test.mts",
+    "tests/typescript/adapter/vscode-pure-stub.mts",
+    "tests/typescript/browser-host.test.mts",
+    "tests/typescript/preview-client.test.mts",
+    "tests/typescript/preview-extended.test.mts",
+    "tests/typescript/vscode-host.test.mts",
+    "tests/typescript/workspace-ui.test.mts",
+    "tests/typescript/protocol-contract.test.mts",
+    "tests/typescript/protocol-method-map.type-test.mts"
+  ],
+  "references": [
+    { "path": "./tsconfig.browser.json" },
+    { "path": "./tsconfig.adapter.json" }
+  ]
+}

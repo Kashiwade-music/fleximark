@@ -1,0 +1,18 @@
+[package]
+name = "fleximark-lsp-transport"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fleximark-application = { path = "../../application" }
+fleximark-engine = { path = "../../core/engine" }
+fleximark-model = { path = "../../core/model" }
+fleximark-language = { path = "../../core/language" }
+fleximark-plugin-api = { path = "../../core/plugin-api" }
+fleximark-preview-http = { path = "../preview-http" }
+fleximark-protocol = { path = "../../contracts/protocol" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

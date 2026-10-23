@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/logo.webp" alt="FlexiMark Logo" height="150"/>
   <h1>FlexiMark</h1>
-  <p><strong>Next-Level Markdown Preview and Note-Taking for VSCode</strong></p>
+  <p><strong>Markdown preview and note workflows for VS Code, Zed and the browser</strong></p>
 
   <p>
     <a href="https://marketplace.visualstudio.com/items?itemName=kashiwade.fleximark">
@@ -20,11 +20,21 @@
 
 ## 🚀 Overview
 
+The shared native runtime serves both editor adapters and the browser workspace.
+Install the VS Code product from its platform-specific VSIX, or use the Zed
+extension with the matching runtime release. Both include note creation,
+workspace initialization, theme editing, admonition collection and HTML export.
+Migration of old workspace data is an explicit command.
+
+VS Code can also preview a standalone Markdown file or an unsaved Markdown
+buffer without opening a folder. Workspace configuration, local assets and
+plugins remain scoped to explicitly trusted workspaces.
+
 FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interactive workspace.  
 Write, preview, organize, and present your notes — all without leaving your editor.
 
 - ⚡ **Instant Live Preview** in both VSCode and your web browser  
-- 🎨 **Customizable Layouts & Styles** using full JavaScript/CSS power  
+- 🎨 **Validated workspace themes** from `.fleximark/theme.css`
 - 🧩 **Extended Markdown Syntax**: tabs, admonitions, diagrams, sheet music, and more  
 - 📂 **Smart File Management** for effortless note organization  
 
@@ -36,7 +46,7 @@ Whether you’re a **developer**, **writer**, **researcher**, or **student**, Fl
 
 - **VSCode Live Preview**: – Instant, side-by-side preview as you type.
   ![VSCode Live Preview](assets/demo_vscode_preview.avif)
-- **Web Browser Preview**: Render Markdown in a browser, with support for JavaScript execution, custom scripts, and styles.  
+- **Web Browser Preview**: The same sandboxed renderer and bundled client used by the VSCode preview, with no custom JavaScript execution.
   ![Web Browser Preview](assets/demo_browser_preview.avif)
 
 ### 🧩 **Flexible File Generation**
@@ -52,7 +62,7 @@ Whether you’re a **developer**, **writer**, **researcher**, or **student**, Fl
 
 Based on GitHub Flavored Markdown (GFM) with advanced extensions:
 
-- **Admonitions**: Notes, tips, warnings, dangers.
+- **Admonitions and GitHub Alerts**: Notes/info, tips, important notices, warnings, and caution/danger blocks.
   ![Admonitions](assets/demo_admonitions.avif)
 - **Tabs**: Organize content into neat sections.
   ![Tabs](assets/demo_tab.webp)
@@ -97,15 +107,22 @@ code --install-extension kashiwade.fleximark
 
 1. **Set up a new workspace** for your FlexiMark notes.
 
-   > If you're migrating from the VSCode Note Taking Extension, use the [Migration Tool](https://github.com/Kashiwade-music/fleximark-migration-tool) to carry over your existing notes.
-
 2. Open the **VSCode Command Palette** and run:
    `FlexiMark: Initialize Workspace as Note Taking Directory`
 
-3. Customize your note categories in the generated configuration file.
+3. Customize note categories in the generated `.fleximark/config.toml` file. Old JavaScript plugins are unsupported and are never loaded.
+
+   To convert old workspace data, explicitly run `FlexiMark: Migrate legacy FlexiMark workspace` (`fleximark.migrate`), or run `fleximark migrate <workspace> --dry-run` to review the conversion plan and `fleximark migrate <workspace>` to apply it. Use `fleximark migrate <workspace> --recover` to recover an interrupted conversion. Migration retains backups and reports unsupported JavaScript plugins. Normal startup does not inspect or import old configuration.
 
 4. Start writing! Use the Command Palette and select:
    `FlexiMark: Create New Note`
+
+Optional extensions use signed WebAssembly packages whose requested capabilities
+must also be granted by the trusted workspace configuration. Raw HTML keeps common
+document markup and attributes while removing executable and embedded content.
+Unsafe export HTML is available only through an
+explicitly granted export hook and is marked in the generated artifact and
+ownership record.
 
 ## 📚 Documentation
 

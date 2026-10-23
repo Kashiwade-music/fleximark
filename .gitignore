@@ -1,6 +1,12 @@
-out
-dist
+.build/
+.artifacts/
 node_modules
+.venv/
+.yarn/
+.pnp.*
+__pycache__/
+*.py[cod]
 .vscode-test/
 *.vsix
 debug/
+target/

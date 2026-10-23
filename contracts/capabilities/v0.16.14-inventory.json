@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "source": "v0.16.14:package.json",
+  "sourceGitBlobSha1": "6d299a8e15d7f7893889d1eac083de200c2d93bf",
+  "commands": [
+    "fleximark.previewMarkdown",
+    "fleximark.previewMarkdownOnVscode",
+    "fleximark.previewMarkdownOnBrowser",
+    "fleximark.forceReloadPreview",
+    "fleximark.exportHtml",
+    "fleximark.openWorkspaceFleximarkCss",
+    "fleximark.openGlobalFleximarkCss",
+    "fleximark.resetGlobalFleximarkCss",
+    "fleximark.createNote",
+    "fleximark.initializeWorkspace",
+    "fleximark.checkWorkspaceSettingsUpdatable",
+    "fleximark.updateWorkspaceSettings",
+    "fleximark.collectAdmonitions",
+    "fleximark.openWorkspaceParserPluginFile",
+    "fleximark.openGlobalParserPluginFile"
+  ],
+  "settings": [
+    "fleximark.settingsVersion",
+    "fleximark.defaultPreviewMode",
+    "fleximark.browserPreviewPort",
+    "fleximark.shouldSyncScroll",
+    "fleximark.noteCategories",
+    "fleximark.noteFileNamePrefix",
+    "fleximark.noteFileNameSuffix",
+    "fleximark.noteTemplates"
+  ],
+  "grammars": [
+    "./syntaxes/markdown.tmLanguage.json",
+    "./syntaxes/markdown-mermaid.tmLanguage.json",
+    "./syntaxes/markdown-abc.tmLanguage.json",
+    "./language-support/abc/abc.tmLanguage.json"
+  ],
+  "snippets": [
+    "./snippets/abc.json",
+    "./snippets/admonition.json",
+    "./snippets/tabs.json",
+    "./snippets/details.json"
+  ],
+  "languages": ["abc"],
+  "documentedFeatures": {
+    "preview-vscode": "command.preview-vscode",
+    "preview-browser": "command.preview-browser",
+    "workspace-theme": "file.workspace-css",
+    "note-generation": "command.create-note",
+    "admonition": "syntax.admonition",
+    "tabs": "syntax.tabs",
+    "details": "syntax.details",
+    "youtube": "syntax.youtube",
+    "code-highlighting": "syntax.syntax-highlighting",
+    "mermaid": "syntax.mermaid",
+    "abc": "syntax.abc",
+    "portable-export": "command.export-html",
+    "custom-parser-javascript": "file.workspace-js-plugin"
+  }
+}

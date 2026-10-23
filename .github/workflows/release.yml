@@ -1,35 +1,190 @@
 name: Release
+
 on:
   push:
-    branches:
-      - main
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
-  contents: read # for checkout
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release
+  quality:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # to be able to publish a GitHub release
-      issues: write # to be able to comment on released issues
-      pull-requests: write # to be able to comment on released pull requests
-      id-token: write # to enable use of OIDC for npm provenance
+    timeout-minutes: 45
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+      - name: Verify source quality
+        run: python tooling/tasks/tasks.py ci quality
+      - name: Audit dependencies
+        run: python tooling/tasks/tasks.py audit
+
+  zed-product:
+    name: Build universal Zed extension
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "lts/*"
-      - name: Install dependencies
-        run: npm clean-install
-      - name: Verify the integrity of provenance attestations and registry signatures for installed dependencies
-        run: npm audit signatures
-      - name: Release
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+      - name: Build and stage Zed WASM product
+        run: python tooling/tasks/tasks.py ci zed
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: product-zed
+          path: |
+            .artifacts/**/fleximark-zed-*.zip
+            .artifacts/**/fleximark-zed-*.zip.sha256
+          if-no-files-found: error
+          overwrite: true
+
+  products:
+    name: Package and smoke ${{ matrix.target }}
+    needs: quality
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              os: ubuntu-24.04,
+              target: x86_64-unknown-linux-gnu,
+              vscode: linux-x64,
+            }
+          - {
+              os: ubuntu-24.04-arm,
+              target: aarch64-unknown-linux-gnu,
+              vscode: linux-arm64,
+            }
+          - {
+              os: macos-15-intel,
+              target: x86_64-apple-darwin,
+              vscode: darwin-x64,
+            }
+          - { os: macos-15, target: aarch64-apple-darwin, vscode: darwin-arm64 }
+          - {
+              os: windows-2025,
+              target: x86_64-pc-windows-msvc,
+              vscode: win32-x64,
+            }
+          - {
+              os: windows-11-arm,
+              target: aarch64-pc-windows-msvc,
+              vscode: win32-arm64,
+            }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+      - name: Verify native and editor product on Linux
+        if: runner.os == 'Linux'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+          SOURCE_GIT_HEAD: ${{ github.sha }}
+          FLEXIMARK_BROWSER_DOM: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
+        run: xvfb-run -a python tooling/tasks/tasks.py ci product
+      - name: Verify native and editor product on macOS and Windows
+        if: runner.os != 'Linux'
+        env:
+          SOURCE_GIT_HEAD: ${{ github.sha }}
+        run: python tooling/tasks/tasks.py ci product
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: product-${{ matrix.target }}
+          path: |
+            .artifacts/**/*.zip
+            .artifacts/**/*.zip.sha256
+            .artifacts/**/*.vsix
+            .artifacts/**/*.identity.json
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    needs: [products, zed-product]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          install-dependencies: "false"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: product-*
+          path: .artifacts
+          merge-multiple: true
+      - name: Verify release assets and immutable source identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_GIT_HEAD: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref_name }}
+        run: |
+          python tooling/tasks/release_assets.py verify --root .artifacts --source-git-head "$SOURCE_GIT_HEAD" --tag "$RELEASE_REF"
+      - name: Attest every exact distribution artifact
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            .artifacts/**/*.zip
+            .artifacts/**/*.vsix
+            .artifacts/**/*.identity.json
+      - name: Publish verified assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_REF" >/dev/null 2>&1 || gh release create "$RELEASE_REF" --verify-tag --draft --generate-notes
+          find .artifacts -type f \( -name '*.zip' -o -name '*.sha256' -o -name '*.vsix' -o -name '*.identity.json' \) -print0 | xargs -0 gh release upload "$RELEASE_REF"
+          gh release edit "$RELEASE_REF" --draft=false
+
+  publish-marketplace:
+    name: Publish exact target VSIX products to Visual Studio Marketplace
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: vscode-marketplace
+    permissions:
+      contents: read
+      id-token: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: product-*
+          path: .artifacts
+          merge-multiple: true
+      - name: Verify exact products and publish with OIDC
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_GIT_HEAD: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          python tooling/tasks/release_assets.py verify --root .artifacts --source-git-head "$SOURCE_GIT_HEAD" --tag "$RELEASE_REF"
+          while IFS= read -r -d '' VSIX; do
+            gh attestation verify "$VSIX" --repo "$RELEASE_REPOSITORY"
+            yarn exec vsce publish --packagePath "$VSIX" --oidc --skip-duplicate
+          done < <(find .artifacts -type f -name '*.vsix' -print0)

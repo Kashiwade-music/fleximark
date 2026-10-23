@@ -1,0 +1,32 @@
+name: Verify target release artifact
+description: Download a target product and verify the VSIX against its immutable identity
+inputs:
+  target:
+    description: Rust distribution target
+    required: true
+  vsix:
+    description: Exact VSIX path inside downloaded product
+    required: true
+  sha256:
+    description: Expected VSIX SHA-256
+    required: true
+  git-tag:
+    description: Expected release tag
+    required: true
+  source-git-head:
+    description: Expected source commit
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: product-${{ inputs.target }}
+        path: .artifacts
+    - shell: bash
+      env:
+        VSIX: ${{ inputs.vsix }}
+        FLEXIMARK_EXPECTED_SHA256: ${{ inputs.sha256 }}
+        FLEXIMARK_EXPECTED_GIT_TAG: ${{ inputs.git-tag }}
+        FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD: ${{ inputs.source-git-head }}
+      run: python tooling/tasks/release_artifact.py verify --vsix "$VSIX" --identity "$VSIX.identity.json"

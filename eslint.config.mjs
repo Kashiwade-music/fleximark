@@ -3,6 +3,14 @@ import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended"
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
+  {
+    ignores: [
+      ".build/**",
+      ".artifacts/**",
+      "tooling/xtask-core/**",
+      "contracts/typescript/protocol.generated.mts",
+    ],
+  },
   eslint.configs.recommended,
   tseslint.configs.strict,
   tseslint.configs.stylistic,

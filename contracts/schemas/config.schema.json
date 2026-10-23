@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleximark.dev/schemas/config-v2.json",
+  "title": "FlexiMark configuration v2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 2 },
+    "notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "type": "string",
+          "default": ".",
+          "pattern": "^(?:\\.|(?=\\S)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[. ](?:/|$))(?!.*[\\u0000-\\u001f\\u007f-\\u009f\\\\:*?\"<>|])[^/]+(?:/[^/]+)*)$"
+        },
+        "file_name_prefix": { "type": "string", "default": "" },
+        "file_name_suffix": { "type": "string", "default": "" },
+        "categories": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/noteCategoryName" },
+          "additionalProperties": { "$ref": "#/$defs/noteCategory" }
+        },
+        "templates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "wasm",
+          "manifest",
+          "signature",
+          "manifest_sha256",
+          "signer_public_key"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "wasm": {
+            "type": "string",
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*\\.wasm$"
+          },
+          "manifest": {
+            "type": "string",
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*\\.toml$"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\/:]+(?:/[^\\\\/:]+)*\\.sig$"
+          },
+          "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "signer_public_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "environment": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "enabled": { "type": "boolean", "default": true },
+          "grants": { "$ref": "#/$defs/pluginCapabilities" }
+        }
+      }
+    }
+  },
+  "required": ["schema_version"],
+  "$defs": {
+    "noteCategory": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/noteCategoryName" },
+      "additionalProperties": { "$ref": "#/$defs/noteCategory" }
+    },
+    "noteCategoryName": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^(?=\\S)(?!\\.{1,2}$)(?!.*[. ]$)(?!.*[\\u0000-\\u001f\\u007f-\\u009f\\\\/:*?\"<>|])(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9¹²³]|[Ll][Pp][Tt][1-9¹²³])(?:\\..*)?$).*\\S$"
+    },
+    "pluginCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read_workspace": { "type": "boolean", "default": false },
+        "write_workspace": { "type": "boolean", "default": false },
+        "environment": { "type": "boolean", "default": false },
+        "unsafe_html_output": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}
