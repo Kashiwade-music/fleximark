@@ -36,7 +36,7 @@ class VerificationPhasesTests(unittest.TestCase):
             yarn = stack.enter_context(patch.object(tasks, "yarn"))
             for name in ("generate_versions", "check_protocol_contract", "python_test", "check_localization", "pure_test"):
                 stack.enter_context(patch.object(tasks, name))
-            tasks.verify_quality(())
+            tasks.main(["ci", "quality"])
         commands = [call.args for call in run.call_args_list]
         for manifest in ("adapters/zed/Cargo.toml", "tests/fixtures/plugin-component/Cargo.toml"):
             for gate in ("fmt", "test", "clippy"):
@@ -73,12 +73,22 @@ class VerificationPhasesTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "generated.txt"):
                     tasks.check_generated_freshness(generate, [root])
 
-    def test_local_verify_composes_the_same_phases_without_rebuilding(self):
-        with patch.object(tasks, "verify_quality") as quality, patch.object(tasks, "build_product") as build_product, patch.object(tasks, "verify_built_product") as product:
-            tasks.verify(())
-        quality.assert_called_once_with(())
-        build_product.assert_called_once_with()
-        product.assert_called_once_with()
+    def test_local_verify_builds_shared_runtime_once_and_verifies_both_editors(self):
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(tasks, "check_steps", return_value=[]))
+            stack.enter_context(patch.object(tasks, "unit_steps", return_value=[]))
+            gates = {name: stack.enter_context(patch.object(tasks, name)) for name in (
+                "verify_audit", "check_protocol_contract", "generate_versions", "build_daemon",
+                "assemble_runtime", "build_vscode_product", "build_zed_product", "verify_built_product",
+            )}
+            browser = stack.enter_context(patch.object(tasks.javascript_build, "build_browser_client"))
+            workspace = stack.enter_context(patch.object(tasks.javascript_build, "build_workspace_ui"))
+            stack.enter_context(patch.dict(tasks.os.environ))
+            tasks.main(["verify"])
+        for gate in gates.values():
+            gate.assert_called_once()
+        browser.assert_called_once_with()
+        workspace.assert_called_once_with()
 
     def test_product_gate_runs_performance_editor_identity_and_clean_install(self):
         with ExitStack() as stack:

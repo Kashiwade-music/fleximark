@@ -6,7 +6,7 @@
     {
       "type": "process",
       "command": "mise",
-      "args": ["run", "dev"],
+      "args": ["run", "watch"],
       "group": {
         "kind": "build",
         "isDefault": true
@@ -21,15 +21,15 @@
           },
           "background": {
             "activeOnStart": true,
-            "beginsPattern": "^FlexiMark development build starting$",
-            "endsPattern": "^FlexiMark development build ready$"
+            "beginsPattern": "^FlexiMark VS Code watch starting$",
+            "endsPattern": "^FlexiMark VS Code watch ready$"
           }
         }
       ],
       "isBackground": true,
-      "label": "mise: dev",
+      "label": "mise: watch",
       "presentation": {
-        "group": "dev",
+        "group": "watch",
         "reveal": "never"
       }
     }

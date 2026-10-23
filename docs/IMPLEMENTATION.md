@@ -45,4 +45,4 @@ root の `release.toml` が製品 version を所有する。native archive は d
 
 [crate 図](../architecture/crates.svg) と [module 図](../architecture/modules/) は xtask が生成する。Zed の独立 workspace にも同じ検査と [生成図](../adapters/zed/architecture/) がある。WASM fixture の独立 workspace も同じ検査と [生成図](../tests/fixtures/plugin-component/architecture/) を持つ。fixture の手書き hook と tests は通常解析し、SDK が公式 `wit_bindgen` で生成する ABI export だけを正確な macro path で識別する。生成 SVG は source と一緒に更新して追跡する。
 
-pure core の unit tests は Node output や concrete WASM host を必要としない。実 WASM の署名・budget・hook、application の filesystem transaction、移行、LSP/HTTP、browser、adapter、配布 archive を対応する試験で検証する。検証手順は `verify-quality` と `verify-product` に集約し、ローカル verify と CI/release が共用する。
+pure core の unit tests は Node output や concrete WASM host を必要としない。実 WASM の署名・budget・hook、application の filesystem transaction、移行、LSP/HTTP、browser、adapter、配布 archive を対応する試験で検証する。ローカルの `check` と `test` を CI/release の `ci quality` が共用し、製品検証は `ci product` が担当する。全体の入口は `mise run verify`。コマンドの処理範囲は [DEVELOPMENT.md](DEVELOPMENT.md) を参照する。

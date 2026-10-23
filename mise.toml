@@ -9,86 +9,55 @@ uv = "0.12.12"
 [settings]
 idiomatic_version_file_enable_tools = ["yarn"]
 
-[tasks.install]
-description = "Install the locked JavaScript and Python dependencies"
-run = [
-  "yarn install --immutable",
-  "uv sync --frozen",
-  "rustup target add wasm32-wasip2",
-]
+# Public commands delegate to one Python CLI. Arguments are forwarded unchanged.
+[tasks.default]
+hide = true
+run = "python tooling/tasks/tasks.py"
+
+[tasks.help]
+description = "Show commands and their scope; use COMMAND --help for arguments"
+run = "python tooling/tasks/tasks.py"
+
+[tasks.setup]
+description = "Install project dependencies and pinned submodules (after mise install)"
+run = "python tooling/tasks/tasks.py setup"
 
 [tasks.build]
-description = "Build the shared runtime and both complete editor products"
-run = "uv run --frozen python tooling/tasks/tasks.py build"
+description = "Build a required target: core | runtime | vscode | zed | all"
+run = "python tooling/tasks/tasks.py build"
 
-[tasks.build-all]
-description = "Build all shared runtime and editor products"
-run = "uv run --frozen python tooling/tasks/tasks.py build-all"
+[tasks.watch]
+description = "Build VS Code only, then watch JS/TS; F5 launches it; Rust is not watched"
+run = "python tooling/tasks/tasks.py watch"
 
-[tasks.build-core]
-description = "Build independent Rust document and application libraries"
-run = "uv run --frozen python tooling/tasks/tasks.py build-core"
-
-[tasks.build-runtime]
-description = "Build and assemble the native runtime with external browser resources"
-run = "uv run --frozen python tooling/tasks/tasks.py build-runtime"
-
-[tasks.build-vscode]
-description = "Build the complete VS Code product with the shared native runtime"
-run = "uv run --frozen python tooling/tasks/tasks.py build-vscode"
-
-[tasks.build-zed]
-description = "Build the Zed extension and its shared runtime distribution"
-run = "uv run --frozen python tooling/tasks/tasks.py build-zed"
-
-[tasks.protocol-generate]
-description = "Regenerate Rust-owned protocol Schema and TypeScript artifacts"
-run = "uv run --frozen python tooling/tasks/tasks.py protocol-generate"
-
-[tasks.protocol-check]
-description = "Fail when generated protocol artifacts differ from the Rust contract"
-run = "uv run --frozen python tooling/tasks/tasks.py protocol-check"
-
-[tasks.clean]
-description = "Remove generated JavaScript and test output"
-run = "uv run --frozen python tooling/tasks/tasks.py clean"
-
-[tasks.dev]
-description = "Watch the VS Code adapter, preview bundles, and TypeScript types"
-run = "uv run --frozen python tooling/tasks/tasks.py dev"
+[tasks.check]
+description = "Check generated files, architecture, types, formatting and lint; no test suites"
+run = "python tooling/tasks/tasks.py check"
 
 [tasks.test]
-description = "Build the product and run the VS Code integration suite"
-run = "uv run --frozen python tooling/tasks/tasks.py test"
-
-[tasks.test-pure]
-description = "Run RPC and preview tests in Node without VS Code Electron"
-run = "uv run --frozen python tooling/tasks/tasks.py test-pure"
-
-[tasks.verify]
-description = "Run the complete local release gate"
-run = "uv run --frozen python tooling/tasks/tasks.py verify"
-
-[tasks.verify-quality]
-description = "Run the source quality gates shared by CI and releases"
-run = "uv run --frozen python tooling/tasks/tasks.py verify-quality"
-
-[tasks.verify-product]
-description = "Build once and verify host performance, editor integration, packaging and clean installation"
-run = "uv run --frozen python tooling/tasks/tasks.py verify-product"
-
-[tasks.verify-audit]
-description = "Run the network dependency audit required by CI and releases"
-run = "uv run --frozen python tooling/tasks/tasks.py verify-audit"
+description = "Run Python/Rust/Node tests; use test editor for VS Code integration"
+run = "python tooling/tasks/tasks.py test"
 
 [tasks.package]
-description = "Verify and package a dependency-free VSIX"
-run = "uv run --frozen python tooling/tasks/tasks.py package"
+description = "Build/package a required target: runtime | vscode | zed | all; no tests"
+run = "python tooling/tasks/tasks.py package"
+
+[tasks.verify]
+description = "All checks/tests + audit + all builds + performance + VSIX + clean-install smoke"
+run = "python tooling/tasks/tasks.py verify"
+
+[tasks.audit]
+description = "Query registry for high/critical JavaScript dependency vulnerabilities"
+run = "python tooling/tasks/tasks.py audit"
 
 [tasks.smoke]
-description = "Smoke-test a packaged VSIX"
-run = "uv run --frozen python tooling/tasks/tasks.py smoke"
+description = "Clean-install and test an existing VSIX (requires its path)"
+run = "python tooling/tasks/tasks.py smoke"
 
-[tasks.l10n]
-description = "Regenerate the English localization bundle"
-run = "uv run --frozen python tooling/tasks/tasks.py l10n"
+[tasks.generate]
+description = "Update protocol | l10n | versions | architecture | all"
+run = "python tooling/tasks/tasks.py generate"
+
+[tasks.clean]
+description = "Remove JS/TS and test output in .build; keep target and .artifacts"
+run = "python tooling/tasks/tasks.py clean"

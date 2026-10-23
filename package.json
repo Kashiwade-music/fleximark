@@ -52,9 +52,16 @@
     "typescript-eslint": "8.70.0"
   },
   "scripts": {
-    "build": "python tooling/tasks/tasks.py build",
-    "verify": "python tooling/tasks/tasks.py verify",
-    "test": "python tooling/tasks/tasks.py test-pure",
-    "package": "python tooling/tasks/tasks.py package"
+    "setup": "mise run setup",
+    "build": "mise run build",
+    "watch": "mise run watch",
+    "check": "mise run check",
+    "test": "mise run test",
+    "package": "mise run package",
+    "verify": "mise run verify",
+    "audit": "mise run audit",
+    "smoke": "mise run smoke",
+    "generate": "mise run generate",
+    "clean": "mise run clean"
   }
 }

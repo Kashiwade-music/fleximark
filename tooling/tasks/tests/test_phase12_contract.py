@@ -205,7 +205,7 @@ class CargoBoundaryContract(unittest.TestCase):
                 read(workflow) + actions,
                 re.M,
             )
-            self.assertIn("tasks.py verify-quality", read(workflow))
+            self.assertIn("tasks.py ci quality", read(workflow))
             for command in cargo_commands:
                 with self.subTest(owner=workflow, command=command):
                     if not command.startswith(("cargo fmt ", "cargo xtask ")):

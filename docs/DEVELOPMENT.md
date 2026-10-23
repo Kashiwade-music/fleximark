@@ -1,149 +1,90 @@
 # 開発手順
 
-repository root で実行する。toolchain と task 名の正本は [mise.toml](../mise.toml)、処理本体は [tooling/tasks/tasks.py](../tooling/tasks/tasks.py) にある。root の JavaScript package は private tooling で、VS Code 製品 manifest は `adapters/vscode/package.json` である。
+リポジトリ直下で `mise run <操作> [対象]` を実行する。Yarn のラッパーも同じ処理を呼ぶ。
+設定は [mise.toml](../mise.toml)、実装は [tasks.py](../tooling/tasks/tasks.py)。
 
-## セットアップ
+## 初回の準備
 
 ```sh
 mise install
-mise run install
-git submodule update --init --recursive
+mise run setup
 ```
 
-`mise run install` は immutable な Yarn install と frozen な uv sync を実行する。Rust の WASM fixture と Zed 拡張を build する場合は `wasm32-wasip2` target も用意する。
+`mise install` は固定バージョンの toolchain を導入する。
+`setup` は固定 submodule、Yarn/Python の依存関係、rustfmt/clippy、wasm32-wasip2 を導入する。ネットワークが必要。
 
-```sh
-rustup target add wasm32-wasip2
-```
+## コマンドと実行内容
 
-## core と application
+| コマンド | 実行されること |
+| --- | --- |
+| `mise run help` | コマンド一覧。個別の引数は例: `mise run build --help` |
+| `mise run build vscode` | native 本体・browser UI・VS Code 拡張をビルドして組み立てる |
+| `mise run build zed` | native 本体・browser UI・Zed WASM 拡張をビルドして組み立てる |
+| `mise run build runtime` | native daemon/CLI と browser UI をビルドして組み立てる |
+| `mise run build core` | Rust の文書処理・application libraries を debug build する |
+| `mise run build all` | runtime を一度ビルドして VS Code と Zed の両方を作る |
+| `mise run watch` | VS Code 製品だけをビルドし、JS/TS の変更を監視・再ビルドする。起動は F5 |
+| `mise run check` | 生成物・Rust 構造・型・lint・format・WASM compilation を検査する |
+| `mise run test` | Python/tooling・Rust workspace/Zed/plugin fixture・Node のテストを実行する |
+| `mise run test editor` | VS Code 製品をビルドして workspace/standalone/restricted の結合テストを実行する |
+| `mise run package vscode` | VS Code 製品をビルドしてインストール用 VSIX を作る |
+| `mise run package zed` | runtime と Zed 拡張をビルドして ZIP と SHA-256 を作る |
+| `mise run package runtime` | runtime をビルドして ZIP と SHA-256 を作る |
+| `mise run package all` | runtime・Zed ZIP と VS Code VSIX を作る |
+| `mise run verify` | check → test → audit → 全製品 build → 性能・editor テスト → VSIX・identity → clean-install smoke |
+| `mise run audit` | registry へ問い合わせて JavaScript 依存の high/critical 脆弱性を検査する |
+| `mise run smoke <VSIXのパス>` | 既存 VSIX を隔離した VS Code profile にインストールして動作検証する |
+| `mise run clean` | `.build` 内の JS/TS・test 出力を削除する。`target` と `.artifacts` は残す |
 
-native の文書処理・セッション検証には browser bundle の事前生成を要求しない。pure core は実 WASM host に依存せず、application は統合した native 操作と filesystem も検証する。
+`build` / `package` は対象指定が必須。ビルドはエディタを起動せず、`package` はテスト・公開を行わない。
+runtime/Zed の ZIP は組立処理の一部なので `build` でも生成する。VSIX は `package` / `verify` で生成する。
+`check` は検査用にコンパイルするが、test suite は実行しない。古い生成物は再生成したうえで失敗する。
+`test` の省略時は `unit`（GUI なし）。`yarn test` も同じ Python/Rust/Node テストを呼ぶ。
+`test editor` / `smoke` は GUI が必要で、初回は VS Code をダウンロードする場合がある。
+`verify` は GUI・実 Chrome/Edge・ネットワークが必要。browser は `FLEXIMARK_BROWSER` で指定できる。
+Linux の GUI 検証には `xvfb-run -a mise run verify` を使う。
 
-```sh
-cargo check -p fleximark-application --offline
-cargo test -p fleximark-model -p fleximark-parser -p fleximark-render-html -p fleximark-engine -p fleximark-language -p fleximark-application --offline
-```
+各コマンドは最初に実行計画・出力先を表示する。末尾に `--dry-run` を付けると表示だけで終了する。
+例: `mise run package vscode --dry-run`。処理を追加すると計画にも反映される。
 
-`--offline` は依存 crate が取得済みの場合に使う。新規環境では依存を取得してから実行する。engine の unit tests は抽象 `PluginExecutor` を使い、実 WASM 実行は runtime 側で検証する。
+## VS Code で動かす
 
-構造検査と生成図の更新は次の入口を使う。
+1. このリポジトリを VS Code で開き、F5 → `Run Extension (extension workspace)` を選ぶ。
+2. F5 が watch task を起動し、`FlexiMark VS Code watch ready` を待って開発用 VS Code を開く。
+3. そのウィンドウで Markdown を開き、`FlexiMark: Preview Markdown` を実行する。
+4. Rust/CSS を変更した場合はデバッグと **`mise: watch` task の両方を終了**して F5 をやり直す。自動監視は JS/TS のみ。
 
-```sh
-cargo xtask check
-cargo xtask check --root adapters/zed
-cargo xtask check --root tests/fixtures/plugin-component
-```
+別 workspace を使う場合は `Run Extension` を選び、その絶対パスを入力する。監視単独の停止は Ctrl+C。
+Zed は `mise run build zed` 後、Install Dev Extension で `adapters/zed` を選び、`lsp.fleximark.binary.path` を組立済み daemon へ向ける。
 
-root の [crate SVG](../architecture/crates.svg) と [module SVG directory](../architecture/modules/)、Zed の `adapters/zed/architecture`、WASM fixture の `tests/fixtures/plugin-component/architecture` を source と一緒に確認する。図は手動編集しない。Role、1000 code lines 上限、module cycle、依存境界の問題は所有元の source で直す。pinned `tooling/xtask-core` は変更しない。
+## 出力先
 
-独立した WASM fixture は native で hook の出力を検証でき、実際の component は WASI target で build する。生成 ABI export は `src/registration.rs` に隔離し、手書きの hook と sandbox probe は通常の構造解析対象である。
+| パス | 内容 |
+| --- | --- |
+| `target/debug/` | Rust core libraries |
+| `target/<Rust target>/release/` | native daemon / CLI |
+| `target/zed/wasm32-wasip2/release/` | Zed WASM 拡張 |
+| `.build/` | JS/TS・test 出力。F5 の拡張は `.build/vscode/product/` |
+| `.artifacts/<version>/<Rust target>/` | `runtime/`・`vscode/`・`zed/` の組立結果、ZIP・checksum・VSIX |
 
-```sh
-cargo test --manifest-path tests/fixtures/plugin-component/Cargo.toml --target-dir target/fixture-native --locked --offline
-cargo build --manifest-path tests/fixtures/plugin-component/Cargo.toml --target-dir target/fixture-wasm --target wasm32-wasip2 --locked --offline
-```
+version の正本は `release.toml`。ビルド対象は現在の OS/CPU。daemon の手動起動は組立済み `runtime/bin/fleximarkd lsp`。
+直接ビルドした binary を使う場合は `FLEXIMARK_RUNTIME_ROOT` に組立済み runtime の絶対パスを指定する。
 
-## 契約の生成
+## 生成物と CI
 
-```sh
-mise run protocol-generate
-mise run protocol-check
-```
+`mise run generate <対象>` で更新する。対象は `protocol`・`l10n`・`versions`・`architecture`・`all` のいずれか一つ。
+protocol は Rust の契約から schema/TypeScript/fixture を生成する。図・翻訳・version も source と一緒に差分を確認する。
+構造検査の違反は所有元の source で修正し、固定 submodule `tooling/xtask-core` や生成図を直接変更しない。
 
-Rust の現在の公開契約から `contracts/schemas/protocol.schema.json`、`contracts/typescript/protocol.generated.mts` と protocol fixture を生成する。optional/null、範囲、定数等の規則は Rust の宣言に記述し、名前に応じた generator の補正を追加しない。生成した schema は共通の TypeScript validator で検証し、独自 descriptor 言語や Python の別 validator は持たない。型や外部形式を変えたら generator を実行し、Rust と TypeScript の conversion・validator・fixture も合わせて確認する。core の domain 型へ Schema derive や JavaScript の整数制約を追加しない。
+CI は `python tooling/tasks/tasks.py ci <phase>` を呼び、ローカルと同じ処理を使う。
+`quality` = check + unit tests、`product` = runtime/VS Code build + 性能/editor/VSIX/identity/smoke、`zed` = Zed WASM/ZIP のみ。
+ネットワーク audit は独立した必須工程。全 6 platform を各 host で検証し、Linux x64 では `FLEXIMARK_BROWSER_DOM=true` も指定する。
 
-## 製品 build と出力
+## 旧コマンドからの移行
 
-```sh
-mise run build
-```
-
-この task は contract の一致を確認し、release version を生成し、daemon と CLI、共通 preview、workspace UI、VS Code adapter を build する。native の Cargo 出力は `target/release`、JavaScript と test 出力は `.build`、製品 staging は `.artifacts/<version>/<Rust target>` に置く。
-
-runtime archive は `fleximark-<version>-<Rust target>.zip`。同じ directory に checksum を出力し、`runtime/` に二つの binary、browser 資源、manifest を組み立てる。`vscode/` は同じ archive を取り込んだ VSIX 用 staging である。source tree をそのまま package root として使用しない。
-
-個別の native build・runtime assembly には次の CLI がある。
-
-```sh
-uv run --frozen python tooling/tasks/distribution.py native --target x86_64-pc-windows-msvc
-uv run --frozen python tooling/tasks/distribution.py runtime --target x86_64-pc-windows-msvc
-```
-
-target は実行環境に合わせて選ぶ。配布 tooling が定義するのは Linux GNU、macOS、Windows MSVC の x64 / arm64。cross target の compiler・linker は別途用意する。`runtime` assembly は指定 target の native build と browser 資源が既に存在することを前提とする。
-
-daemon を手動起動する場合は組立済み runtime の `bin/fleximarkd lsp` を使う。`target/debug` 等の binary を直接試す場合は、`FLEXIMARK_RUNTIME_ROOT` に組立済み runtime directory を指定する。manifest と資源がない状態では browser service を起動できない。
-
-## VS Code
-
-watch と開発用製品の準備は次で実行する。
-
-```sh
-mise run dev
-```
-
-VS Code の `Run Extension` launch configuration は `.build/vscode/product` を Extension Development Host として開く。変更を確認する前に watch の ready メッセージを待つ。native の変更は Rust binary と staging の更新後に host を再起動する。
-
-確認する操作は次のとおり。
-
-1. 検証用 workspace を開き、Workspace Trust と現在の設定を確認する。
-2. Markdown の埋め込み preview と browser preview を開く。
-3. 保存せずに本文を変更し、両方の表示に反映されることを確認する。
-4. editor から preview への移動、preview から元ソースへの移動を確認する。
-5. workspace UI で note の category/template/name、theme、admonition 収集と HTML export を試す。
-6. daemon の再接続後に、開いている文書と preview が現在の内容で再作成されることを確認する。
-7. browser をスクロールして対応ソースへの移動を確認し、Mermaid の `Enlarge diagram` で拡大・zoom・Escape による終了を確認する。
-8. 長いコードブロックの全行と、大きな AVIF 画像が表示されることを確認する。note のファイル名入力をキャンセルした場合は作成しないことも確認する。
-
-ログは VS Code の FlexiMark Output と daemon の標準エラーで確認する。標準出力へ通常ログを追加しない。
-
-## 通常版 Zed
-
-Zed 拡張は独立した Cargo workspace である。
-
-```sh
-cargo test --manifest-path adapters/zed/Cargo.toml --locked
-cargo build --manifest-path adapters/zed/Cargo.toml --target wasm32-wasip2 --locked
-cargo xtask check --root adapters/zed
-```
-
-Zed の extension development 機能で `adapters/zed` を読み込み、必要に応じて `lsp.fleximark.binary.path` を組立済み daemon へ向ける。path を指定しない場合は worktree PATH、次に matching release archive を使う。binary は `--version` で互換性を確認し、`lsp` で起動する。設定例は [Zed README](../adapters/zed/README.md) を参照する。
-
-標準 LSP 初期化の `initialization_options.fleximark` に trust・workspace を指定する。明示しない root は untrusted である。Markdown 上の Code Action で preview、選択位置の preview、workspace 操作を開く。browser のソース移動が Zed の `window/showDocument` へ戻り、未保存の変更が `didChange` で表示に届くことを確認する。外部 browser は daemon host の loopback に接続する。継続的な Zed viewport tracking は検証対象ではない。
-
-## 明示的なデータ移行
-
-旧ユーザーデータを検証用 copy で確認し、計画を読んでから適用する。
-
-```sh
-fleximark migrate /absolute/workspace --dry-run
-fleximark migrate /absolute/workspace
-```
-
-旧 editor settings を指定する場合は `--settings /absolute/settings.json` を使う。未指定なら workspace の `.vscode/settings.json` を読み、JSONC と `.code-workspace` の settings にも対応する。CLI は計画を JSON で出力し、適用時に入力 snapshot を再検査して backup を作る。現設定が移行結果と一致する場合、または旧設定が残っていない場合は `alreadyCurrent` を返し、内容が競合する場合は書き込まない。中断した移行は `fleximark migrate /absolute/workspace --recover` で復旧する。旧 JavaScript plugin は実行・変換せず、保持と無効化を報告する。editor の migration command も同じ library を直接呼ぶ明示操作である。通常 activation や設定読込みでは migration を呼ばない。
-
-現在の workspace 書込みを CLI で実行する場合は `--trusted-workspace` を明示する。例えば `fleximark init /absolute/workspace --trusted-workspace` を使う。untrusted の render は workspace plugin を読み込まない。
-
-## 自動検証と package
-
-```sh
-mise run test-pure
-mise run test
-mise run verify
-mise run verify-audit
-mise run package
-```
-
-`test-pure` は Node 上の protocol・preview・adapter unit tests、`test` は build と VS Code integration suite を実行する。`verify-quality` は codegen、root/Zed/WASM fixture の xtask、Python tests、TypeScript・ESLint、localization、Rust fmt/test/clippy と WASM fixture を検証する。`verify-product` は native と VS Code 製品を build し、performance budget、VS Code integration、VSIX の identity と clean-install smoke を検証する。`verify` は両方の検証と Zed 製品 build をまとめて実行する。共通 browser bundle は一度だけ build する。CI/release も同じ phase を利用する。
-
-生成物の freshness は再生成前後のファイル集合と内容を比較する。正しく再生成済みなら未コミットの変更があっても検証できる。依存関係の network audit は `verify-audit` として明示実行し、CI/release では必須である。
-
-ローカル `verify` / `package` は実 Chrome/Edge の DOM 受け入れ試験も実行する。browser を自動検出できない場合は `FLEXIMARK_BROWSER` に実行ファイルの絶対パスを指定する。未保存編集による数式の実描画、browser から editor への移動、daemon 復旧を一連の操作で確認する。CI/release では代表の Linux x64 製品で `FLEXIMARK_BROWSER_DOM=true` を指定し、全 6 製品では editor integration と配布検証を実行する。Linux の GUI integration 環境では必要に応じて `xvfb-run -a mise run verify` を使う。
-
-`package` は verify 後、host target の staging から dependency-free VSIX を `.artifacts/<version>/<Rust target>` に出力する。完成 VSIX は次で smoke を実行する。
-
-```sh
-mise run smoke -- /absolute/path/to/product.vsix
-```
-
-localization の更新は `mise run l10n` で行い、`adapters/vscode/l10n` の生成差分と翻訳を同じ変更で管理する。release version は `release.toml` を更新し、各製品 manifest を個別の正本にしない。
+- `install` → `setup`、`dev` → `watch`（起動は F5）。
+- `build` / `build-all` → `build all`、`build-vscode` 等 → `build vscode` 等。普段は対象を限定する。
+- `test-pure` → `test`（Python/Rust/Node 全体）、旧 `test` → `test editor`。
+- 旧 `package` の全検証 → `verify`、梱包だけ → `package vscode`。
+- `verify-quality/product` → CI 専用 `ci quality/product`、`verify-audit` → `audit`。
+- `protocol-generate` / `l10n` → `generate protocol` / `generate l10n`、`protocol-check` → `check`。

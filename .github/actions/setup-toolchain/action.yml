@@ -30,4 +30,4 @@ runs:
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash
-      run: mise run install
+      run: mise run setup

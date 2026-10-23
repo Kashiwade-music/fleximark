@@ -1,18 +1,8 @@
 name: Validate source
-description: Check shared contracts, Rust architecture, TypeScript and build tooling
+description: Run the same source checks and unit/native tests as local development
 runs:
   using: composite
   steps:
     - uses: ./.github/actions/setup-toolchain
     - shell: bash
-      run: |
-        cargo xtask check
-        cargo xtask check --root adapters/zed
-        cargo xtask check --root tests/fixtures/plugin-component
-        git diff --exit-code -- architecture adapters/zed/architecture tests/fixtures/plugin-component/architecture
-        python tooling/tasks/protocol_codegen.py check
-        python -m unittest discover -s tooling/tasks/tests -p 'test_*.py'
-        node --test tooling/tasks/tests/semantic_release_package.test.mjs
-        yarn exec tsc -b
-        yarn exec eslint adapters/vscode web contracts/typescript tests/typescript tooling/tasks
-        python tooling/tasks/tasks.py test-pure
+      run: python tooling/tasks/tasks.py ci quality

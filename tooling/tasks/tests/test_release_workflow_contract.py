@@ -17,8 +17,8 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
             rows = re.findall(r"target:\s*([a-z0-9_-]+),\s*vscode:\s*([a-z0-9-]+)", source)
             self.assertEqual(len(rows), 6)
             self.assertEqual(len(set(rows)), 6)
-            self.assertIn("tasks.py verify-product", source)
-            self.assertIn("xvfb-run -a python tooling/tasks/tasks.py verify-product", source)
+            self.assertIn("tasks.py ci product", source)
+            self.assertIn("xvfb-run -a python tooling/tasks/tasks.py ci product", source)
             self.assertIn("overwrite: true", source)
 
     def test_all_checkouts_include_the_pinned_quality_submodule(self):
@@ -29,8 +29,8 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
     def test_rust_quality_covers_every_owned_workspace_and_checks_fresh_diagrams(self):
         for name in ("ci.yml", "release.yml"):
             source = self.source(name)
-            self.assertIn("tasks.py verify-quality", source)
-            self.assertIn("tasks.py verify-audit", source)
+            self.assertIn("tasks.py ci quality", source)
+            self.assertIn("tasks.py audit", source)
 
     def test_publish_revalidates_all_exact_assets_before_attestation_and_publication(self):
         source = self.source("release.yml")

@@ -30,14 +30,6 @@ VS Code can also preview a standalone Markdown file or an unsaved Markdown
 buffer without opening a folder. Workspace configuration, local assets and
 plugins remain scoped to explicitly trusted workspaces.
 
-Developers: `mise run install`, `mise run build`, and `mise run verify` run from
-the repository root. `release.toml` is the product version source. Sources live
-under `core`, `application`, `runtime`, `transports`, `apps`, `contracts`, `web`
-and `adapters`; JavaScript output goes to `.build/<component>` and product
-staging to `.artifacts/<version>/<target>/<product>`. Rust keeps its root `target`
-directory. `cargo xtask check` enforces Rust quality and regenerates tracked
-architecture diagrams; verification also checks their Git freshness.
-
 FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interactive workspace.  
 Write, preview, organize, and present your notes — all without leaving your editor.
 

@@ -287,7 +287,6 @@ class WatchCleanupTests(unittest.TestCase):
             events.append(message)
 
         with (
-            patch.object(tasks, "build_product") as build_daemon,
             patch.object(tasks.javascript_build, "clean"),
             patch.object(
                 tasks.javascript_build,
@@ -303,7 +302,7 @@ class WatchCleanupTests(unittest.TestCase):
             patch.object(tasks.time, "sleep", side_effect=sleep),
             patch("builtins.print", side_effect=record_output),
         ):
-            tasks.dev(())
+            tasks.watch_vscode()
 
         self.assertEqual(
             start.call_args_list,
@@ -319,14 +318,14 @@ class WatchCleanupTests(unittest.TestCase):
         self.assertEqual(
             events,
             [
-                "FlexiMark development build starting",
+                "FlexiMark VS Code watch starting",
                 "sleep",
-                "FlexiMark development build ready",
+                "FlexiMark VS Code watch ready",
+                "Watching JavaScript/TypeScript only. For Rust changes, stop the watch task and restart F5. Ctrl+C stops watching.",
                 "sleep",
             ],
         )
         stop.assert_called_once_with(children)
-        build_daemon.assert_called_once_with()
 
     def test_stop_processes_terminates_then_waits_for_live_children(self) -> None:
         first = MagicMock()
@@ -366,7 +365,6 @@ class WatchCleanupTests(unittest.TestCase):
         child.poll.side_effect = [None, None]
         with (
             patch.object(tasks, "check_protocol_contract"),
-            patch.object(tasks, "build_product"),
             patch.object(tasks.javascript_build, "clean"),
             patch.object(
                 tasks.javascript_build,
@@ -381,7 +379,7 @@ class WatchCleanupTests(unittest.TestCase):
             ),
         ):
             with self.assertRaisesRegex(OSError, "spawn failed"):
-                tasks.dev(())
+                tasks.watch_vscode()
 
         child.terminate.assert_called_once_with()
         child.wait.assert_called_once_with(timeout=5)
