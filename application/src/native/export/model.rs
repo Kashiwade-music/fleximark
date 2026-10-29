@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ExportFile {
     pub(super) path: String,
     pub(super) kind: String,
@@ -13,7 +13,7 @@ pub(super) struct ExportFile {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct OwnershipPayload {
     pub(super) format_version: u32,
     pub(super) destination_id: String,
@@ -22,7 +22,6 @@ pub(super) struct OwnershipPayload {
     pub(super) workspace_identity: String,
     pub(super) destination_identity: String,
     pub(super) destination_object_identity: ObjectIdentity,
-    pub(super) unsafe_output_used: bool,
     pub(super) files: Vec<ExportFile>,
 }
 
@@ -33,7 +32,7 @@ pub(super) struct OwnershipMarker {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct RegistryRecord {
     pub(super) destination_id: String,
     pub(super) generation: u64,
@@ -42,7 +41,6 @@ pub(super) struct RegistryRecord {
     pub(super) workspace_identity: String,
     pub(super) destination_identity: String,
     pub(super) destination_object_identity: ObjectIdentity,
-    pub(super) unsafe_output_used: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -91,7 +89,7 @@ pub(super) struct RecordedObject {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ExportJournalRecord {
     pub(super) journal: ExportJournal,
     pub(super) previous_record_digest: Option<String>,

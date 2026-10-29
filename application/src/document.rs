@@ -38,8 +38,4 @@ impl DocumentSession {
     pub fn asset_diagnostics(&self) -> &[fleximark_engine::AssetDiagnostic] {
         self.engine.asset_diagnostics()
     }
-
-    pub fn plugin_diagnostics(&self) -> &[fleximark_plugin_api::PluginDiagnostic] {
-        self.engine.plugin_diagnostics()
-    }
 }

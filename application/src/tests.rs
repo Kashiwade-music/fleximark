@@ -1,5 +1,4 @@
 //! Role: Verify session synchronization and workspace reconfiguration.
-use crate::test_plugins::TestPlugins;
 
 use crate::requests::Position;
 use fleximark_engine::EngineError;
@@ -66,14 +65,12 @@ fn document<'a>(registry: &'a SessionRegistry, uri: &str, version: i64) -> &'a D
         .unwrap()
 }
 
-fn configured_host(label: &str, _trusted: bool) -> (Arc<dyn PluginExecutor>, RenderConfig) {
-    let host: Arc<dyn PluginExecutor> = Arc::new(TestPlugins {
-        calls: None,
-        marker: None,
-        hash: content_hash(label),
-    });
-    let config = RenderConfig::for_plugins(Default::default(), None, host.as_ref());
-    (host, config)
+fn configured_render(label: &str, _trusted: bool) -> RenderConfig {
+    let mut config = RenderConfig::default();
+    config.config_hash = content_hash(label);
+    config.config_generation = 1;
+    config.plugin_generation = 1;
+    config
 }
 fn render_fingerprint(
     registry: &mut SessionRegistry,
@@ -215,20 +212,16 @@ fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental
 #[test]
 fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself() {
     let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
-    let (parent_host, parent_config) = configured_host("parent", true);
-    let (nested_host, nested_config) = configured_host("nested", false);
-    let (file_root_host, file_root_config) = configured_host("file-root", true);
-    let (empty_root_host, empty_root_config) = configured_host("empty-root", true);
+    let parent_config = configured_render("parent", true);
+    let nested_config = configured_render("nested", false);
+    let file_root_config = configured_render("file-root", true);
+    let empty_root_config = configured_render("empty-root", true);
     registry
         .configure_workspaces(vec![
-            ("".into(), empty_root_host, empty_root_config),
-            ("file:///".into(), file_root_host, file_root_config),
-            (workspace_uri().into(), parent_host, parent_config),
-            (
-                workspace_document_uri("nested/").into(),
-                nested_host,
-                nested_config,
-            ),
+            ("".into(), empty_root_config),
+            ("file:///".into(), file_root_config),
+            (workspace_uri().into(), parent_config),
+            (workspace_document_uri("nested/").into(), nested_config),
         ])
         .unwrap();
 
@@ -288,9 +281,9 @@ fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself()
 #[test]
 fn workspace_reconfiguration_is_transactional() {
     let mut workspace = SessionRegistry::new(PositionEncoding::Utf8);
-    let (old_host, old_config) = configured_host("old", true);
+    let old_config = configured_render("old", true);
     workspace
-        .configure_workspaces(vec![(workspace_uri().into(), old_host, old_config)])
+        .configure_workspaces(vec![(workspace_uri().into(), old_config)])
         .unwrap();
     let original_uris = [
         workspace_document_uri("alpha.md"),
@@ -321,11 +314,10 @@ fn workspace_reconfiguration_is_transactional() {
     let failing_uri = stage_order.last().unwrap().clone();
     let mut invalid_assets = HashMap::new();
     invalid_assets.insert(failing_uri, assets_with_duplicate_sources());
-    let (mismatched_host, mismatched_config) = configured_host("mismatched", true);
+    let mismatched_config = configured_render("mismatched", true);
     let error = workspace
         .reconfigure_workspace(
             workspace_uri(),
-            mismatched_host,
             mismatched_config,
             invalid_assets,
             &CancellationToken::default(),
@@ -370,11 +362,10 @@ fn workspace_reconfiguration_is_transactional() {
         baseline[0].4
     );
 
-    let (replacement_host, replacement_config) = configured_host("replacement", true);
+    let replacement_config = configured_render("replacement", true);
     workspace
         .reconfigure_workspace(
             workspace_uri(),
-            replacement_host,
             replacement_config,
             HashMap::new(),
             &CancellationToken::default(),
@@ -460,13 +451,13 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
         format!("{base_uri}/%6Futer")
     };
     let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
-    let (outer_host, outer_config) = configured_host("privileged-outer", true);
-    let (nested_host, nested_config) = configured_host("restricted-nested", false);
-    let nested_hash = nested_config.plugin_set_hash.clone();
+    let outer_config = configured_render("privileged-outer", true);
+    let nested_config = configured_render("restricted-nested", false);
+    let nested_hash = nested_config.config_hash.clone();
     registry
         .configure_workspaces(vec![
-            (outer_alias.clone(), outer_host, outer_config),
-            (nested_uri.clone(), nested_host, nested_config),
+            (outer_alias.clone(), outer_config),
+            (nested_uri.clone(), nested_config),
         ])
         .unwrap();
     registry.set_workspace_status(&nested_uri, false, true);
@@ -483,7 +474,7 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
         document(&registry, &document_uri, 1)
             .engine()
             .render_config()
-            .plugin_set_hash,
+            .config_hash,
         nested_hash
     );
     assert!(!registry.workspace_grants_write(&nested_uri));
@@ -504,33 +495,18 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
 }
 
 #[test]
-fn revocation_ignores_invalid_config_and_cancellation_and_never_runs_old_hooks() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+fn revocation_ignores_invalid_config_and_cancellation() {
     for cancel in [false, true] {
         let root = crate::native::test_support::test_workspace("revoke");
         let uri = native::path_to_file_uri(&root).unwrap();
         native::initialize_workspace(&uri).unwrap();
         let document_uri = format!("{uri}/new.md");
-        let calls = Arc::new(AtomicUsize::new(0));
-        let host: Arc<dyn PluginExecutor> = Arc::new(TestPlugins {
-            hash: content_hash("privileged"),
-            calls: Some(Arc::clone(&calls)),
-            marker: Some("# Privileged generated heading\n\n".into()),
-        });
-        let config = RenderConfig::for_plugins(Default::default(), None, host.as_ref());
+        let config = configured_render("privileged", true);
         let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
         registry
-            .configure_workspaces(vec![(uri.clone(), host, config)])
+            .configure_workspaces(vec![(uri.clone(), config)])
             .unwrap();
         open_uri(&mut registry, &document_uri, "# Plain", 1);
-        assert!(
-            document(&registry, &document_uri, 1)
-                .document()
-                .metadata
-                .front_matter
-                .is_some()
-        );
-        let before = calls.load(Ordering::SeqCst);
         std::fs::write(root.join(".fleximark/config.toml"), "invalid = [").unwrap();
         let token = CancellationToken::default();
         if cancel {
@@ -563,7 +539,6 @@ fn revocation_ignores_invalid_config_and_cancellation_and_never_runs_old_hooks()
                 &CancellationToken::default(),
             )
             .unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), before);
         assert_eq!(
             document(&registry, &document_uri, 2)
                 .document()

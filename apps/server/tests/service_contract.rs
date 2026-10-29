@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_application::native::{
-    ServiceError, acknowledge_export, export_html_with_safety, initialize_workspace,
-    path_to_file_uri,
+    ServiceError, acknowledge_export, export_html, initialize_workspace, path_to_file_uri,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,7 +34,6 @@ struct ContractOwnershipPayload {
     workspace_identity: String,
     destination_identity: String,
     destination_object_identity: ContractObjectIdentity,
-    unsafe_output_used: bool,
     files: Vec<ContractExportFile>,
 }
 
@@ -55,7 +53,6 @@ struct ContractRegistryRecord {
     workspace_identity: String,
     destination_identity: String,
     destination_object_identity: ContractObjectIdentity,
-    unsafe_output_used: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -179,13 +176,12 @@ impl ExportFixture {
         &self,
         html: &str,
     ) -> Result<fleximark_application::operations::ExportReceipt, ServiceError> {
-        export_html_with_safety(
+        export_html(
             &self.source_uri,
             &self.workspace_uri,
             &self.destination_uri,
             html,
             &[],
-            false,
         )
     }
 
@@ -289,7 +285,6 @@ fn export_metadata_preserves_marker_registry_and_journal_wire_schema() {
             "formatVersion",
             "generation",
             "sourceIdentity",
-            "unsafeOutputUsed",
             "workspaceIdentity",
         ])
     );
@@ -323,7 +318,6 @@ fn export_metadata_preserves_marker_registry_and_journal_wire_schema() {
             "digest",
             "generation",
             "sourceIdentity",
-            "unsafeOutputUsed",
             "workspaceIdentity",
         ])
     );

@@ -15,7 +15,7 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
 use fleximark_engine::DocumentEngine;
-use fleximark_plugin_host::CancellationToken;
+use fleximark_plugin_api::CancellationToken;
 use fleximark_render_html::{HtmlTarget, RenderContext};
 
 use crate::native::ServiceError;
@@ -70,55 +70,51 @@ pub fn export_document(
     destination_uri: &str,
     cancellation: &CancellationToken,
 ) -> Result<ExportReceipt, ServiceError> {
+    if cancellation.is_cancelled() {
+        return Err(ServiceError::Cancelled);
+    }
     preflight_export(source_uri, workspace_uri, destination_uri)?;
     let mut context = export_render_context(workspace_uri)?;
     context.resolved_resources = session.render_config().context.resolved_resources.clone();
     let prepared = session.prepare_safe_export(&context)?;
+    if cancellation.is_cancelled() {
+        return Err(ServiceError::Cancelled);
+    }
     let mut assets = Vec::new();
-    let resolved = prepared.compose_portable(
-        &fleximark_preview_assets::read("browser-host.js")?,
-        |safe_html, style, render_assets, runtime| {
-            let resolved =
-                resolve_export_assets(source_uri, workspace_uri, safe_html, render_assets)?;
-            assets = resolved.assets;
-            compose_portable_html(&resolved.html, style, runtime)
-        },
-    )?;
-    let output = session
-        .apply_unsafe_export_html(resolved, cancellation)?
-        .value;
-    export_html_with_safety(
+    let resolved = resolve_export_assets(
         source_uri,
         workspace_uri,
-        destination_uri,
-        &output.html,
-        &assets,
-        output.unsafe_output_used,
-    )
+        prepared.safe_html(),
+        prepared.assets(),
+    )?;
+    if cancellation.is_cancelled() {
+        return Err(ServiceError::Cancelled);
+    }
+    assets.extend(resolved.assets);
+    let html = compose_portable_html(
+        &resolved.html,
+        prepared.style(),
+        &fleximark_preview_assets::read("browser-host.js")?,
+    )?;
+    if cancellation.is_cancelled() {
+        return Err(ServiceError::Cancelled);
+    }
+    export_html(source_uri, workspace_uri, destination_uri, &html, &assets)
 }
 
-pub fn export_html_with_safety(
+pub fn export_html(
     source_uri: &str,
     workspace_uri: &str,
     destination_uri: &str,
     html: &str,
     assets: &[ExportAsset],
-    unsafe_output_used: bool,
 ) -> Result<ExportReceipt, ServiceError> {
-    let marked_html = if unsafe_output_used {
-        format!(
-            "<!-- fleximark-output-safety: unsafe-plugin-html --><aside role=\"alert\" data-fleximark-output-safety=\"unsafe-plugin-html\">This export contains HTML produced by an explicitly granted unsafe plugin.</aside>{html}"
-        )
-    } else {
-        html.to_owned()
-    };
     export_html_transaction(
         source_uri,
         workspace_uri,
         destination_uri,
-        &marked_html,
+        html,
         assets,
-        unsafe_output_used,
         |_| Ok(()),
     )
 }
@@ -160,7 +156,6 @@ fn export_html_transaction(
     destination_uri: &str,
     html: &str,
     assets: &[ExportAsset],
-    unsafe_output_used: bool,
     mut checkpoint: impl FnMut(&'static str) -> Result<(), ServiceError>,
 ) -> Result<ExportReceipt, ServiceError> {
     let workspace = workspace_path(workspace_uri)?;
@@ -313,7 +308,6 @@ fn export_html_transaction(
         workspace_identity: workspace_identity.clone(),
         destination_identity: destination_identity.clone(),
         destination_object_identity: destination_object_identity.clone(),
-        unsafe_output_used,
         files,
     };
     let marker = OwnershipMarker {
@@ -334,7 +328,6 @@ fn export_html_transaction(
         workspace_identity,
         destination_identity,
         destination_object_identity,
-        unsafe_output_used,
     };
     let staging_identity = object_identity(&staging)?;
     let staging_marker_identity = object_identity(&staging.join(".fleximark-export.json"))?;
@@ -410,7 +403,6 @@ fn export_html_transaction(
     Ok(ExportReceipt {
         output_uri: path_to_file_uri(&index_for_destination(&destination))?,
         generation,
-        unsafe_output: unsafe_output_used,
     })
 }
 

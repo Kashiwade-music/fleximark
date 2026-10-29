@@ -177,14 +177,5 @@ fn collect_session_diagnostics(document: &fleximark_application::DocumentSession
             "message":diagnostic.message
         }));
     }
-    for diagnostic in document.plugin_diagnostics() {
-        output.push(json!({
-            "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},
-            "severity":1,
-            "code":"plugin",
-            "source":format!("fleximark:{}", diagnostic.plugin_id),
-            "message":diagnostic.message
-        }));
-    }
     output
 }

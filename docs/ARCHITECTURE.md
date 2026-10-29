@@ -95,7 +95,7 @@ VS Code adapter は Node extension host から native process を起動する de
 
 ## 設定、trust、移行
 
-通常の設定は `contracts/config` の現形式だけを読む。`.fleximark/config.toml` の semantic validation と、workspace trust・plugin grants・アセット containment の検証を実行する。unsafe HTML plugin 出力は、安全な portable render と export 構成の後に明示的に許可される処理段階へ限定する。
+通常の設定は `contracts/config` の現形式だけを読む。`.fleximark/config.toml` の semantic validation と、workspace trust・アセット containment の検証を実行する。WASM プラグイン設定は未知のフィールドとして拒否し、プラグインを読み込まない。export は浄化済みの portable render を組み立て、ownership と journal による transaction で保存する。
 
 旧 JSON、旧 theme、旧 editor 設定は明示的な migration 操作だけで読む。CLI と editor の migration command は同じ `migration` library を直接利用する。通常起動で旧設定を探索・通知・import しない。移行は計画の JSON、dry run、入力 snapshot の再検査、backup と復旧可能な適用を提供する。旧 JavaScript plugin は実行せず、保持して無効化を報告する。
 

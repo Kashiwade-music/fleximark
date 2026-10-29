@@ -1,9 +1,7 @@
 //! Role: Define and validate the strict current workspace configuration.
 use caseless::Caseless;
-use fleximark_plugin_sdk::PluginCapabilities;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Component, Path};
 use unicode_normalization::UnicodeNormalization;
 pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,8 +12,6 @@ pub struct FlexiMarkConfig {
     pub notes: NotesConfig,
     #[serde(default)]
     pub assets: AssetsConfig,
-    #[serde(default)]
-    pub plugins: Vec<ConfiguredPlugin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,27 +56,6 @@ pub struct AssetsConfig {
     pub roots: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConfiguredPlugin {
-    pub id: String,
-    pub wasm: String,
-    pub manifest: String,
-    pub signature: String,
-    pub manifest_sha256: String,
-    pub signer_public_key: String,
-    #[serde(default)]
-    pub environment: BTreeMap<String, String>,
-    #[serde(default = "enabled")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub grants: PluginCapabilities,
-}
-
-fn enabled() -> bool {
-    true
-}
-
 impl FlexiMarkConfig {
     pub fn from_toml(source: &str) -> Result<Self, ConfigError> {
         let config: Self =
@@ -97,35 +72,6 @@ impl FlexiMarkConfig {
             return Err(ConfigError::NoteRoot(self.notes.root.clone()));
         }
         validate_note_categories(&self.notes.categories, 0)?;
-        let mut ids = HashSet::new();
-        for plugin in &self.plugins {
-            if !valid_plugin_id(&plugin.id) {
-                return Err(ConfigError::PluginId(plugin.id.clone()));
-            }
-            if !ids.insert(&plugin.id) {
-                return Err(ConfigError::DuplicatePlugin(plugin.id.clone()));
-            }
-            let path = Path::new(&plugin.wasm);
-            if !valid_relative_path(path, &plugin.wasm, "wasm") {
-                return Err(ConfigError::PluginPath(plugin.wasm.clone()));
-            }
-            if !valid_relative_path(Path::new(&plugin.manifest), &plugin.manifest, "toml")
-                || !valid_relative_path(Path::new(&plugin.signature), &plugin.signature, "sig")
-            {
-                return Err(ConfigError::PluginMetadataPath(plugin.id.clone()));
-            }
-            if !is_sha256(&plugin.manifest_sha256) {
-                return Err(ConfigError::ManifestHash(plugin.id.clone()));
-            }
-            if plugin.signer_public_key.len() != 64
-                || !plugin
-                    .signer_public_key
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-            {
-                return Err(ConfigError::SignerKey(plugin.id.clone()));
-            }
-        }
         Ok(())
     }
 }
@@ -138,12 +84,6 @@ pub enum ConfigError {
     NoteRoot(String),
     NoteCategoryCollision(String),
     NoteCategoryDepth,
-    DuplicatePlugin(String),
-    PluginId(String),
-    PluginPath(String),
-    PluginMetadataPath(String),
-    ManifestHash(String),
-    SignerKey(String),
 }
 
 fn validate_note_categories(
@@ -210,31 +150,6 @@ pub fn note_category_filesystem_key(name: &str) -> Option<String> {
     is_safe_note_category_name(name).then(|| name.chars().nfd().default_case_fold().nfd().collect())
 }
 
-fn valid_relative_path(path: &Path, text: &str, extension: &str) -> bool {
-    !path.is_absolute()
-        && !text.contains(['\\', ':'])
-        && path.extension().and_then(|value| value.to_str()) == Some(extension)
-        && path
-            .components()
-            .all(|part| matches!(part, Component::Normal(_)))
-}
-
-fn is_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-}
-
-fn valid_plugin_id(id: &str) -> bool {
-    let bytes = id.as_bytes();
-    !bytes.is_empty()
-        && (bytes[0].is_ascii_lowercase() || bytes[0].is_ascii_digit())
-        && bytes.iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
-        })
-}
-
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -258,30 +173,6 @@ impl std::fmt::Display for ConfigError {
                 value
             ),
             Self::NoteCategoryDepth => f.write_str("note category nesting exceeds 32 levels"),
-            Self::DuplicatePlugin(value) => {
-                write!(f, "plugin is configured more than once: {0}", value)
-            }
-            Self::PluginId(value) => write!(f, "configured plugin id is invalid: {0}", value),
-            Self::PluginPath(value) => write!(
-                f,
-                "plugin WASM path must be relative, traversal-free, and end in .wasm: {0}",
-                value
-            ),
-            Self::PluginMetadataPath(value) => write!(
-                f,
-                "plugin manifest/signature paths are invalid for: {0}",
-                value
-            ),
-            Self::ManifestHash(value) => write!(
-                f,
-                "plugin manifest hash must be lowercase SHA-256 for: {0}",
-                value
-            ),
-            Self::SignerKey(value) => write!(
-                f,
-                "plugin signer key must be a 32-byte hexadecimal Ed25519 key for: {0}",
-                value
-            ),
         }
     }
 }
@@ -292,21 +183,11 @@ mod tests {
     //! Role: Verify current configuration syntax and filesystem safety.
     use super::*;
     #[test]
-    fn canonical_config_rejects_duplicates_and_traversal() {
-        let metadata = "manifest='a.toml'\nsignature='a.sig'\nmanifest_sha256='0000000000000000000000000000000000000000000000000000000000000000'\nsigner_public_key='0000000000000000000000000000000000000000000000000000000000000000'\n";
-        let duplicate = format!(
-            "schema_version=2\n[[plugins]]\nid='a'\nwasm='a.wasm'\n{metadata}[[plugins]]\nid='a'\nwasm='b.wasm'\n{metadata}"
-        );
-        assert_eq!(
-            FlexiMarkConfig::from_toml(&duplicate).unwrap_err(),
-            ConfigError::DuplicatePlugin("a".into())
-        );
-        let traversal =
-            format!("schema_version=2\n[[plugins]]\nid='a'\nwasm='../a.wasm'\n{metadata}");
-        assert_eq!(
-            FlexiMarkConfig::from_toml(&traversal).unwrap_err(),
-            ConfigError::PluginPath("../a.wasm".into())
-        );
+    fn plugins_are_unknown_fields() {
+        assert!(matches!(
+            FlexiMarkConfig::from_toml("schema_version=2\n[[plugins]]\nid='old'\n"),
+            Err(ConfigError::Syntax(_))
+        ));
     }
 
     #[test]
@@ -316,7 +197,6 @@ mod tests {
         assert_eq!(config.notes, NotesConfig::default());
         assert_eq!(config.notes.root, ".");
         assert_eq!(config.assets, AssetsConfig::default());
-        assert!(config.plugins.is_empty());
         assert!(FlexiMarkConfig::from_toml("schema_version = 2\nlegacy = true\n").is_err());
     }
 

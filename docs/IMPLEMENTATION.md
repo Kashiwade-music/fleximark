@@ -6,6 +6,7 @@
 
 - `core/{model,parser,render-html,engine,language,plugin-api}` は editor に依存しない文書処理を所有する。
 - `application` は文書・workspace・preview の権威状態と native 操作を所有する。`application/src/native` は filesystem、設定、アセット、note、theme、export を実装する。
+- application の workspace はプラグイン host を保持しない。設定と theme から render policy を作り、config の plugins は通常の未知フィールドとして拒否する。config schema は `contracts/config/schema.template.json` と config の version 定数から codegen で生成する。
 - `runtime/{wasm-plugins,preview-assets}` は Wasmtime と配布資源の実装を所有する。
 - `transports/{lsp,preview-http}` は外部 DTO への変換と通信を所有する。
 - `apps/{server,cli}` はそれぞれ `fleximarkd` と `fleximark` を組み立てる。

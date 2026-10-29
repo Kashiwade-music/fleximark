@@ -37,13 +37,12 @@ fn export_resolves_and_manifests_only_contained_assets() {
     let destination = root.join("public");
     let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
     preflight_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &destination_uri,
         &resolved.html,
         &resolved.assets,
-        false,
     )
     .unwrap();
     let marker: OwnershipMarker =
@@ -80,13 +79,12 @@ fn export_requires_ownership_and_preserves_user_files() {
     fs::write(destination.join("user.txt"), "keep").unwrap();
     let destination_uri = path_to_file_uri(&destination).unwrap();
     assert!(matches!(
-        export_html_with_safety(
+        export_html(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>first</p>",
             &[],
-            false,
         ),
         Err(ServiceError::UnmanagedExport)
     ));
@@ -94,24 +92,22 @@ fn export_requires_ownership_and_preserves_user_files() {
     fs::remove_file(destination.join("user.txt")).unwrap();
     fs::remove_dir(&destination).unwrap();
 
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &destination_uri,
         "<p>first</p>",
         &[],
-        false,
     )
     .unwrap();
     acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
     fs::write(destination.join("user.txt"), "keep").unwrap();
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &destination_uri,
         "<p>second</p>",
         &[],
-        false,
     )
     .unwrap();
     let journal = root.join(".public.fleximark-export-journal.json");
@@ -153,13 +149,12 @@ fn export_requires_ownership_and_preserves_user_files() {
 
     fs::write(destination.join("index.html"), "tampered").unwrap();
     assert!(matches!(
-        export_html_with_safety(
+        export_html(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>third</p>",
             &[],
-            false,
         ),
         Err(ServiceError::ExportContentConflict)
     ));
@@ -183,23 +178,14 @@ fn export_ownership_ids_are_random_and_cannot_be_copied_to_another_destination()
     let first_uri = path_to_file_uri_unchecked(&first).unwrap();
     let second_uri = path_to_file_uri_unchecked(&second).unwrap();
 
-    export_html_with_safety(
-        &source_uri,
-        &workspace_uri,
-        &first_uri,
-        "<p>first</p>",
-        &[],
-        false,
-    )
-    .unwrap();
+    export_html(&source_uri, &workspace_uri, &first_uri, "<p>first</p>", &[]).unwrap();
     acknowledge_export(&source_uri, &workspace_uri, &first_uri).unwrap();
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &second_uri,
         "<p>second</p>",
         &[],
-        false,
     )
     .unwrap();
     acknowledge_export(&source_uri, &workspace_uri, &second_uri).unwrap();
@@ -226,42 +212,6 @@ fn export_ownership_ids_are_random_and_cannot_be_copied_to_another_destination()
 }
 
 #[test]
-fn unsafe_export_output_is_marked_in_html_marker_and_registry() {
-    let root = test_workspace("unsafe-export-marker");
-    let workspace_uri = path_to_file_uri(&root).unwrap();
-    initialize_workspace(&workspace_uri).unwrap();
-    let source = root.join("note.md");
-    fs::write(&source, "# Note\n").unwrap();
-    let source_uri = path_to_file_uri(&source).unwrap();
-    let destination = root.join("public");
-    let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-    export_html_with_safety(
-        &source_uri,
-        &workspace_uri,
-        &destination_uri,
-        "PLUGIN OUTPUT WITHOUT AN HTML HEAD",
-        &[],
-        true,
-    )
-    .unwrap();
-    let html = fs::read_to_string(destination.join("index.html")).unwrap();
-    assert!(html.starts_with("<!-- fleximark-output-safety: unsafe-plugin-html -->"));
-    assert!(html.contains("role=\"alert\""));
-    let marker: OwnershipMarker =
-        read_json_regular(&destination.join(".fleximark-export.json")).unwrap();
-    assert!(marker.payload.unsafe_output_used);
-    let registry_path = fs::read_dir(root.join(".fleximark/export-targets"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let registry: RegistryRecord = read_json_regular(&registry_path).unwrap();
-    assert!(registry.unsafe_output_used);
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn acknowledged_export_rejects_a_swapped_destination_directory() {
     let root = test_workspace("export-directory-swap-test");
     let workspace_uri = path_to_file_uri(&root).unwrap();
@@ -271,13 +221,12 @@ fn acknowledged_export_rejects_a_swapped_destination_directory() {
     let source_uri = path_to_file_uri(&source).unwrap();
     let destination = root.join("public");
     let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &destination_uri,
         "<p>original</p>",
         &[],
-        false,
     )
     .unwrap();
     acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
@@ -320,7 +269,6 @@ fn old_moved_journal_recovers_the_previous_destination() {
         workspace_identity: "workspace".into(),
         destination_identity: destination.to_string_lossy().into_owned(),
         destination_object_identity: object_identity(&staging).unwrap(),
-        unsafe_output_used: false,
     };
     let staging_identity = object_identity(&staging).unwrap();
     let backup_identity = object_identity(&backup).unwrap();
@@ -391,7 +339,6 @@ fn journal_records_are_append_only_and_digest_chained() {
             platform_id: "destination-object".into(),
             kind: "directory".into(),
         },
-        unsafe_output_used: false,
     };
     let journal_identity = create_journal(&path).unwrap();
     let mut journal = ExportJournal {
@@ -471,7 +418,6 @@ fn recovery_refuses_swapped_staging_identity_without_deleting_it() {
                 platform_id: "destination-object".into(),
                 kind: "directory".into(),
             },
-            unsafe_output_used: false,
         },
         staging_identity: object_identity(&staging).unwrap(),
         staging_marker_identity: object_identity(&staging.join(".fleximark-export.json")).unwrap(),
@@ -534,7 +480,6 @@ fn recovery_refuses_replaced_journal_identity_without_touching_staging() {
                 platform_id: "destination-object".into(),
                 kind: "directory".into(),
             },
-            unsafe_output_used: false,
         },
         staging_identity: object_identity(&staging).unwrap(),
         staging_marker_identity: object_identity(&staging.join(".fleximark-export.json")).unwrap(),
@@ -580,13 +525,12 @@ fn representative_export_intents_recover_idempotently_after_an_injected_crash() 
         let source_uri = path_to_file_uri(&source).unwrap();
         let destination = root.join("public");
         let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-        export_html_with_safety(
+        export_html(
             &source_uri,
             &workspace_uri,
             &destination_uri,
             "<p>old</p>",
             &[],
-            false,
         )
         .unwrap();
         acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
@@ -597,7 +541,6 @@ fn representative_export_intents_recover_idempotently_after_an_injected_crash() 
             &destination_uri,
             "<p>new</p>",
             &[],
-            false,
             |checkpoint| {
                 if checkpoint == fault {
                     Err(ServiceError::Io(std::io::Error::other("injected crash")))
@@ -640,23 +583,21 @@ fn acknowledgement_refuses_unrecorded_backup_entries_without_deleting_them() {
     let source_uri = path_to_file_uri(&source).unwrap();
     let destination = root.join("public");
     let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &destination_uri,
         "<p>old</p>",
         &[],
-        false,
     )
     .unwrap();
     acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
-    export_html_with_safety(
+    export_html(
         &source_uri,
         &workspace_uri,
         &destination_uri,
         "<p>new</p>",
         &[],
-        false,
     )
     .unwrap();
     let backup = fs::read_dir(&root)
@@ -676,6 +617,81 @@ fn acknowledgement_refuses_unrecorded_backup_entries_without_deleting_them() {
     assert_eq!(
         fs::read_to_string(backup.join("unrecorded.txt")).unwrap(),
         "do not delete"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn old_export_registry_and_marker_fields_are_rejected() {
+    let root = test_workspace("obsolete-export-fields");
+    let workspace_uri = path_to_file_uri(&root).unwrap();
+    initialize_workspace(&workspace_uri).unwrap();
+    let source = root.join("note.md");
+    fs::write(&source, "# Note").unwrap();
+    let source_uri = path_to_file_uri(&source).unwrap();
+    let destination = root.join("public");
+    let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
+    export_html(
+        &source_uri,
+        &workspace_uri,
+        &destination_uri,
+        "<p>Note</p>",
+        &[],
+    )
+    .unwrap();
+    let marker_path = destination.join(".fleximark-export.json");
+    let mut marker: serde_json::Value =
+        serde_json::from_slice(&fs::read(&marker_path).unwrap()).unwrap();
+    marker["payload"]["unsafeOutputUsed"] = serde_json::json!(false);
+    assert!(serde_json::from_value::<OwnershipMarker>(marker).is_err());
+    let registry_path = fs::read_dir(root.join(".fleximark/export-targets"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut registry: serde_json::Value =
+        serde_json::from_slice(&fs::read(registry_path).unwrap()).unwrap();
+    registry["unsafeOutputUsed"] = serde_json::json!(false);
+    assert!(serde_json::from_value::<RegistryRecord>(registry).is_err());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cancelled_export_preserves_existing_destination() {
+    let root = test_workspace("cancelled-export");
+    let workspace_uri = path_to_file_uri(&root).unwrap();
+    initialize_workspace(&workspace_uri).unwrap();
+    let source = root.join("note.md");
+    fs::write(&source, "# Note").unwrap();
+    let source_uri = path_to_file_uri(&source).unwrap();
+    let destination = root.join("public");
+    let destination_uri = path_to_file_uri_unchecked(&destination).unwrap();
+    export_html(
+        &source_uri,
+        &workspace_uri,
+        &destination_uri,
+        "<p>Original</p>",
+        &[],
+    )
+    .unwrap();
+    let engine =
+        crate::native::open_document(source_uri.clone(), "# Changed".into(), true).unwrap();
+    let token = CancellationToken::default();
+    token.cancel();
+    assert!(matches!(
+        export_document(
+            &engine,
+            &source_uri,
+            &workspace_uri,
+            &destination_uri,
+            &token
+        ),
+        Err(ServiceError::Cancelled)
+    ));
+    assert_eq!(
+        fs::read_to_string(destination.join("index.html")).unwrap(),
+        "<p>Original</p>"
     );
     fs::remove_dir_all(root).unwrap();
 }

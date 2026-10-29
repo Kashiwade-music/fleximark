@@ -1,35 +1,30 @@
-//! Role: Provide deterministic abstract plugin execution for application tests.
+//! Role: Bridge the engine while plugin hooks are removed.
 use fleximark_model::Document;
 use fleximark_plugin_api::{
-    CancellationToken, HostError, PluginExecutor, PluginRun, PreprocessedSource, UnsafeExportOutput,
+    CancellationToken, HostError, PluginExecutor, PluginFailureKind, PluginRun, PreprocessedSource,
+    UnsafeExportOutput,
 };
 use std::collections::BTreeMap;
 
-pub(crate) struct TestPlugins {
-    pub hash: String,
-    pub calls: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
-    pub marker: Option<String>,
-}
+pub(crate) struct EmptyPluginExecutor(pub fleximark_engine::RenderConfig);
 
-impl PluginExecutor for TestPlugins {
+impl PluginExecutor for EmptyPluginExecutor {
     fn config_hash(&self) -> &str {
-        &self.hash
+        &self.0.config_hash
     }
     fn generation(&self) -> u64 {
-        1
+        self.0.config_generation
     }
     fn plugin_set_hash(&self) -> String {
-        self.hash.clone()
+        self.0.plugin_set_hash.clone()
     }
     fn preprocess_source(
         &self,
         _: u64,
         source: &str,
-        _: &CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<PluginRun<PreprocessedSource>, HostError> {
-        if let Some(calls) = &self.calls {
-            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }
+        check(cancellation)?;
         Ok(PluginRun {
             value: PreprocessedSource {
                 text: source.into(),
@@ -42,8 +37,9 @@ impl PluginExecutor for TestPlugins {
         &self,
         _: &str,
         doc: &Document,
-        _: &CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<PluginRun<Document>, HostError> {
+        check(cancellation)?;
         Ok(PluginRun {
             value: doc.clone(),
             diagnostics: vec![],
@@ -53,12 +49,12 @@ impl PluginExecutor for TestPlugins {
         &self,
         _: &str,
         doc: &Document,
-        _: &CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<PluginRun<Document>, HostError> {
-        let mut doc = doc.clone();
-        if let Some(marker) = &self.marker {
-            doc.metadata.front_matter = Some(marker.clone());
-        }
+        #[cfg(test)]
+        crate::cancellation_checks::checkpoint("after_parse");
+        let doc = doc.clone();
+        check(cancellation)?;
         Ok(PluginRun {
             value: doc,
             diagnostics: vec![],
@@ -68,8 +64,9 @@ impl PluginExecutor for TestPlugins {
         &self,
         _: &Document,
         _: &str,
-        _: &CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<PluginRun<BTreeMap<String, String>>, HostError> {
+        check(cancellation)?;
         Ok(PluginRun {
             value: BTreeMap::new(),
             diagnostics: vec![],
@@ -79,8 +76,9 @@ impl PluginExecutor for TestPlugins {
         &self,
         _: u64,
         html: String,
-        _: &CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<PluginRun<UnsafeExportOutput>, HostError> {
+        check(cancellation)?;
         Ok(PluginRun {
             value: UnsafeExportOutput {
                 html,
@@ -88,5 +86,17 @@ impl PluginExecutor for TestPlugins {
             },
             diagnostics: vec![],
         })
+    }
+}
+
+fn check(token: &CancellationToken) -> Result<(), HostError> {
+    if token.is_cancelled() {
+        Err(HostError::RequiredPluginFailed {
+            plugin_id: "internal".into(),
+            kind: PluginFailureKind::Cancelled,
+            message: "operation cancelled".into(),
+        })
+    } else {
+        Ok(())
     }
 }

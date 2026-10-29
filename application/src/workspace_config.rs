@@ -36,9 +36,9 @@ impl SessionRegistry {
         let mut statuses = Vec::new();
         let mut grants = Vec::new();
         for (uri, trusted) in roots {
-            match native::configured_host(&uri, trusted, generation) {
-                Ok((host, config)) => {
-                    configured.push((uri.clone(), host, config));
+            match native::configured_render_config(&uri, trusted, generation) {
+                Ok(config) => {
+                    configured.push((uri.clone(), config));
                     grants.push((uri.clone(), trusted, true));
                     statuses.push(WorkspaceConfigurationStatus {
                         uri,
@@ -97,7 +97,7 @@ impl SessionRegistry {
             .config_generation
             .checked_add(1)
             .ok_or_else(|| SessionError::Engine("configuration generation exhausted".into()))?;
-        let (host, config) = native::configured_host(uri, trusted, generation)
+        let config = native::configured_render_config(uri, trusted, generation)
             .map_err(|error| SessionError::Engine(error.to_string()))?;
         let mut assets = HashMap::new();
         for (document_uri, document) in self.workspace_documents(uri) {
@@ -109,7 +109,7 @@ impl SessionRegistry {
             };
             assets.insert(document_uri, resolved);
         }
-        self.reconfigure_workspace(uri, host, config, assets, cancellation)?;
+        self.reconfigure_workspace(uri, config, assets, cancellation)?;
         self.set_workspace_status(uri, trusted, true);
         self.config_generation = generation;
         Ok(())

@@ -416,7 +416,6 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
         fs::write(
             root.join(".fleximark/config.toml"),
             r#"schema_version = 2
-plugins = []
 [notes]
 file_name_prefix = "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
 file_name_suffix = ""

@@ -119,20 +119,8 @@ fn cancellation_intake_stops_requests_and_obsolete_document_work() {
 fn operational_trace_is_correlated_and_redacts_document_data() {
     let uri = "file:///C:/private/work/secret.md";
     let trace = OperationalTrace::new(Some(uri), Some("session-7"), Some(12));
-    let first = trace.event(
-        "transform-complete",
-        Duration::from_millis(2),
-        None,
-        false,
-        false,
-    );
-    let second = trace.event(
-        "render-complete",
-        Duration::from_millis(3),
-        Some(9),
-        false,
-        false,
-    );
+    let first = trace.event("transform-complete", Duration::from_millis(2), None, false);
+    let second = trace.event("render-complete", Duration::from_millis(3), Some(9), false);
     assert_eq!(first["correlationId"], second["correlationId"]);
     assert_eq!(second["renderRevision"], 9);
     assert_eq!(first["uriHash"].as_str().unwrap().len(), 64);

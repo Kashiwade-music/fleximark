@@ -1,8 +1,6 @@
-//! Role: Associate workspace roots with abstract plugin execution and render policies.
-use std::sync::Arc;
+//! Role: Associate workspace roots with trust and render policies.
 
 use fleximark_engine::RenderConfig;
-use fleximark_plugin_api::PluginExecutor;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WorkspaceRoot(String);
@@ -12,7 +10,6 @@ pub struct Workspace {
     pub enabled: bool,
     root: WorkspaceRoot,
     canonical_root: Option<std::path::PathBuf>,
-    host: Option<Arc<dyn PluginExecutor>>,
     render: RenderConfig,
 }
 
@@ -24,10 +21,10 @@ pub(super) struct WorkspaceAuthority {
 impl WorkspaceAuthority {
     pub(super) fn replace_roots(
         &mut self,
-        workspaces: Vec<(String, Arc<dyn PluginExecutor>, RenderConfig)>,
+        workspaces: Vec<(String, RenderConfig)>,
     ) -> Result<(), crate::error::SessionError> {
         let mut canonical_roots = std::collections::HashSet::new();
-        for (uri, _, _) in &workspaces {
+        for (uri, _) in &workspaces {
             if let Ok(path) = crate::native::workspace_path(uri) {
                 if !canonical_roots.insert(path) {
                     return Err(crate::error::SessionError::Engine(
@@ -38,12 +35,11 @@ impl WorkspaceAuthority {
         }
         self.rooted = workspaces
             .into_iter()
-            .map(|(uri, host, render)| Workspace {
+            .map(|(uri, render)| Workspace {
                 trusted: true,
                 enabled: true,
                 canonical_root: crate::native::workspace_path(&uri).ok(),
                 root: WorkspaceRoot(uri.trim_end_matches('/').to_owned()),
-                host: Some(host),
                 render,
             })
             .collect();
@@ -54,7 +50,6 @@ impl WorkspaceAuthority {
     pub(super) fn revoke(&mut self, uri: &str) {
         if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.root.0 == uri) {
             entry.trusted = false;
-            entry.host = None;
             entry.render = RenderConfig::default();
         }
     }
@@ -87,7 +82,6 @@ impl WorkspaceAuthority {
                 canonical_root: crate::native::workspace_path(uri).ok(),
                 trusted,
                 enabled,
-                host: None,
                 render: RenderConfig::default(),
             });
             self.sort_roots();
@@ -106,29 +100,20 @@ impl WorkspaceAuthority {
         self.select(document_uri)
             .map(|entry| (entry.root.0.clone(), entry.trusted))
     }
-    pub(super) fn matching(
-        &self,
-        document_uri: &str,
-    ) -> Option<(&str, &Arc<dyn PluginExecutor>, &RenderConfig)> {
+    pub(super) fn matching(&self, document_uri: &str) -> Option<(&str, &RenderConfig)> {
         let entry = self.select(document_uri)?;
         if !entry.enabled {
             return None;
         }
-        Some((entry.root.0.as_str(), entry.host.as_ref()?, &entry.render))
+        Some((entry.root.0.as_str(), &entry.render))
     }
 
-    pub(super) fn replace(
-        &mut self,
-        workspace_uri: &str,
-        host: Arc<dyn PluginExecutor>,
-        render: RenderConfig,
-    ) {
+    pub(super) fn replace(&mut self, workspace_uri: &str, render: RenderConfig) {
         if let Some(entry) = self
             .rooted
             .iter_mut()
             .find(|entry| entry.root.0 == workspace_uri)
         {
-            entry.host = Some(host);
             entry.render = render;
         } else {
             self.rooted.push(Workspace {
@@ -136,7 +121,6 @@ impl WorkspaceAuthority {
                 enabled: true,
                 canonical_root: crate::native::workspace_path(workspace_uri).ok(),
                 root: WorkspaceRoot(workspace_uri.to_owned()),
-                host: Some(host),
                 render,
             });
             self.sort_roots();

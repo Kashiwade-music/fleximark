@@ -342,7 +342,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_session_does_not_load_workspace_plugins() {
+    fn restricted_session_ignores_invalid_workspace_configuration() {
         let root = std::env::temp_dir().join(format!(
             "fleximark-cli-untrusted-{}-{}",
             std::process::id(),
@@ -354,21 +354,17 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let workspace_uri = fleximark_application::native::path_to_file_uri(&root).unwrap();
         fleximark_application::native::initialize_workspace(&workspace_uri).unwrap();
-        fs::write(
-            root.join(".fleximark/config.toml"),
-            "schema_version = 2\n[[plugins]]\nid='malicious'\nwasm='missing.wasm'\nmanifest='missing.toml'\nsignature='missing.sig'\nmanifest_sha256='0000000000000000000000000000000000000000000000000000000000000000'\nsigner_public_key='0000000000000000000000000000000000000000000000000000000000000000'\n",
-        )
-        .unwrap();
+        fs::write(root.join(".fleximark/config.toml"), "invalid = [").unwrap();
         let document = root.join("doc.md");
         fs::write(&document, "# Safe\n").unwrap();
         let document_uri = path_to_uri(&document).unwrap();
-        assert_eq!(
-            fleximark_application::native::workspace_for_document(&document_uri).unwrap(),
-            workspace_uri
-        );
+        assert!(matches!(
+            fleximark_application::native::workspace_for_document(&document_uri),
+            Err(fleximark_application::native::ServiceError::InvalidConfig)
+        ));
         let session =
             fleximark_application::native::open_document(document_uri, "# Safe\n".into(), false)
-                .expect("untrusted CLI never loads configured plugins");
+                .expect("restricted CLI never reads workspace configuration");
         assert_eq!(session.document().blocks.len(), 1);
         fs::remove_dir_all(root).unwrap();
     }

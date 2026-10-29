@@ -34,7 +34,6 @@ impl OperationalTrace {
         stage: &str,
         stage_duration: Duration,
         render_revision: Option<u64>,
-        plugin_failure: bool,
         recovery: bool,
     ) -> Value {
         json!({
@@ -47,14 +46,13 @@ impl OperationalTrace {
             "renderRevision":render_revision,
             "elapsedMs":self.started.elapsed().as_secs_f64() * 1_000.0,
             "stageDurationMs":stage_duration.as_secs_f64() * 1_000.0,
-            "pluginFailure":plugin_failure,
             "restart":false,
             "recovery":recovery
         })
     }
 
     pub(crate) fn log(&self, stage: &str) {
-        eprintln!("{}", self.event(stage, Duration::ZERO, None, false, false));
+        eprintln!("{}", self.event(stage, Duration::ZERO, None, false));
     }
 }
 

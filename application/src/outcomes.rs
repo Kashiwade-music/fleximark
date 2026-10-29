@@ -22,7 +22,6 @@ pub struct ThemeResource {
 pub struct ExportReceipt {
     pub output_uri: String,
     pub generation: u64,
-    pub unsafe_output: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

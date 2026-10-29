@@ -1,5 +1,7 @@
 //! Role: Own native document, workspace, and preview services.
+mod cancellation_checks;
 mod document;
+mod empty_executor;
 mod outcomes;
 mod registry;
 pub use registry::SessionRegistry;
@@ -30,7 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_engine::{DocumentEngine as EngineSession, RenderConfig, ResolvedAssets};
 use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
-use fleximark_plugin_api::{CancellationToken, PluginExecutor};
+use fleximark_plugin_api::CancellationToken;
 
 pub use error::SessionError;
 use error::engine_error;
@@ -72,7 +74,7 @@ impl SessionRegistry {
 
     pub fn configure_workspaces(
         &mut self,
-        workspaces: Vec<(String, Arc<dyn PluginExecutor>, RenderConfig)>,
+        workspaces: Vec<(String, RenderConfig)>,
     ) -> Result<(), SessionError> {
         if !self.index.is_empty() {
             return Err(SessionError::Engine(
@@ -133,13 +135,14 @@ impl SessionRegistry {
     pub fn reconfigure_workspace(
         &mut self,
         workspace_uri: &str,
-        host: Arc<dyn PluginExecutor>,
         render_config: RenderConfig,
         mut assets: HashMap<String, ResolvedAssets>,
         cancellation: &CancellationToken,
     ) -> Result<(), SessionError> {
+        if cancellation.is_cancelled() {
+            return Err(SessionError::Cancelled);
+        }
         let workspace_uri = workspace_uri.trim_end_matches('/');
-        let host = host;
         let mut replacements = Vec::new();
         for (uri, session) in self.index.iter() {
             if session.workspace_uri.as_deref() == Some(workspace_uri) {
@@ -152,15 +155,16 @@ impl SessionRegistry {
                     session.engine.document().document_version,
                     session.engine.source().to_owned(),
                     session.engine.position_encoding(),
-                    config,
-                    Arc::clone(&host),
+                    config.clone(),
+                    Arc::new(crate::empty_executor::EmptyPluginExecutor(config)),
                     cancellation,
                 )
                 .map_err(engine_error)?;
                 replacements.push((uri.to_owned(), engine));
             }
         }
-        self.workspaces.replace(workspace_uri, host, render_config);
+        cancellation_checks::check(cancellation, "reconfigure_commit")?;
+        self.workspaces.replace(workspace_uri, render_config);
         for (uri, engine) in replacements {
             self.index
                 .by_uri_mut(&uri)
@@ -177,6 +181,7 @@ impl SessionRegistry {
         params: DidOpenParams,
         cancellation: &CancellationToken,
     ) -> Result<(), SessionError> {
+        cancellation_checks::check(cancellation, "open_start")?;
         let item = params.text_document;
         if self
             .workspace_for_document(&item.uri)
@@ -194,18 +199,16 @@ impl SessionRegistry {
         let workspace = self
             .workspaces
             .matching(&item.uri)
-            .map(|(workspace_uri, host, config)| {
-                (workspace_uri.to_owned(), Arc::clone(host), config.clone())
-            });
+            .map(|(workspace_uri, config)| (workspace_uri.to_owned(), config.clone()));
         let workspace_uri = self.workspace_for_document(&item.uri).map(|(uri, _)| uri);
         let engine = match workspace {
-            Some((_, host, config)) => EngineSession::open_configured(
+            Some((_, config)) => EngineSession::open_configured(
                 DocumentUri(item.uri.clone()),
                 version,
                 item.text.clone(),
                 self.position_encoding,
-                config,
-                host,
+                config.clone(),
+                Arc::new(crate::empty_executor::EmptyPluginExecutor(config)),
                 cancellation,
             )
             .map_err(engine_error),
@@ -217,6 +220,7 @@ impl SessionRegistry {
             )
             .map_err(engine_error),
         }?;
+        cancellation_checks::check(cancellation, "open_commit")?;
         let id = format!("document-{}", NEXT_DAEMON.fetch_add(1, Ordering::Relaxed));
         self.index.insert(DocumentSession {
             id,
@@ -233,6 +237,10 @@ impl SessionRegistry {
         params: DidChangeParams,
         cancellation: &CancellationToken,
     ) -> Result<(), SessionError> {
+        if cancellation.is_cancelled() {
+            self.mark_out_of_sync(&params.text_document.uri, "document update cancelled");
+            return Err(SessionError::Cancelled);
+        }
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         let current = self.index.by_uri(&uri).ok_or(SessionError::NotOpen)?;
@@ -271,18 +279,22 @@ impl SessionRegistry {
         let text = params.content_changes[0].text.clone();
 
         let session = self.index.by_uri_mut(&uri).ok_or(SessionError::NotOpen)?;
-        let result = if session.engine.is_out_of_sync() {
-            session
-                .engine
-                .resynchronize_with_cancellation(version_u64, text.clone(), cancellation)
+        let mut candidate = session.engine.clone();
+        let result = if candidate.is_out_of_sync() {
+            candidate.resynchronize_with_cancellation(version_u64, text, cancellation)
         } else {
-            session.engine.change_full_text_with_cancellation(
-                version_u64,
-                text.clone(),
-                cancellation,
-            )
+            candidate.change_full_text_with_cancellation(version_u64, text, cancellation)
         };
+        if cancellation.is_cancelled() {
+            session.engine.mark_out_of_sync();
+            return Err(SessionError::Cancelled);
+        }
         result.map_err(engine_error)?;
+        if let Err(error) = cancellation_checks::check(cancellation, "change_commit") {
+            session.engine.mark_out_of_sync();
+            return Err(error);
+        }
+        session.engine = candidate;
         Ok(())
     }
 
@@ -469,7 +481,5 @@ impl SessionRegistry {
     }
 }
 
-#[cfg(test)]
-mod test_plugins;
 #[cfg(test)]
 mod tests;

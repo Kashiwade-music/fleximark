@@ -3,6 +3,7 @@ use fleximark_engine::EngineError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SessionError {
+    Cancelled,
     RevisionExhausted,
     NotOpen,
     UnknownSession,
@@ -17,6 +18,7 @@ pub enum SessionError {
 impl std::fmt::Display for SessionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cancelled => write!(f, "operation cancelled"),
             Self::RevisionExhausted => write!(f, "preview revision counter exhausted"),
             Self::NotOpen => write!(f, "document is not open"),
             Self::UnknownSession => write!(f, "document session is unknown or no longer active"),

@@ -24,7 +24,7 @@ fleximark-wire = ["fleximark-protocol", "fleximark-protocol-codegen", "fleximark
 fleximark-migration = ["fleximark-application", "fleximark-cli"]
 fleximark-cli = []
 fleximarkd = []
-fleximark-config = ["fleximark-application", "fleximark-cli", "fleximarkd", "fleximark-migration"]
+fleximark-config = ["fleximark-application", "fleximark-cli", "fleximarkd", "fleximark-migration", "fleximark-protocol-codegen"]
 fleximark-plugin-sdk = ["fleximark-application", "fleximark-config", "fleximark-plugin-host", "fleximark-cli", "fleximarkd", "fleximark-migration"]
 
 # Established serialization/schema derives generate external trait impls.

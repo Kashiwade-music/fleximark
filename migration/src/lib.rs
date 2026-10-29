@@ -184,7 +184,9 @@ pub fn plan(workspace: &Path, editor_settings: Option<&Path>) -> io::Result<Migr
         }
     }
     if control.join("parserPlugin.js").try_exists()? {
-        warnings.push("Unsupported JavaScript plugin preserved and disabled; replace it with a signed WASM plugin.".into());
+        warnings.push(
+            "Unsupported JavaScript plugin is not migrated and has no replacement feature.".into(),
+        );
     }
     let attachments = workspace.join("attachments");
     let roots = if attachments.try_exists()? {
@@ -197,7 +199,6 @@ pub fn plan(workspace: &Path, editor_settings: Option<&Path>) -> io::Result<Migr
         schema_version: 2,
         notes,
         assets: AssetsConfig { roots },
-        plugins: vec![],
     };
     config.validate().map_err(io::Error::other)?;
     if let Some(current) = current_config {

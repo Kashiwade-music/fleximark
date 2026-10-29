@@ -412,14 +412,23 @@ impl Server {
         trace.log("change-received");
         let transform_started = Instant::now();
         if let Err(error) = self.apply_document_change(params) {
-            let _ = error;
+            if error == SessionError::Cancelled {
+                if let (Some(session), Ok(version)) = (
+                    self.registry.session_id_for_uri(&uri).map(str::to_owned),
+                    u64::try_from(document_version)
+                        .ok()
+                        .and_then(|value| JsSafeU64::new(value).ok())
+                        .ok_or(()),
+                ) {
+                    self.mark_preview_document_version(&session, version);
+                }
+            }
             eprintln!(
                 "{}",
                 trace.event(
                     "document-sync-failed",
                     transform_started.elapsed(),
                     None,
-                    true,
                     false,
                 )
             );
@@ -450,7 +459,6 @@ impl Server {
                 transform_started.elapsed(),
                 None,
                 false,
-                false,
             )
         );
         if !self.refresh_changed_document_assets(&uri, &trace) {
@@ -471,13 +479,7 @@ impl Server {
             let _ = error;
             eprintln!(
                 "{}",
-                trace.event(
-                    "asset-refresh-failed",
-                    asset_started.elapsed(),
-                    None,
-                    false,
-                    false,
-                )
+                trace.event("asset-refresh-failed", asset_started.elapsed(), None, false,)
             );
             return false;
         }

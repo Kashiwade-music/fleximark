@@ -197,7 +197,7 @@ mod tests {
     //! Role: Verify workspace operations and security invariants.
     use super::*;
     use crate::native::test_support::test_workspace;
-    use crate::native::{create_note, get_note_options, load_plugin_host};
+    use crate::native::{configured_render_config, create_note, get_note_options};
 
     #[test]
     fn commented_examples_are_valid_and_leave_defaults_unchanged() {
@@ -208,7 +208,6 @@ mod tests {
         assert!(defaults.notes.categories.is_empty());
         assert!(defaults.notes.templates.is_empty());
         assert!(defaults.assets.roots.is_empty());
-        assert!(defaults.plugins.is_empty());
 
         let examples = CONFIG
             .lines()
@@ -297,11 +296,11 @@ mod tests {
             Err(ServiceError::LinkedControlDirectory)
         ));
         assert!(matches!(
-            load_plugin_host(&uri, true, 1),
+            configured_render_config(&uri, true, 1),
             Err(ServiceError::LinkedControlDirectory)
         ));
         assert!(
-            load_plugin_host(&uri, false, 1).is_ok(),
+            configured_render_config(&uri, false, 1).is_ok(),
             "restricted configuration must not inspect a linked control directory"
         );
         assert_eq!(
@@ -331,7 +330,7 @@ mod tests {
         )
         .unwrap();
         let uri = path_to_file_uri(&root).unwrap();
-        let (_, config) = load_plugin_host(&uri, true, 1).unwrap();
+        let config = configured_render_config(&uri, true, 1).unwrap();
         assert!(config.style.is_none());
         initialize_workspace(&uri).unwrap();
         assert!(control.join("config.toml").is_file());

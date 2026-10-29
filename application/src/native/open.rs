@@ -29,14 +29,14 @@ pub fn open_document(
             PositionEncoding::Utf8,
         )?);
     };
-    let (host, config) = super::load_plugin_host(&workspace, true, 1)?;
+    let config = super::configured_render_config(&workspace, true, 1)?;
     let mut engine = DocumentEngine::open_configured(
         DocumentUri(uri),
         1,
         source,
         PositionEncoding::Utf8,
-        config,
-        Arc::new(host),
+        config.clone(),
+        Arc::new(crate::empty_executor::EmptyPluginExecutor(config)),
         &CancellationToken::default(),
     )?;
     refresh_document_assets(&mut engine, &workspace)?;

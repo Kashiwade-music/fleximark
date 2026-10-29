@@ -13,8 +13,8 @@ pub(crate) fn reject_linked_path(
         if metadata.file_type().is_symlink()
             || (index + 1 == relative.components().count() && final_directory && !metadata.is_dir())
         {
-            return Err(ServiceError::PluginConfig(
-                "plugin package contains a linked or invalid path component".to_owned(),
+            return Err(ServiceError::LinkedPath(
+                "workspace contains a linked or invalid path component".to_owned(),
             ));
         }
     }

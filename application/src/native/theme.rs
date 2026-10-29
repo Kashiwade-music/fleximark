@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::outcomes::ThemeResource;
 use fleximark_engine::{RenderConfig, RenderStyle};
-use fleximark_plugin_host::PluginHost;
 
 use crate::native::paths::reject_linked_path;
 use crate::native::workspace::open_control_directory;
@@ -24,9 +23,44 @@ pub fn edit_theme(workspace_uri: &str) -> Result<ThemeResource, ServiceError> {
     })
 }
 
+pub fn configured_render_config(
+    workspace_uri: &str,
+    trusted: bool,
+    generation: u64,
+) -> Result<RenderConfig, ServiceError> {
+    use super::workspace::{CONFIG, open_regular_nofollow};
+    use fleximark_config::FlexiMarkConfig;
+    use std::io::Read;
+    let workspace = workspace_path(workspace_uri)?;
+    let source = if trusted {
+        match open_control_directory(&workspace, false)? {
+            Some(control) => match open_regular_nofollow(&control, Path::new("config.toml")) {
+                Ok(mut file) => {
+                    let mut source = String::new();
+                    file.read_to_string(&mut source)?;
+                    source
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => CONFIG.to_owned(),
+                Err(error) => return Err(error.into()),
+            },
+            None => CONFIG.to_owned(),
+        }
+    } else {
+        CONFIG.to_owned()
+    };
+    FlexiMarkConfig::from_toml(&source).map_err(|_| ServiceError::InvalidConfig)?;
+    render_config(
+        &workspace,
+        super::integrity::sha256(source.as_bytes()),
+        generation,
+        trusted,
+    )
+}
+
 pub(crate) fn render_config(
     workspace: &Path,
-    host: &PluginHost,
+    config_hash: String,
+    generation: u64,
     trusted: bool,
 ) -> Result<RenderConfig, ServiceError> {
     let mut context = RenderConfig::default().context;
@@ -36,7 +70,13 @@ pub(crate) fn render_config(
     } else {
         None
     };
-    Ok(RenderConfig::for_plugins(context, style, host))
+    let mut config = RenderConfig::default();
+    config.context = context;
+    config.style = style;
+    config.config_hash = config_hash;
+    config.config_generation = generation;
+    config.plugin_generation = generation;
+    Ok(config)
 }
 
 fn load_theme_style(workspace: &Path) -> Result<Option<RenderStyle>, ServiceError> {
@@ -158,7 +198,7 @@ mod tests {
     use super::*;
     use crate::native::integrity::sha256;
     use crate::native::test_support::test_workspace;
-    use crate::native::{initialize_workspace, load_plugin_host};
+    use crate::native::{configured_render_config, initialize_workspace};
     #[test]
     fn trusted_theme_is_typed_and_css_url_bypasses_are_rejected() {
         let root = test_workspace("theme-policy-test");
@@ -169,7 +209,7 @@ mod tests {
             ":root { --accent: blue; }",
         )
         .unwrap();
-        let (_, configured) = load_plugin_host(&uri, true, 1).unwrap();
+        let configured = configured_render_config(&uri, true, 1).unwrap();
         let style = configured.style.expect("trusted canonical theme is loaded");
         assert_eq!(style.css(), ":root { --accent: blue; }");
         assert_eq!(style.fingerprint(), sha256(style.css().as_bytes()));
@@ -180,10 +220,10 @@ mod tests {
             "@\\69mport 'https://evil.example/x';",
         ] {
             fs::write(root.join(".fleximark/theme.css"), bypass).unwrap();
-            let (_, rejected) = load_plugin_host(&uri, true, 2).unwrap();
+            let rejected = configured_render_config(&uri, true, 2).unwrap();
             assert!(rejected.style.is_none());
         }
-        let (_, untrusted) = load_plugin_host(&uri, false, 3).unwrap();
+        let untrusted = configured_render_config(&uri, false, 3).unwrap();
         assert!(untrusted.style.is_none());
         fs::remove_dir_all(root).unwrap();
     }

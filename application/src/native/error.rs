@@ -2,6 +2,7 @@
 
 #[derive(Debug)]
 pub enum ServiceError {
+    Cancelled,
     InvalidWorkspaceUri,
     LinkedControlDirectory,
     NotInitialized,
@@ -14,7 +15,7 @@ pub enum ServiceError {
     ExportContentConflict,
     ReservedExportPath,
     InvalidExportDestination,
-    PluginConfig(String),
+    LinkedPath(String),
     ExportRecoveryConflict,
     ExportAwaitingAcknowledgement,
     Engine(fleximark_engine::EngineError),
@@ -25,6 +26,7 @@ pub enum ServiceError {
 impl std::fmt::Display for ServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cancelled => write!(f, "operation cancelled"),
             Self::InvalidWorkspaceUri => f.write_str("workspace URI must be a local file URI"),
             Self::LinkedControlDirectory => {
                 f.write_str("refusing a workspace whose .fleximark path is a symbolic link")
@@ -53,7 +55,7 @@ impl std::fmt::Display for ServiceError {
             Self::InvalidExportDestination => {
                 f.write_str("export destination must have an existing local parent directory")
             }
-            Self::PluginConfig(value) => write!(f, "plugin configuration is invalid: {0}", value),
+            Self::LinkedPath(value) => write!(f, "workspace path is invalid: {0}", value),
             Self::ExportRecoveryConflict => {
                 f.write_str("export recovery journal is invalid or conflicts with filesystem state")
             }

@@ -1,7 +1,7 @@
 # リファクタリング進捗ログ
 
 ## 状態
-- 現在のフェーズ: P0 / P1-T1
+- 現在のフェーズ: P1-T2〜P1-T5
 - 最終更新: 2026-10-29
 - 起点: `fd5cd1a`、ブランチ `feat/kashiwade/big-update`
 
@@ -18,28 +18,35 @@
 ## タスク
 | ID | 状態 | コミット | 備考 |
 |---|---|---|---|
-| P0-T1 | 完了 | | 全 suite の成功を確認。一括コマンドの lockfile 停止は上記に記録 |
-| P0-T2 | 完了 | | HEAD は指示書の起点と一致。指摘された旧 API を現コードで確認 |
-| P1-T1 | 進行中 | | GPT-6.1 Sol low に所有範囲と暫定 engine 境界を指定 |
+| P0-T1 | 完了 | 67980e9 | 全 suite の成功を確認。一括コマンドの lockfile 停止は上記に記録 |
+| P0-T2 | 完了 | 67980e9 | HEAD は指示書の起点と一致。指摘された旧 API を現コードで確認 |
+| P1-T1 | 完了 | 本コミット | host/SDK/config/unsafe export/診断を撤去。レビュー2件を修正。generate all、check、test の全工程成功 |
 
 ## 判断の記録
 | 日付 | タスク | 判断 | 理由 |
 |---|---|---|---|
 | 2026-10-29 | 全体 | 完了後に commit / push を行う | 今回の利用者の明示指示を、指示書 D6 と §13 の push 禁止より優先する |
 | 2026-10-29 | P1-T1 | 空の executor は application 内部の engine 境界だけに暫定配置する | 外側の host / SDK の撤去と core 縮約をビルド可能な単位に分ける。P1-T2 で削除する |
+| 2026-10-29 | P1-T1 | config schema のテンプレートを生成元とし、version を Rust 定数から設定する | 従来の schema は生成元がなく手書きだった。既存の安全なパス・予約名パターンを維持してプラグイン項目を除く |
+| 2026-10-29 | P1-T1 | レビュー2件を修正する | schema テンプレート読込みの文字コードを UTF-8 に固定し、実行中のキャンセルを暫定 executor と application の反映境界で拒否する |
 
 ## 指示書からの逸脱
 | タスク | 逸脱の内容 | 理由 | 影響 |
 |---|---|---|---|
 | 全体 | 完了後に push する | 利用者の明示指示 | 現ブランチを origin に送る。PR とタグは作成しない |
 | P0-T1 | 基準線 test の最終工程を別実行した | 完了前に P1-T1 の manifest 編集を始めたため codegen の `--locked` が停止した | 各 suite は成功したが一括実行の成功時間は未取得。以後の関門は編集を止めて一括実行する |
+| P1-T2〜P1-T5 | core の型削除に必要な crate 撤去・tooling・TS 追従を一つの検証可能な単位で統合する | plugin SDK/runtime/fixture が削除対象 model と plugin-api に直接依存するため、指定順では途中コミットがビルド不能になる | タスク ID ごとに結果を記録し、全 check/test 成功後だけコミットする |
 
 ## 機能チェックリストの結果
 フェーズ終了時に F1〜F16 の対応テストと実行結果を記録する。
 
+P1-T1 の関門: `mise run generate all`、`mise run check`、`mise run test` 成功。application 53 テスト、Node 115 テストを含む。GUI の editor smoke はフェーズ終了時に実行する。ログは `.build/refactoring/p1-t1-{generate,check,test}-final.log`。
+
 ## テストの観点の対応表（P6-T1）
 | 旧テスト | 観点 | 新しいテスト |
 |---|---|---|
+| application/tests/engine_pipeline.rs | source/document/frame/revision の取消時保持 | application/src/preview_tests.rs の cancelled_change_retains_source_document_frame_and_revision と既存 publication テスト |
+| application の plugin export テスト | export の取消時既存出力保持、旧registry拒否 | native/export/tests.rs の cancelled_export_preserves_existing_destination、old_export_registry_and_marker_fields_are_rejected |
 
 ## 残課題
 - 指示書 P1〜P6 の実装・検証・フェーズレビュー。

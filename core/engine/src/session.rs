@@ -12,6 +12,7 @@ use crate::provenance::remap_document_provenance;
 use fleximark_parser::{ParseError, parse};
 use fleximark_plugin_api::{PluginRun, PreprocessedSource};
 
+#[derive(Clone)]
 pub struct DocumentEngine {
     pub(super) source: String,
     pub(super) position_encoding: PositionEncoding,

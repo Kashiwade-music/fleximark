@@ -1,4 +1,5 @@
 //! Role: Generate schemas and TypeScript from the current Rust wire contract.
+mod configuration;
 mod fixtures;
 mod typescript;
 use fixtures::{generate_render_frame_fixture, render_fixture};
@@ -62,6 +63,10 @@ fn run() -> Result<(), String> {
         .to_path_buf();
     let named = named_schemas();
     let outputs = [
+        (
+            root.join("contracts/schemas/config.schema.json"),
+            configuration::schema()?,
+        ),
         (root.join(SCHEMA_PATH), generate_protocol_schema(&named)?),
         (root.join(TYPESCRIPT_PATH), generate_typescript(&named)?),
         (
