@@ -20,7 +20,7 @@ fn next_output(output: &CoalescingOutput) -> Value {
     let (queue, ready) = &*output.state;
     let mut queue = queue.lock().unwrap();
     loop {
-        if let Some(message) = queue.pop_front() {
+        if let Some(message) = queue.messages.pop_front() {
             return message;
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -450,4 +450,58 @@ fn configuration_continuation_keeps_lsp_and_http_pending_until_latest_assets_are
         sender.send(InputEvent::Closed).unwrap();
         worker.join().unwrap();
     }
+}
+
+#[test]
+fn failed_stdout_unblocks_actor_and_drops_pending_http_reply() {
+    struct FailedWriter;
+    impl Write for FailedWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "stdout fixture closed",
+            ))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let (_directory, server, workspace, document) = fixture();
+    let request = serde_json::from_value(json!({
+        "context":{"workspaceUri":workspace,"documentUri":document,"documentVersion":1},
+        "operation":{"command":"exportHtml","destinationUri":null}
+    }))
+    .unwrap();
+    let (sender, receiver) = mpsc::channel();
+    let coordinator = Arc::new(CancellationCoordinator::default());
+    let output = CoalescingOutput::default();
+    let mut operations = ActorOperations::new(sender.clone(), coordinator.clone());
+    let (started, entered) = mpsc::channel();
+    let gate = Arc::new(std::sync::Barrier::new(2));
+    let worker_gate = gate.clone();
+    operations.before_execute = Some(Arc::new(move || {
+        started.send(()).unwrap();
+        worker_gate.wait();
+    }));
+    let actor_output = output.clone();
+    let actor = thread::spawn(move || {
+        run_actor(server, &coordinator, &actor_output, receiver, operations).is_err()
+    });
+    let (reply, response) = mpsc::channel();
+    sender
+        .send(InputEvent::Workspace {
+            request: crate::preview_http::WorkspaceRequest::Command(request),
+            reply,
+        })
+        .unwrap();
+    entered.recv_timeout(Duration::from_secs(2)).unwrap();
+    output.push(json!({"id":"pending-output","result":null}));
+    assert!(forward_output(&output, &mut FailedWriter, &sender).is_err());
+    assert_eq!(output.pop(), None);
+    assert!(matches!(
+        response.recv_timeout(Duration::from_secs(2)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    ));
+    assert!(actor.join().unwrap());
+    gate.wait();
 }

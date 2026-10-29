@@ -17,21 +17,14 @@ pub fn run(
     resources: Arc<fleximark_preview_assets::PreviewAssets>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let output = CoalescingOutput::default();
-    let writer_output = output.clone();
-    thread::spawn(move || {
-        let mut writer = BufWriter::new(io::stdout());
-        loop {
-            let message = writer_output.pop();
-            if let Err(error) = write_frame(&mut writer, &message) {
-                log_operational_failure("stdout-write-failed", &error, None, None, None);
-                break;
-            }
-        }
-    });
     let (browser_outgoing, browser_incoming) = mpsc::channel::<Value>();
     let coordinator = Arc::new(CancellationCoordinator::default());
     let input_coordinator = Arc::clone(&coordinator);
     let (input_sender, input_receiver) = mpsc::channel::<InputEvent>();
+    let mut server = Server::with_assets(Some(browser_outgoing), assets)?;
+    server.set_preview_assets(resources);
+    install_workspace_handler(&server, input_sender.clone());
+
     let reader_sender = input_sender.clone();
     thread::spawn(move || {
         let input_sender = reader_sender;
@@ -87,12 +80,65 @@ pub fn run(
             }
         }
     });
-    let mut server = Server::with_assets(Some(browser_outgoing), assets)?;
-    server.set_preview_assets(resources);
-    install_workspace_handler(&server, input_sender.clone());
 
+    let writer_output = output.clone();
+    let writer_sender = input_sender.clone();
+    let writer = thread::Builder::new()
+        .name("stdio-output".into())
+        .spawn(move || {
+            let mut writer = BufWriter::new(io::stdout());
+            forward_output(&writer_output, &mut writer, &writer_sender)
+        })?;
     let operations = ActorOperations::new(input_sender, coordinator.clone());
-    run_actor(server, &coordinator, &output, input_receiver, operations)
+    let actor_result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_actor(server, &coordinator, &output, input_receiver, operations)
+    })) {
+        Ok(result) => result,
+        Err(_) => Err(io::Error::other("stdio actor panicked").into()),
+    };
+    let writer_result = finish_output(&output, writer);
+    writer_result?;
+    actor_result
+}
+
+fn forward_output(
+    output: &CoalescingOutput,
+    writer: &mut impl io::Write,
+    sender: &mpsc::Sender<InputEvent>,
+) -> Result<(), fleximark_protocol::FrameError> {
+    let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        write_output(output, writer)
+    })) {
+        Ok(result) => result,
+        Err(_) => Err(io::Error::other("stdio output worker panicked").into()),
+    };
+    if let Err(error) = &result {
+        log_operational_failure("stdout-write-failed", error, None, None, None);
+        output.close();
+        let _ = sender.send(InputEvent::Failed("stdout output failed".into()));
+    }
+    result
+}
+
+fn write_output(
+    output: &CoalescingOutput,
+    writer: &mut impl io::Write,
+) -> Result<(), fleximark_protocol::FrameError> {
+    while let Some(message) = output.pop() {
+        write_frame(writer, &message)?;
+    }
+    Ok(())
+}
+
+fn finish_output(
+    output: &CoalescingOutput,
+    writer: thread::JoinHandle<Result<(), fleximark_protocol::FrameError>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    output.close();
+    writer
+        .join()
+        .map_err(|_| io::Error::other("stdio output worker panicked"))??;
+    Ok(())
 }
 
 fn install_workspace_handler(server: &Server, sender: mpsc::Sender<InputEvent>) {
@@ -191,15 +237,27 @@ fn run_actor(
 
 #[derive(Clone, Default)]
 struct CoalescingOutput {
-    state: Arc<(Mutex<VecDeque<Value>>, Condvar)>,
+    state: Arc<(Mutex<OutputQueue>, Condvar)>,
+}
+
+#[derive(Default)]
+struct OutputQueue {
+    messages: VecDeque<Value>,
+    closed: bool,
 }
 
 impl CoalescingOutput {
     fn push(&self, message: Value) {
         let (queue, ready) = &*self.state;
-        let mut queue = queue.lock().expect("output queue lock");
+        let mut queue = queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if queue.closed {
+            return;
+        }
         if let Some(preview_id) = preview_changed_key(&message).map(str::to_owned) {
             if let Some(pending) = queue
+                .messages
                 .iter_mut()
                 .find(|pending| preview_changed_key(pending) == Some(preview_id.as_str()))
             {
@@ -208,18 +266,34 @@ impl CoalescingOutput {
                 return;
             }
         }
-        queue.push_back(message);
+        queue.messages.push_back(message);
         ready.notify_one();
     }
 
-    fn pop(&self) -> Value {
+    fn close(&self) {
         let (queue, ready) = &*self.state;
-        let mut queue = queue.lock().expect("output queue lock");
+        let mut queue = queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.closed = true;
+        ready.notify_all();
+    }
+
+    fn pop(&self) -> Option<Value> {
+        let (queue, ready) = &*self.state;
+        let mut queue = queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
-            if let Some(message) = queue.pop_front() {
-                return message;
+            if let Some(message) = queue.messages.pop_front() {
+                return Some(message);
             }
-            queue = ready.wait(queue).expect("output queue wait");
+            if queue.closed {
+                return None;
+            }
+            queue = ready
+                .wait(queue)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
@@ -228,7 +302,8 @@ impl CoalescingOutput {
         self.state
             .0
             .lock()
-            .expect("output queue lock")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .messages
             .drain(..)
             .collect()
     }
@@ -334,6 +409,41 @@ mod tests {
             method: method.into(),
             params,
         }
+    }
+
+    #[test]
+    fn close_drains_all_queued_messages_before_ending_output() {
+        let output = CoalescingOutput::default();
+        let expected = (0..128)
+            .map(|id| json!({"id":id,"result":"x".repeat(4096)}))
+            .collect::<Vec<_>>();
+        for message in &expected {
+            output.push(message.clone());
+        }
+        output.close();
+        output.push(json!({"id":"after-close"}));
+        let mut bytes = Vec::new();
+        write_output(&output, &mut bytes).unwrap();
+        let mut reader = std::io::Cursor::new(bytes);
+        let mut actual = Vec::new();
+        while let Some(body) = read_frame(&mut reader).unwrap() {
+            actual.push(serde_json::from_slice::<Value>(&body).unwrap());
+        }
+        assert_eq!(actual, expected);
+        assert_eq!(output.pop(), None);
+        output.close();
+        assert_eq!(output.pop(), None);
+    }
+
+    #[test]
+    fn writer_join_panic_becomes_an_error_and_closes_output() {
+        let output = CoalescingOutput::default();
+        let worker = thread::spawn(|| -> Result<(), fleximark_protocol::FrameError> {
+            panic!("writer fixture panic")
+        });
+        let error = finish_output(&output, worker).unwrap_err();
+        assert_eq!(error.to_string(), "stdio output worker panicked");
+        assert_eq!(output.pop(), None);
     }
 
     #[test]

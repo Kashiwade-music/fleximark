@@ -18,6 +18,9 @@ fn unsafe_integer_id_is_rejected_without_being_echoed() {
         .spawn()
         .expect("start fleximarkd rpc transport");
 
+    let burst_ids = (0..128)
+        .map(|index| format!("queued-{index}-{}", "x".repeat(4096)))
+        .collect::<Vec<_>>();
     {
         let stdin = daemon.stdin.as_mut().expect("daemon stdin");
         write_frame(stdin, &json!({"jsonrpc":"2.0","id":"initialize","method":"initialize","params":{"capabilities":{}}})).unwrap();
@@ -41,6 +44,14 @@ fn unsafe_integer_id_is_rejected_without_being_echoed() {
             }),
         )
         .unwrap();
+        for id in &burst_ids {
+            write_frame(
+                stdin,
+                &json!({"jsonrpc":"2.0","id":id,
+                "method":"unknown/request","params":{}}),
+            )
+            .unwrap();
+        }
         stdin.flush().unwrap();
     }
     drop(daemon.stdin.take());
@@ -60,21 +71,23 @@ fn unsafe_integer_id_is_rejected_without_being_echoed() {
     let initialized = responses.remove(0);
     assert_eq!(initialized["id"], "initialize");
     assert!(initialized.get("result").is_some());
-    assert_eq!(
-        responses,
-        vec![
-            json!({
-                "jsonrpc": "2.0",
-                "id": null,
-                "error": { "code": fleximark_protocol::error_code::PARSE_ERROR, "message": "invalid JSON-RPC message" }
-            }),
-            json!({
-                "jsonrpc": "2.0",
-                "id": "safe-request",
-                "error": { "code": fleximark_protocol::error_code::METHOD_NOT_FOUND, "message": "method not found" }
-            })
-        ]
-    );
+    let mut expected = vec![
+        json!({
+            "jsonrpc": "2.0",
+            "id": null,
+            "error": { "code": fleximark_protocol::error_code::PARSE_ERROR, "message": "invalid JSON-RPC message" }
+        }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "safe-request",
+            "error": { "code": fleximark_protocol::error_code::METHOD_NOT_FOUND, "message": "method not found" }
+        }),
+    ];
+    expected.extend(burst_ids.iter().map(|id| json!({
+        "jsonrpc":"2.0","id":id,
+        "error":{"code":fleximark_protocol::error_code::METHOD_NOT_FOUND,"message":"method not found"}
+    })));
+    assert_eq!(responses, expected);
     assert!(
         responses
             .iter()
