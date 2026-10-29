@@ -3,17 +3,17 @@
 use fleximark_engine::DocumentEngine;
 use fleximark_model::{DocumentUri, PositionEncoding};
 
-use super::{ServiceError, resolve_render_assets, workspace_for_document};
+use super::{ApplicationError, resolve_render_assets, workspace_for_document};
 
 pub fn open_document(
     uri: String,
     source: String,
     trusted_workspace: bool,
-) -> Result<DocumentEngine, ServiceError> {
+) -> Result<DocumentEngine, ApplicationError> {
     let workspace = if trusted_workspace {
         match workspace_for_document(&uri) {
             Ok(workspace) => Some(workspace),
-            Err(ServiceError::NotInitialized) => None,
+            Err(ApplicationError::NotInitialized) => None,
             Err(error) => return Err(error),
         }
     } else {
@@ -38,7 +38,7 @@ pub fn open_document(
 pub fn refresh_document_assets(
     engine: &mut DocumentEngine,
     workspace: &str,
-) -> Result<(), ServiceError> {
+) -> Result<(), ApplicationError> {
     let assets = resolve_render_assets(&engine.document().uri.0, workspace, engine.document())?;
     let config = engine
         .render_config()

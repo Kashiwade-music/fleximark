@@ -7,7 +7,7 @@ impl Server {
         &mut self,
         preview_id: &str,
         frame: &fleximark_application::RenderFrame,
-    ) -> Result<bool, crate::preview_http::protocol::ConversionError> {
+    ) -> Result<bool, fleximark_application::ApplicationError> {
         if self.publication_cancellation.is_cancelled() {
             return Ok(false);
         }

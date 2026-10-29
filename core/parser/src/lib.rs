@@ -30,7 +30,7 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidDocument(value) => std::error::Error::source(value),
+            Self::InvalidDocument(value) => Some(value),
             _ => None,
         }
     }

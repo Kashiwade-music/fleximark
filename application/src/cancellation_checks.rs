@@ -1,12 +1,15 @@
 //! Role: Check cancellation before application state is committed.
+use crate::ApplicationError;
 use crate::CancellationToken;
-use crate::SessionError;
 
-pub(crate) fn check(token: &CancellationToken, _stage: &'static str) -> Result<(), SessionError> {
+pub(crate) fn check(
+    token: &CancellationToken,
+    _stage: &'static str,
+) -> Result<(), ApplicationError> {
     #[cfg(test)]
     checkpoint(_stage);
     if token.is_cancelled() {
-        Err(SessionError::Cancelled)
+        Err(ApplicationError::Cancelled)
     } else {
         Ok(())
     }

@@ -120,7 +120,7 @@ fn dispatch(stream: &mut TcpStream, service: &WorkspaceService, request: Value) 
     match handler(request) {
         Ok(value) => respond(stream, "application/json", &value.to_string()),
         Err(message) => {
-            let body = json!({"message":message}).to_string();
+            let body = json!({"message":message.to_string()}).to_string();
             let response = format!(
                 "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
                 body.len()

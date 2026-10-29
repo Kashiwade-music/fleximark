@@ -2,8 +2,9 @@
 use crate::cancellation::CancellationCoordinator;
 use crate::server::session_error;
 use crate::telemetry::OperationalTrace;
-use fleximark_application::SessionError;
-use fleximark_protocol::{CONTENT_MODIFIED, IncomingMessage, RpcId, method};
+use fleximark_application::ApplicationError;
+use fleximark_protocol::error_code::CONTENT_MODIFIED;
+use fleximark_protocol::{IncomingMessage, RpcId, method};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -19,51 +20,72 @@ fn message(id: Option<i64>, method: &str, params: Value) -> IncomingMessage {
 #[test]
 fn session_errors_preserve_their_wire_codes_and_messages() {
     let cases = [
-        (SessionError::NotOpen, -32602, "document is not open"),
         (
-            SessionError::UnknownSession,
-            -32602,
+            ApplicationError::NotOpen,
+            fleximark_protocol::error_code::INVALID_PARAMS,
+            "document is not open",
+        ),
+        (
+            ApplicationError::UnknownSession,
+            fleximark_protocol::error_code::INVALID_PARAMS,
             "document session is unknown or no longer active",
         ),
         (
-            SessionError::WrongDaemon,
-            -32602,
+            ApplicationError::WrongDaemon,
+            fleximark_protocol::error_code::INVALID_PARAMS,
             "daemon instance does not match this connection",
         ),
         (
-            SessionError::ContentModified,
+            ApplicationError::ContentModified,
             CONTENT_MODIFIED,
             "document is out of sync",
         ),
         (
-            SessionError::StaleVersion,
+            ApplicationError::StaleVersion,
             CONTENT_MODIFIED,
             "document version is stale",
         ),
         (
-            SessionError::VersionMismatch,
+            ApplicationError::VersionMismatch,
             CONTENT_MODIFIED,
             "document version does not match",
         ),
         (
-            SessionError::InvalidRange,
-            -32602,
+            ApplicationError::InvalidRange,
+            fleximark_protocol::error_code::INVALID_PARAMS,
             "document position or full-text change is invalid",
         ),
         (
-            SessionError::EmptyChange,
-            -32602,
+            ApplicationError::EmptyChange,
+            fleximark_protocol::error_code::INVALID_PARAMS,
             "a change notification must contain edits",
         ),
         (
-            SessionError::Engine("fixture failure".into()),
-            -32602,
-            "engine rejected the document: fixture failure",
+            ApplicationError::Engine(fleximark_engine::EngineError::Asset(
+                "fixture failure".into(),
+            )),
+            fleximark_protocol::error_code::INVALID_PARAMS,
+            "invalid resolved render asset: fixture failure",
+        ),
+        (
+            ApplicationError::WriteDenied,
+            fleximark_protocol::error_code::WRITE_DENIED,
+            "workspace write denied: the active workspace is not trusted",
+        ),
+        (
+            ApplicationError::Cancelled,
+            fleximark_protocol::error_code::REQUEST_CANCELLED,
+            "operation cancelled",
+        ),
+        (
+            ApplicationError::InternalState("internal failure".into()),
+            fleximark_protocol::error_code::INTERNAL_ERROR,
+            "internal failure",
         ),
     ];
 
     for (error, code, message) in cases {
-        let engine_rejection = matches!(error, SessionError::Engine(_));
+        let engine_rejection = matches!(error, ApplicationError::Engine(_));
         let mut expected = json!({
             "jsonrpc":"2.0",
             "id":"request-7",

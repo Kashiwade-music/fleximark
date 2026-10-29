@@ -1,23 +1,18 @@
-//! Role: Embed canonical release metadata without browser build inputs.
-fn main() {
+//! Role: Embed shared release versions in the installed runtime consumer.
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=../../release.toml");
     println!(
         "cargo:rustc-env=FLEXIMARK_BUILD_TARGET={}",
-        std::env::var("TARGET").expect("Cargo target")
+        std::env::var("TARGET")?
     );
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let metadata = root.join("release.toml");
-    println!("cargo:rerun-if-changed={}", metadata.display());
-    let source = std::fs::read_to_string(metadata).expect("canonical release metadata");
-    for (key, env_name) in [
-        ("version", "FLEXIMARK_RELEASE_VERSION"),
-        ("protocol_version", "FLEXIMARK_PROTOCOL_VERSION"),
-    ] {
-        let value = source
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .find(|(name, _)| name.trim() == key)
-            .map(|(_, value)| value.trim().trim_matches('"'))
-            .expect("release metadata field");
-        println!("cargo:rustc-env={env_name}={value}");
-    }
+    let metadata = fleximark_distribution::release_metadata()?;
+    println!(
+        "cargo:rustc-env=FLEXIMARK_RELEASE_VERSION={}",
+        metadata.version
+    );
+    println!(
+        "cargo:rustc-env=FLEXIMARK_PROTOCOL_VERSION={}",
+        metadata.protocol_version
+    );
+    Ok(())
 }

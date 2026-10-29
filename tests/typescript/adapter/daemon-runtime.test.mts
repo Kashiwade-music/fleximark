@@ -3,6 +3,10 @@ import * as vscode from "vscode";
 
 import { FlexiMarkAdapter } from "../../../adapters/vscode/src/adapter.mjs";
 import { runtimeTarget } from "../../../adapters/vscode/src/runtime-manifest.mjs";
+import {
+  DISTRIBUTION_FILES,
+  DISTRIBUTION_TARGETS,
+} from "../../../contracts/typescript/distribution.generated.mjs";
 import { PROTOCOL_VERSION } from "../../../contracts/typescript/protocol.mjs";
 
 export const suiteName = "Daemon runtime boundary";
@@ -93,12 +97,22 @@ export function suite(): void {
         vscode.Uri.joinPath(root, "runtime", "bin"),
       );
       await vscode.workspace.fs.writeFile(binary, binaryBytes);
+      const distributionTarget = DISTRIBUTION_TARGETS.find(
+        (target) =>
+          target.triple === runtimeTarget(process.platform, process.arch),
+      );
+      assert.ok(distributionTarget);
       const manifest = {
         schemaVersion: 1,
         protocolVersion: PROTOCOL_VERSION,
         version: installedExtension().packageJSON.version,
         target: runtimeTarget(process.platform, process.arch),
-        files: { ["bin/" + name]: "0".repeat(64) },
+        files: Object.fromEntries(
+          DISTRIBUTION_FILES.map((file) => [
+            file.path.replace("{exe}", distributionTarget.executableSuffix),
+            "0".repeat(64),
+          ]),
+        ),
       };
 
       const adapter = new FlexiMarkAdapter(adapterContext(root));

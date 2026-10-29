@@ -1,7 +1,7 @@
 //! Role: Publish preview snapshots and reject stale navigation.
 use crate::CancellationToken;
 use crate::document::DocumentSession;
-use crate::error::{SessionError, engine_error};
+use crate::error::{ApplicationError, engine_error};
 use crate::snapshots::{PreviewSessionId, RenderFrame};
 use fleximark_model::{NavigationEntry, NodeId};
 
@@ -10,12 +10,12 @@ impl DocumentSession {
         &mut self,
         id: &str,
         cancellation: &CancellationToken,
-    ) -> Result<RenderFrame, SessionError> {
+    ) -> Result<RenderFrame, ApplicationError> {
         let revision = self.previews.get(id).map_or(Ok(1), |previous| {
             previous
                 .render_revision
                 .checked_add(1)
-                .ok_or(SessionError::RevisionExhausted)
+                .ok_or(ApplicationError::RevisionExhausted)
         })?;
         crate::cancellation_checks::check(cancellation, "render_start")?;
         let snapshot = self
@@ -36,15 +36,18 @@ impl DocumentSession {
         id: &str,
         revision: u64,
         node: &NodeId,
-    ) -> Result<Option<NavigationEntry>, SessionError> {
+    ) -> Result<Option<NavigationEntry>, ApplicationError> {
         if self.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
-        let frame = self.previews.get(id).ok_or(SessionError::UnknownSession)?;
+        let frame = self
+            .previews
+            .get(id)
+            .ok_or(ApplicationError::UnknownSession)?;
         if frame.render_revision != revision
             || frame.document_version != self.document().document_version
         {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
         Ok(frame
             .navigation

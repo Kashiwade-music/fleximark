@@ -32,9 +32,13 @@ fn browser_forms_select_context_and_preserve_native_workspace_authority() {
         .unwrap()
         .set_workspace_handler(Arc::new(move |request| {
             weak.upgrade()
-                .ok_or_else(|| "server closed".to_owned())?
+                .ok_or_else(|| {
+                    fleximark_application::ApplicationError::InternalState("server closed".into())
+                })?
                 .lock()
-                .map_err(|_| "server poisoned".to_owned())?
+                .map_err(|_| {
+                    fleximark_application::ApplicationError::InternalState("server poisoned".into())
+                })?
                 .workspace_request(request)
         }));
     let command = server.lock().unwrap().request(

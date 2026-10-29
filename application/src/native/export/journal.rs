@@ -13,9 +13,9 @@ use super::filesystem::{
     write_json,
 };
 use super::model::{ExportJournal, ExportJournalRecord, ExportJournalState, ObjectIdentity};
-use crate::native::ServiceError;
+use crate::native::ApplicationError;
 
-pub(super) fn create_journal(path: &Path) -> Result<ObjectIdentity, ServiceError> {
+pub(super) fn create_journal(path: &Path) -> Result<ObjectIdentity, ApplicationError> {
     let (parent, name) = open_parent(path)?;
     let mut options = CapOpenOptions::new();
     options
@@ -31,13 +31,13 @@ pub(super) fn append_journal(
     path: &Path,
     journal: &ExportJournal,
     previous_record_digest: Option<String>,
-) -> Result<String, ServiceError> {
+) -> Result<String, ApplicationError> {
     let (parent, name) = open_parent(path)?;
     let mut options = CapOpenOptions::new();
     options.read(true).append(true).follow(FollowSymlinks::No);
     let mut file = parent.open_with(&name, &options)?;
     if object_identity_from_metadata(&file.metadata()?)? != journal.journal_identity {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let digest = sha256(&serde_json::to_vec(&(
         journal,
@@ -54,24 +54,24 @@ pub(super) fn append_journal(
     Ok(digest)
 }
 
-pub(super) fn read_journal(path: &Path) -> Result<(ExportJournal, String), ServiceError> {
+pub(super) fn read_journal(path: &Path) -> Result<(ExportJournal, String), ApplicationError> {
     let (parent, name) = open_parent(path)?;
     let mut options = CapOpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
     let mut file = parent.open_with(&name, &options)?;
     let identity = object_identity_from_metadata(&file.metadata()?)?;
     if identity.kind != "file" {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let mut text = String::new();
     file.read_to_string(&mut text)?;
     if object_identity_from_metadata(&file.metadata()?)? != identity {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let mut previous: Option<ExportJournalRecord> = None;
     for line in text.lines() {
         let record: ExportJournalRecord =
-            serde_json::from_str(line).map_err(|_| ServiceError::ExportRecoveryConflict)?;
+            serde_json::from_str(line).map_err(|_| ApplicationError::ExportRecoveryConflict)?;
         let expected = sha256(&serde_json::to_vec(&(
             &record.journal,
             record.previous_record_digest.as_deref(),
@@ -80,7 +80,7 @@ pub(super) fn read_journal(path: &Path) -> Result<(ExportJournal, String), Servi
             || record.previous_record_digest
                 != previous.as_ref().map(|record| record.record_digest.clone())
         {
-            return Err(ServiceError::ExportRecoveryConflict);
+            return Err(ApplicationError::ExportRecoveryConflict);
         }
         if let Some(prior) = &previous {
             let transition = matches!(
@@ -140,22 +140,22 @@ pub(super) fn read_journal(path: &Path) -> Result<(ExportJournal, String), Servi
                     == prior.journal.previous_registry_identity
                 && registry_staging_is_stable;
             if !transition || !stable {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
         } else if record.journal.state != ExportJournalState::Prepared {
-            return Err(ServiceError::ExportRecoveryConflict);
+            return Err(ApplicationError::ExportRecoveryConflict);
         }
         previous = Some(record);
     }
     previous
         .map(|record| (record.journal, record.record_digest))
-        .ok_or(ServiceError::ExportRecoveryConflict)
+        .ok_or(ApplicationError::ExportRecoveryConflict)
 }
 
 pub(super) fn stage_json<T: Serialize>(
     parent: &Path,
     value: &T,
-) -> Result<(PathBuf, ObjectIdentity), ServiceError> {
+) -> Result<(PathBuf, ObjectIdentity), ApplicationError> {
     fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".registry-{}.tmp", random_id()?));
     write_json(&temporary, value, true)?;
@@ -164,19 +164,21 @@ pub(super) fn stage_json<T: Serialize>(
     Ok((temporary, identity))
 }
 
-pub(super) fn replace_staged_json(temporary: &Path, path: &Path) -> Result<(), ServiceError> {
-    let parent = path.parent().ok_or(ServiceError::ExportRecoveryConflict)?;
+pub(super) fn replace_staged_json(temporary: &Path, path: &Path) -> Result<(), ApplicationError> {
+    let parent = path
+        .parent()
+        .ok_or(ApplicationError::ExportRecoveryConflict)?;
     if temporary.parent() != Some(parent) {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let directory = Dir::open_ambient_dir(parent, ambient_authority())?;
     directory.rename(
         temporary
             .file_name()
-            .ok_or(ServiceError::ExportRecoveryConflict)?,
+            .ok_or(ApplicationError::ExportRecoveryConflict)?,
         &directory,
         path.file_name()
-            .ok_or(ServiceError::ExportRecoveryConflict)?,
+            .ok_or(ApplicationError::ExportRecoveryConflict)?,
     )?;
     sync_directory(parent)
 }

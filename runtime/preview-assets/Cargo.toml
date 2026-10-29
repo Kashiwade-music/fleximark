@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 [dependencies]
-serde.workspace = true
+fleximark-distribution = { path = "../../contracts/distribution" }
+
+[build-dependencies]
+fleximark-distribution = { path = "../../contracts/distribution" }
+
+[dev-dependencies]
 serde_json.workspace = true
-sha2.workspace = true

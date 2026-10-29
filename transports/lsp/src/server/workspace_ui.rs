@@ -27,20 +27,30 @@ fn decode_query(value: &str) -> Option<String> {
 }
 
 impl Server {
-    pub fn workspace_request(&mut self, request: Value) -> Result<Value, String> {
+    pub fn workspace_request(
+        &mut self,
+        request: Value,
+    ) -> Result<Value, fleximark_application::ApplicationError> {
         if !self.lsp_initialized {
-            return Err("server is not initialized".into());
+            return Err(ApplicationError::InvalidState(
+                "server is not initialized".into(),
+            ));
         }
         match request.get("kind").and_then(Value::as_str) {
             Some("state") => self.workspace_state(&request),
             Some("command") => {
                 self.workspace_command(request.get("params").cloned().unwrap_or(Value::Null))
             }
-            _ => Err("unknown workspace request".into()),
+            _ => Err(ApplicationError::InvalidState(
+                "unknown workspace request".into(),
+            )),
         }
     }
 
-    fn workspace_state(&self, request: &Value) -> Result<Value, String> {
+    fn workspace_state(
+        &self,
+        request: &Value,
+    ) -> Result<Value, fleximark_application::ApplicationError> {
         let context = request.get("context").cloned().unwrap_or_else(|| json!({}));
         let query_workspace = request
             .get("query")
@@ -93,7 +103,10 @@ impl Server {
         ))
     }
 
-    fn workspace_command(&mut self, request: Value) -> Result<Value, String> {
+    fn workspace_command(
+        &mut self,
+        request: Value,
+    ) -> Result<Value, fleximark_application::ApplicationError> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct Command {
@@ -106,8 +119,7 @@ impl Server {
             note_file_name: Option<String>,
             destination_uri: Option<String>,
         }
-        let request: Command =
-            serde_json::from_value(request).map_err(|error| error.to_string())?;
+        let request: Command = serde_json::from_value(request)?;
         let command = request.command.trim_start_matches("fleximark.");
         if !matches!(
             command,
@@ -117,7 +129,9 @@ impl Server {
                 | "exportHtml"
                 | "collectAdmonitions"
         ) {
-            return Err("unknown workspace command".into());
+            return Err(ApplicationError::InvalidState(
+                "unknown workspace command".into(),
+            ));
         }
         let session = request
             .document_uri
@@ -126,7 +140,7 @@ impl Server {
                 self.registry
                     .session_id_for_uri(uri)
                     .map(str::to_owned)
-                    .ok_or_else(|| "selected document is no longer open".to_owned())
+                    .ok_or(ApplicationError::NotOpen)
             })
             .transpose()?;
         let workspace = request.workspace_uri.or_else(|| {
@@ -138,13 +152,19 @@ impl Server {
         if matches!(command, "exportHtml" | "collectAdmonitions")
             && (session.is_none() || request.document_version.is_none())
         {
-            return Err("select an open document and its current version".into());
+            return Err(ApplicationError::InvalidState(
+                "select an open document and its current version".into(),
+            ));
         }
         let expected_document_version = request
             .document_version
             .map(TryInto::try_into)
             .transpose()
-            .map_err(|_| "document version exceeds the transport integer range")?;
+            .map_err(|_| {
+                ApplicationError::InvalidState(
+                    "document version exceeds the transport integer range".into(),
+                )
+            })?;
         let params = ExecuteCommandParams {
             daemon_instance_id: self.registry.daemon_instance_id().into(),
             command: command.into(),
@@ -157,9 +177,7 @@ impl Server {
             destination_uri: request.destination_uri,
             arguments: Vec::new(),
         };
-        let result = self
-            .execute_operation(&params)
-            .map_err(|(_, message)| message)?;
+        let result = self.execute_operation(&params)?;
         if let Some(uri) = &result.open_uri {
             self.show_document(uri, false, None);
         }

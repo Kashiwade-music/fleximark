@@ -148,13 +148,40 @@ pub fn installed_resources() -> TestDirectory {
         ("resources/workspace/workspace.js", "const workspace=true;"),
         ("resources/workspace/workspace.css", "body{}"),
     ];
+    let specification: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/distribution/distribution.json"
+    ))
+    .unwrap();
+    let os = match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        value => value,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        value => value,
+    };
+    let platform = specification["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|target| target["os"] == os && target["arch"] == arch)
+        .unwrap();
+    let target = platform["triple"].as_str().unwrap();
+    let suffix = platform["executableSuffix"].as_str().unwrap();
     let mut files = serde_json::Map::new();
-    for (name, content) in resources {
-        let path = root.join(name);
+    for file in specification["files"].as_array().unwrap() {
+        let name = file["path"].as_str().unwrap().replace("{exe}", suffix);
+        let content = resources
+            .iter()
+            .find(|(path, _)| *path == name)
+            .map_or("native test payload", |(_, content)| *content);
+        let path = root.join(&name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
         files.insert(
-            name.into(),
+            name,
             json!(format!("{:x}", Sha256::digest(content.as_bytes()))),
         );
     }
@@ -164,15 +191,6 @@ pub fn installed_resources() -> TestDirectory {
         .find_map(|line| line.strip_prefix("version = "))
         .unwrap()
         .trim_matches('"');
-    let target = match (std::env::consts::ARCH, std::env::consts::OS) {
-        ("x86_64", "windows") => "x86_64-pc-windows-msvc",
-        ("aarch64", "windows") => "aarch64-pc-windows-msvc",
-        ("x86_64", "linux") => "x86_64-unknown-linux-gnu",
-        ("aarch64", "linux") => "aarch64-unknown-linux-gnu",
-        ("x86_64", "macos") => "x86_64-apple-darwin",
-        ("aarch64", "macos") => "aarch64-apple-darwin",
-        _ => panic!("unsupported runtime test platform"),
-    };
     std::fs::write(root.join("manifest.json"),json!({"schemaVersion":1,"version":version,"target":target,"protocolVersion":fleximark_protocol::PROTOCOL_VERSION,"files":files}).to_string()).unwrap();
     root
 }

@@ -7,16 +7,16 @@ use fleximark_engine::{RenderConfig, RenderStyle};
 
 use crate::native::paths::reject_linked_path;
 use crate::native::workspace::open_control_directory;
-use crate::native::{ServiceError, path_to_file_uri, workspace_path};
+use crate::native::{ApplicationError, path_to_file_uri, workspace_path};
 
-pub fn edit_theme(workspace_uri: &str) -> Result<ThemeResource, ServiceError> {
+pub fn edit_theme(workspace_uri: &str) -> Result<ThemeResource, ApplicationError> {
     let root = workspace_path(workspace_uri)?;
-    open_control_directory(&root, false)?.ok_or(ServiceError::NotInitialized)?;
+    open_control_directory(&root, false)?.ok_or(ApplicationError::NotInitialized)?;
     let theme = root.join(".fleximark/theme.css");
     if !fs::symlink_metadata(&theme)
         .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
     {
-        return Err(ServiceError::NotInitialized);
+        return Err(ApplicationError::NotInitialized);
     }
     Ok(ThemeResource {
         uri: path_to_file_uri(&theme)?,
@@ -27,7 +27,7 @@ pub fn configured_render_config(
     workspace_uri: &str,
     trusted: bool,
     generation: u64,
-) -> Result<RenderConfig, ServiceError> {
+) -> Result<RenderConfig, ApplicationError> {
     use super::workspace::{CONFIG, open_regular_nofollow};
     use fleximark_config::FlexiMarkConfig;
     use std::io::Read;
@@ -48,7 +48,7 @@ pub fn configured_render_config(
     } else {
         CONFIG.to_owned()
     };
-    FlexiMarkConfig::from_toml(&source).map_err(|_| ServiceError::InvalidConfig)?;
+    FlexiMarkConfig::from_toml(&source)?;
     render_config(
         &workspace,
         super::integrity::sha256(source.as_bytes()),
@@ -62,7 +62,7 @@ pub(crate) fn render_config(
     config_hash: String,
     generation: u64,
     trusted: bool,
-) -> Result<RenderConfig, ServiceError> {
+) -> Result<RenderConfig, ApplicationError> {
     let mut context = RenderConfig::default().context;
     context.allow_remote_resources = false;
     let style = if trusted {
@@ -78,7 +78,7 @@ pub(crate) fn render_config(
     Ok(config)
 }
 
-fn load_theme_style(workspace: &Path) -> Result<Option<RenderStyle>, ServiceError> {
+fn load_theme_style(workspace: &Path) -> Result<Option<RenderStyle>, ApplicationError> {
     const MAX_THEME_BYTES: u64 = 256 * 1024;
     let relative = Path::new(".fleximark/theme.css");
     match fs::symlink_metadata(workspace.join(relative)) {
@@ -90,12 +90,12 @@ fn load_theme_style(workspace: &Path) -> Result<Option<RenderStyle>, ServiceErro
     let path = workspace.join(relative);
     let canonical = path.canonicalize()?;
     if !canonical.starts_with(workspace) {
-        return Err(ServiceError::InvalidControlPath);
+        return Err(ApplicationError::InvalidControlPath);
     }
     let metadata = fs::symlink_metadata(&canonical)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > MAX_THEME_BYTES
     {
-        return Err(ServiceError::InvalidControlPath);
+        return Err(ApplicationError::InvalidControlPath);
     }
     let css = fs::read_to_string(canonical)?;
     if validate_theme_css(&css).is_err() {
@@ -104,7 +104,7 @@ fn load_theme_style(workspace: &Path) -> Result<Option<RenderStyle>, ServiceErro
     Ok(Some(RenderStyle::from_validated_css(css)))
 }
 
-fn validate_theme_css(css: &str) -> Result<(), ServiceError> {
+fn validate_theme_css(css: &str) -> Result<(), ApplicationError> {
     let normalized = normalize_css(css)?;
     let compact = normalized
         .chars()
@@ -117,7 +117,7 @@ fn validate_theme_css(css: &str) -> Result<(), ServiceError> {
         || compact.contains("-moz-binding")
         || css.bytes().any(|byte| byte == 0)
     {
-        return Err(ServiceError::InvalidControlPath);
+        return Err(ApplicationError::InvalidControlPath);
     }
     let mut braces = 0_i32;
     for character in normalized.chars() {
@@ -126,19 +126,19 @@ fn validate_theme_css(css: &str) -> Result<(), ServiceError> {
             '}' => {
                 braces -= 1;
                 if braces < 0 {
-                    return Err(ServiceError::InvalidControlPath);
+                    return Err(ApplicationError::InvalidControlPath);
                 }
             }
             _ => {}
         }
     }
     if braces != 0 {
-        return Err(ServiceError::InvalidControlPath);
+        return Err(ApplicationError::InvalidControlPath);
     }
     Ok(())
 }
 
-fn normalize_css(css: &str) -> Result<String, ServiceError> {
+fn normalize_css(css: &str) -> Result<String, ApplicationError> {
     let characters = css.chars().collect::<Vec<_>>();
     let mut normalized = String::with_capacity(css.len());
     let mut index = 0;
@@ -151,7 +151,7 @@ fn normalize_css(css: &str) -> Result<String, ServiceError> {
                 index += 1;
             }
             if index + 1 >= characters.len() {
-                return Err(ServiceError::InvalidControlPath);
+                return Err(ApplicationError::InvalidControlPath);
             }
             index += 2;
             continue;
@@ -159,7 +159,7 @@ fn normalize_css(css: &str) -> Result<String, ServiceError> {
         if characters[index] == '\\' {
             index += 1;
             if index >= characters.len() || matches!(characters[index], '\n' | '\r') {
-                return Err(ServiceError::InvalidControlPath);
+                return Err(ApplicationError::InvalidControlPath);
             }
             let start = index;
             while index < characters.len()
@@ -171,8 +171,9 @@ fn normalize_css(css: &str) -> Result<String, ServiceError> {
             if index > start {
                 let scalar =
                     u32::from_str_radix(&characters[start..index].iter().collect::<String>(), 16)
-                        .map_err(|_| ServiceError::InvalidControlPath)?;
-                normalized.push(char::from_u32(scalar).ok_or(ServiceError::InvalidControlPath)?);
+                        .map_err(|_| ApplicationError::InvalidControlPath)?;
+                normalized
+                    .push(char::from_u32(scalar).ok_or(ApplicationError::InvalidControlPath)?);
                 if characters
                     .get(index)
                     .is_some_and(|value| value.is_whitespace())

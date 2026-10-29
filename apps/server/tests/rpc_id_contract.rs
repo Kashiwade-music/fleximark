@@ -66,12 +66,12 @@ fn unsafe_integer_id_is_rejected_without_being_echoed() {
             json!({
                 "jsonrpc": "2.0",
                 "id": null,
-                "error": { "code": -32700, "message": "invalid JSON-RPC message" }
+                "error": { "code": fleximark_protocol::error_code::PARSE_ERROR, "message": "invalid JSON-RPC message" }
             }),
             json!({
                 "jsonrpc": "2.0",
                 "id": "safe-request",
-                "error": { "code": -32601, "message": "method not found" }
+                "error": { "code": fleximark_protocol::error_code::METHOD_NOT_FOUND, "message": "method not found" }
             })
         ]
     );

@@ -9,26 +9,26 @@ use super::filesystem::{
 use super::journal::{append_journal, read_journal};
 use super::model::ExportJournalState;
 use super::ownership::{inspect_export, verify_installed};
-use crate::native::ServiceError;
+use crate::native::ApplicationError;
 
 pub(super) fn recover_export(
     journal_path: &Path,
     expected_destination: &Path,
     expected_registry: &Path,
     acknowledge: bool,
-) -> Result<(), ServiceError> {
+) -> Result<(), ApplicationError> {
     if !journal_path.exists() {
         return Ok(());
     }
     let (mut journal, journal_digest) = read_journal(journal_path)?;
     let parent = journal_path
         .parent()
-        .ok_or(ServiceError::ExportRecoveryConflict)?;
+        .ok_or(ApplicationError::ExportRecoveryConflict)?;
     let name = journal
         .destination
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or(ServiceError::ExportRecoveryConflict)?;
+        .ok_or(ApplicationError::ExportRecoveryConflict)?;
     let valid = journal.destination == expected_destination
         && journal.registry == expected_registry
         && journal.destination.parent() == Some(parent)
@@ -52,10 +52,10 @@ pub(super) fn recover_export(
                     .is_some_and(|value| value.starts_with(".registry-") && value.ends_with(".tmp"))
         });
     if !valid {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     if object_identity(journal_path).ok() != Some(journal.journal_identity.clone()) {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     match journal.state {
         ExportJournalState::Prepared => {
@@ -66,7 +66,7 @@ pub(super) fn recover_export(
                 || object_identity(&journal.destination).ok()
                     != journal.previous_destination_identity
             {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
             verify_directory_tree(&journal.staging, &journal.generated_identities)?;
             remove_recorded_directory(
@@ -95,7 +95,7 @@ pub(super) fn recover_export(
             {
                 discard_staging(&journal, journal_path)?;
             } else {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
         }
         ExportJournalState::OldMoved => {
@@ -103,7 +103,7 @@ pub(super) fn recover_export(
                 || object_identity(&journal.staging).ok() != Some(journal.staging_identity.clone())
                 || object_identity(&journal.backup).ok() != journal.backup_identity
             {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
             if journal.previous_destination_identity.is_some() {
                 restore_previous_destination(&journal)?;
@@ -129,9 +129,9 @@ pub(super) fn recover_export(
                 journal.state = ExportJournalState::NewInstalled;
                 let digest = append_journal(journal_path, &journal, Some(journal_digest))?;
                 commit_installed_export(&mut journal, journal_path, digest, &mut |_| Ok(()))?;
-                return Err(ServiceError::ExportAwaitingAcknowledgement);
+                return Err(ApplicationError::ExportAwaitingAcknowledgement);
             } else {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
         }
         ExportJournalState::NewInstalled => {
@@ -142,11 +142,11 @@ pub(super) fn recover_export(
                 || (journal.backup.exists()
                     && object_identity(&journal.backup).ok() != journal.backup_identity)
             {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
             verify_directory_tree(&journal.destination, &journal.generated_identities)?;
             commit_installed_export(&mut journal, journal_path, journal_digest, &mut |_| Ok(()))?;
-            return Err(ServiceError::ExportAwaitingAcknowledgement);
+            return Err(ApplicationError::ExportAwaitingAcknowledgement);
         }
         ExportJournalState::RegistryIntent => {
             verify_installed(&journal.destination, &journal.next_registry)?;
@@ -154,11 +154,11 @@ pub(super) fn recover_export(
             let registry_staging = journal
                 .registry_staging
                 .as_ref()
-                .ok_or(ServiceError::ExportRecoveryConflict)?;
+                .ok_or(ApplicationError::ExportRecoveryConflict)?;
             let staged_identity = journal
                 .registry_staging_identity
                 .as_ref()
-                .ok_or(ServiceError::ExportRecoveryConflict)?;
+                .ok_or(ApplicationError::ExportRecoveryConflict)?;
             let current_registry = object_identity(&journal.registry).ok();
             if object_identity(registry_staging).ok().as_ref() == Some(staged_identity)
                 && current_registry == journal.previous_registry_identity
@@ -168,18 +168,18 @@ pub(super) fn recover_export(
                     journal
                         .registry
                         .parent()
-                        .ok_or(ServiceError::ExportRecoveryConflict)?,
+                        .ok_or(ApplicationError::ExportRecoveryConflict)?,
                 )?;
             } else if !registry_staging.exists()
                 && current_registry.as_ref() == Some(staged_identity)
             {
                 journal.next_registry_identity = current_registry;
             } else {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
             journal.state = ExportJournalState::Committed;
             append_journal(journal_path, &journal, Some(journal_digest))?;
-            return Err(ServiceError::ExportAwaitingAcknowledgement);
+            return Err(ApplicationError::ExportAwaitingAcknowledgement);
         }
         ExportJournalState::Committed => {
             if object_identity(&journal.destination).ok() != journal.installed_identity
@@ -189,16 +189,16 @@ pub(super) fn recover_export(
                 || (journal.backup.exists()
                     && object_identity(&journal.backup).ok() != journal.backup_identity)
             {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
             verify_directory_tree(&journal.destination, &journal.generated_identities)?;
             let managed = inspect_export(&journal.destination, &journal.registry)?
-                .ok_or(ServiceError::ExportRecoveryConflict)?;
+                .ok_or(ApplicationError::ExportRecoveryConflict)?;
             if managed.registry != journal.next_registry {
-                return Err(ServiceError::ExportRecoveryConflict);
+                return Err(ApplicationError::ExportRecoveryConflict);
             }
             if !acknowledge {
-                return Err(ServiceError::ExportAwaitingAcknowledgement);
+                return Err(ApplicationError::ExportAwaitingAcknowledgement);
             }
             if journal.backup.exists() {
                 remove_recorded_directory(
@@ -206,7 +206,7 @@ pub(super) fn recover_export(
                     journal
                         .backup_identity
                         .as_ref()
-                        .ok_or(ServiceError::ExportRecoveryConflict)?,
+                        .ok_or(ApplicationError::ExportRecoveryConflict)?,
                     &journal.previous_destination_objects,
                 )?;
             }

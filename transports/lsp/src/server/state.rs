@@ -1,21 +1,22 @@
 //! Role: Hold transport session state and injected application I/O ports.
+pub(super) use fleximark_protocol::error_code::CONTENT_MODIFIED;
 pub(super) use std::collections::{HashMap, HashSet};
 pub(super) use std::sync::mpsc::Sender;
 pub(super) use std::time::Instant;
 
 pub(super) use fleximark_application::CancellationToken;
 pub(super) use fleximark_application::{
-    DidChangeParams, DidCloseParams, DidOpenParams, SessionError, SessionRegistry,
+    ApplicationError, DidChangeParams, DidCloseParams, DidOpenParams, SessionRegistry,
 };
 pub(super) use fleximark_model::{
     Block, BlockKind, Document, Inline, InlineKind, Node, NodeId, PositionEncoding,
 };
 pub(super) use fleximark_protocol::{
-    AttachDocumentParams, CONTENT_MODIFIED, CreatePreviewParams, CreatePreviewResult,
-    DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams, IncomingMessage,
-    InitializeParams, InitializeResult, JsSafeU64, PROTOCOL_VERSION, PreviewChangedParams,
-    PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
-    RenderNavigationEvent, RerenderPreviewParams, Response, ServerCapabilities, ServerPreviewEvent,
+    AttachDocumentParams, CreatePreviewParams, CreatePreviewResult, DisposePreviewParams,
+    ExecuteCommandParams, GetNoteOptionsParams, IncomingMessage, InitializeParams,
+    InitializeResult, JsSafeU64, PROTOCOL_VERSION, PreviewChangedParams, PreviewEventParams,
+    PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams, RenderNavigationEvent,
+    RerenderPreviewParams, Response, ServerCapabilities, ServerPreviewEvent,
     ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
     WorkspaceStatus, method,
 };

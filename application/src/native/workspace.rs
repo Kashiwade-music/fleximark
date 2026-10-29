@@ -8,7 +8,7 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{ambient_authority, fs::Dir};
 use fleximark_config::FlexiMarkConfig;
 
-use crate::native::{ServiceError, path_to_file_uri, workspace_path};
+use crate::native::{ApplicationError, path_to_file_uri, workspace_path};
 
 pub(crate) const CONFIG: &str = r###"# FlexiMark workspace configuration
 # Uncomment optional entries and their section headers below to enable them.
@@ -66,7 +66,7 @@ root = "notes"
 "###;
 const THEME: &str = "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
-pub fn initialize_workspace(workspace_uri: &str) -> Result<InitializedWorkspace, ServiceError> {
+pub fn initialize_workspace(workspace_uri: &str) -> Result<InitializedWorkspace, ApplicationError> {
     let root = workspace_path(workspace_uri)?;
     let control = open_control_directory(&root, true)?.expect("created control directory");
     write_new_at(&control, "config.toml", CONFIG)?;
@@ -89,7 +89,7 @@ pub(crate) fn safe_workspace_relative_path(value: &str) -> bool {
 pub(crate) fn open_control_directory(
     root: &Path,
     create: bool,
-) -> Result<Option<Dir>, ServiceError> {
+) -> Result<Option<Dir>, ApplicationError> {
     let workspace = Dir::open_ambient_dir(root, ambient_authority())?;
     match workspace.open_dir_nofollow(".fleximark") {
         Ok(control) => Ok(Some(control)),
@@ -98,18 +98,22 @@ pub(crate) fn open_control_directory(
             workspace
                 .open_dir_nofollow(".fleximark")
                 .map(Some)
-                .map_err(ServiceError::Io)
+                .map_err(ApplicationError::Io)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(_) => Err(ServiceError::LinkedControlDirectory),
+        Err(_) => Err(ApplicationError::LinkedControlDirectory),
     }
 }
 
-fn write_new_at(directory: &Dir, path: &str, contents: &str) -> Result<(), ServiceError> {
+fn write_new_at(directory: &Dir, path: &str, contents: &str) -> Result<(), ApplicationError> {
     write_new_bytes_at(directory, path, contents.as_bytes())
 }
 
-fn write_new_bytes_at(directory: &Dir, path: &str, contents: &[u8]) -> Result<(), ServiceError> {
+fn write_new_bytes_at(
+    directory: &Dir,
+    path: &str,
+    contents: &[u8],
+) -> Result<(), ApplicationError> {
     let mut options = cap_std::fs::OpenOptions::new();
     options
         .write(true)
@@ -126,7 +130,7 @@ fn write_new_bytes_at(directory: &Dir, path: &str, contents: &[u8]) -> Result<()
             if metadata.is_file() && !metadata.file_type().is_symlink() {
                 Ok(())
             } else {
-                Err(ServiceError::InvalidControlPath)
+                Err(ApplicationError::InvalidControlPath)
             }
         }
         Err(error) => Err(error.into()),
@@ -149,10 +153,10 @@ pub(crate) fn open_regular_nofollow(
     Ok(file)
 }
 
-pub(crate) fn reject_link(path: &Path) -> Result<(), ServiceError> {
+pub(crate) fn reject_link(path: &Path) -> Result<(), ApplicationError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-            Err(ServiceError::InvalidControlPath)
+            Err(ApplicationError::InvalidControlPath)
         }
         Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -160,28 +164,29 @@ pub(crate) fn reject_link(path: &Path) -> Result<(), ServiceError> {
     }
 }
 
-pub(crate) fn validate_config(path: &Path) -> Result<FlexiMarkConfig, ServiceError> {
-    let control_path = path.parent().ok_or(ServiceError::InvalidConfig)?;
-    let root = control_path.parent().ok_or(ServiceError::InvalidConfig)?;
-    let control = open_control_directory(root, false)?.ok_or(ServiceError::NotInitialized)?;
+pub(crate) fn validate_config(path: &Path) -> Result<FlexiMarkConfig, ApplicationError> {
+    let control_path = path.parent().ok_or(ApplicationError::InvalidConfig)?;
+    let root = control_path
+        .parent()
+        .ok_or(ApplicationError::InvalidConfig)?;
+    let control = open_control_directory(root, false)?.ok_or(ApplicationError::NotInitialized)?;
     let mut file = open_regular_nofollow(&control, Path::new("config.toml")).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            ServiceError::NotInitialized
+            ApplicationError::NotInitialized
         } else {
-            ServiceError::InvalidConfig
+            ApplicationError::Io(error)
         }
     })?;
     let mut text = String::new();
-    file.read_to_string(&mut text)
-        .map_err(|_| ServiceError::InvalidConfig)?;
-    FlexiMarkConfig::from_toml(&text).map_err(|_| ServiceError::InvalidConfig)
+    file.read_to_string(&mut text)?;
+    FlexiMarkConfig::from_toml(&text).map_err(ApplicationError::from)
 }
 
-pub fn workspace_for_document(document_uri: &str) -> Result<String, ServiceError> {
+pub fn workspace_for_document(document_uri: &str) -> Result<String, ApplicationError> {
     let document = workspace_path(document_uri)?;
     for parent in document
         .parent()
-        .ok_or(ServiceError::InvalidWorkspaceUri)?
+        .ok_or(ApplicationError::InvalidWorkspaceUri)?
         .ancestors()
     {
         if parent.join(".fleximark/config.toml").is_file() {
@@ -189,7 +194,7 @@ pub fn workspace_for_document(document_uri: &str) -> Result<String, ServiceError
             return path_to_file_uri(parent);
         }
     }
-    Err(ServiceError::NotInitialized)
+    Err(ApplicationError::NotInitialized)
 }
 
 #[cfg(test)]
@@ -289,15 +294,15 @@ mod tests {
         let uri = path_to_file_uri(&root).unwrap();
         assert!(matches!(
             initialize_workspace(&uri),
-            Err(ServiceError::LinkedControlDirectory)
+            Err(ApplicationError::LinkedControlDirectory)
         ));
         assert!(matches!(
             get_note_options(&uri),
-            Err(ServiceError::LinkedControlDirectory)
+            Err(ApplicationError::LinkedControlDirectory)
         ));
         assert!(matches!(
             configured_render_config(&uri, true, 1),
-            Err(ServiceError::LinkedControlDirectory)
+            Err(ApplicationError::LinkedControlDirectory)
         ));
         assert!(
             configured_render_config(&uri, false, 1).is_ok(),
@@ -354,7 +359,9 @@ mod tests {
         .unwrap();
         assert!(matches!(
             create_note(&uri),
-            Err(ServiceError::InvalidConfig)
+            Err(ApplicationError::Config(
+                fleximark_config::ConfigError::Syntax(_)
+            ))
         ));
         fs::remove_dir_all(root).unwrap();
     }

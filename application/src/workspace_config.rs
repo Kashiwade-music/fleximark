@@ -1,6 +1,6 @@
 //! Role: Configure native workspace authority and transactional reconfiguration.
 use crate::CancellationToken;
-use crate::error::SessionError;
+use crate::error::ApplicationError;
 use crate::native;
 use crate::registry::SessionRegistry;
 use std::collections::{HashMap, HashSet};
@@ -13,20 +13,21 @@ impl SessionRegistry {
     pub fn configure_native_workspaces(
         &mut self,
         roots: Vec<(String, bool)>,
-    ) -> Result<Vec<WorkspaceConfigurationStatus>, SessionError> {
-        let generation = self
-            .config_generation
-            .checked_add(1)
-            .ok_or_else(|| SessionError::Engine("configuration generation exhausted".into()))?;
+    ) -> Result<Vec<WorkspaceConfigurationStatus>, ApplicationError> {
+        let generation = self.config_generation.checked_add(1).ok_or_else(|| {
+            ApplicationError::InternalState("configuration generation exhausted".into())
+        })?;
         let mut seen = HashSet::new();
         if roots.iter().any(|(uri, _)| !seen.insert(uri.clone())) {
-            return Err(SessionError::Engine("workspace URI is duplicated".into()));
+            return Err(ApplicationError::InvalidState(
+                "workspace URI is duplicated".into(),
+            ));
         }
         let mut canonical_roots = HashSet::new();
         for (uri, _) in &roots {
             if let Ok(path) = native::workspace_path(uri) {
                 if !canonical_roots.insert(path) {
-                    return Err(SessionError::Engine(
+                    return Err(ApplicationError::InvalidState(
                         "canonical workspace root is duplicated".into(),
                     ));
                 }
@@ -69,14 +70,16 @@ impl SessionRegistry {
         uri: &str,
         trusted: bool,
         cancellation: &CancellationToken,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), ApplicationError> {
         self.verify_daemon(daemon)?;
         if !self
             .workspace_statuses()
             .iter()
             .any(|(root, _, _)| root == uri)
         {
-            return Err(SessionError::Engine("workspace is not registered".into()));
+            return Err(ApplicationError::InvalidState(
+                "workspace is not registered".into(),
+            ));
         }
         if !trusted {
             self.workspaces.revoke(uri);
@@ -96,17 +99,14 @@ impl SessionRegistry {
                 return Err(crate::error::engine_error(error));
             }
         }
-        let generation = self
-            .config_generation
-            .checked_add(1)
-            .ok_or_else(|| SessionError::Engine("configuration generation exhausted".into()))?;
-        let config = native::configured_render_config(uri, trusted, generation)
-            .map_err(|error| SessionError::Engine(error.to_string()))?;
+        let generation = self.config_generation.checked_add(1).ok_or_else(|| {
+            ApplicationError::InternalState("configuration generation exhausted".into())
+        })?;
+        let config = native::configured_render_config(uri, trusted, generation)?;
         let mut assets = HashMap::new();
         for (document_uri, document) in self.workspace_documents(uri) {
             let resolved = if trusted {
-                native::resolve_render_assets(&document_uri, uri, &document)
-                    .map_err(|error| SessionError::Engine(error.to_string()))?
+                native::resolve_render_assets(&document_uri, uri, &document)?
             } else {
                 Default::default()
             };

@@ -1,6 +1,5 @@
 //! Role: Native workspace lib operations and validation.
 mod assets;
-mod error;
 mod export;
 mod integrity;
 mod notes;
@@ -11,8 +10,8 @@ mod theme;
 mod uri;
 mod workspace;
 
+use crate::ApplicationError;
 pub use assets::{ExportAsset, resolve_render_assets};
-pub use error::ServiceError;
 pub use export::{acknowledge_export, default_export_destination, export_document, export_html};
 pub use notes::{collect_admonitions, create_note, create_note_with_options, get_note_options};
 pub use open::{open_document, refresh_document_assets};

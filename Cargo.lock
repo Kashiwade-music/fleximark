@@ -319,6 +319,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fleximark-distribution"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "fleximark-engine"
 version = "0.1.0"
 dependencies = [
@@ -352,7 +361,6 @@ dependencies = [
  "fleximark-protocol",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -382,9 +390,8 @@ dependencies = [
 name = "fleximark-preview-assets"
 version = "0.1.0"
 dependencies = [
- "serde",
+ "fleximark-distribution",
  "serde_json",
- "sha2",
 ]
 
 [[package]]

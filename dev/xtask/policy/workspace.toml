@@ -8,6 +8,7 @@ max_role_chars = 80
 targets = "lib-bin"
 
 [visible_to]
+fleximark-distribution = ["fleximark-preview-assets"]
 fleximark-model = ["fleximark-parser", "fleximark-render-html", "fleximark-engine", "fleximark-language", "fleximark-application", "fleximark-lsp-transport", "fleximark-preview-http", "fleximark-cli", "fleximarkd", "fleximark-protocol-codegen"]
 fleximark-parser = ["fleximark-engine", "fleximark-language", "fleximark-render-html", "fleximark-application"]
 fleximark-render-html = ["fleximark-engine", "fleximark-application", "fleximark-language", "fleximark-cli", "fleximark-protocol-codegen"]

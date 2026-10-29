@@ -14,7 +14,7 @@ impl Server {
             if version.as_u64() != Some(u64::from(PROTOCOL_VERSION)) {
                 return Some(response_value(Response::error(
                     id,
-                    -32001,
+                    fleximark_protocol::error_code::UNSUPPORTED_PROTOCOL,
                     format!("unsupported protocol version {version}; expected {PROTOCOL_VERSION}"),
                 )));
             }
@@ -116,7 +116,7 @@ impl Server {
         let (Some(uri), Some(line), Some(character)) = (uri, line, character) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "completion requires textDocument.uri and position",
             )));
         };
@@ -135,7 +135,7 @@ impl Server {
         ) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "completion position is not in an open document",
             )));
         };
@@ -159,7 +159,7 @@ impl Server {
         let Some(uri) = params.pointer("/textDocument/uri").and_then(Value::as_str) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "semantic tokens require textDocument.uri",
             )));
         };
@@ -192,21 +192,21 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "invalid hover parameters",
             )));
         };
         let (Ok(line), Ok(character)) = (JsSafeU64::new(line), JsSafeU64::new(character)) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "hover position is outside the JavaScript safe integer range",
             )));
         };
         let Some(session_id) = self.registry.session_id_for_uri(uri) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not open",
             )));
         };
@@ -216,7 +216,7 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not current",
             )));
         };
@@ -239,7 +239,7 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is unavailable",
             )));
         };
@@ -259,14 +259,14 @@ impl Server {
         let Some(uri) = params.pointer("/textDocument/uri").and_then(Value::as_str) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "invalid symbol parameters",
             )));
         };
         let Some(session_id) = self.registry.session_id_for_uri(uri) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not open",
             )));
         };
@@ -276,7 +276,7 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not current",
             )));
         };
@@ -286,7 +286,7 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is unavailable",
             )));
         };
@@ -305,7 +305,7 @@ impl Server {
             return id.map(|id| {
                 response_value(Response::error(
                     id,
-                    -32600,
+                    fleximark_protocol::error_code::INVALID_REQUEST,
                     "LSP notification must not have an id",
                 ))
             });
@@ -313,7 +313,13 @@ impl Server {
         let params = match serde_json::from_value::<DidCloseParams>(params) {
             Ok(params) => params,
             Err(error) => {
-                let _ = error;
+                crate::telemetry::log_operational_failure(
+                    "operation-failed",
+                    &error,
+                    None,
+                    None,
+                    None,
+                );
                 log_operational_event("did-close-invalid", None, None, None);
                 return None;
             }
@@ -355,7 +361,7 @@ impl Server {
             return id.map(|id| {
                 response_value(Response::error(
                     id,
-                    -32600,
+                    fleximark_protocol::error_code::INVALID_REQUEST,
                     "LSP notification must not have an id",
                 ))
             });
@@ -363,7 +369,13 @@ impl Server {
         let params = match serde_json::from_value::<DidOpenParams>(params) {
             Ok(params) => params,
             Err(error) => {
-                let _ = error;
+                crate::telemetry::log_operational_failure(
+                    "operation-failed",
+                    &error,
+                    None,
+                    None,
+                    None,
+                );
                 log_operational_event("did-open-invalid", None, None, None);
                 return None;
             }
@@ -377,7 +389,7 @@ impl Server {
             .open_with_cancellation(params, &self.work_cancellation)
             .and_then(|_| self.refresh_assets(&uri))
         {
-            let _ = error;
+            crate::telemetry::log_operational_failure("operation-failed", &error, None, None, None);
             log_operational_event("document-open-failed", Some(&uri), None, None);
         } else {
             self.publish_lsp_diagnostics(&uri);
@@ -390,7 +402,7 @@ impl Server {
             return id.map(|id| {
                 response_value(Response::error(
                     id,
-                    -32600,
+                    fleximark_protocol::error_code::INVALID_REQUEST,
                     "LSP notification must not have an id",
                 ))
             });
@@ -398,7 +410,13 @@ impl Server {
         let params = match serde_json::from_value::<DidChangeParams>(params) {
             Ok(params) => params,
             Err(error) => {
-                let _ = error;
+                crate::telemetry::log_operational_failure(
+                    "operation-failed",
+                    &error,
+                    None,
+                    None,
+                    None,
+                );
                 log_operational_event("did-change-invalid", None, None, None);
                 return None;
             }
@@ -412,7 +430,7 @@ impl Server {
         trace.log("change-received");
         let transform_started = Instant::now();
         if let Err(error) = self.apply_document_change(params) {
-            if error == SessionError::Cancelled {
+            if matches!(error, ApplicationError::Cancelled) {
                 if let (Some(session), Ok(version)) = (
                     self.registry.session_id_for_uri(&uri).map(str::to_owned),
                     u64::try_from(document_version)
@@ -440,9 +458,9 @@ impl Server {
                 .current_version(self.registry.daemon_instance_id(), &session_id)
                 .and_then(|version| {
                     u64::try_from(version)
-                        .map_err(|_| SessionError::VersionMismatch)
+                        .map_err(|_| ApplicationError::VersionMismatch)
                         .and_then(|version| {
-                            JsSafeU64::new(version).map_err(|_| SessionError::VersionMismatch)
+                            JsSafeU64::new(version).map_err(|_| ApplicationError::VersionMismatch)
                         })
                 })
             {
@@ -468,7 +486,7 @@ impl Server {
         None
     }
 
-    fn apply_document_change(&mut self, params: DidChangeParams) -> Result<(), SessionError> {
+    fn apply_document_change(&mut self, params: DidChangeParams) -> Result<(), ApplicationError> {
         self.registry
             .change_with_cancellation(params, &self.work_cancellation)
     }
@@ -476,7 +494,7 @@ impl Server {
     fn refresh_changed_document_assets(&mut self, uri: &str, trace: &OperationalTrace) -> bool {
         let asset_started = Instant::now();
         if let Err(error) = self.refresh_assets(uri) {
-            let _ = error;
+            crate::telemetry::log_operational_failure("operation-failed", &error, None, None, None);
             eprintln!(
                 "{}",
                 trace.event("asset-refresh-failed", asset_started.elapsed(), None, false,)
@@ -512,7 +530,13 @@ impl Server {
             ) {
                 Ok(frame) => frame,
                 Err(error) => {
-                    let _ = error;
+                    crate::telemetry::log_operational_failure(
+                        "operation-failed",
+                        &error,
+                        None,
+                        None,
+                        None,
+                    );
                     log_operational_event(
                         "preview-update-failed",
                         Some(uri),

@@ -9,7 +9,7 @@ impl Server {
         if !self.lsp_initialized {
             return Some(response_value(Response::error(
                 id,
-                -32002,
+                fleximark_protocol::error_code::SERVER_NOT_INITIALIZED,
                 "LSP initialize must complete first",
             )));
         }
@@ -20,7 +20,7 @@ impl Server {
         if params.protocol_version != PROTOCOL_VERSION {
             return Some(response_value(Response::error(
                 id,
-                -32001,
+                fleximark_protocol::error_code::UNSUPPORTED_PROTOCOL,
                 format!(
                     "unsupported protocol version {}; expected {PROTOCOL_VERSION}",
                     params.protocol_version
@@ -73,7 +73,7 @@ impl Server {
         if !self.lsp_initialized {
             return Some(response_value(Response::error(
                 id,
-                -32002,
+                fleximark_protocol::error_code::SERVER_NOT_INITIALIZED,
                 "FlexiMark connection is not initialized",
             )));
         }
@@ -86,7 +86,7 @@ impl Server {
             Err(_) => {
                 return Some(response_value(Response::error(
                     id,
-                    -32603,
+                    fleximark_protocol::error_code::INTERNAL_ERROR,
                     "operating system random source is unavailable",
                 )));
             }
@@ -111,7 +111,7 @@ impl Server {
                 Err(_) => {
                     return Some(response_value(Response::error(
                         id,
-                        -32603,
+                        fleximark_protocol::error_code::INTERNAL_ERROR,
                         "operating system random source is unavailable",
                     )));
                 }
@@ -159,7 +159,7 @@ impl Server {
         let Some(state) = self.preview_states.get(&params.preview_session_id).cloned() else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "unknown preview session",
             )));
         };
@@ -194,7 +194,7 @@ impl Server {
             Err(error) => return id.map(|id| invalid_params(id, error)),
         };
         if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return id.map(|id| session_error(id, SessionError::WrongDaemon));
+            return id.map(|id| session_error(id, ApplicationError::WrongDaemon));
         }
         if let Some(state) = self.preview_states.remove(&params.preview_session_id) {
             if let Err(error) = self.registry.dispose_preview(
@@ -211,7 +211,7 @@ impl Server {
         id.map(|id| response_value(Response::success(id, Value::Null)))
     }
 
-    pub(super) fn refresh_assets(&mut self, uri: &str) -> Result<(), SessionError> {
+    pub(super) fn refresh_assets(&mut self, uri: &str) -> Result<(), ApplicationError> {
         self.registry.refresh_document_assets(uri)
     }
 
@@ -344,11 +344,16 @@ impl Server {
             Err(error) => return id.map(|id| invalid_params(id, error)),
         };
         if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return id.map(|id| session_error(id, SessionError::WrongDaemon));
+            return id.map(|id| session_error(id, ApplicationError::WrongDaemon));
         }
         let Some(state) = self.preview_states.get(&params.preview_session_id) else {
-            return id
-                .map(|id| response_value(Response::error(id, -32602, "unknown preview session")));
+            return id.map(|id| {
+                response_value(Response::error(
+                    id,
+                    fleximark_protocol::error_code::INVALID_PARAMS,
+                    "unknown preview session",
+                ))
+            });
         };
         let navigation = params.event;
         let (event_preview_id, event_revision, node_id) = match &navigation {
@@ -385,7 +390,11 @@ impl Server {
             Ok(Some(entry)) => entry,
             Ok(None) => {
                 return id.map(|id| {
-                    response_value(Response::error(id, -32602, "unknown rendered node"))
+                    response_value(Response::error(
+                        id,
+                        fleximark_protocol::error_code::INVALID_PARAMS,
+                        "unknown rendered node",
+                    ))
                 });
             }
             Err(error) => return id.map(|id| session_error(id, error)),
@@ -397,7 +406,7 @@ impl Server {
             None,
         ) {
             Ok(Some(frame)) => frame,
-            Ok(None) => return id.map(|id| session_error(id, SessionError::UnknownSession)),
+            Ok(None) => return id.map(|id| session_error(id, ApplicationError::UnknownSession)),
             Err(error) => return id.map(|id| session_error(id, error)),
         };
         let event = match navigation {
@@ -446,7 +455,7 @@ impl Server {
             Err(response) => return Some(response),
         };
         if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return Some(session_error(id, SessionError::WrongDaemon));
+            return Some(session_error(id, ApplicationError::WrongDaemon));
         }
         if !self
             .registry
@@ -456,7 +465,7 @@ impl Server {
         {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "workspace is not registered",
             )));
         }
@@ -466,11 +475,7 @@ impl Server {
             params.trusted,
             &self.work_cancellation,
         ) {
-            return Some(response_value(Response::error(
-                id,
-                -32022,
-                error.to_string(),
-            )));
+            return Some(session_error(id, error));
         }
 
         let daemon = self.registry.daemon_instance_id().to_owned();

@@ -22,7 +22,14 @@ impl Server {
                     document_session_id: result.document_session_id,
                     document_version: match result.document_version.try_into() {
                         Ok(version) => version,
-                        Err(error) => return Some(boundary_error(id, error)),
+                        Err(_) => {
+                            return Some(boundary_error(
+                                id,
+                                ApplicationError::IntegerRange(
+                                    result.document_version.unsigned_abs(),
+                                ),
+                            ));
+                        }
                     },
                 },
             )),
@@ -33,31 +40,29 @@ impl Server {
 
 pub(super) fn native_position(
     position: &fleximark_protocol::TextPosition,
-) -> Result<fleximark_application::Position, SessionError> {
+) -> Result<fleximark_application::Position, ApplicationError> {
     Ok(fleximark_application::Position {
         line: position
             .line
             .get()
             .try_into()
-            .map_err(|_| SessionError::InvalidRange)?,
+            .map_err(|_| ApplicationError::InvalidRange)?,
         character: position
             .character
             .get()
             .try_into()
-            .map_err(|_| SessionError::InvalidRange)?,
+            .map_err(|_| ApplicationError::InvalidRange)?,
     })
 }
 
-pub(super) fn counter(
-    value: u64,
-) -> Result<JsSafeU64, crate::preview_http::protocol::ConversionError> {
+pub(super) fn counter(value: u64) -> Result<JsSafeU64, fleximark_application::ApplicationError> {
     crate::preview_http::protocol::counter(value)
 }
 pub(super) fn range(
     range: &fleximark_model::SourceRange,
     source: &str,
     encoding: PositionEncoding,
-) -> Result<fleximark_protocol::SourceRange, crate::preview_http::protocol::ConversionError> {
+) -> Result<fleximark_protocol::SourceRange, fleximark_application::ApplicationError> {
     crate::preview_http::protocol::source_range(
         range,
         &fleximark_model::SourceIndex::new(source),
@@ -66,6 +71,6 @@ pub(super) fn range(
 }
 pub(super) fn wire_frame(
     frame: &fleximark_application::RenderFrame,
-) -> Result<fleximark_protocol::RenderFrame, crate::preview_http::protocol::ConversionError> {
+) -> Result<fleximark_protocol::RenderFrame, fleximark_application::ApplicationError> {
     crate::preview_http::protocol::frame(frame)
 }

@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::cancellation::{CancellationCoordinator, WorkPermit};
 use crate::server::{Server, response_value};
-use crate::telemetry::log_operational_event;
+use crate::telemetry::log_operational_failure;
 
 pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std::error::Error>> {
     let output = CoalescingOutput::default();
@@ -19,8 +19,7 @@ pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std
         loop {
             let message = writer_output.pop();
             if let Err(error) = write_frame(&mut writer, &message) {
-                let _ = error;
-                log_operational_event("stdout-write-failed", None, None, None);
+                log_operational_failure("stdout-write-failed", &error, None, None, None);
                 break;
             }
         }
@@ -89,10 +88,10 @@ pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std
         let (reply, response) = mpsc::channel();
         input_sender
             .send(InputEvent::Workspace { request, reply })
-            .map_err(|_| "server is closed".to_owned())?;
+            .map_err(fleximark_application::ApplicationError::internal)?;
         response
             .recv_timeout(std::time::Duration::from_secs(1))
-            .map_err(|_| "workspace request timed out".to_owned())?
+            .map_err(fleximark_application::ApplicationError::internal)?
     }));
 
     loop {
@@ -119,7 +118,7 @@ pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std
             InputEvent::Invalid => {
                 output.push(response_value(Response::error(
                     Value::Null,
-                    -32700,
+                    fleximark_protocol::error_code::PARSE_ERROR,
                     "invalid JSON-RPC message",
                 )));
                 continue;
@@ -250,7 +249,7 @@ fn process_message_with_observer(
         if let Some(id) = message.id.clone() {
             messages.push(response_value(Response::error(
                 id.into(),
-                -32800,
+                fleximark_protocol::error_code::REQUEST_CANCELLED,
                 "request cancelled",
             )));
         }
@@ -271,7 +270,7 @@ enum InputEvent {
     Response(Value),
     Workspace {
         request: Value,
-        reply: mpsc::Sender<Result<Value, String>>,
+        reply: mpsc::Sender<Result<Value, fleximark_application::ApplicationError>>,
     },
     Message {
         message: IncomingMessage,
@@ -362,7 +361,7 @@ mod tests {
             json!({
                 "jsonrpc":"2.0",
                 "id":80,
-                "error":{"code":-32800,"message":"request cancelled"}
+                "error":{"code":fleximark_protocol::error_code::REQUEST_CANCELLED,"message":"request cancelled"}
             })
         );
 
@@ -401,7 +400,7 @@ mod tests {
             json!({
                 "jsonrpc":"2.0",
                 "id":81,
-                "error":{"code":-32800,"message":"request cancelled"}
+                "error":{"code":fleximark_protocol::error_code::REQUEST_CANCELLED,"message":"request cancelled"}
             })
         );
         coordinator.finish(&newer_permit.unwrap());

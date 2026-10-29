@@ -129,13 +129,13 @@ fn full_sync_recovers_after_a_stale_update_and_reopen_replaces_identity() {
     let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
     open(&mut registry, "old", 3);
     let old = session_id(&registry, DOCUMENT_URI).to_owned();
-    assert_eq!(
+    assert!(matches!(
         registry.change_with_cancellation(
             change(DOCUMENT_URI, 3, None, "stale"),
             &CancellationToken::default()
         ),
-        Err(SessionError::StaleVersion)
-    );
+        Err(ApplicationError::StaleVersion)
+    ));
     registry
         .change_with_cancellation(
             change(DOCUMENT_URI, 4, None, "latest 😀"),
@@ -191,13 +191,13 @@ fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental
                 character: 1,
             },
         };
-        assert_eq!(
+        assert!(matches!(
             registry.change_with_cancellation(
                 change(DOCUMENT_URI, 2, Some(range), "x"),
                 &CancellationToken::default()
             ),
-            Err(SessionError::InvalidRange)
-        );
+            Err(ApplicationError::InvalidRange)
+        ));
         registry
             .change_with_cancellation(
                 change(DOCUMENT_URI, 2, None, "axb😀\n"),
@@ -322,12 +322,10 @@ fn workspace_reconfiguration_is_transactional() {
             &CancellationToken::default(),
         )
         .unwrap_err();
-    assert_eq!(
-        error,
-        SessionError::Engine(
-            "invalid resolved render asset: resolved asset sources must be unique".into()
-        )
+    assert!(
+        matches!(error, ApplicationError::Engine(EngineError::Asset(ref detail)) if detail == "resolved asset sources must be unique")
     );
+
     for (uri, session_id, source, version, fingerprint) in &baseline {
         assert_eq!(workspace.session_id_for_uri(uri), Some(session_id.as_str()));
         let session = workspace
@@ -398,26 +396,31 @@ fn workspace_reconfiguration_is_transactional() {
 
 #[test]
 fn engine_error_categories_preserve_session_error_identity_and_messages() {
-    let cases = [
-        (EngineError::ContentModified, SessionError::ContentModified),
+    use std::error::Error;
+    for (error, kind) in [
+        (EngineError::ContentModified, ErrorKind::Conflict),
         (
             EngineError::StaleVersion {
                 current: 3,
                 received: 2,
             },
-            SessionError::StaleVersion,
+            ErrorKind::Conflict,
         ),
         (
             EngineError::Configuration("config detail".into()),
-            SessionError::Engine("invalid render configuration: config detail".into()),
+            ErrorKind::Invalid,
         ),
         (
             EngineError::Asset("asset detail".into()),
-            SessionError::Engine("invalid resolved render asset: asset detail".into()),
+            ErrorKind::Invalid,
         ),
-    ];
-    for (engine, expected) in cases {
-        assert_eq!(engine_error(engine), expected);
+    ] {
+        let message = error.to_string();
+        let application = engine_error(error);
+        assert!(matches!(application, ApplicationError::Engine(_)));
+        assert_eq!(application.kind(), kind);
+        assert_eq!(application.to_string(), message);
+        assert_eq!(application.source().unwrap().to_string(), message);
     }
 }
 

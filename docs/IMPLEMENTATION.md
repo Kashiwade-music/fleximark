@@ -36,6 +36,8 @@ browser UI は context が足りない場合に文書・workspace を選択さ�
 
 ## 配布とデータ移行
 
+`contracts/distribution/distribution.json` は target、配布ファイル、サイズ上限を記述する。codegen が runtime schema と TS/JS 定数を生成する。Rust の `RuntimeDistribution` を runtime 資源と Zed の検証に共用し、Node の binary 検証も生成 schema・上限・hash・包含・link 検査を使う。
+
 root の `release.toml` が製品 version を所有する。native archive は daemon、CLI、preview/workspace browser 資源、version・target・protocol・SHA-256 を記録した manifest を含む。source、`.build` の build output、`.artifacts` の製品 staging を分ける。root `package.json` は private tooling である。
 
 旧ユーザーデータの decoder は `migration` crate に閉じる。CLI と editor の明示 migration command は同じ library を直接呼び出す。通常起動・設定読込みに旧形式の fallback、探索、移行 offer は置かない。

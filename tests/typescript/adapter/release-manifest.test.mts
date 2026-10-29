@@ -1,24 +1,47 @@
 import * as assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import {
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 import {
   type ReleaseManifestEnvironment,
+  nodeReleaseManifestEnvironment,
   verifiedBundledCli,
   verifiedBundledDaemon,
 } from "../../../adapters/vscode/src/release-manifest.mjs";
+import {
+  DISTRIBUTION_FILES,
+  DISTRIBUTION_TARGETS,
+} from "../../../contracts/typescript/distribution.generated.mjs";
 import { PROTOCOL_VERSION } from "../../../contracts/typescript/protocol.mjs";
 
 export const suiteName = "Runtime distribution verifier";
 const bytes = Buffer.from("runtime-binary");
 const sha256 = createHash("sha256").update(bytes).digest("hex");
 function manifest(): Record<string, unknown> {
+  const target = DISTRIBUTION_TARGETS.find(
+    (target) => target.vscode === "win32-x64",
+  );
+  assert.ok(target);
   return {
     schemaVersion: 1,
     protocolVersion: PROTOCOL_VERSION,
     version: "1.0.0",
     target: "x86_64-pc-windows-msvc",
-    files: { "bin/fleximarkd.exe": sha256, "bin/fleximark.exe": sha256 },
+    files: Object.fromEntries(
+      DISTRIBUTION_FILES.map((file) => [
+        file.path.replace("{exe}", target.executableSuffix),
+        sha256,
+      ]),
+    ),
   };
 }
 function environment(
@@ -43,6 +66,53 @@ function environment(
   };
 }
 export function suite(): void {
+  test("filesystem verification rejects linked binary directories", async () => {
+    const root = await mkdtemp(
+      path.join(tmpdir(), "fleximark-runtime-policy-"),
+    );
+    try {
+      const target = DISTRIBUTION_TARGETS.find(
+        (target) =>
+          target.os === process.platform && target.arch === process.arch,
+      );
+      assert.ok(target);
+      const files = Object.fromEntries(
+        DISTRIBUTION_FILES.map((file) => [
+          file.path.replace("{exe}", target.executableSuffix),
+          sha256,
+        ]),
+      );
+      for (const relative of Object.keys(files)) {
+        const file = path.join(root, "runtime", relative);
+        await mkdir(path.dirname(file), { recursive: true });
+        await writeFile(file, bytes);
+      }
+      await writeFile(
+        path.join(root, "runtime", "manifest.json"),
+        JSON.stringify({ ...manifest(), target: target.triple, files }),
+      );
+      const env = nodeReleaseManifestEnvironment(root);
+      assert.equal(
+        await verifiedBundledDaemon(env),
+        path.join(root, "runtime", `bin/fleximarkd${target.executableSuffix}`),
+      );
+      await rename(
+        path.join(root, "runtime", "bin"),
+        path.join(root, "outside-bin"),
+      );
+      await symlink(
+        path.join(root, "outside-bin"),
+        path.join(root, "runtime", "bin"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      await assert.rejects(
+        verifiedBundledDaemon(env),
+        /Invalid.*(containment|linked)/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   test("verifies both server and CLI binaries from one distribution", async () => {
     const env = environment(manifest());
     assert.equal(

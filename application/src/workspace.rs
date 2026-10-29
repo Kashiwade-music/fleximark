@@ -22,12 +22,12 @@ impl WorkspaceAuthority {
     pub(super) fn replace_roots(
         &mut self,
         workspaces: Vec<(String, RenderConfig)>,
-    ) -> Result<(), crate::error::SessionError> {
+    ) -> Result<(), crate::error::ApplicationError> {
         let mut canonical_roots = std::collections::HashSet::new();
         for (uri, _) in &workspaces {
             if let Ok(path) = crate::native::workspace_path(uri) {
                 if !canonical_roots.insert(path) {
-                    return Err(crate::error::SessionError::Engine(
+                    return Err(crate::error::ApplicationError::InvalidState(
                         "canonical workspace root is duplicated".into(),
                     ));
                 }

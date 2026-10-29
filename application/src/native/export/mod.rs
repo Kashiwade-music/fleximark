@@ -18,7 +18,7 @@ use cap_std::{ambient_authority, fs::Dir};
 use fleximark_engine::DocumentEngine;
 use fleximark_render_html::{HtmlTarget, RenderContext};
 
-use crate::native::ServiceError;
+use crate::native::ApplicationError;
 use crate::native::assets::{ExportAsset, compose_portable_html, resolve_export_assets};
 use crate::native::uri::{
     file_uri_path, path_to_file_uri, path_to_file_uri_unchecked, workspace_path,
@@ -39,20 +39,22 @@ use model::{
 use ownership::inspect_export;
 use recovery::recover_export;
 
-pub fn default_export_destination(document_uri: &str) -> Result<String, ServiceError> {
+pub fn default_export_destination(document_uri: &str) -> Result<String, ApplicationError> {
     let source = workspace_path(document_uri)?;
     let stem = source
         .file_stem()
         .and_then(|value| value.to_str())
-        .ok_or(ServiceError::InvalidExportDestination)?;
+        .ok_or(ApplicationError::InvalidExportDestination)?;
     let destination = source
         .parent()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .join(format!("{stem}.fleximark-export"));
     path_to_file_uri_unchecked(&destination)
 }
 
-pub(crate) fn export_render_context(workspace_uri: &str) -> Result<RenderContext, ServiceError> {
+pub(crate) fn export_render_context(
+    workspace_uri: &str,
+) -> Result<RenderContext, ApplicationError> {
     let workspace = workspace_path(workspace_uri)?;
     validate_config(&workspace.join(".fleximark/config.toml"))?;
     Ok(RenderContext {
@@ -69,17 +71,17 @@ pub fn export_document(
     workspace_uri: &str,
     destination_uri: &str,
     cancellation: &CancellationToken,
-) -> Result<ExportReceipt, ServiceError> {
+) -> Result<ExportReceipt, ApplicationError> {
     crate::cancellation_checks::check(cancellation, "export_start")
-        .map_err(|_| ServiceError::Cancelled)?;
+        .map_err(|_| ApplicationError::Cancelled)?;
     preflight_export(source_uri, workspace_uri, destination_uri)?;
     let mut context = export_render_context(workspace_uri)?;
     context.resolved_resources = session.render_config().context.resolved_resources.clone();
     crate::cancellation_checks::check(cancellation, "export_render_start")
-        .map_err(|_| ServiceError::Cancelled)?;
+        .map_err(|_| ApplicationError::Cancelled)?;
     let rendered = session.render(&context)?;
     crate::cancellation_checks::check(cancellation, "export_rendered")
-        .map_err(|_| ServiceError::Cancelled)?;
+        .map_err(|_| ApplicationError::Cancelled)?;
     let mut assets = Vec::new();
     let resolved = resolve_export_assets(
         source_uri,
@@ -88,7 +90,7 @@ pub fn export_document(
         &rendered.assets,
     )?;
     crate::cancellation_checks::check(cancellation, "export_assets")
-        .map_err(|_| ServiceError::Cancelled)?;
+        .map_err(|_| ApplicationError::Cancelled)?;
     assets.extend(resolved.assets);
     let html = compose_portable_html(
         &resolved.html,
@@ -96,7 +98,7 @@ pub fn export_document(
         &fleximark_preview_assets::read("browser-host.js")?,
     )?;
     crate::cancellation_checks::check(cancellation, "export_commit")
-        .map_err(|_| ServiceError::Cancelled)?;
+        .map_err(|_| ApplicationError::Cancelled)?;
     export_html(source_uri, workspace_uri, destination_uri, &html, &assets)
 }
 
@@ -106,7 +108,7 @@ pub fn export_html(
     destination_uri: &str,
     html: &str,
     assets: &[ExportAsset],
-) -> Result<ExportReceipt, ServiceError> {
+) -> Result<ExportReceipt, ApplicationError> {
     export_html_transaction(
         source_uri,
         workspace_uri,
@@ -117,18 +119,18 @@ pub fn export_html(
     )
 }
 
-fn verify_export_assets(assets: &[ExportAsset]) -> Result<(), ServiceError> {
+fn verify_export_assets(assets: &[ExportAsset]) -> Result<(), ApplicationError> {
     for asset in assets {
         let (Some(source), Some(source_identity)) = (&asset.source, &asset.source_identity) else {
             continue;
         };
         if object_identity(source).ok().as_ref() != Some(source_identity) {
-            return Err(ServiceError::ExportContentConflict);
+            return Err(ApplicationError::ExportContentConflict);
         }
         let parent = Dir::open_ambient_dir(
             source
                 .parent()
-                .ok_or(ServiceError::InvalidExportDestination)?,
+                .ok_or(ApplicationError::InvalidExportDestination)?,
             ambient_authority(),
         )?;
         let mut options = cap_std::fs::OpenOptions::new();
@@ -136,13 +138,13 @@ fn verify_export_assets(assets: &[ExportAsset]) -> Result<(), ServiceError> {
         let mut file = parent.open_with(
             source
                 .file_name()
-                .ok_or(ServiceError::InvalidExportDestination)?,
+                .ok_or(ApplicationError::InvalidExportDestination)?,
             &options,
         )?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
         if bytes != asset.bytes || sha256(&bytes) != asset.content_hash {
-            return Err(ServiceError::ExportContentConflict);
+            return Err(ApplicationError::ExportContentConflict);
         }
     }
     Ok(())
@@ -154,34 +156,34 @@ fn export_html_transaction(
     destination_uri: &str,
     html: &str,
     assets: &[ExportAsset],
-    mut checkpoint: impl FnMut(&'static str) -> Result<(), ServiceError>,
-) -> Result<ExportReceipt, ServiceError> {
+    mut checkpoint: impl FnMut(&'static str) -> Result<(), ApplicationError>,
+) -> Result<ExportReceipt, ApplicationError> {
     let workspace = workspace_path(workspace_uri)?;
     validate_config(&workspace.join(".fleximark/config.toml"))?;
     let source = workspace_path(source_uri)?;
     if source == workspace || !source.starts_with(&workspace) {
-        return Err(ServiceError::InvalidExportDestination);
+        return Err(ApplicationError::InvalidExportDestination);
     }
     let destination = file_uri_path(destination_uri)?;
     let parent = destination
         .parent()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .canonicalize()
-        .map_err(|_| ServiceError::InvalidExportDestination)?;
+        .map_err(|_| ApplicationError::InvalidExportDestination)?;
     let parent_dir = Dir::open_ambient_dir(&parent, ambient_authority())?;
     let destination = parent.join(
         destination
             .file_name()
-            .ok_or(ServiceError::InvalidExportDestination)?,
+            .ok_or(ApplicationError::InvalidExportDestination)?,
     );
     if destination == workspace
         || !destination.starts_with(&workspace)
         || destination.starts_with(workspace.join(".fleximark"))
     {
-        return Err(ServiceError::ReservedExportPath);
+        return Err(ApplicationError::ReservedExportPath);
     }
     if fs::symlink_metadata(&destination).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(ServiceError::InvalidExportDestination);
+        return Err(ApplicationError::InvalidExportDestination);
     }
 
     let destination_identity = destination.to_string_lossy().into_owned();
@@ -194,13 +196,13 @@ fn export_html_transaction(
     let name = destination
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or(ServiceError::InvalidExportDestination)?;
+        .ok_or(ApplicationError::InvalidExportDestination)?;
     let journal_path = parent.join(format!(".{name}.fleximark-export-journal.json"));
     recover_export(&journal_path, &destination, &registry, false)?;
     reject_link(
         registry
             .parent()
-            .ok_or(ServiceError::InvalidExportDestination)?,
+            .ok_or(ApplicationError::InvalidExportDestination)?,
     )?;
 
     let previous = inspect_export(&destination, &registry)?;
@@ -209,7 +211,7 @@ fn export_html_transaction(
             || managed.registry.workspace_identity != workspace_identity
             || managed.registry.destination_identity != destination_identity
     }) {
-        return Err(ServiceError::ExportOwnershipConflict);
+        return Err(ApplicationError::ExportOwnershipConflict);
     }
     let generation = previous
         .as_ref()
@@ -223,7 +225,7 @@ fn export_html_transaction(
     let staging = parent.join(format!(".{name}.fleximark-export-staging-{transaction}"));
     let backup = parent.join(format!(".{name}.fleximark-export-backup-{transaction}"));
     if staging.exists() || backup.exists() {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let previous_destination_identity = fs::symlink_metadata(&destination)
         .ok()
@@ -240,15 +242,15 @@ fn export_html_transaction(
         .transpose()?;
     let destination_name = destination
         .file_name()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .to_os_string();
     let staging_name = staging
         .file_name()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .to_os_string();
     let backup_name = backup
         .file_name()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .to_os_string();
     parent_dir.create_dir(&staging_name)?;
     let stage_result = (|| {
@@ -258,9 +260,13 @@ fn export_html_transaction(
         write_synced(&staging.join("index.html"), html.as_bytes(), true)?;
         for asset in assets {
             let target = staging.join(&asset.path);
-            fs::create_dir_all(target.parent().ok_or(ServiceError::ReservedExportPath)?)?;
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .ok_or(ApplicationError::ReservedExportPath)?,
+            )?;
             if sha256(&asset.bytes) != asset.content_hash {
-                return Err(ServiceError::ExportContentConflict);
+                return Err(ApplicationError::ExportContentConflict);
             }
             write_synced(&target, &asset.bytes, true)?;
         }
@@ -296,7 +302,7 @@ fn export_html_transaction(
                     object_identity: object_identity(&staging.join(&asset.path))?,
                 })
             })
-            .collect::<Result<Vec<_>, ServiceError>>()?,
+            .collect::<Result<Vec<_>, ApplicationError>>()?,
     );
     let payload = OwnershipPayload {
         format_version: 1,
@@ -369,7 +375,7 @@ fn export_html_transaction(
         parent_dir.rename(&destination_name, &parent_dir, &backup_name)?;
         let backup_identity = object_identity(&journal.backup)?;
         if Some(&backup_identity) != journal.previous_destination_identity.as_ref() {
-            return Err(ServiceError::ExportRecoveryConflict);
+            return Err(ApplicationError::ExportRecoveryConflict);
         }
         journal.backup_identity = Some(backup_identity);
         sync_directory(&parent)?;
@@ -391,7 +397,7 @@ fn export_html_transaction(
     if journal.installed_identity.as_ref() != Some(&journal.staging_identity)
         || journal.installed_marker_identity.as_ref() != Some(&journal.staging_marker_identity)
     {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     checkpoint("installed")?;
     journal.state = ExportJournalState::NewInstalled;
@@ -408,20 +414,20 @@ pub fn preflight_export(
     source_uri: &str,
     workspace_uri: &str,
     destination_uri: &str,
-) -> Result<(), ServiceError> {
+) -> Result<(), ApplicationError> {
     let workspace = workspace_path(workspace_uri)?;
     validate_config(&workspace.join(".fleximark/config.toml"))?;
     let source = workspace_path(source_uri)?;
     let destination = file_uri_path(destination_uri)?;
     let parent = destination
         .parent()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .canonicalize()
-        .map_err(|_| ServiceError::InvalidExportDestination)?;
+        .map_err(|_| ApplicationError::InvalidExportDestination)?;
     let destination = parent.join(
         destination
             .file_name()
-            .ok_or(ServiceError::InvalidExportDestination)?,
+            .ok_or(ApplicationError::InvalidExportDestination)?,
     );
     revalidate_export_paths(&workspace, &source, &destination, &parent)?;
     let registry_key = sha256(destination.to_string_lossy().as_bytes());
@@ -431,7 +437,7 @@ pub fn preflight_export(
     let name = destination
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or(ServiceError::InvalidExportDestination)?;
+        .ok_or(ApplicationError::InvalidExportDestination)?;
     let journal = parent.join(format!(".{name}.fleximark-export-journal.json"));
     recover_export(&journal, &destination, &registry, false)?;
     let existing = inspect_export(&destination, &registry)?;
@@ -440,7 +446,7 @@ pub fn preflight_export(
             || managed.registry.workspace_identity != workspace.to_string_lossy()
             || managed.registry.destination_identity != destination.to_string_lossy()
     }) {
-        return Err(ServiceError::ExportOwnershipConflict);
+        return Err(ApplicationError::ExportOwnershipConflict);
     }
     Ok(())
 }
@@ -449,19 +455,19 @@ pub fn acknowledge_export(
     source_uri: &str,
     workspace_uri: &str,
     destination_uri: &str,
-) -> Result<(), ServiceError> {
+) -> Result<(), ApplicationError> {
     let workspace = workspace_path(workspace_uri)?;
     let source = workspace_path(source_uri)?;
     let destination = file_uri_path(destination_uri)?;
     let parent = destination
         .parent()
-        .ok_or(ServiceError::InvalidExportDestination)?
+        .ok_or(ApplicationError::InvalidExportDestination)?
         .canonicalize()
-        .map_err(|_| ServiceError::InvalidExportDestination)?;
+        .map_err(|_| ApplicationError::InvalidExportDestination)?;
     let destination = parent.join(
         destination
             .file_name()
-            .ok_or(ServiceError::InvalidExportDestination)?,
+            .ok_or(ApplicationError::InvalidExportDestination)?,
     );
     revalidate_export_paths(&workspace, &source, &destination, &parent)?;
     let registry_key = sha256(destination.to_string_lossy().as_bytes());
@@ -471,10 +477,10 @@ pub fn acknowledge_export(
     let name = destination
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or(ServiceError::InvalidExportDestination)?;
+        .ok_or(ApplicationError::InvalidExportDestination)?;
     let journal = parent.join(format!(".{name}.fleximark-export-journal.json"));
     if !journal.exists() {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     recover_export(&journal, &destination, &registry, true)
 }
@@ -484,35 +490,35 @@ fn revalidate_export_paths(
     source: &Path,
     destination: &Path,
     expected_parent: &Path,
-) -> Result<(), ServiceError> {
+) -> Result<(), ApplicationError> {
     let parent = destination
         .parent()
-        .ok_or(ServiceError::InvalidExportDestination)?;
+        .ok_or(ApplicationError::InvalidExportDestination)?;
     if parent.canonicalize()? != expected_parent
         || !expected_parent.starts_with(workspace)
         || destination == workspace
         || destination.starts_with(workspace.join(".fleximark"))
     {
-        return Err(ServiceError::InvalidExportDestination);
+        return Err(ApplicationError::InvalidExportDestination);
     }
     let mut current = workspace.to_path_buf();
     for component in expected_parent
         .strip_prefix(workspace)
-        .map_err(|_| ServiceError::InvalidExportDestination)?
+        .map_err(|_| ApplicationError::InvalidExportDestination)?
         .components()
     {
         current.push(component.as_os_str());
         let metadata = fs::symlink_metadata(&current)?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(ServiceError::InvalidExportDestination);
+            return Err(ApplicationError::InvalidExportDestination);
         }
     }
     let source_metadata = fs::symlink_metadata(source)?;
     if !source_metadata.is_file() || source_metadata.file_type().is_symlink() {
-        return Err(ServiceError::InvalidExportDestination);
+        return Err(ApplicationError::InvalidExportDestination);
     }
     if fs::symlink_metadata(destination).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(ServiceError::InvalidExportDestination);
+        return Err(ApplicationError::InvalidExportDestination);
     }
     Ok(())
 }
@@ -521,7 +527,7 @@ fn copy_user_files(
     source: &Path,
     destination: &Path,
     previous: &ManagedExport,
-) -> Result<(), ServiceError> {
+) -> Result<(), ApplicationError> {
     let owned = previous
         .marker
         .payload
@@ -540,7 +546,7 @@ fn copy_user_files(
             let name = entry
                 .file_name()
                 .into_string()
-                .map_err(|_| ServiceError::ReservedExportPath)?;
+                .map_err(|_| ApplicationError::ReservedExportPath)?;
             let relative = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -550,11 +556,11 @@ fn copy_user_files(
                 continue;
             }
             if reserved_export_path(&relative) {
-                return Err(ServiceError::ReservedExportPath);
+                return Err(ApplicationError::ReservedExportPath);
             }
             let file_type = entry.file_type()?;
             if file_type.is_symlink() {
-                return Err(ServiceError::ExportContentConflict);
+                return Err(ApplicationError::ExportContentConflict);
             }
             if file_type.is_dir() {
                 to.create_dir(&name)?;
@@ -574,7 +580,7 @@ fn copy_user_files(
                 input.read_to_end(&mut repeated)?;
                 if bytes != repeated || object_identity_from_metadata(&input.metadata()?)? != before
                 {
-                    return Err(ServiceError::ExportContentConflict);
+                    return Err(ApplicationError::ExportContentConflict);
                 }
                 let mut write_options = CapOpenOptions::new();
                 write_options
@@ -589,10 +595,10 @@ fn copy_user_files(
                 let mut copied = Vec::new();
                 output.read_to_end(&mut copied)?;
                 if sha256(&copied) != sha256(&bytes) {
-                    return Err(ServiceError::ExportContentConflict);
+                    return Err(ApplicationError::ExportContentConflict);
                 }
             } else {
-                return Err(ServiceError::ExportContentConflict);
+                return Err(ApplicationError::ExportContentConflict);
             }
         }
     }

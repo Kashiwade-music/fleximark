@@ -9,7 +9,9 @@ impl Server {
 
     pub fn set_workspace_handler(
         &self,
-        handler: Arc<dyn Fn(Value) -> Result<Value, String> + Send + Sync>,
+        handler: Arc<
+            dyn Fn(Value) -> Result<Value, fleximark_application::ApplicationError> + Send + Sync,
+        >,
     ) {
         self.previews.set_workspace_handler(handler);
     }
@@ -76,7 +78,13 @@ impl Server {
         let id = message.id.clone().map(Value::from);
         if self.shutdown && message.method != "exit" {
             return id
-                .map(|id| response_value(Response::error(id, -32600, "server has shut down")))
+                .map(|id| {
+                    response_value(Response::error(
+                        id,
+                        fleximark_protocol::error_code::INVALID_REQUEST,
+                        "server has shut down",
+                    ))
+                })
                 .into_iter()
                 .collect();
         }
@@ -87,7 +95,13 @@ impl Server {
             )
         {
             return id
-                .map(|id| response_value(Response::error(id, -32002, "server is not initialized")))
+                .map(|id| {
+                    response_value(Response::error(
+                        id,
+                        fleximark_protocol::error_code::SERVER_NOT_INITIALIZED,
+                        "server is not initialized",
+                    ))
+                })
                 .into_iter()
                 .collect();
         }
@@ -123,7 +137,13 @@ impl Server {
             method::EXECUTE_COMMAND => self.execute_command(id, message.params),
             method::GET_NOTE_OPTIONS => self.get_note_options(id, message.params),
             method::RECONFIGURE_WORKSPACE => self.reconfigure_workspace(id, message.params),
-            _ => id.map(|id| response_value(Response::error(id, -32601, "method not found"))),
+            _ => id.map(|id| {
+                response_value(Response::error(
+                    id,
+                    fleximark_protocol::error_code::METHOD_NOT_FOUND,
+                    "method not found",
+                ))
+            }),
         };
 
         let mut outgoing = response.into_iter().collect::<Vec<_>>();

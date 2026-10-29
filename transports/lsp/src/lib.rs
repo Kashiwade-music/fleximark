@@ -1,7 +1,7 @@
 //! Role: Route standard LSP and current FlexiMark RPC over stdio.
 mod cancellation;
 mod server;
-mod telemetry;
+use fleximark_application::logging as telemetry;
 mod transport;
 use fleximark_preview_http as preview_http;
 pub use fleximark_preview_http::BrowserAssets;

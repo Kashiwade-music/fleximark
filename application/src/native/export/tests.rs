@@ -86,7 +86,7 @@ fn export_requires_ownership_and_preserves_user_files() {
             "<p>first</p>",
             &[],
         ),
-        Err(ServiceError::UnmanagedExport)
+        Err(ApplicationError::UnmanagedExport)
     ));
     fs::remove_dir(&destination).unwrap_err();
     fs::remove_file(destination.join("user.txt")).unwrap();
@@ -124,7 +124,7 @@ fn export_requires_ownership_and_preserves_user_files() {
     }));
     assert!(matches!(
         preflight_export(&source_uri, &workspace_uri, &destination_uri),
-        Err(ServiceError::ExportAwaitingAcknowledgement)
+        Err(ApplicationError::ExportAwaitingAcknowledgement)
     ));
     acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
     assert!(!journal.exists());
@@ -156,7 +156,7 @@ fn export_requires_ownership_and_preserves_user_files() {
             "<p>third</p>",
             &[],
         ),
-        Err(ServiceError::ExportContentConflict)
+        Err(ApplicationError::ExportContentConflict)
     ));
     assert_eq!(
         fs::read_to_string(destination.join("index.html")).unwrap(),
@@ -206,7 +206,8 @@ fn export_ownership_ids_are_random_and_cannot_be_copied_to_another_destination()
     .unwrap();
     assert!(matches!(
         preflight_export(&source_uri, &workspace_uri, &second_uri),
-        Err(ServiceError::ExportOwnershipConflict) | Err(ServiceError::ExportContentConflict)
+        Err(ApplicationError::ExportOwnershipConflict)
+            | Err(ApplicationError::ExportContentConflict)
     ));
     fs::remove_dir_all(root).unwrap();
 }
@@ -242,7 +243,7 @@ fn acknowledged_export_rejects_a_swapped_destination_directory() {
     .unwrap();
     assert!(matches!(
         preflight_export(&source_uri, &workspace_uri, &destination_uri),
-        Err(ServiceError::ExportOwnershipConflict)
+        Err(ApplicationError::ExportOwnershipConflict)
     ));
     assert_eq!(
         fs::read_to_string(original.join("index.html")).unwrap(),
@@ -383,7 +384,7 @@ fn journal_records_are_append_only_and_digest_chained() {
     fs::write(&path, tampered).unwrap();
     assert!(matches!(
         read_journal(&path),
-        Err(ServiceError::ExportRecoveryConflict)
+        Err(ApplicationError::ExportRecoveryConflict)
     ));
     fs::remove_dir_all(root).unwrap();
 }
@@ -441,7 +442,7 @@ fn recovery_refuses_swapped_staging_identity_without_deleting_it() {
             &root.join("registry.json"),
             false
         ),
-        Err(ServiceError::ExportRecoveryConflict)
+        Err(ApplicationError::ExportRecoveryConflict)
     ));
     assert_eq!(
         fs::read_to_string(staging.join(".fleximark-export.json")).unwrap(),
@@ -505,7 +506,7 @@ fn recovery_refuses_replaced_journal_identity_without_touching_staging() {
             &root.join("registry.json"),
             false
         ),
-        Err(ServiceError::ExportRecoveryConflict)
+        Err(ApplicationError::ExportRecoveryConflict)
     ));
     assert_eq!(
         fs::read_to_string(staging.join(".fleximark-export.json")).unwrap(),
@@ -543,7 +544,9 @@ fn representative_export_intents_recover_idempotently_after_an_injected_crash() 
             &[],
             |checkpoint| {
                 if checkpoint == fault {
-                    Err(ServiceError::Io(std::io::Error::other("injected crash")))
+                    Err(ApplicationError::Io(std::io::Error::other(
+                        "injected crash",
+                    )))
                 } else {
                     Ok(())
                 }
@@ -561,7 +564,7 @@ fn representative_export_intents_recover_idempotently_after_an_injected_crash() 
         } else {
             assert!(matches!(
                 preflight,
-                Err(ServiceError::ExportAwaitingAcknowledgement)
+                Err(ApplicationError::ExportAwaitingAcknowledgement)
             ));
             assert_eq!(
                 fs::read_to_string(destination.join("index.html")).unwrap(),
@@ -612,7 +615,7 @@ fn acknowledgement_refuses_unrecorded_backup_entries_without_deleting_them() {
     fs::write(backup.join("unrecorded.txt"), "do not delete").unwrap();
     assert!(matches!(
         acknowledge_export(&source_uri, &workspace_uri, &destination_uri),
-        Err(ServiceError::ExportRecoveryConflict)
+        Err(ApplicationError::ExportRecoveryConflict)
     ));
     assert_eq!(
         fs::read_to_string(backup.join("unrecorded.txt")).unwrap(),
@@ -694,7 +697,7 @@ fn cancelled_export_preserves_existing_destination() {
             &token,
         );
         assert!(
-            matches!(result, Err(ServiceError::Cancelled)),
+            matches!(result, Err(ApplicationError::Cancelled)),
             "stage {stage}: {result:?}"
         );
         assert_eq!(

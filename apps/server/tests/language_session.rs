@@ -34,13 +34,17 @@ fn lifecycle_advertises_complete_editor_commands_and_rejects_removed_handshakes(
     ] {
         let response = server.request(10, method, json!({}));
         assert_eq!(
-            response[0]["error"]["code"], -32601,
+            response[0]["error"]["code"],
+            fleximark_protocol::error_code::METHOD_NOT_FOUND,
             "removed route {method}"
         );
     }
     assert!(server.notify("future/notification", json!({})).is_empty());
     let malformed = server.request(11, "textDocument/completion", json!({}));
-    assert_eq!(malformed[0]["error"]["code"], -32602);
+    assert_eq!(
+        malformed[0]["error"]["code"],
+        fleximark_protocol::error_code::INVALID_PARAMS
+    );
     let shutdown = server.request(12, "shutdown", json!(null));
     assert!(shutdown[0]["result"].is_null());
     assert!(server.notify("exit", json!(null)).is_empty());
@@ -66,7 +70,7 @@ fn code_actions_capture_document_version_and_selection() {
     let stale=server.request(3,"workspace/executeCommand",json!({"command":"fleximark.preview","arguments":[{"documentUri":"file:///actions.md","documentVersion":6}]}));
     assert_eq!(
         stale[0]["error"]["code"],
-        fleximark_protocol::CONTENT_MODIFIED
+        fleximark_protocol::error_code::CONTENT_MODIFIED
     );
 }
 #[test]
@@ -119,7 +123,10 @@ fn completion_uses_authoritative_open_document_and_position() {
         "textDocument/completion",
         json!({"textDocument":{"uri":"file:///completion.md"},"position":{"line":1,"character":0}}),
     );
-    assert_eq!(invalid[0]["error"]["code"], -32602);
+    assert_eq!(
+        invalid[0]["error"]["code"],
+        fleximark_protocol::error_code::INVALID_PARAMS
+    );
 }
 
 #[test]
@@ -193,7 +200,11 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
     ] {
         let invalid = server.request(7, method, json!({}));
         assert_eq!(invalid.len(), 1, "{method} dropped its request");
-        assert_eq!(invalid[0]["error"]["code"], -32602, "{method}");
+        assert_eq!(
+            invalid[0]["error"]["code"],
+            fleximark_protocol::error_code::INVALID_PARAMS,
+            "{method}"
+        );
     }
 }
 
@@ -201,7 +212,10 @@ fn lsp_features_share_the_authoritative_ir_and_always_respond() {
 fn previous_protocol_is_rejected_before_workspace_or_document_setup() {
     let mut server = native_server();
     let response = server.request(1, "initialize", json!({"capabilities":{},"initializationOptions":{"fleximark":{"protocolVersion":fleximark_protocol::PROTOCOL_VERSION - 1}}}));
-    assert_eq!(response[0]["error"]["code"], -32001);
+    assert_eq!(
+        response[0]["error"]["code"],
+        fleximark_protocol::error_code::UNSUPPORTED_PROTOCOL
+    );
     assert!(server.sessions().open_documents().is_empty());
     let current = initialize(&mut server, json!([]));
     assert_eq!(

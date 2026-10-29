@@ -3,14 +3,14 @@ use super::filesystem::{object_identity, sync_directory, verify_directory_tree};
 use super::journal::{append_journal, replace_staged_json, stage_json};
 use super::model::{ExportJournal, ExportJournalState};
 use super::ownership::verify_installed;
-use crate::native::{ServiceError, workspace::reject_link};
+use crate::native::{ApplicationError, workspace::reject_link};
 use std::{fs, path::Path};
 pub(super) fn commit_installed_export(
     journal: &mut ExportJournal,
     journal_path: &Path,
     previous_digest: String,
-    checkpoint: &mut dyn FnMut(&'static str) -> Result<(), ServiceError>,
-) -> Result<(), ServiceError> {
+    checkpoint: &mut dyn FnMut(&'static str) -> Result<(), ApplicationError>,
+) -> Result<(), ApplicationError> {
     verify_installed(&journal.destination, &journal.next_registry)?;
     verify_directory_tree(&journal.destination, &journal.generated_identities)?;
     if object_identity(&journal.destination).ok().as_ref() != journal.installed_identity.as_ref()
@@ -19,12 +19,12 @@ pub(super) fn commit_installed_export(
             .as_ref()
             != journal.installed_marker_identity.as_ref()
     {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let registry_parent = journal
         .registry
         .parent()
-        .ok_or(ServiceError::ExportRecoveryConflict)?
+        .ok_or(ApplicationError::ExportRecoveryConflict)?
         .to_owned();
     reject_link(&registry_parent)?;
     fs::create_dir_all(&registry_parent)?;
@@ -32,7 +32,7 @@ pub(super) fn commit_installed_export(
         && object_identity(&journal.registry).ok().as_ref()
             != journal.previous_registry_identity.as_ref()
     {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     let (registry_staging, registry_staging_identity) =
         stage_json(&registry_parent, &journal.next_registry)?;
@@ -50,28 +50,28 @@ pub(super) fn commit_installed_export(
     sync_directory(
         journal_path
             .parent()
-            .ok_or(ServiceError::ExportRecoveryConflict)?,
+            .ok_or(ApplicationError::ExportRecoveryConflict)?,
     )?;
     checkpoint("committed")?;
     Ok(())
 }
 
-pub(super) fn install_staged_registry(journal: &mut ExportJournal) -> Result<(), ServiceError> {
+pub(super) fn install_staged_registry(journal: &mut ExportJournal) -> Result<(), ApplicationError> {
     let staging = journal
         .registry_staging
         .as_ref()
-        .ok_or(ServiceError::ExportRecoveryConflict)?;
+        .ok_or(ApplicationError::ExportRecoveryConflict)?;
     let expected = journal
         .registry_staging_identity
         .as_ref()
-        .ok_or(ServiceError::ExportRecoveryConflict)?;
+        .ok_or(ApplicationError::ExportRecoveryConflict)?;
     if object_identity(staging).ok().as_ref() != Some(expected) {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     replace_staged_json(staging, &journal.registry)?;
     let installed = object_identity(&journal.registry)?;
     if &installed != expected {
-        return Err(ServiceError::ExportRecoveryConflict);
+        return Err(ApplicationError::ExportRecoveryConflict);
     }
     journal.next_registry_identity = Some(installed);
     Ok(())

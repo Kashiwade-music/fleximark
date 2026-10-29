@@ -1,22 +1,24 @@
 //! Role: Native workspace uri operations and validation.
 use std::path::{Path, PathBuf};
 
-use crate::native::ServiceError;
+use crate::native::ApplicationError;
 
-pub fn workspace_path(uri: &str) -> Result<PathBuf, ServiceError> {
-    file_uri_path(uri)?.canonicalize().map_err(ServiceError::Io)
+pub fn workspace_path(uri: &str) -> Result<PathBuf, ApplicationError> {
+    file_uri_path(uri)?
+        .canonicalize()
+        .map_err(ApplicationError::Io)
 }
 
-pub(crate) fn file_uri_path(uri: &str) -> Result<PathBuf, ServiceError> {
+pub(crate) fn file_uri_path(uri: &str) -> Result<PathBuf, ApplicationError> {
     let encoded = uri
         .strip_prefix("file://")
-        .ok_or(ServiceError::InvalidWorkspaceUri)?;
+        .ok_or(ApplicationError::InvalidWorkspaceUri)?;
     let decoded = percent_decode(encoded)?;
     #[cfg(windows)]
     let decoded = decoded.strip_prefix('/').unwrap_or(&decoded);
     let path = PathBuf::from(decoded);
     if !path.is_absolute() {
-        return Err(ServiceError::InvalidWorkspaceUri);
+        return Err(ApplicationError::InvalidWorkspaceUri);
     }
     Ok(path)
 }
@@ -24,10 +26,10 @@ pub(crate) fn file_uri_path(uri: &str) -> Result<PathBuf, ServiceError> {
 pub fn document_is_in_workspace(
     document_uri: &str,
     workspace_uri: &str,
-) -> Result<bool, ServiceError> {
+) -> Result<bool, ApplicationError> {
     let document = match canonical_document_path(document_uri) {
         Ok(document) => document,
-        Err(ServiceError::InvalidWorkspaceUri) if document_uri.starts_with("file://") => {
+        Err(ApplicationError::InvalidWorkspaceUri) if document_uri.starts_with("file://") => {
             return Ok(false);
         }
         Err(error) => return Err(error),
@@ -36,7 +38,7 @@ pub fn document_is_in_workspace(
     Ok(document != workspace && document.starts_with(workspace))
 }
 
-pub(crate) fn canonical_document_path(document_uri: &str) -> Result<PathBuf, ServiceError> {
+pub(crate) fn canonical_document_path(document_uri: &str) -> Result<PathBuf, ApplicationError> {
     let document = file_uri_path(document_uri)?;
     if document.components().any(|component| {
         matches!(
@@ -44,7 +46,7 @@ pub(crate) fn canonical_document_path(document_uri: &str) -> Result<PathBuf, Ser
             std::path::Component::ParentDir | std::path::Component::CurDir
         )
     }) {
-        return Err(ServiceError::InvalidWorkspaceUri);
+        return Err(ApplicationError::InvalidWorkspaceUri);
     }
     let mut ancestor = document.as_path();
     let mut missing = Vec::new();
@@ -72,24 +74,27 @@ pub(crate) fn canonical_document_path(document_uri: &str) -> Result<PathBuf, Ser
     Ok(document)
 }
 
-pub fn path_to_file_uri(path: &Path) -> Result<String, ServiceError> {
+pub fn path_to_file_uri(path: &Path) -> Result<String, ApplicationError> {
     let path = match path.canonicalize() {
         Ok(path) => path,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let parent = path
                 .parent()
-                .ok_or(ServiceError::InvalidWorkspaceUri)?
+                .ok_or(ApplicationError::InvalidWorkspaceUri)?
                 .canonicalize()?;
-            parent.join(path.file_name().ok_or(ServiceError::InvalidWorkspaceUri)?)
+            parent.join(
+                path.file_name()
+                    .ok_or(ApplicationError::InvalidWorkspaceUri)?,
+            )
         }
         Err(error) => return Err(error.into()),
     };
     path_to_file_uri_unchecked(&path)
 }
 
-pub(crate) fn path_to_file_uri_unchecked(path: &Path) -> Result<String, ServiceError> {
+pub(crate) fn path_to_file_uri_unchecked(path: &Path) -> Result<String, ApplicationError> {
     if !path.is_absolute() {
-        return Err(ServiceError::InvalidWorkspaceUri);
+        return Err(ApplicationError::InvalidWorkspaceUri);
     }
     let normalized = path.to_string_lossy().replace('\\', "/");
     #[cfg(windows)]
@@ -113,7 +118,7 @@ pub(crate) fn path_to_file_uri_unchecked(path: &Path) -> Result<String, ServiceE
     })
 }
 
-pub(crate) fn percent_decode(value: &str) -> Result<String, ServiceError> {
+pub(crate) fn percent_decode(value: &str) -> Result<String, ApplicationError> {
     let bytes = value.as_bytes();
     let mut output = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -121,12 +126,13 @@ pub(crate) fn percent_decode(value: &str) -> Result<String, ServiceError> {
         if bytes[index] == b'%' {
             let hex = bytes
                 .get(index + 1..index + 3)
-                .ok_or(ServiceError::InvalidWorkspaceUri)?;
-            let text = std::str::from_utf8(hex).map_err(|_| ServiceError::InvalidWorkspaceUri)?;
+                .ok_or(ApplicationError::InvalidWorkspaceUri)?;
+            let text =
+                std::str::from_utf8(hex).map_err(|_| ApplicationError::InvalidWorkspaceUri)?;
             let byte =
-                u8::from_str_radix(text, 16).map_err(|_| ServiceError::InvalidWorkspaceUri)?;
+                u8::from_str_radix(text, 16).map_err(|_| ApplicationError::InvalidWorkspaceUri)?;
             if byte == 0 {
-                return Err(ServiceError::InvalidWorkspaceUri);
+                return Err(ApplicationError::InvalidWorkspaceUri);
             }
             output.push(byte);
             index += 3;
@@ -135,7 +141,7 @@ pub(crate) fn percent_decode(value: &str) -> Result<String, ServiceError> {
             index += 1;
         }
     }
-    String::from_utf8(output).map_err(|_| ServiceError::InvalidWorkspaceUri)
+    String::from_utf8(output).map_err(|_| ApplicationError::InvalidWorkspaceUri)
 }
 
 #[cfg(test)]
@@ -146,7 +152,7 @@ mod tests {
     fn rejects_non_file_workspace_uris() {
         assert!(matches!(
             workspace_path("https://example.test/x"),
-            Err(ServiceError::InvalidWorkspaceUri)
+            Err(ApplicationError::InvalidWorkspaceUri)
         ));
     }
     #[test]

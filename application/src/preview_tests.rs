@@ -82,10 +82,10 @@ fn navigation_checks_revision_and_document_version() {
             .unwrap()
             .is_some()
     );
-    assert_eq!(
+    assert!(matches!(
         registry.navigate_preview(&daemon, &session, "one", 2, node),
-        Err(SessionError::ContentModified)
-    );
+        Err(ApplicationError::ContentModified)
+    ));
     registry
         .change_with_cancellation(
             DidChangeParams {
@@ -101,10 +101,10 @@ fn navigation_checks_revision_and_document_version() {
             &CancellationToken::default(),
         )
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         registry.navigate_preview(&daemon, &session, "one", 1, node),
-        Err(SessionError::ContentModified)
-    );
+        Err(ApplicationError::ContentModified)
+    ));
     let updated = registry
         .render_with_cancellation(&daemon, &session, 2, "one", &CancellationToken::default())
         .unwrap();
@@ -138,10 +138,10 @@ fn disposal_and_document_close_evict_preview_caches() {
             uri: "file:///preview.md".into(),
         },
     });
-    assert_eq!(
+    assert!(matches!(
         registry.read_preview(&daemon, &session, "two", None),
-        Err(SessionError::UnknownSession)
-    );
+        Err(ApplicationError::UnknownSession)
+    ));
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn exhausted_revision_keeps_the_last_published_frame() {
     let previous = registry
         .read_preview(&daemon, &session, "one", None)
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         registry.render_with_cancellation(
             &daemon,
             &session,
@@ -169,8 +169,8 @@ fn exhausted_revision_keeps_the_last_published_frame() {
             "one",
             &CancellationToken::default()
         ),
-        Err(SessionError::RevisionExhausted)
-    );
+        Err(ApplicationError::RevisionExhausted)
+    ));
     assert_eq!(
         registry
             .read_preview(&daemon, &session, "one", None)
@@ -265,15 +265,15 @@ fn cancelled_change_retains_source_document_frame_and_revision() {
         },
         &cancelled,
     );
-    assert_eq!(result, Err(SessionError::Cancelled));
+    assert!(matches!(result, Err(ApplicationError::Cancelled)));
     let retained = registry.index.by_uri("file:///preview.md").unwrap();
     assert_eq!(retained.source(), "# Heading\n");
     assert_eq!(retained.document(), &before);
     assert_eq!(retained.previews.get("one"), Some(&frame));
-    assert_eq!(
+    assert!(matches!(
         registry.document(&daemon, &session, 1).err(),
-        Some(SessionError::ContentModified)
-    );
+        Some(ApplicationError::ContentModified)
+    ));
     registry
         .change_with_cancellation(
             DidChangeParams {
@@ -316,7 +316,7 @@ fn cancelled_open_never_installs_a_document_session() {
             },
             &token,
         );
-        assert_eq!(result, Err(SessionError::Cancelled));
+        assert!(matches!(result, Err(ApplicationError::Cancelled)));
         assert!(registry.index.is_empty());
     }
 }
@@ -357,16 +357,16 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
             },
             &token,
         );
-        assert_eq!(result, Err(SessionError::Cancelled));
+        assert!(matches!(result, Err(ApplicationError::Cancelled)));
         let retained = registry.index.by_uri("file:///preview.md").unwrap();
         assert_eq!(retained.source(), "# Heading\n");
         assert_eq!(retained.document(), &before);
         assert_eq!(retained.previews.get("one"), Some(&frame));
         assert!(retained.engine.is_out_of_sync());
-        assert_eq!(
+        assert!(matches!(
             registry.document(&daemon, &session, 1).err(),
-            Some(SessionError::ContentModified)
-        );
+            Some(ApplicationError::ContentModified)
+        ));
     }
 }
 
@@ -430,10 +430,10 @@ fn cancellation_after_render_keeps_the_published_frame_and_revision() {
         .unwrap();
     let token = CancellationToken::default();
     crate::cancellation_checks::cancel_at("render_commit", &token);
-    assert_eq!(
+    assert!(matches!(
         registry.render_with_cancellation(&daemon, &session, 1, "one", &token),
-        Err(SessionError::Cancelled)
-    );
+        Err(ApplicationError::Cancelled)
+    ));
     assert_eq!(
         registry
             .read_preview(&daemon, &session, "one", None)

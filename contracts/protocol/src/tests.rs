@@ -83,11 +83,16 @@ fn rpc_id_domain_accepts_safe_values_and_rejects_invalid_values() {
 #[test]
 fn null_response_id_is_reserved_for_unattributable_errors() {
     assert_eq!(
-        serde_json::to_value(Response::error(Value::Null, -32700, "parse error")).unwrap(),
+        serde_json::to_value(Response::error(
+            Value::Null,
+            crate::error_code::PARSE_ERROR,
+            "parse error"
+        ))
+        .unwrap(),
         json!({
             "jsonrpc": "2.0",
             "id": null,
-            "error": { "code": -32700, "message": "parse error" }
+            "error": { "code": crate::error_code::PARSE_ERROR, "message": "parse error" }
         })
     );
 }

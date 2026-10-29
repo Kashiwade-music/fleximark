@@ -90,16 +90,15 @@ impl Server {
                 ));
             };
             if !self.workspace_grants_write(&workspace) {
-                return Some(invalid_params(id, "migration requires a trusted workspace"));
+                return Some(session_error(id, ApplicationError::WriteDenied));
             }
-            let result = (|| -> Result<Value, String> {
-                let output = fleximark_application::native::migrate_workspace(&workspace)
-                    .map_err(|error| error.to_string())?;
+            let result = (|| -> Result<Value, ApplicationError> {
+                let output = fleximark_application::native::migrate_workspace(&workspace)?;
                 Ok(json!({"message":{"level":"info","text":output.stdout}}))
             })();
             return Some(match result {
                 Ok(value) => response_value(Response::success(id, value)),
-                Err(error) => response_value(Response::error(id, -32020, error)),
+                Err(error) => session_error(id, error),
             });
         }
         if matches!(command, "fleximark.preview" | "fleximark.previewAt") {
@@ -107,7 +106,7 @@ impl Server {
                 return Some(invalid_params(id, "preview requires documentUri"));
             };
             let Some(session) = self.registry.session_id_for_uri(uri).map(str::to_owned) else {
-                return Some(session_error(id, SessionError::NotOpen));
+                return Some(session_error(id, ApplicationError::NotOpen));
             };
             let current = match self
                 .registry
@@ -165,7 +164,10 @@ impl Server {
         Some(response_value(Response::success(id, json!({"url":url}))))
     }
 
-    pub(super) fn refresh_explicit_jump(&mut self, preview_id: &str) -> Result<(), SessionError> {
+    pub(super) fn refresh_explicit_jump(
+        &mut self,
+        preview_id: &str,
+    ) -> Result<(), ApplicationError> {
         let Some(state) = self.preview_states.get(preview_id).cloned() else {
             return Ok(());
         };
@@ -187,8 +189,7 @@ impl Server {
         };
         let event = RenderNavigationEvent::Viewport {
             preview_session_id: preview_id.into(),
-            render_revision: counter(state.delivered_revision)
-                .map_err(|error| SessionError::Engine(error.to_string()))?,
+            render_revision: counter(state.delivered_revision)?,
             node_id: fleximark_protocol::NodeId(entry.node_id.0),
         };
         if let Some(token) = &state.token {

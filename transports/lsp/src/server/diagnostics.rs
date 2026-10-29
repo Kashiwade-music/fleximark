@@ -8,14 +8,14 @@ impl Server {
         let Some(uri) = params.pointer("/textDocument/uri").and_then(Value::as_str) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "invalid diagnostic parameters",
             )));
         };
         let Some(session_id) = self.registry.session_id_for_uri(uri) else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not open",
             )));
         };
@@ -25,7 +25,7 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not current",
             )));
         };
@@ -35,7 +35,7 @@ impl Server {
         else {
             return Some(response_value(Response::error(
                 id,
-                -32602,
+                fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is unavailable",
             )));
         };

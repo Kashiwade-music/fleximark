@@ -142,7 +142,11 @@ fn workspace_writes_require_explicit_trust_before_command_arguments() {
         "acknowledgeExport",
     ] {
         let result=server.request(2,method::EXECUTE_COMMAND,json!({"daemonInstanceId":daemon(&server),"command":command,"workspaceUri":workspace_uri}));
-        assert_eq!(result[0]["error"]["code"], -32021, "{command}: {result:?}");
+        assert_eq!(
+            result[0]["error"]["code"],
+            fleximark_protocol::error_code::WRITE_DENIED,
+            "{command}: {result:?}"
+        );
     }
     assert!(!root.join(".fleximark").exists());
     let migration = server.request(

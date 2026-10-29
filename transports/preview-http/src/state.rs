@@ -6,7 +6,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-pub(crate) type Handler = Arc<dyn Fn(Value) -> Result<Value, String> + Send + Sync>;
+pub(crate) type Handler =
+    Arc<dyn Fn(Value) -> Result<Value, fleximark_application::ApplicationError> + Send + Sync>;
 #[derive(Clone)]
 pub(crate) struct WorkspaceService {
     pub(crate) assets: BrowserAssets,

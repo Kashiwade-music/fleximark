@@ -1,4 +1,5 @@
 //! Role: Verify native workspace export ownership and filesystem authority contracts.
+use fleximark_application::ApplicationError;
 use std::collections::BTreeSet;
 use std::fs;
 use std::ops::Deref;
@@ -6,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_application::native::{
-    ServiceError, acknowledge_export, export_html, initialize_workspace, path_to_file_uri,
+    acknowledge_export, export_html, initialize_workspace, path_to_file_uri,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -175,7 +176,7 @@ impl ExportFixture {
     fn export(
         &self,
         html: &str,
-    ) -> Result<fleximark_application::operations::ExportReceipt, ServiceError> {
+    ) -> Result<fleximark_application::operations::ExportReceipt, ApplicationError> {
         export_html(
             &self.source_uri,
             &self.workspace_uri,
@@ -405,7 +406,7 @@ fn managed_export_rejects_a_symlinked_entry_without_touching_the_target() {
 
     assert!(matches!(
         fixture.export("<p>second</p>"),
-        Err(ServiceError::ExportContentConflict)
+        Err(ApplicationError::ExportContentConflict)
     ));
     assert_eq!(
         fs::read_to_string(&outside).expect("read user file"),
@@ -434,7 +435,7 @@ fn managed_export_rejects_a_junctioned_entry_without_touching_the_target() {
 
     assert!(matches!(
         fixture.export("<p>second</p>"),
-        Err(ServiceError::ExportContentConflict)
+        Err(ApplicationError::ExportContentConflict)
     ));
     assert_eq!(
         fs::canonicalize(&index).expect("resolve surviving export junction"),
@@ -459,7 +460,7 @@ fn workspace_control_junction_is_rejected_without_touching_its_target() {
     let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
     assert!(matches!(
         initialize_workspace(&workspace_uri),
-        Err(ServiceError::LinkedControlDirectory)
+        Err(ApplicationError::LinkedControlDirectory)
     ));
     assert_eq!(
         fs::read_to_string(outside.join("sentinel.txt")).expect("read target sentinel"),

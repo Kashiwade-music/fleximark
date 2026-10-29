@@ -2,35 +2,20 @@
 use fleximark_model as model;
 use fleximark_protocol as wire;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConversionError {
-    IntegerRange(u64),
-    InvalidSourceRange,
-}
-impl std::fmt::Display for ConversionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IntegerRange(value) => {
-                write!(f, "integer {value} exceeds the JSON transport range")
-            }
-            Self::InvalidSourceRange => {
-                f.write_str("source range is invalid for the original document")
-            }
-        }
-    }
-}
-impl std::error::Error for ConversionError {}
+use fleximark_application::ApplicationError;
 
-pub fn counter(value: u64) -> Result<wire::JsSafeU64, ConversionError> {
-    wire::JsSafeU64::new(value).map_err(|_| ConversionError::IntegerRange(value))
+pub fn counter(value: u64) -> Result<wire::JsSafeU64, ApplicationError> {
+    wire::JsSafeU64::new(value).map_err(|_| ApplicationError::IntegerRange(value))
 }
 
 pub fn source_range(
     range: &model::SourceRange,
     source: &model::SourceIndex,
     encoding: model::PositionEncoding,
-) -> Result<wire::SourceRange, ConversionError> {
-    fn position(position: &model::SourcePosition) -> Result<wire::SourcePosition, ConversionError> {
+) -> Result<wire::SourceRange, ApplicationError> {
+    fn position(
+        position: &model::SourcePosition,
+    ) -> Result<wire::SourcePosition, ApplicationError> {
         Ok(wire::SourcePosition {
             line: counter(position.line)?,
             character: counter(position.character)?,
@@ -48,26 +33,26 @@ pub fn source_range(
             &source
                 .byte_to_position(
                     usize::try_from(range.byte_start)
-                        .map_err(|_| ConversionError::InvalidSourceRange)?,
+                        .map_err(|_| ApplicationError::InvalidSourceRange)?,
                     encoding,
                 )
-                .ok_or(ConversionError::InvalidSourceRange)?,
+                .ok_or(ApplicationError::InvalidSourceRange)?,
         )?,
         end: position(
             &source
                 .byte_to_position(
                     usize::try_from(range.byte_end)
-                        .map_err(|_| ConversionError::InvalidSourceRange)?,
+                        .map_err(|_| ApplicationError::InvalidSourceRange)?,
                     encoding,
                 )
-                .ok_or(ConversionError::InvalidSourceRange)?,
+                .ok_or(ApplicationError::InvalidSourceRange)?,
         )?,
     })
 }
 
 pub fn frame(
     frame: &fleximark_application::RenderFrame,
-) -> Result<wire::RenderFrame, ConversionError> {
+) -> Result<wire::RenderFrame, ApplicationError> {
     let source = model::SourceIndex::new(&frame.source);
     Ok(wire::RenderFrame {
         preview_session_id: wire::PreviewSessionId(frame.preview_session_id.0.clone()),
@@ -90,7 +75,7 @@ pub fn frame(
                     data: asset.data.clone(),
                 })
             })
-            .collect::<Result<Vec<_>, ConversionError>>()?,
+            .collect::<Result<Vec<_>, ApplicationError>>()?,
         blocks: frame
             .blocks
             .iter()
@@ -118,7 +103,7 @@ pub fn frame(
                     depth: entry.depth,
                 })
             })
-            .collect::<Result<Vec<_>, ConversionError>>()?,
+            .collect::<Result<Vec<_>, ApplicationError>>()?,
     })
 }
 #[cfg(test)]
@@ -130,10 +115,9 @@ mod tests {
     fn counters_reject_values_above_the_external_integer_range() {
         let maximum = wire::MAX_SAFE_INTEGER as u64;
         assert_eq!(counter(maximum).unwrap().get(), maximum);
-        assert_eq!(
-            counter(maximum + 1),
-            Err(ConversionError::IntegerRange(maximum + 1))
-        );
+        assert!(counter(maximum + 1).is_err_and(
+            |error| matches!(error, ApplicationError::IntegerRange(value) if value == maximum + 1)
+        ));
     }
 
     #[test]
@@ -142,13 +126,15 @@ mod tests {
             byte_start: u64::MAX,
             byte_end: u64::MAX,
         };
-        assert_eq!(
+        assert!(
             source_range(
                 &range,
                 &model::SourceIndex::new("x"),
                 model::PositionEncoding::Utf8
-            ),
-            Err(ConversionError::IntegerRange(u64::MAX))
+            )
+            .is_err_and(
+                |error| matches!(error, ApplicationError::IntegerRange(value) if value == u64::MAX)
+            )
         );
         let native = fleximark_application::RenderFrame::from_snapshot(
             fleximark_application::PreviewSessionId("preview".into()),
@@ -162,6 +148,8 @@ mod tests {
                 navigation: Vec::new(),
             },
         );
-        assert_eq!(frame(&native), Err(ConversionError::IntegerRange(u64::MAX)));
+        assert!(frame(&native).is_err_and(
+            |error| matches!(error, ApplicationError::IntegerRange(value) if value == u64::MAX)
+        ));
     }
 }

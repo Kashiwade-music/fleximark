@@ -359,7 +359,7 @@ mod tests {
         let document_uri = path_to_uri(&document).unwrap();
         assert!(matches!(
             fleximark_application::native::workspace_for_document(&document_uri),
-            Err(fleximark_application::native::ServiceError::InvalidConfig)
+            Err(fleximark_application::ApplicationError::Config(_))
         ));
         let session =
             fleximark_application::native::open_document(document_uri, "# Safe\n".into(), false)

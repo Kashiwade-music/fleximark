@@ -11,9 +11,9 @@ use fleximark_model::{Block, BlockKind, Document, Node};
 use crate::native::workspace::{
     open_control_directory, reject_link, safe_workspace_relative_path, validate_config,
 };
-use crate::native::{ServiceError, path_to_file_uri, workspace_path};
+use crate::native::{ApplicationError, path_to_file_uri, workspace_path};
 
-pub fn get_note_options(workspace_uri: &str) -> Result<NoteOptions, ServiceError> {
+pub fn get_note_options(workspace_uri: &str) -> Result<NoteOptions, ApplicationError> {
     let root = workspace_path(workspace_uri)?;
     let config = validate_config(&root.join(".fleximark/config.toml"))?;
     Ok(NoteOptions {
@@ -38,7 +38,7 @@ fn note_category_option(name: &str, category: &NoteCategoryConfig) -> NoteCatego
     }
 }
 
-pub fn create_note(workspace_uri: &str) -> Result<CreatedNote, ServiceError> {
+pub fn create_note(workspace_uri: &str) -> Result<CreatedNote, ApplicationError> {
     create_note_with_options(workspace_uri, None, None, None)
 }
 
@@ -47,12 +47,12 @@ pub fn create_note_with_options(
     category_path: Option<&[String]>,
     template: Option<&str>,
     file_name: Option<&str>,
-) -> Result<CreatedNote, ServiceError> {
+) -> Result<CreatedNote, ApplicationError> {
     let root = workspace_path(workspace_uri)?;
-    open_control_directory(&root, false)?.ok_or(ServiceError::NotInitialized)?;
+    open_control_directory(&root, false)?.ok_or(ApplicationError::NotInitialized)?;
     let config = root.join(".fleximark/config.toml");
     if !config.is_file() {
-        return Err(ServiceError::NotInitialized);
+        return Err(ApplicationError::NotInitialized);
     }
     let config = validate_config(&config)?;
     let mut notes = create_note_root(&root, &config.notes.root)?;
@@ -60,11 +60,11 @@ pub fn create_note_with_options(
         if category_path.is_empty()
             || !category_path_exists(&config.notes.categories, category_path)
         {
-            return Err(ServiceError::InvalidConfig);
+            return Err(ApplicationError::InvalidConfig);
         }
         for directory in category_path {
             if !safe_workspace_relative_path(directory) {
-                return Err(ServiceError::InvalidConfig);
+                return Err(ApplicationError::InvalidConfig);
             }
             create_directory(&mut notes, directory)?;
         }
@@ -74,7 +74,7 @@ pub fn create_note_with_options(
     let generated_name;
     let file_name = match file_name {
         Some(file_name) if is_safe_note_category_name(file_name) => file_name,
-        Some(_) => return Err(ServiceError::InvalidNoteName),
+        Some(_) => return Err(ApplicationError::InvalidNoteName),
         None => {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -86,7 +86,7 @@ pub fn create_note_with_options(
     };
     let stem = format!("{prefix}{file_name}{suffix}");
     if !is_safe_note_category_name(&stem) {
-        return Err(ServiceError::InvalidNoteName);
+        return Err(ApplicationError::InvalidNoteName);
     }
     let note = notes.join(format!("{stem}.md"));
     let template = template
@@ -102,7 +102,7 @@ pub fn create_note_with_options(
                 .notes
                 .templates
                 .get(name)
-                .ok_or(ServiceError::InvalidConfig)
+                .ok_or(ApplicationError::InvalidConfig)
         })
         .transpose()?;
     let contents = template
@@ -114,7 +114,7 @@ pub fn create_note_with_options(
         .open(&note)
         .map_err(|error| {
             if error.kind() == std::io::ErrorKind::AlreadyExists {
-                ServiceError::NoteAlreadyExists
+                ApplicationError::NoteAlreadyExists
             } else {
                 error.into()
             }
@@ -127,7 +127,7 @@ pub fn create_note_with_options(
     })
 }
 
-fn create_note_root(workspace: &Path, configured_root: &str) -> Result<PathBuf, ServiceError> {
+fn create_note_root(workspace: &Path, configured_root: &str) -> Result<PathBuf, ApplicationError> {
     let mut root = workspace.to_path_buf();
     if configured_root == "." {
         return Ok(root);
@@ -138,7 +138,7 @@ fn create_note_root(workspace: &Path, configured_root: &str) -> Result<PathBuf, 
     Ok(root)
 }
 
-fn create_directory(path: &mut PathBuf, directory: &str) -> Result<(), ServiceError> {
+fn create_directory(path: &mut PathBuf, directory: &str) -> Result<(), ApplicationError> {
     path.push(directory);
     reject_link(path)?;
     fs::create_dir(path).or_else(|error| {
@@ -238,7 +238,7 @@ pub fn collect_admonitions(
     document: &Document,
     source: &str,
     workspace_uri: &str,
-) -> Result<CollectedAdmonitions, ServiceError> {
+) -> Result<CollectedAdmonitions, ApplicationError> {
     fn collect<'a>(blocks: &[Block], source: &'a str, output: &mut Vec<&'a str>) {
         for block in blocks {
             if matches!(block.kind, BlockKind::Admonition { .. }) {
@@ -263,7 +263,7 @@ pub fn collect_admonitions(
     }
 
     let root = workspace_path(workspace_uri)?;
-    open_control_directory(&root, false)?.ok_or(ServiceError::NotInitialized)?;
+    open_control_directory(&root, false)?.ok_or(ApplicationError::NotInitialized)?;
     let config = validate_config(&root.join(".fleximark/config.toml"))?;
     let mut fragments = Vec::new();
     collect(&document.blocks, source, &mut fragments);
@@ -336,7 +336,7 @@ daily = ["# ${FILE_NAME}", "${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONT
         assert!(!contents.contains("${") && !contents.contains("$0"));
         assert!(matches!(
             create_note_with_options(&uri, Some(&category), Some("daily"), Some("session")),
-            Err(ServiceError::NoteAlreadyExists)
+            Err(ApplicationError::NoteAlreadyExists)
         ));
         fs::remove_dir_all(root).unwrap();
     }
@@ -403,7 +403,7 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
         for invalid in ["", ".", "..", "a/b", "a\\b", "CON", "trailing."] {
             assert!(matches!(
                 create_note_with_options(&uri, None, None, Some(invalid)),
-                Err(ServiceError::InvalidNoteName)
+                Err(ApplicationError::InvalidNoteName)
             ));
         }
         fs::remove_dir_all(root).unwrap();

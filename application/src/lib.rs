@@ -8,6 +8,7 @@ mod registry;
 pub use registry::SessionRegistry;
 mod error;
 mod index;
+pub mod logging;
 pub mod native;
 pub mod operations;
 mod positions;
@@ -33,8 +34,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use fleximark_engine::{DocumentEngine as EngineSession, RenderConfig, ResolvedAssets};
 use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
 
-pub use error::SessionError;
 use error::engine_error;
+pub use error::{ApplicationError, ErrorKind};
 pub use fleximark_language::{
     CompletionItem, SEMANTIC_TOKEN_TYPES, completion_items, semantic_tokens,
 };
@@ -74,9 +75,9 @@ impl SessionRegistry {
     pub fn configure_workspaces(
         &mut self,
         workspaces: Vec<(String, RenderConfig)>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), ApplicationError> {
         if !self.index.is_empty() {
-            return Err(SessionError::Engine(
+            return Err(ApplicationError::InvalidState(
                 "workspaces must be configured before opening documents".into(),
             ));
         }
@@ -96,10 +97,10 @@ impl SessionRegistry {
     pub fn workspace_for_document(&self, document: &str) -> Option<(String, bool)> {
         self.workspaces.document_workspace(document)
     }
-    pub fn refresh_document_assets(&mut self, uri: &str) -> Result<(), SessionError> {
+    pub fn refresh_document_assets(&mut self, uri: &str) -> Result<(), ApplicationError> {
         let id = self
             .session_id_for_uri(uri)
-            .ok_or(SessionError::UnknownSession)?
+            .ok_or(ApplicationError::UnknownSession)?
             .to_owned();
         let version = self.current_version(self.daemon_instance_id(), &id)?;
         let document = self.document(self.daemon_instance_id(), &id, version)?;
@@ -109,9 +110,11 @@ impl SessionRegistry {
         if !self.workspace_grants_write(&workspace) {
             return Ok(());
         }
-        let session = self.index.by_uri_mut(uri).ok_or(SessionError::NotOpen)?;
+        let session = self
+            .index
+            .by_uri_mut(uri)
+            .ok_or(ApplicationError::NotOpen)?;
         native::refresh_document_assets(&mut session.engine, &workspace)
-            .map_err(|error| SessionError::Engine(error.to_string()))
     }
     pub fn open_documents(&self) -> Vec<(String, fleximark_model::Document)> {
         self.index
@@ -137,9 +140,9 @@ impl SessionRegistry {
         render_config: RenderConfig,
         mut assets: HashMap<String, ResolvedAssets>,
         cancellation: &CancellationToken,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), ApplicationError> {
         if cancellation.is_cancelled() {
-            return Err(SessionError::Cancelled);
+            return Err(ApplicationError::Cancelled);
         }
         let workspace_uri = workspace_uri.trim_end_matches('/');
         let mut replacements = Vec::new();
@@ -161,7 +164,7 @@ impl SessionRegistry {
         for (uri, engine) in replacements {
             self.index
                 .by_uri_mut(&uri)
-                .ok_or(SessionError::NotOpen)?
+                .ok_or(ApplicationError::NotOpen)?
                 .engine = engine;
         }
         Ok(())
@@ -171,7 +174,7 @@ impl SessionRegistry {
         &mut self,
         params: DidOpenParams,
         cancellation: &CancellationToken,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), ApplicationError> {
         cancellation_checks::check(cancellation, "open_start")?;
         let item = params.text_document;
         if self
@@ -182,11 +185,11 @@ impl SessionRegistry {
                     .any(|(root, _, enabled)| root == &uri && !enabled)
             })
         {
-            return Err(SessionError::Engine(
+            return Err(ApplicationError::InvalidState(
                 "workspace configuration is disabled".into(),
             ));
         }
-        let version = u64::try_from(item.version).map_err(|_| SessionError::StaleVersion)?;
+        let version = u64::try_from(item.version).map_err(|_| ApplicationError::StaleVersion)?;
         let workspace = self
             .workspaces
             .matching(&item.uri)
@@ -217,16 +220,16 @@ impl SessionRegistry {
         &mut self,
         params: DidChangeParams,
         cancellation: &CancellationToken,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), ApplicationError> {
         if cancellation.is_cancelled() {
             self.mark_out_of_sync(&params.text_document.uri, "document update cancelled");
-            return Err(SessionError::Cancelled);
+            return Err(ApplicationError::Cancelled);
         }
         let uri = params.text_document.uri;
         let version = params.text_document.version;
-        let current = self.index.by_uri(&uri).ok_or(SessionError::NotOpen)?;
+        let current = self.index.by_uri(&uri).ok_or(ApplicationError::NotOpen)?;
         let current_version = current.engine.document().document_version;
-        let version_u64 = u64::try_from(version).map_err(|_| SessionError::StaleVersion)?;
+        let version_u64 = u64::try_from(version).map_err(|_| ApplicationError::StaleVersion)?;
         let is_full_replacement =
             params.content_changes.len() == 1 && params.content_changes[0].range.is_none();
         // Recovery replies can race with an ordinary change at the same version.
@@ -243,23 +246,26 @@ impl SessionRegistry {
             && version_u64 == current_version;
         if version_u64 <= current_version && !same_version_recovery {
             self.mark_out_of_sync(&uri, "stale document version");
-            return Err(SessionError::StaleVersion);
+            return Err(ApplicationError::StaleVersion);
         }
         if params.content_changes.is_empty() {
             self.mark_out_of_sync(&uri, "empty change notification");
-            return Err(SessionError::EmptyChange);
+            return Err(ApplicationError::EmptyChange);
         }
 
         if current.engine.is_out_of_sync() && !is_full_replacement {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
 
         if !is_full_replacement {
-            return Err(SessionError::InvalidRange);
+            return Err(ApplicationError::InvalidRange);
         }
         let text = params.content_changes[0].text.clone();
 
-        let session = self.index.by_uri_mut(&uri).ok_or(SessionError::NotOpen)?;
+        let session = self
+            .index
+            .by_uri_mut(&uri)
+            .ok_or(ApplicationError::NotOpen)?;
         let mut candidate = session.engine.clone();
         let result = if candidate.is_out_of_sync() {
             candidate.resync(version_u64, text)
@@ -270,7 +276,7 @@ impl SessionRegistry {
         cancellation_checks::checkpoint("change_candidate");
         if cancellation.is_cancelled() {
             session.engine.mark_out_of_sync();
-            return Err(SessionError::Cancelled);
+            return Err(ApplicationError::Cancelled);
         }
         result.map_err(engine_error)?;
         if let Err(error) = cancellation_checks::check(cancellation, "change_commit") {
@@ -288,19 +294,19 @@ impl SessionRegistry {
     pub fn attach(
         &self,
         params: &DocumentAttachmentRequest,
-    ) -> Result<DocumentAttachment, SessionError> {
+    ) -> Result<DocumentAttachment, ApplicationError> {
         let session = self
             .index
             .by_uri(&params.uri)
-            .ok_or(SessionError::NotOpen)?;
+            .ok_or(ApplicationError::NotOpen)?;
         self.verify_daemon(&params.daemon_instance_id)?;
         if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
         let version = i64::try_from(session.engine.document().document_version)
-            .map_err(|_| SessionError::VersionMismatch)?;
+            .map_err(|_| ApplicationError::VersionMismatch)?;
         if params.expected_document_version != version {
-            return Err(SessionError::VersionMismatch);
+            return Err(ApplicationError::VersionMismatch);
         }
         Ok(DocumentAttachment {
             document_session_id: session.id.clone(),
@@ -313,17 +319,17 @@ impl SessionRegistry {
         daemon: &str,
         session_id: &str,
         version: i64,
-    ) -> Result<&DocumentSession, SessionError> {
+    ) -> Result<&DocumentSession, ApplicationError> {
         self.verify_daemon(daemon)?;
         let session = self
             .index
             .by_session(session_id)
-            .ok_or(SessionError::UnknownSession)?;
+            .ok_or(ApplicationError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
         if i64::try_from(session.engine.document().document_version).ok() != Some(version) {
-            return Err(SessionError::VersionMismatch);
+            return Err(ApplicationError::VersionMismatch);
         }
         Ok(session)
     }
@@ -334,10 +340,10 @@ impl SessionRegistry {
         session_id: &str,
         version: i64,
         position: &Position,
-    ) -> Result<Option<NavigationEntry>, SessionError> {
+    ) -> Result<Option<NavigationEntry>, ApplicationError> {
         let session = self.document(daemon, session_id, version)?;
         let offset = position_offset(session.source(), *position, session.position_encoding())
-            .ok_or(SessionError::InvalidRange)?;
+            .ok_or(ApplicationError::InvalidRange)?;
         Ok(session.node_at_source_offset(offset as u64))
     }
 
@@ -348,11 +354,11 @@ impl SessionRegistry {
         preview_id: &str,
         revision: u64,
         node: &NodeId,
-    ) -> Result<Option<NavigationEntry>, SessionError> {
+    ) -> Result<Option<NavigationEntry>, ApplicationError> {
         self.verify_daemon(daemon)?;
         self.index
             .by_session(session_id)
-            .ok_or(SessionError::UnknownSession)?
+            .ok_or(ApplicationError::UnknownSession)?
             .navigate(preview_id, revision, node)
     }
     pub fn render_with_cancellation(
@@ -362,17 +368,17 @@ impl SessionRegistry {
         version: i64,
         preview_id: &str,
         cancellation: &CancellationToken,
-    ) -> Result<RenderFrame, SessionError> {
+    ) -> Result<RenderFrame, ApplicationError> {
         self.verify_daemon(daemon)?;
         let session = self
             .index
             .by_session_mut(session_id)
-            .ok_or(SessionError::UnknownSession)?;
+            .ok_or(ApplicationError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
         if i64::try_from(session.document().document_version).ok() != Some(version) {
-            return Err(SessionError::VersionMismatch);
+            return Err(ApplicationError::VersionMismatch);
         }
         session.publish(preview_id, cancellation)
     }
@@ -382,14 +388,14 @@ impl SessionRegistry {
         session_id: &str,
         preview_id: &str,
         after_revision: Option<u64>,
-    ) -> Result<Option<RenderFrame>, SessionError> {
+    ) -> Result<Option<RenderFrame>, ApplicationError> {
         self.verify_daemon(daemon)?;
         let session = self
             .index
             .by_session(session_id)
-            .ok_or(SessionError::UnknownSession)?;
+            .ok_or(ApplicationError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
         Ok(session
             .previews
@@ -402,58 +408,58 @@ impl SessionRegistry {
         daemon: &str,
         session_id: &str,
         preview_id: &str,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), ApplicationError> {
         self.verify_daemon(daemon)?;
         self.index
             .by_session_mut(session_id)
-            .ok_or(SessionError::UnknownSession)?
+            .ok_or(ApplicationError::UnknownSession)?
             .previews
             .remove(preview_id);
         Ok(())
     }
 
-    pub fn current_version(&self, daemon: &str, session_id: &str) -> Result<i64, SessionError> {
+    pub fn current_version(&self, daemon: &str, session_id: &str) -> Result<i64, ApplicationError> {
         self.verify_daemon(daemon)?;
         let session = self
             .index
             .by_session(session_id)
-            .ok_or(SessionError::UnknownSession)?;
+            .ok_or(ApplicationError::UnknownSession)?;
         if session.engine.is_out_of_sync() {
-            return Err(SessionError::ContentModified);
+            return Err(ApplicationError::ContentModified);
         }
         i64::try_from(session.engine.document().document_version)
-            .map_err(|_| SessionError::VersionMismatch)
+            .map_err(|_| ApplicationError::VersionMismatch)
     }
 
     pub fn session_id_for_uri(&self, uri: &str) -> Option<&str> {
         self.index.session_id_for_uri(uri)
     }
 
-    pub fn source_for_uri(&self, uri: &str) -> Result<&str, SessionError> {
+    pub fn source_for_uri(&self, uri: &str) -> Result<&str, ApplicationError> {
         self.index
             .by_uri(uri)
             .map(DocumentSession::source)
-            .ok_or(SessionError::NotOpen)
+            .ok_or(ApplicationError::NotOpen)
     }
 
     pub fn position_encoding(&self) -> PositionEncoding {
         self.position_encoding
     }
 
-    pub fn line_prefix(&self, uri: &str, position: Position) -> Result<&str, SessionError> {
-        let session = self.index.by_uri(uri).ok_or(SessionError::NotOpen)?;
+    pub fn line_prefix(&self, uri: &str, position: Position) -> Result<&str, ApplicationError> {
+        let session = self.index.by_uri(uri).ok_or(ApplicationError::NotOpen)?;
         let source = session.engine.source();
         let offset = position_offset(source, position, self.position_encoding)
-            .ok_or(SessionError::InvalidRange)?;
+            .ok_or(ApplicationError::InvalidRange)?;
         let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
         Ok(&source[line_start..offset])
     }
 
-    pub(crate) fn verify_daemon(&self, daemon: &str) -> Result<(), SessionError> {
+    pub(crate) fn verify_daemon(&self, daemon: &str) -> Result<(), ApplicationError> {
         if daemon == self.daemon_instance_id {
             Ok(())
         } else {
-            Err(SessionError::WrongDaemon)
+            Err(ApplicationError::WrongDaemon)
         }
     }
 

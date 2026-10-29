@@ -19,7 +19,7 @@ use crate::native::integrity::{ObjectIdentity, sha256};
 use crate::native::paths::reject_linked_path;
 use crate::native::uri::percent_decode;
 use crate::native::workspace::{CONFIG, safe_workspace_relative_path, validate_config};
-use crate::native::{ServiceError, workspace_path};
+use crate::native::{ApplicationError, workspace_path};
 
 pub struct ExportAsset {
     pub(crate) source: Option<PathBuf>,
@@ -38,7 +38,7 @@ pub fn compose_portable_html(
     rendered_html: &str,
     style: Option<&RenderStyle>,
     common_runtime: &str,
-) -> Result<String, ServiceError> {
+) -> Result<String, ApplicationError> {
     let katex_css = fleximark_preview_assets::read("katex.css")?;
     compose_portable_html_with_css(rendered_html, style, common_runtime, &katex_css)
 }
@@ -48,14 +48,14 @@ fn compose_portable_html_with_css(
     style: Option<&RenderStyle>,
     common_runtime: &str,
     katex_css: &str,
-) -> Result<String, ServiceError> {
+) -> Result<String, ApplicationError> {
     let node_ids = rendered_html
         .split("data-fleximark-node-id=\"")
         .skip(1)
         .filter_map(|tail| tail.split_once('"').map(|(id, _)| id.to_owned()))
         .collect::<Vec<_>>();
     if node_ids.is_empty() {
-        return Err(ServiceError::ExportContentConflict);
+        return Err(ApplicationError::ExportContentConflict);
     }
     let frame = serde_json::json!({
         "previewSessionId":"portable-export",
@@ -83,21 +83,21 @@ pub fn resolve_export_assets(
     workspace_uri: &str,
     html: &str,
     render_assets: &[RenderAsset],
-) -> Result<ResolvedExportAssets, ServiceError> {
+) -> Result<ResolvedExportAssets, ApplicationError> {
     let source = workspace_path(source_uri)?;
     let workspace = workspace_path(workspace_uri)?;
     validate_config(&workspace.join(".fleximark/config.toml"))?;
     if !source.starts_with(&workspace) {
-        return Err(ServiceError::InvalidExportDestination);
+        return Err(ApplicationError::InvalidExportDestination);
     }
     let mut rewritten = html.to_owned();
     let mut assets: Vec<ExportAsset> = Vec::new();
     for asset in render_assets {
         let bytes = BASE64
             .decode(&asset.data)
-            .map_err(|_| ServiceError::ExportContentConflict)?;
+            .map_err(|_| ApplicationError::ExportContentConflict)?;
         if sha256(&bytes) != asset.content_hash || bytes.len() as u64 != asset.byte_length {
-            return Err(ServiceError::ExportContentConflict);
+            return Err(ApplicationError::ExportContentConflict);
         }
         let extension = match asset.media_type.as_str() {
             "image/png" => "png",
@@ -108,7 +108,7 @@ pub fn resolve_export_assets(
             "audio/mpeg" => "mp3",
             "audio/ogg" => "ogg",
             "audio/wav" => "wav",
-            _ => return Err(ServiceError::ExportContentConflict),
+            _ => return Err(ApplicationError::ExportContentConflict),
         };
         let export_path = format!("assets/{}.{}", asset.content_hash, extension);
         rewritten = rewritten.replace(&asset.reference, &export_path);
@@ -132,34 +132,32 @@ pub fn resolve_render_assets(
     source_uri: &str,
     workspace_uri: &str,
     document: &Document,
-) -> Result<ResolvedAssets, ServiceError> {
+) -> Result<ResolvedAssets, ApplicationError> {
     let source = workspace_path(source_uri)?;
     let workspace = workspace_path(workspace_uri)?;
     if !source.starts_with(&workspace) {
-        return Err(ServiceError::InvalidWorkspaceUri);
+        return Err(ApplicationError::InvalidWorkspaceUri);
     }
     let config = match validate_config(&workspace.join(".fleximark/config.toml")) {
         Ok(config) => config,
-        Err(ServiceError::NotInitialized) => {
-            FlexiMarkConfig::from_toml(CONFIG).map_err(|_| ServiceError::InvalidConfig)?
-        }
+        Err(ApplicationError::NotInitialized) => FlexiMarkConfig::from_toml(CONFIG)?,
         Err(error) => return Err(error),
     };
     let workspace_dir = Dir::open_ambient_dir(&workspace, ambient_authority())?;
     let mut allowed_roots = vec![
         source
             .parent()
-            .ok_or(ServiceError::InvalidWorkspaceUri)?
+            .ok_or(ApplicationError::InvalidWorkspaceUri)?
             .canonicalize()?,
     ];
     for root in config.assets.roots {
         if !safe_workspace_relative_path(&root) {
-            return Err(ServiceError::InvalidConfig);
+            return Err(ApplicationError::InvalidConfig);
         }
         reject_linked_path(&workspace, Path::new(&root), true)?;
         let canonical = workspace.join(root).canonicalize()?;
         if !canonical.starts_with(&workspace) || !canonical.is_dir() {
-            return Err(ServiceError::InvalidConfig);
+            return Err(ApplicationError::InvalidConfig);
         }
         allowed_roots.push(canonical);
     }

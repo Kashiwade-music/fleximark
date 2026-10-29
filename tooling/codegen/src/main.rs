@@ -1,5 +1,6 @@
 //! Role: Generate schemas and TypeScript from the current Rust wire contract.
 mod configuration;
+mod distribution;
 mod examples;
 mod fixtures;
 mod typescript;
@@ -86,6 +87,7 @@ fn run() -> Result<(), String> {
         ),
     ];
     outputs.extend(examples::outputs(&root)?);
+    outputs.extend(distribution::outputs(&root)?);
     if command == "generate" {
         for (path, contents) in outputs {
             fs::write(&path, contents)

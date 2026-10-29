@@ -34,9 +34,7 @@ fn preview_event_notification(params: ServerPreviewEventParams) -> Value {
     })
     .expect("serializable event")
 }
-fn log_operational_event(event: &str, _: Option<&str>, _: Option<&str>, _: Option<i64>) {
-    eprintln!("{event}");
-}
+use fleximark_application::logging::log_operational_failure;
 
 impl PreviewServer {
     pub fn with_assets(sender: Option<Sender<Value>>, assets: BrowserAssets) -> io::Result<Self> {
@@ -73,8 +71,13 @@ impl PreviewServer {
                         }
                     }
                     Err(error) => {
-                        let _ = error;
-                        log_operational_event("preview-listener-failed", None, None, None);
+                        log_operational_failure(
+                            "preview-listener-failed",
+                            &error,
+                            None,
+                            None,
+                            None,
+                        );
                     }
                 }
             }
@@ -93,7 +96,7 @@ impl PreviewServer {
         daemon_instance_id: &str,
         preview_session_id: &str,
         frame: &RenderFrame,
-    ) -> Result<String, protocol::ConversionError> {
+    ) -> Result<String, fleximark_application::ApplicationError> {
         let checked = protocol::frame(frame)?;
         let shell = self.assets.preview_shell(token);
         self.pages.lock().expect("preview map lock").insert(
@@ -126,7 +129,7 @@ impl PreviewServer {
         &self,
         token: &str,
         frame: &RenderFrame,
-    ) -> Result<bool, protocol::ConversionError> {
+    ) -> Result<bool, fleximark_application::ApplicationError> {
         let checked = protocol::frame(frame)?;
         if let Some(page) = self.pages.lock().expect("preview map lock").get_mut(token) {
             page.frame = frame.clone();

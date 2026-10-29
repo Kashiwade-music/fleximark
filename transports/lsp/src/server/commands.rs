@@ -33,16 +33,15 @@ impl Server {
         };
         Some(match self.execute_operation(&params) {
             Ok(result) => response_value(Response::success(id, result)),
-            Err((code, message)) => response_value(Response::error(id, code, message)),
+            Err(error) => session_error(id, error),
         })
     }
     pub(super) fn execute_operation(
         &mut self,
         params: &ExecuteCommandParams,
-    ) -> Result<fleximark_protocol::CommandResult, (i64, String)> {
+    ) -> Result<fleximark_protocol::CommandResult, ApplicationError> {
         use fleximark_application::operations::{
-            OperationOutcome as Out, OperationRequest, ServiceOperationError as Error,
-            WorkspaceOperation as Op,
+            OperationOutcome as Out, OperationRequest, WorkspaceOperation as Op,
         };
         let operation = match params.command.as_str() {
             "initializeWorkspace" => Op::Initialize,
@@ -52,38 +51,28 @@ impl Server {
             "acknowledgeExport" => Op::AcknowledgeExport,
             "collectAdmonitions" => Op::CollectAdmonitions,
             _ => {
-                return Err((
-                    -32020,
-                    format!("unknown FlexiMark command: {}", params.command),
-                ));
+                return Err(ApplicationError::InvalidState(format!(
+                    "unknown FlexiMark command: {}",
+                    params.command
+                )));
             }
         };
-        let outcome = self
-            .registry
-            .execute_operation(
-                operation,
-                OperationRequest {
-                    daemon: &params.daemon_instance_id,
-                    workspace: params.workspace_uri.as_deref(),
-                    document_session: params.document_session_id.as_deref(),
-                    document_version: params
-                        .expected_document_version
-                        .map(|version| version.get()),
-                    destination: params.destination_uri.as_deref(),
-                    category: params.note_category_path.as_deref(),
-                    template: params.note_template.as_deref(),
-                    name: params.note_file_name.as_deref(),
-                },
-                &self.work_cancellation,
-            )
-            .map_err(|error| {
-                let code = match error {
-                    Error::WrongDaemon => -32602,
-                    Error::WriteDenied => -32021,
-                    Error::Failed(_) => -32020,
-                };
-                (code, error.to_string())
-            })?;
+        let outcome = self.registry.execute_operation(
+            operation,
+            OperationRequest {
+                daemon: &params.daemon_instance_id,
+                workspace: params.workspace_uri.as_deref(),
+                document_session: params.document_session_id.as_deref(),
+                document_version: params
+                    .expected_document_version
+                    .map(|version| version.get()),
+                destination: params.destination_uri.as_deref(),
+                category: params.note_category_path.as_deref(),
+                template: params.note_template.as_deref(),
+                name: params.note_file_name.as_deref(),
+            },
+            &self.work_cancellation,
+        )?;
         Ok(match outcome {
             Out::Initialized(outcome) => {
                 command_result("Workspace initialized", Some(outcome.config_uri), None)
@@ -115,19 +104,15 @@ impl Server {
             Err(response) => return Some(response),
         };
         if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return Some(session_error(id, SessionError::WrongDaemon));
+            return Some(session_error(id, ApplicationError::WrongDaemon));
         }
         if !self.workspace_grants_write(&params.workspace_uri) {
-            return Some(response_value(Response::error(
-                id,
-                -32021,
-                "note options denied: the workspace is not trusted",
-            )));
+            return Some(session_error(id, ApplicationError::WriteDenied));
         }
         Some(
             match fleximark_application::native::get_note_options(&params.workspace_uri) {
                 Ok(options) => response_value(Response::success(id, note_options_value(options))),
-                Err(error) => response_value(Response::error(id, -32020, error.to_string())),
+                Err(error) => session_error(id, error),
             },
         )
     }

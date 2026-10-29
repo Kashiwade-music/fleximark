@@ -4,6 +4,10 @@ import * as path from "node:path";
 
 import { validateContractSchema } from "../../contracts/typescript/contract-validator.mjs";
 import {
+  DISTRIBUTION_FILES,
+  DISTRIBUTION_TARGETS,
+} from "../../contracts/typescript/distribution.generated.mjs";
+import {
   PROTOCOL_VERSION,
   clientNotificationValidators,
   customRequestParamsValidators,
@@ -158,11 +162,11 @@ export function suite(): void {
     );
     const check = (value: unknown) =>
       validateContractSchema(schema.$defs, schema, value);
-    for (const target of schema.properties.target.enum) {
-      const kind = target.includes("windows") ? "windowsFiles" : "unixFiles";
+    for (const descriptor of DISTRIBUTION_TARGETS) {
+      const target = descriptor.triple;
       const files = Object.fromEntries(
-        schema.$defs[kind].required.map((name: string) => [
-          name,
+        DISTRIBUTION_FILES.map((file) => [
+          file.path.replace("{exe}", descriptor.executableSuffix),
           "a".repeat(64),
         ]),
       );
@@ -170,7 +174,7 @@ export function suite(): void {
         schemaVersion: 1,
         protocolVersion: PROTOCOL_VERSION,
         version: "1.0.0",
-        target,
+        target: target as string,
         files,
       };
       assert.equal(check(manifest), true);

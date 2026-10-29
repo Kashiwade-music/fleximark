@@ -1,22 +1,28 @@
 //! Role: Install and validate platform-specific shared runtime releases.
 
-use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
-use zed_extension_api::{self as zed, serde_json::Value};
+use zed_extension_api as zed;
 
 const VERSION: &str = env!("FLEXIMARK_RELEASE_VERSION");
 const REPOSITORY: &str = "Kashiwade-music/fleximark";
 
 pub fn target(os: zed::Os, arch: zed::Architecture) -> Result<&'static str, String> {
-    match (os, arch) {
-        (zed::Os::Mac, zed::Architecture::Aarch64) => Ok("aarch64-apple-darwin"),
-        (zed::Os::Mac, zed::Architecture::X8664) => Ok("x86_64-apple-darwin"),
-        (zed::Os::Linux, zed::Architecture::Aarch64) => Ok("aarch64-unknown-linux-gnu"),
-        (zed::Os::Linux, zed::Architecture::X8664) => Ok("x86_64-unknown-linux-gnu"),
-        (zed::Os::Windows, zed::Architecture::Aarch64) => Ok("aarch64-pc-windows-msvc"),
-        (zed::Os::Windows, zed::Architecture::X8664) => Ok("x86_64-pc-windows-msvc"),
-        _ => Err("No FlexiMark runtime release for this platform".into()),
-    }
+    let os = match os {
+        zed::Os::Mac => "darwin",
+        zed::Os::Linux => "linux",
+        zed::Os::Windows => "win32",
+    };
+    let arch = match arch {
+        zed::Architecture::Aarch64 => "arm64",
+        zed::Architecture::X8664 => "x64",
+        _ => return Err("No FlexiMark runtime release for this platform".into()),
+    };
+    Ok(fleximark_distribution::specification()
+        .map_err(|error| error.to_string())?
+        .platform(os, arch)
+        .map_err(|error| error.to_string())?
+        .triple
+        .as_str())
 }
 
 pub fn install(id: &zed::LanguageServerId) -> Result<String, String> {
@@ -81,140 +87,22 @@ fn validate_version(output: &str, version: &str) -> Result<(), String> {
 }
 
 fn verify(root: &Path, version: &str, target: &str) -> Result<(), String> {
-    let root_metadata = fs::symlink_metadata(root).map_err(|error| error.to_string())?;
-    if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
-        return Err("Runtime installation must be a regular directory".into());
-    }
-    regular_file(root, "manifest.json")?;
-    let manifest: Value = zed::serde_json::from_slice(
-        &fs::read(root.join("manifest.json")).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-    let fields = manifest
-        .as_object()
-        .ok_or("Runtime manifest must be an object")?;
-    let expected_fields = [
-        "schemaVersion",
-        "version",
-        "target",
-        "protocolVersion",
-        "files",
-    ];
-    if fields.len() != expected_fields.len()
-        || expected_fields
-            .iter()
-            .any(|field| !fields.contains_key(*field))
-    {
-        return Err("Runtime manifest has unexpected or missing fields".into());
-    }
-    if manifest["schemaVersion"] != 1
-        || manifest["version"] != version
-        || manifest["target"] != target
-        || manifest["protocolVersion"].as_u64()
-            != env!("FLEXIMARK_PROTOCOL_VERSION").parse::<u64>().ok()
-    {
-        return Err("Incompatible FlexiMark runtime manifest".into());
-    }
-    let files = manifest["files"]
-        .as_object()
-        .ok_or("Runtime manifest lacks file checksums")?;
-    let suffix = if target.contains("windows") {
-        ".exe"
-    } else {
-        ""
+    let release = fleximark_distribution::ReleaseMetadata {
+        version: version.to_owned(),
+        protocol_version: env!("FLEXIMARK_PROTOCOL_VERSION")
+            .parse::<u32>()
+            .map_err(|error| error.to_string())?,
     };
-    let required_files = [
-        format!("bin/fleximarkd{suffix}"),
-        format!("bin/fleximark{suffix}"),
-        "resources/preview/browser-host.js".into(),
-        "resources/preview/fleximark.css".into(),
-        "resources/preview/katex.css".into(),
-        "resources/workspace/workspace.js".into(),
-        "resources/workspace/workspace.css".into(),
-    ];
-    if files.len() != required_files.len() {
-        return Err("Runtime manifest must contain exactly the seven distribution files".into());
-    }
-    for required in &required_files {
-        if !files.contains_key(required) {
-            return Err(format!("Missing required runtime file {required}"));
-        }
-    }
-    for (relative, expected) in files {
-        let checksum = expected
-            .as_str()
-            .ok_or("Runtime checksum must be a lowercase SHA-256 string")?;
-        if checksum.len() != 64
-            || !checksum
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
-            return Err(format!("Invalid runtime checksum: {relative}"));
-        }
-        regular_file(root, relative)?;
-        let path = Path::new(relative);
-        let resolved = fs::canonicalize(root.join(path)).map_err(|error| error.to_string())?;
-        let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
-        if !resolved.starts_with(canonical_root) {
-            return Err("Runtime file escapes installation directory".into());
-        }
-        let bytes = fs::read(resolved).map_err(|error| error.to_string())?;
-        let actual = format!("{:x}", Sha256::digest(bytes));
-        if expected.as_str() != Some(&actual) {
-            return Err(format!("Runtime checksum mismatch: {relative}"));
-        }
-    }
-    verify_tree(root, root, &required_files)?;
-    Ok(())
-}
-
-fn regular_file(root: &Path, relative: &str) -> Result<(), String> {
-    let path = Path::new(relative);
-    let mut current = root.to_path_buf();
-    for part in path.components() {
-        let std::path::Component::Normal(part) = part else {
-            return Err("Invalid runtime path".into());
-        };
-        current.push(part);
-        let metadata = fs::symlink_metadata(&current).map_err(|error| error.to_string())?;
-        if metadata.file_type().is_symlink() {
-            return Err("Runtime distribution contains a link".into());
-        }
-        if current == root.join(relative) && (!metadata.is_file() || metadata.len() == 0) {
-            return Err(format!("Runtime file is empty or not regular: {relative}"));
-        }
-    }
-    Ok(())
-}
-
-fn verify_tree(root: &Path, directory: &Path, required: &[String; 7]) -> Result<(), String> {
-    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
-        let relative = path
-            .strip_prefix(root)
-            .map_err(|error| error.to_string())?
-            .to_string_lossy()
-            .replace('\\', "/");
-        let kind = entry.file_type().map_err(|error| error.to_string())?;
-        if kind.is_dir()
-            && required
-                .iter()
-                .any(|name| name.starts_with(&format!("{relative}/")))
-        {
-            verify_tree(root, &path, required)?;
-        } else if !kind.is_file() || (relative != "manifest.json" && !required.contains(&relative))
-        {
-            return Err(format!("Unexpected runtime distribution entry: {relative}"));
-        }
-    }
-    Ok(())
+    fleximark_distribution::RuntimeDistribution::open(root, &release, target)
+        .and_then(|runtime| runtime.verify())
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     //! Role: Verify native platform mapping and strict runtime version matching.
     use super::*;
+    use zed::serde_json::Value;
     #[test]
     fn native_targets() {
         assert_eq!(
@@ -271,7 +159,7 @@ mod tests {
             fs::write(path, name).unwrap();
             files.insert(
                 name.into(),
-                Value::String(format!("{:x}", Sha256::digest(name.as_bytes()))),
+                Value::String(fleximark_distribution::sha256(name.as_bytes())),
             );
         }
         let mut manifest = zed::serde_json::Map::new();

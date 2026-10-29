@@ -15,6 +15,7 @@ Cargo の実依存関係は [生成された crate 図](../architecture/crates.s
 | `core/language` | 補完候補と構文の意味分類。LSP の数値 kind や相対 token 配列は生成しない |
 | `application` | 文書・workspace・preview の権威状態、更新と公開、ファイル・設定・theme・note・アセット・export の native 実装と型付き操作結果 |
 | `runtime/preview-assets` | インストール済み runtime manifest と browser 資源の検証・読込み |
+| `contracts/distribution` | 配布 target・ファイル・サイズ上限の正本と、Rust 共通の runtime manifest 検証 |
 | `transports/lsp` | 標準 LSP、FlexiMark の preview/workspace 契約、application と外部 DTO の変換 |
 | `transports/preview-http` | loopback HTTP、SSE、browser navigation、workspace UI の要求配送 |
 | `apps/server` / `apps/cli` | `fleximarkd` / `fleximark` の composition root |
@@ -31,6 +32,8 @@ core は concrete runtime、protocol DTO、filesystem、browser bundle に依存
 application は workspace 所属・trust・設定と文書状態を管理し、native 操作の型付き結果を返す。外部向けの message と JSON 応答は transport が組み立てる。CLI と daemon は共通の native 処理を利用する。中断 token は application が所有し、描画前と候補反映前、export の各段の境界で検査する。
 
 ## 起動と文書同期
+
+公開エラーは `ApplicationError` に統一し、`ErrorKind` が NotFound・Denied・Conflict・Invalid・Cancelled・Internal を区別する。下位の I/O・config・engine・parser の原因を保持する。RPC の数値コードは protocol の `error_code` に集約し、transport が kind から変換する。共通 logger は URI やエラー詳細をそのまま出力せず、分類と hash を記録する。
 
 `fleximarkd lsp` は標準入出力の Content-Length framing を使う。公開の起動モードは LSP で、独立した旧 RPC 文書管理モードはない。ログは標準エラーへ出力する。
 

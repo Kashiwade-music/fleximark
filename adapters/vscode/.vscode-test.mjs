@@ -7,18 +7,11 @@ import { join } from "node:path";
 import process from "node:process";
 import { URL } from "node:url";
 
+import { RUNTIME_TARGETS as targets } from "../../contracts/distribution/distribution.generated.mjs";
+
 const version = /^version = "([^"]+)"/m.exec(
   readFileSync(new URL("../../release.toml", import.meta.url), "utf8"),
 )[1];
-const targets = {
-  "linux-x64": "x86_64-unknown-linux-gnu",
-  "linux-arm64": "aarch64-unknown-linux-gnu",
-  "darwin-x64": "x86_64-apple-darwin",
-  "darwin-arm64": "aarch64-apple-darwin",
-  "win32-x64": "x86_64-pc-windows-msvc",
-  "win32-arm64": "aarch64-pc-windows-msvc",
-};
-
 const testUserDataDirectory = mkdtempSync(
   join(tmpdir(), "fleximark-vscode-test-"),
 );
