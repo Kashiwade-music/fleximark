@@ -1,38 +1,41 @@
 //! Role: Serve authenticated loopback browser previews and navigation events.
 mod assets;
-pub mod protocol;
+mod delivery;
+pub use delivery::{PreviewPage, StoredEvent};
+mod streaming;
 pub use assets::BrowserAssets;
 mod workspace;
 use workspace::serve_workspace_request;
 mod state;
 use state::WorkspaceService;
-pub use state::{PreviewPage, PreviewServer, StoredEvent, WorkspaceRequest, WorkspaceResponse};
+pub use state::{PreviewServer, WorkspaceRequest, WorkspaceResponse};
 mod http;
 use http::*;
 use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use fleximark_application::RenderFrame;
+use fleximark_application::PreviewHandle;
 use fleximark_protocol::{
-    JsSafeU64, PreviewNavigationEvent, RenderNavigationEvent, ServerPreviewEvent,
-    ServerPreviewEventParams, SourceNavigationEvent,
+    PreviewNavigationEvent, RenderNavigationEvent, ServerPreviewEvent, ServerPreviewEventParams,
+    SourceNavigationEvent,
 };
 use serde_json::Value;
 
 use fleximark_protocol::Notification;
-fn preview_event_notification(params: ServerPreviewEventParams) -> Value {
+fn preview_event_notification(
+    params: ServerPreviewEventParams,
+) -> Result<Value, fleximark_application::ApplicationError> {
     serde_json::to_value(Notification {
         jsonrpc: "2.0",
         method: fleximark_protocol::method::PREVIEW_EVENT,
         params,
     })
-    .expect("serializable event")
+    .map_err(fleximark_application::ApplicationError::from)
 }
 use fleximark_application::logging::log_operational_failure;
 
@@ -42,6 +45,7 @@ impl PreviewServer {
         let port = listener.local_addr()?.port();
         let pages = Arc::new(Mutex::new(HashMap::new()));
         let workspace = WorkspaceService::new(assets.clone());
+        let streams = Arc::new(streaming::StreamState::new());
         let (connections, receiver) = mpsc::sync_channel::<TcpStream>(16);
         let receiver = Arc::new(Mutex::new(receiver));
         for _ in 0..4 {
@@ -50,16 +54,29 @@ impl PreviewServer {
             let sender = sender.clone();
             let workspace = workspace.clone();
             let assets = assets.clone();
+            let streams = Arc::clone(&streams);
             thread::spawn(move || {
                 loop {
                     let stream = receiver.lock().expect("preview receiver lock").recv();
                     let Ok(stream) = stream else { return };
-                    serve_request(stream, port, &shared, sender.as_ref(), &workspace, &assets);
+                    serve_request(
+                        stream,
+                        port,
+                        &shared,
+                        sender.as_ref(),
+                        &workspace,
+                        &assets,
+                        &streams,
+                    );
                 }
             });
         }
+        let listener_state = Arc::clone(&streams);
         thread::spawn(move || {
             for stream in listener.incoming() {
+                if listener_state.is_shutdown() {
+                    break;
+                }
                 match stream {
                     Ok(mut stream) => {
                         if let Err(error) = connections.try_send(stream) {
@@ -87,6 +104,7 @@ impl PreviewServer {
             pages,
             workspace,
             assets,
+            streams,
         })
     }
 
@@ -95,9 +113,9 @@ impl PreviewServer {
         token: &str,
         daemon_instance_id: &str,
         preview_session_id: &str,
-        frame: &RenderFrame,
+        frame: &PreviewHandle,
     ) -> Result<String, fleximark_application::ApplicationError> {
-        let checked = protocol::frame(frame)?;
+        fleximark_wire_mapping::frame(frame)?;
         let shell = self.assets.preview_shell(token);
         self.pages.lock().expect("preview map lock").insert(
             token.to_owned(),
@@ -106,53 +124,38 @@ impl PreviewServer {
                 daemon_instance_id: daemon_instance_id.to_owned(),
                 preview_session_id: preview_session_id.to_owned(),
                 frame: frame.clone(),
-                change_event: StoredEvent {
-                    encoded: serde_json::to_string(&checked)
-                        .expect("preview change is serializable"),
-                    sequence: 1,
-                },
+                frame_sequence: 1,
                 navigation_event: None,
                 durable_navigation: None,
                 next_sequence: 2,
-                document_version: checked.document_version,
                 last_browser_event: None,
             },
         );
+        self.streams.notify();
         Ok(format!("http://127.0.0.1:{}/preview/{token}", self.port))
     }
 
     pub fn remove(&self, token: &str) {
         self.pages.lock().expect("preview map lock").remove(token);
+        self.streams.notify();
     }
 
     pub fn update(
         &self,
         token: &str,
-        frame: &RenderFrame,
+        frame: &PreviewHandle,
     ) -> Result<bool, fleximark_application::ApplicationError> {
-        let checked = protocol::frame(frame)?;
+        fleximark_wire_mapping::frame(frame)?;
         if let Some(page) = self.pages.lock().expect("preview map lock").get_mut(token) {
             page.frame = frame.clone();
             page.durable_navigation = None;
             page.navigation_event = None;
-            page.document_version = checked.document_version;
-            page.change_event = StoredEvent {
-                encoded: serde_json::to_string(&checked).expect("preview change is serializable"),
-                sequence: page.next_sequence,
-            };
+            page.frame_sequence = page.next_sequence;
             page.next_sequence += 1;
+            self.streams.notify();
             return Ok(true);
         }
         Ok(false)
-    }
-
-    pub fn mark_document_version(&self, token: &str, version: JsSafeU64) -> bool {
-        let mut pages = self.pages.lock().expect("preview map lock");
-        let Some(page) = pages.get_mut(token) else {
-            return false;
-        };
-        page.document_version = version;
-        true
     }
 
     pub fn retain_jump(&self, token: &str, event: &RenderNavigationEvent) -> bool {
@@ -162,10 +165,11 @@ impl PreviewServer {
         };
         let sequence = page.next_sequence;
         page.next_sequence += 1;
-        page.durable_navigation = Some(StoredEvent {
-            encoded: serde_json::to_string(event).expect("navigation event is serializable"),
-            sequence,
-        });
+        let Ok(encoded) = serde_json::to_string(event) else {
+            return false;
+        };
+        page.durable_navigation = Some(StoredEvent { encoded, sequence });
+        self.streams.notify();
         true
     }
 
@@ -174,20 +178,23 @@ impl PreviewServer {
         let Some(page) = pages.get_mut(token) else {
             return false;
         };
+        let Ok(encoded) = serde_json::to_string(event) else {
+            return false;
+        };
         page.navigation_event = Some(StoredEvent {
-            encoded: serde_json::to_string(event).expect("navigation event is serializable"),
+            encoded,
             sequence: page.next_sequence,
         });
         page.next_sequence += 1;
+        self.streams.notify();
         true
     }
 }
 
-struct RequestDeadline(Arc<AtomicBool>);
-
-impl Drop for RequestDeadline {
+impl Drop for PreviewServer {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::Release);
+        self.streams.shutdown();
+        let _ = TcpStream::connect(("127.0.0.1", self.port));
     }
 }
 
@@ -205,6 +212,7 @@ pub fn serve_preview_request(
         sender,
         &WorkspaceService::new(assets.clone()),
         assets,
+        &Arc::new(streaming::StreamState::new()),
     );
 }
 
@@ -215,22 +223,12 @@ fn serve_request(
     sender: Option<&Sender<Value>>,
     workspace: &WorkspaceService,
     assets: &BrowserAssets,
+    streams: &Arc<streaming::StreamState>,
 ) {
-    let completed = Arc::new(AtomicBool::new(false));
-    let _deadline = RequestDeadline(Arc::clone(&completed));
-    if let Ok(deadline_stream) = stream.try_clone() {
-        thread::spawn(move || {
-            for _ in 0..200 {
-                if completed.load(Ordering::Acquire) {
-                    return;
-                }
-                thread::sleep(Duration::from_millis(10));
-            }
-            let _ = deadline_stream.shutdown(Shutdown::Both);
-        });
-    }
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    let mut reader = BufReader::new((&mut stream).take(20 * 1024));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline_reader = streaming::DeadlineReader::new(&stream, deadline);
+    let mut reader = BufReader::new(deadline_reader.take(20 * 1024));
     let Some(request) = parse_preview_request(&mut reader) else {
         return;
     };
@@ -304,7 +302,7 @@ fn serve_request(
         };
         if page.frame.preview_session_id.0 != *event_preview_id
             || page.frame.render_revision != event_revision.get()
-            || page.frame.document_version != page.document_version.get()
+            || !page.frame.is_current()
         {
             write_empty_response(&mut stream, CONFLICT_RESPONSE);
             return;
@@ -330,7 +328,7 @@ fn serve_request(
             write_empty_response(&mut stream, TOO_MANY_REQUESTS_RESPONSE);
             return;
         }
-        let source_range = match protocol::source_range(
+        let source_range = match fleximark_wire_mapping::source_range(
             &entry.source_range,
             &fleximark_model::SourceIndex::new(&page.frame.source),
             page.frame.position_encoding,
@@ -349,12 +347,18 @@ fn serve_request(
                 SourceNavigationEvent::RevealSource { source_range }
             }
         };
-        let notification = preview_event_notification(ServerPreviewEventParams {
+        let notification = match preview_event_notification(ServerPreviewEventParams {
             daemon_instance_id: page.daemon_instance_id.clone(),
             preview_session_id: page.preview_session_id.clone(),
             render_revision: event_revision,
             event: ServerPreviewEvent::SourceNavigation(event),
-        });
+        }) {
+            Ok(notification) => notification,
+            Err(error) => {
+                write_conversion_error(&mut stream, &error);
+                return;
+            }
+        };
         let Some(sender) = sender else {
             write_empty_response(&mut stream, UNAVAILABLE_RESPONSE);
             return;
@@ -369,43 +373,11 @@ fn serve_request(
     }
     drop(reader);
     if endpoint == Some("events") {
-        let events = pages.lock().ok().and_then(|pages| {
-            pages.get(token).map(|page| {
-                let mut events = Vec::new();
-                let send_frame = last_event_id.is_none_or(|last| page.change_event.sequence > last);
-                if send_frame {
-                    events.push((
-                        page.change_event.sequence,
-                        page.change_event.encoded.clone(),
-                    ));
-                }
-                if let Some(navigation) = &page.durable_navigation {
-                    if last_event_id.is_none_or(|last| navigation.sequence > last) {
-                        events.push((navigation.sequence, navigation.encoded.clone()));
-                    }
-                }
-                if let Some(navigation) = &page.navigation_event {
-                    if last_event_id.is_none_or(|last| navigation.sequence > last)
-                        && (!send_frame || navigation.sequence > page.change_event.sequence)
-                    {
-                        events.push((navigation.sequence, navigation.encoded.clone()));
-                    }
-                }
-                events.sort_by_key(|(sequence, _)| *sequence);
-                events
-            })
-        });
-        if let Some(events) = events {
-            let mut body = "retry: 250\n".to_owned();
-            for (revision, publication) in events {
-                body.push_str(&format!("id: {revision}\ndata: {publication}\n\n"));
-            }
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            write_preview_response(&mut stream, response.as_bytes());
+        if method != Some("GET") {
+            write_empty_response(&mut stream, BAD_REQUEST_RESPONSE);
+            return;
         }
+        streaming::start(stream, token, last_event_id, pages, streams);
         return;
     }
     if endpoint == Some("client.js") {
@@ -425,7 +397,11 @@ fn serve_request(
             .ok()
             .and_then(|pages| pages.get(token).cloned());
         let body = if let Some(page) = page {
-            let frame = match protocol::frame(&page.frame) {
+            if !page.frame.is_current() {
+                write_empty_response(&mut stream, CONFLICT_RESPONSE);
+                return;
+            }
+            let frame = match fleximark_wire_mapping::frame(&page.frame) {
                 Ok(frame) => frame,
                 Err(error) => {
                     write_conversion_error(&mut stream, &error);
@@ -467,3 +443,6 @@ pub fn random_token() -> io::Result<String> {
         .map_err(|error| io::Error::other(format!("OS random source failed: {error}")))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
+
+#[cfg(test)]
+mod tests;

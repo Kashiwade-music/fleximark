@@ -1,6 +1,5 @@
 src/**
 webview/**
-packaging/**
 node_modules/**
 .vscode-test/**
 .vscode-test.mjs

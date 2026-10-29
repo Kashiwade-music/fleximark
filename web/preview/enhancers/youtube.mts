@@ -1,7 +1,9 @@
+import type { Disposable } from "./types.mjs";
+
 export function renderYouTube(
   block: HTMLElement,
   current: () => boolean,
-): void {
+): Disposable {
   const source = block.dataset.source;
   if (!source) throw new Error("missing YouTube source");
   const url = new URL(source);
@@ -26,7 +28,8 @@ export function renderYouTube(
   thumbnail.loading = "lazy";
   button.append(thumbnail);
   button.dataset.fleximarkYoutubeConsent = "true";
-  button.addEventListener("click", () => {
+  let player: HTMLIFrameElement | undefined;
+  const play = () => {
     if (!current() || !button.isConnected) return;
     const frame = document.createElement("iframe");
     frame.src = `https://www.youtube-nocookie.com/embed/${id}`;
@@ -43,7 +46,15 @@ export function renderYouTube(
       "sandbox",
       "allow-scripts allow-same-origin allow-presentation",
     );
+    player = frame;
     button.replaceWith(frame);
-  });
+  };
+  button.addEventListener("click", play);
   block.replaceChildren(button);
+  return {
+    dispose() {
+      button.removeEventListener("click", play);
+      player?.remove();
+    },
+  };
 }

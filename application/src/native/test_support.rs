@@ -1,16 +1,28 @@
-//! Role: Native workspace test_support operations and validation.
-use std::fs;
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+//! Role: Seed native test workspaces using the shared directory owner.
+pub(crate) fn test_workspace(label: &str) -> fleximark_test_support::TempWorkspace {
+    fleximark_test_support::TempWorkspace::new(label).unwrap()
+}
 
-pub(crate) fn test_workspace(label: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "fleximark-{label}-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    fs::create_dir(&root).unwrap();
-    root
+#[cfg(windows)]
+pub(crate) struct JunctionGuard(std::path::PathBuf);
+
+#[cfg(windows)]
+impl Drop for JunctionGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.0);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn create_junction(path: &std::path::Path, target: &std::path::Path) -> JunctionGuard {
+    use std::process::Command;
+
+    let status = Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(path)
+        .arg(target)
+        .status()
+        .expect("invoke mklink");
+    assert!(status.success(), "create required test junction");
+    JunctionGuard(path.to_owned())
 }

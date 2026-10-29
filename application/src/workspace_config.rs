@@ -83,11 +83,20 @@ impl DocumentStore {
             ));
         }
         self.workspaces.invalidate(uri);
+        for (document_uri, _) in self.workspace_documents(uri) {
+            if let Some(session) = self.index.by_uri_mut(&document_uri) {
+                session.asset_memo.clear();
+            }
+        }
         if !trusted {
             self.workspaces.revoke(uri);
             for (document_uri, _) in self.workspace_documents(uri) {
                 if let Some(session) = self.index.by_uri_mut(&document_uri) {
+                    session.asset_memo.clear();
                     session.engine.set_render_config(Default::default())?;
+                    for preview in session.previews.values() {
+                        preview.invalidate_publication();
+                    }
                 }
             }
         }

@@ -13,7 +13,7 @@ use fleximark_engine::{
     AssetDiagnostic, AssetDiagnosticKind, RenderAsset, RenderStyle, ResolvedAssets,
     ResolvedRenderAsset,
 };
-use fleximark_model::{BlockKind, Document, InlineKind, Node, SourceRange};
+use fleximark_model::{BlockKind, Document, InlineKind, SourceRange};
 
 use crate::native::integrity::{ObjectIdentity, sha256};
 use crate::native::paths::reject_linked_path;
@@ -22,6 +22,29 @@ use crate::native::uri::percent_decode;
 #[cfg(test)]
 use crate::native::workspace::{CONFIG, validate_config};
 use crate::native::{ApplicationError, workspace_path};
+
+#[derive(Clone, Default)]
+pub(crate) struct AssetMemo {
+    entries: BTreeMap<String, CachedAsset>,
+    #[cfg(test)]
+    reads: usize,
+}
+#[derive(Clone)]
+struct CachedAsset {
+    canonical: PathBuf,
+    modified: Option<cap_std::time::SystemTime>,
+    size: u64,
+    asset: ResolvedRenderAsset,
+}
+impl AssetMemo {
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+    #[cfg(test)]
+    pub(crate) fn reads(&self) -> usize {
+        self.reads
+    }
+}
 
 pub struct ExportAsset {
     pub(crate) source: Option<PathBuf>,
@@ -136,7 +159,22 @@ pub fn resolve_render_assets(
     document: &Document,
     config: &FlexiMarkConfig,
 ) -> Result<ResolvedAssets, ApplicationError> {
-    let source = workspace_path(source_uri)?;
+    resolve_render_assets_cached(
+        source_uri,
+        workspace_uri,
+        document,
+        config,
+        &mut AssetMemo::default(),
+    )
+}
+pub(crate) fn resolve_render_assets_cached(
+    source_uri: &str,
+    workspace_uri: &str,
+    document: &Document,
+    config: &FlexiMarkConfig,
+    memo: &mut AssetMemo,
+) -> Result<ResolvedAssets, ApplicationError> {
+    let source = crate::native::canonical_document_path(source_uri)?;
     let workspace = workspace_path(workspace_uri)?;
     if !source.starts_with(&workspace) {
         return Err(ApplicationError::InvalidWorkspaceUri);
@@ -146,7 +184,7 @@ pub fn resolve_render_assets(
         source
             .parent()
             .ok_or(ApplicationError::InvalidWorkspaceUri)?
-            .canonicalize()?,
+            .to_path_buf(),
     ];
     for root in &config.assets.roots {
         if !safe_workspace_relative_path(root) {
@@ -160,42 +198,30 @@ pub fn resolve_render_assets(
         allowed_roots.push(canonical);
     }
 
-    let mut references: BTreeMap<String, Vec<Option<SourceRange>>> = BTreeMap::new();
-    let mut blocks = document.blocks.iter().collect::<Vec<_>>();
-    let mut inlines = Vec::new();
-    while let Some(block) = blocks.pop() {
-        if let BlockKind::Media { source } = &block.kind {
-            references
-                .entry(source.clone())
-                .or_default()
-                .push(Some(block.range.clone()));
-        }
-        for child in &block.children {
-            match child {
-                Node::Block(block) => blocks.push(block),
-                Node::Inline(inline) => inlines.push(inline),
+    struct AssetReferences(BTreeMap<String, Vec<Option<SourceRange>>>);
+    impl fleximark_model::Visitor for AssetReferences {
+        fn visit_block(&mut self, block: &fleximark_model::Block, _depth: u32) {
+            if let BlockKind::Media { source } = &block.kind {
+                self.0
+                    .entry(source.clone())
+                    .or_default()
+                    .push(Some(block.range.clone()));
             }
         }
-    }
-    while let Some(inline) = inlines.pop() {
-        let children = match &inline.kind {
-            InlineKind::Image {
-                source, children, ..
-            } => {
-                references
+        fn visit_inline(&mut self, inline: &fleximark_model::Inline) {
+            if let InlineKind::Image { source, .. } = &inline.kind {
+                self.0
                     .entry(source.clone())
                     .or_default()
                     .push(Some(inline.range.clone()));
-                children
             }
-            InlineKind::Link { children, .. }
-            | InlineKind::Emphasis { children }
-            | InlineKind::Strong { children }
-            | InlineKind::Strikethrough { children } => children,
-            _ => continue,
-        };
-        inlines.extend(children);
+        }
     }
+    let mut collector = AssetReferences(BTreeMap::new());
+    fleximark_model::walk_blocks(&document.blocks, &mut collector);
+    let references = collector.0;
+    memo.entries
+        .retain(|reference, _| references.contains_key(reference));
     let mut assets = Vec::new();
     let mut diagnostics = Vec::new();
     for (reference, occurrences) in references {
@@ -213,13 +239,17 @@ pub fn resolve_render_assets(
             &workspace,
             &workspace_dir,
             &allowed_roots,
+            memo,
         ) {
             Ok(asset) => assets.push(asset),
-            Err((kind, detail)) => diagnostics.extend(
-                occurrences
-                    .into_iter()
-                    .map(|source_range| asset_diagnostic(&reference, kind, detail, source_range)),
-            ),
+            Err((kind, detail)) => {
+                memo.entries.remove(&reference);
+                diagnostics.extend(
+                    occurrences.into_iter().map(|source_range| {
+                        asset_diagnostic(&reference, kind, detail, source_range)
+                    }),
+                );
+            }
         }
     }
     diagnostics.sort_by(|left, right| {
@@ -261,6 +291,7 @@ fn resolve_render_asset(
     workspace: &Path,
     workspace_dir: &Dir,
     allowed_roots: &[PathBuf],
+    memo: &mut AssetMemo,
 ) -> Result<ResolvedRenderAsset, (AssetDiagnosticKind, &'static str)> {
     let path_text = reference.split(['?', '#']).next().unwrap_or(reference);
     let decoded = percent_decode(path_text).map_err(|_| {
@@ -373,6 +404,17 @@ fn resolve_render_asset(
             "the path does not name a regular file",
         ));
     }
+    let modified = metadata.modified().ok();
+    let size = metadata.len();
+    if let Some(cached) = memo.entries.get(reference) {
+        if cached.canonical == canonical && cached.modified == modified && cached.size == size {
+            return Ok(cached.asset.clone());
+        }
+    }
+    #[cfg(test)]
+    {
+        memo.reads += 1;
+    }
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).map_err(|_| {
         (
@@ -384,13 +426,24 @@ fn resolve_render_asset(
         AssetDiagnosticKind::Unsupported,
         "the file format is not supported or its signature is invalid",
     ))?;
-    ResolvedRenderAsset::from_validated_bytes(reference.to_owned(), media_type.into(), &bytes)
-        .map_err(|_| {
-            (
-                AssetDiagnosticKind::Unreadable,
-                "the file could not be validated",
-            )
-        })
+    let asset =
+        ResolvedRenderAsset::from_validated_bytes(reference.to_owned(), media_type.into(), &bytes)
+            .map_err(|_| {
+                (
+                    AssetDiagnosticKind::Unreadable,
+                    "the file could not be validated",
+                )
+            })?;
+    memo.entries.insert(
+        reference.into(),
+        CachedAsset {
+            canonical,
+            modified,
+            size,
+            asset: asset.clone(),
+        },
+    );
+    Ok(asset)
 }
 
 fn path_contains_symlink(base: &Path, relative: &Path) -> bool {
@@ -598,7 +651,6 @@ mod tests {
                 .any(|asset| { asset.bytes == include_bytes!("../../../assets/demo_main.avif") })
         );
         assert!(!exported.html.contains("fleximark-asset:"));
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -670,7 +722,6 @@ mod tests {
             traversal.diagnostics[0].kind,
             AssetDiagnosticKind::OutsideRoot
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -697,7 +748,6 @@ mod tests {
         assert_eq!(assets.assets.len(), 1);
         assert!(assets.diagnostics.is_empty());
         assert_eq!(assets.assets[0].source(), "image.png");
-        fs::remove_dir_all(root).unwrap();
     }
 
     fn parsed_document(uri: &str, source: &str) -> fleximark_engine::DocumentEngine {
@@ -767,7 +817,6 @@ mod tests {
             missing_lines,
             [0, source.find("![second missing]").unwrap() as u64]
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -797,7 +846,6 @@ mod tests {
             .with_resolved_assets(resolved)
             .unwrap();
         assert_eq!(config.assets().len(), 9);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -816,7 +864,6 @@ mod tests {
         let session = parsed_document(&document_uri, "![asset](image.png)\n");
 
         assert!(resolve_render_assets(&document_uri, &workspace_uri, session.document()).is_err());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
@@ -838,6 +885,5 @@ mod tests {
             resolve_render_assets(&document_uri, &workspace_uri, session.document()).unwrap();
         assert!(resolved.assets.is_empty());
         assert_eq!(resolved.diagnostics[0].kind, AssetDiagnosticKind::Symlink);
-        fs::remove_dir_all(root).unwrap();
     }
 }

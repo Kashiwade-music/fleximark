@@ -7,3 +7,9 @@ publish = false
 
 [dependencies]
 xtask-core = { path = "../../tooling/xtask-core/crates/xtask-core" }
+
+fleximark-engine = { path = "../../core/engine" }
+fleximark-model = { path = "../../core/model" }
+fleximark-render-html = { path = "../../core/render-html" }
+fleximark-protocol = { path = "../../contracts/protocol" }
+serde_json.workspace = true

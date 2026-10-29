@@ -5,11 +5,16 @@ use fleximark_engine::EngineError;
 use super::*;
 
 pub(super) fn workspace_uri() -> &'static str {
+    static ROOT: std::sync::OnceLock<fleximark_test_support::TempWorkspace> =
+        std::sync::OnceLock::new();
     static URI: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     URI.get_or_init(|| {
-        let root = crate::native::test_support::test_workspace("authority");
-        std::fs::create_dir(root.join("nested")).unwrap();
-        crate::native::path_to_file_uri(&root).unwrap()
+        let root = ROOT.get_or_init(|| {
+            let root = crate::native::test_support::test_workspace("authority");
+            std::fs::create_dir(root.join("nested")).unwrap();
+            root
+        });
+        crate::native::path_to_file_uri(root).unwrap()
     })
 }
 pub(super) fn workspace_document_uri(suffix: &str) -> &'static str {
@@ -452,7 +457,6 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
     if linked.is_ok() {
         std::fs::remove_dir(alias).unwrap();
     }
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -506,6 +510,5 @@ fn revocation_ignores_invalid_config_and_cancellation() {
                 .len(),
             1
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

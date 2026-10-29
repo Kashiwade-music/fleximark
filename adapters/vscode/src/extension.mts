@@ -1,21 +1,25 @@
+import type { PreviewTarget } from "@fleximark/contracts/protocol";
 import * as vscode from "vscode";
 
-import { type AdapterRecoveryState, FlexiMarkAdapter } from "./adapter.mjs";
+import { createAdapterServices } from "./adapter-services.mjs";
+import { FlexiMarkAdapter } from "./adapter.mjs";
 import { registerCommands } from "./commands.mjs";
 import { registerEditorEvents } from "./events.mjs";
+import {
+  type FlexiMarkTestApi,
+  createExtensionTestApi,
+} from "./extension-test-api.mjs";
 import { registerProviders } from "./providers.mjs";
 
 let adapter: FlexiMarkAdapter | undefined;
 
-export interface FlexiMarkTestApi {
-  crashDaemon(): void;
-  recoveryState(): AdapterRecoveryState;
-}
+export type { FlexiMarkTestApi } from "./extension-test-api.mjs";
 
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<FlexiMarkTestApi | undefined> {
-  adapter = new FlexiMarkAdapter(context);
+  const services = createAdapterServices(context);
+  adapter = new FlexiMarkAdapter(context, services);
   const activatedAdapter = adapter;
   const isActive = () => adapter === activatedAdapter;
   context.subscriptions.push(activatedAdapter);
@@ -45,10 +49,7 @@ export async function activate(
         vscode.window.activeTextEditor?.document.languageId === "markdown"
       ) {
         return activatedAdapter.openPreview(
-          config.get<"embeddedHtml" | "externalBrowser">(
-            "previewTarget",
-            "embeddedHtml",
-          ),
+          config.get<PreviewTarget>("previewTarget", "embeddedHtml"),
         );
       }
     })
@@ -57,13 +58,7 @@ export async function activate(
     });
 
   if (context.extensionMode === vscode.ExtensionMode.Test) {
-    return {
-      crashDaemon: () => adapter?.crashDaemonForTest(),
-      recoveryState: () => {
-        if (!adapter) throw new Error("FlexiMark adapter is unavailable");
-        return adapter.recoveryStateForTest();
-      },
-    };
+    return createExtensionTestApi(context, services);
   }
 }
 

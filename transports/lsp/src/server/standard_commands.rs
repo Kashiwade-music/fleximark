@@ -1,7 +1,7 @@
 //! Role: Implement standard editor code actions and document-aware browser commands.
-use super::protocol::counter;
 use super::state::*;
 use super::wire::*;
+use fleximark_wire_mapping::counter;
 
 use fleximark_protocol::{
     CommandContext, CommandKind, DocumentCommandContext, WorkspaceCommand, WorkspaceCommandRequest,
@@ -136,43 +136,57 @@ impl Server {
         params: Value,
     ) -> Option<Value> {
         let id = id?;
-        let params = match deserialize_params::<ExecuteCommand>(&id, params) {
-            Ok(params) => params,
-            Err(error) => return Some(error),
-        };
-        let Some(descriptor) = fleximark_protocol::COMMAND_DESCRIPTORS
-            .iter()
-            .find(|descriptor| descriptor.lsp_command == params.command)
-        else {
-            return Some(invalid_params(id, "unknown command"));
-        };
-        if params.arguments.len() != 1 {
-            return Some(invalid_params(id, "command requires one typed request"));
-        }
-        let Some(request) = params.arguments.into_iter().next() else {
-            return Some(invalid_params(id, "command requires one typed request"));
-        };
-        if request.operation.kind() != descriptor.kind {
-            return Some(invalid_params(id, "command and operation do not match"));
-        }
-        let result = self.dispatch_command(request, false).and_then(|result| {
-            if let fleximark_protocol::CommandResult::MigrationPlanned { plan, .. } = &result {
-                let url = self.workspace_ui_url(fleximark_protocol::WorkspaceStateRequest {
-                    context: fleximark_protocol::WorkspaceUiContext {
-                        workspace_uri: Some(plan.workspace_uri.clone()),
-                        document_uri: None,
-                        document_version: None,
-                    },
-                    command: Some(CommandKind::PlanMigration),
-                })?;
-                self.show_document(&url, true, None);
-            }
-            Ok(result)
-        });
+        let result = self
+            .decode_standard_command(params)
+            .and_then(|request| self.dispatch_command(request, false))
+            .and_then(|result| self.finish_standard_command(result));
         Some(match result {
             Ok(result) => response_value(Response::success(id, result)),
             Err(error) => session_error(id, error),
         })
+    }
+
+    pub(crate) fn decode_standard_command(
+        &self,
+        params: Value,
+    ) -> Result<WorkspaceCommandRequest, ApplicationError> {
+        let params: ExecuteCommand = serde_json::from_value(params)
+            .map_err(|error| ApplicationError::InvalidState(error.to_string()))?;
+        let descriptor = fleximark_protocol::COMMAND_DESCRIPTORS
+            .iter()
+            .find(|descriptor| descriptor.lsp_command == params.command)
+            .ok_or_else(|| ApplicationError::InvalidState("unknown command".into()))?;
+        if params.arguments.len() != 1 {
+            return Err(ApplicationError::InvalidState(
+                "command requires one typed request".into(),
+            ));
+        }
+        let request = params.arguments.into_iter().next().ok_or_else(|| {
+            ApplicationError::InvalidState("command requires one typed request".into())
+        })?;
+        if request.operation.kind() != descriptor.kind {
+            return Err(ApplicationError::InvalidState(
+                "command and operation do not match".into(),
+            ));
+        }
+        Ok(request)
+    }
+    pub(crate) fn finish_standard_command(
+        &mut self,
+        result: fleximark_protocol::CommandResult,
+    ) -> Result<fleximark_protocol::CommandResult, ApplicationError> {
+        if let fleximark_protocol::CommandResult::MigrationPlanned { plan, .. } = &result {
+            let url = self.workspace_ui_url(fleximark_protocol::WorkspaceStateRequest {
+                context: fleximark_protocol::WorkspaceUiContext {
+                    workspace_uri: Some(plan.workspace_uri.clone()),
+                    document_uri: None,
+                    document_version: None,
+                },
+                command: Some(CommandKind::PlanMigration),
+            })?;
+            self.show_document(&url, true, None);
+        }
+        Ok(result)
     }
 
     pub(super) fn refresh_explicit_jump(
@@ -193,7 +207,7 @@ impl Server {
         };
         let event = RenderNavigationEvent::Viewport {
             preview_session_id: preview_id.into(),
-            render_revision: counter(state.delivered_revision)?,
+            render_revision: counter(self.preview_frame(preview_id)?.render_revision)?,
             node_id: fleximark_protocol::NodeId(entry.node_id.0),
         };
         if let Some(token) = &state.token {

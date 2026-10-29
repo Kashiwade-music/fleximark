@@ -68,7 +68,6 @@ fn export_resolves_and_manifests_only_contained_assets() {
         fs::read(destination.join(&exported_asset.path)).unwrap(),
         png
     );
-    fs::remove_dir_all(root).unwrap();
 }
 #[test]
 fn export_requires_ownership_and_preserves_user_files() {
@@ -166,7 +165,6 @@ fn export_requires_ownership_and_preserves_user_files() {
         fs::read_to_string(destination.join("index.html")).unwrap(),
         "tampered"
     );
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -213,7 +211,6 @@ fn export_ownership_ids_are_random_and_cannot_be_copied_to_another_destination()
         Err(ApplicationError::ExportOwnershipConflict)
             | Err(ApplicationError::ExportContentConflict)
     ));
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -253,7 +250,6 @@ fn acknowledged_export_rejects_a_swapped_destination_directory() {
         fs::read_to_string(original.join("index.html")).unwrap(),
         "<p>original</p>"
     );
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -326,7 +322,6 @@ fn old_moved_journal_recovers_the_previous_destination() {
         "old"
     );
     assert!(!staging.exists() && !journal_path.exists());
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -390,7 +385,6 @@ fn journal_records_are_append_only_and_digest_chained() {
         read_journal(&path),
         Err(ApplicationError::ExportRecoveryConflict)
     ));
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -452,7 +446,6 @@ fn recovery_refuses_swapped_staging_identity_without_deleting_it() {
         fs::read_to_string(staging.join(".fleximark-export.json")).unwrap(),
         "replacement"
     );
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -516,7 +509,6 @@ fn recovery_refuses_replaced_journal_identity_without_touching_staging() {
         fs::read_to_string(staging.join(".fleximark-export.json")).unwrap(),
         "original"
     );
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -576,7 +568,6 @@ fn representative_export_intents_recover_idempotently_after_an_injected_crash() 
             );
             acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
         }
-        fs::remove_dir_all(root).unwrap();
     }
 }
 
@@ -625,7 +616,6 @@ fn acknowledgement_refuses_unrecorded_backup_entries_without_deleting_them() {
         fs::read_to_string(backup.join("unrecorded.txt")).unwrap(),
         "do not delete"
     );
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -661,7 +651,6 @@ fn old_export_registry_and_marker_fields_are_rejected() {
         serde_json::from_slice(&fs::read(registry_path).unwrap()).unwrap();
     registry["unsafeOutputUsed"] = serde_json::json!(false);
     assert!(serde_json::from_value::<RegistryRecord>(registry).is_err());
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -711,5 +700,4 @@ fn cancelled_export_preserves_existing_destination() {
         );
         assert!(token.is_cancelled());
     }
-    fs::remove_dir_all(root).unwrap();
 }

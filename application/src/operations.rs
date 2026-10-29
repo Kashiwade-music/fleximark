@@ -34,20 +34,18 @@ pub enum CommandOutcome {
     },
 }
 pub struct WorkspaceOps<'a> {
-    store: &'a mut DocumentStore,
-    resources: Option<Arc<PreviewAssets>>,
+    pub(crate) store: &'a mut DocumentStore,
+    pub(crate) resources: Option<Arc<PreviewAssets>>,
 }
 impl<'a> WorkspaceOps<'a> {
     pub fn new(store: &'a mut DocumentStore, resources: Option<Arc<PreviewAssets>>) -> Self {
         Self { store, resources }
     }
-    pub fn execute(
-        &mut self,
-        command: WorkspaceCommand,
-        context: CommandContext,
-        cancellation: &CancellationToken,
-    ) -> Result<CommandOutcome, ApplicationError> {
-        crate::cancellation_checks::check(cancellation, "command_start")?;
+    pub(crate) fn authorize(
+        &self,
+        command: &WorkspaceCommand,
+        context: &CommandContext,
+    ) -> Result<Option<(String, u64)>, ApplicationError> {
         let descriptor = command.descriptor();
         let workspace = context
             .workspace_uri
@@ -91,6 +89,21 @@ impl<'a> WorkspaceOps<'a> {
         } else {
             None
         };
+        Ok(document)
+    }
+    pub(crate) fn execute_immediate(
+        &mut self,
+        command: WorkspaceCommand,
+        context: CommandContext,
+        cancellation: &CancellationToken,
+    ) -> Result<CommandOutcome, ApplicationError> {
+        crate::cancellation_checks::check(cancellation, "command_start")?;
+        let descriptor = command.descriptor();
+        let workspace = context
+            .workspace_uri
+            .as_deref()
+            .map(|uri| uri.trim_end_matches('/'));
+        let document = self.authorize(&command, &context)?;
         if let WorkspaceCommand::OpenPreview {
             target,
             source_offset,

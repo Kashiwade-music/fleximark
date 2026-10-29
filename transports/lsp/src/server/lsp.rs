@@ -1,7 +1,7 @@
 //! Role: Negotiate LSP capabilities and serve document language queries.
 use super::diagnostics::{collect_heading_symbols, find_block};
 use super::lsp_types::*;
-use super::protocol::native_position;
+use super::positions::native_position;
 use super::state::*;
 use super::wire::*;
 
@@ -90,6 +90,12 @@ impl Server {
             id,
             Initialization {
                 capabilities: Capabilities {
+                    workspace: WorkspaceCapabilities {
+                        workspace_folders: WorkspaceFolderCapabilities {
+                            supported: true,
+                            change_notifications: true,
+                        },
+                    },
                     position_encoding,
                     text_document_sync: DocumentSync {
                         open_close: true,
@@ -112,8 +118,8 @@ impl Server {
                     },
                     semantic_tokens_provider: SemanticTokensProvider {
                         legend: Legend {
-                            token_types: &fleximark_application::SEMANTIC_TOKEN_TYPES,
-                            token_modifiers: vec![],
+                            token_types: &super::language::SEMANTIC_TOKEN_TYPES,
+                            token_modifiers: fleximark_protocol::SEMANTIC_TOKEN_MODIFIERS.to_vec(),
                         },
                         full: true,
                     },
@@ -150,31 +156,28 @@ impl Server {
                 "position exceeds the document index range",
             ));
         };
-        let Ok(prefix) = self
-            .position_offset(
+        let result = (|| {
+            let offset = self.position_offset(
                 uri,
                 &super::lsp_types::Position {
                     line: u64::from(line32),
                     character: u64::from(character32),
                 },
-            )
-            .and_then(|offset| self.registry.line_prefix(uri, offset))
-        else {
-            return Some(response_value(Response::error(
-                id,
-                fleximark_protocol::error_code::INVALID_PARAMS,
-                "completion position is not in an open document",
-            )));
+            )?;
+            let prefix = self.registry.line_prefix(uri, offset)?;
+            let source = self.registry.source_for_uri(uri)?;
+            let index = fleximark_model::SourceIndex::new(source);
+            fleximark_language::completion_items(prefix, offset, self.snippet_support)
+                .into_iter()
+                .map(|item| {
+                    super::language::completion(item, &index, self.registry.position_encoding())
+                })
+                .collect::<Result<Vec<_>, ApplicationError>>()
+        })();
+        let items = match result {
+            Ok(items) => items,
+            Err(error) => return Some(session_error(id, error)),
         };
-        let items = fleximark_language::completion_items(
-            prefix,
-            fleximark_language::Position { line, character },
-            self.registry.position_encoding(),
-            self.snippet_support,
-        )
-        .into_iter()
-        .map(super::language::completion)
-        .collect::<Vec<_>>();
         Some(response_value(Response::success(
             id,
             json!({"isIncomplete":false,"items":items}),
@@ -193,15 +196,12 @@ impl Server {
         let Ok(source) = self.registry.source_for_uri(uri) else {
             return Some(response_value(Response::success(id, Value::Null)));
         };
-        Some(response_value(Response::success(
-            id,
-            json!({
-                "data": super::language::semantic_data(
-                    source,
-                    self.registry.position_encoding(),
-                )
-            }),
-        )))
+        Some(
+            match super::language::semantic_data(source, self.registry.position_encoding()) {
+                Ok(data) => response_value(Response::success(id, json!({"data":data}))),
+                Err(error) => session_error(id, error),
+            },
+        )
     }
 
     pub(super) fn hover(&self, id: Option<Value>, params: &Value) -> Option<Value> {
@@ -333,51 +333,5 @@ impl Server {
             return false;
         }
         true
-    }
-
-    pub(super) fn publish_changed_document(&mut self, uri: &str) {
-        self.publish_lsp_diagnostics(uri);
-        let Some(session_id) = self.registry.session_id_for_uri(uri).map(str::to_owned) else {
-            return;
-        };
-        let Ok(version) = self.registry.current_version(&session_id) else {
-            return;
-        };
-        let preview_ids = self
-            .preview_states
-            .iter()
-            .filter(|(_, state)| state.document_session_id == session_id)
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>();
-        for preview_id in preview_ids {
-            let frame = match self.registry.render_with_cancellation(
-                &session_id,
-                version,
-                &preview_id,
-                &self.work_cancellation,
-            ) {
-                Ok(frame) => frame,
-                Err(error) => {
-                    crate::telemetry::log_operational_failure(
-                        "operation-failed",
-                        &error,
-                        None,
-                        None,
-                        None,
-                    );
-                    log_operational_event(
-                        "preview-update-failed",
-                        Some(uri),
-                        Some(&session_id),
-                        i64::try_from(version).ok(),
-                    );
-                    continue;
-                }
-            };
-            if let Err(error) = self.publish_frame(&preview_id, &frame) {
-                self.outgoing_events.push(json!({"jsonrpc":"2.0","method":"window/logMessage","params":{"type":1,"message":error.to_string()}}));
-                return;
-            }
-        }
     }
 }

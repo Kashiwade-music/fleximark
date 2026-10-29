@@ -1,12 +1,8 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "lib": ["ES2024"],
-    "types": ["node", "vscode"],
-    "rootDir": ".",
-    "outDir": ".build/types/adapter",
-    "tsBuildInfoFile": ".build/types/.tsbuildinfo/adapter.tsbuildinfo"
-  },
-  "include": ["adapters/vscode/src/**/*.mts"],
-  "references": [{ "path": "./tsconfig.browser.json" }]
+  "files": [],
+  "references": [
+    {
+      "path": "adapters/vscode/src"
+    }
+  ]
 }

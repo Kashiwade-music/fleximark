@@ -22,7 +22,11 @@
     }
   },
   "resolutions": {
+    "@azure/identity/@azure/msal-node": "7.1.2",
     "diff": "8.0.3",
+    "dompurify": "3.4.17",
+    "cheerio/undici": "7.30.1",
+    "node-gyp/undici": "8.12.2",
     "serialize-javascript": "7.0.5"
   },
   "devDependencies": {
@@ -43,18 +47,5 @@
     "prettier": "3.9.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.0"
-  },
-  "scripts": {
-    "setup": "mise run setup",
-    "build": "mise run build",
-    "watch": "mise run watch",
-    "check": "mise run check",
-    "test": "mise run test",
-    "package": "mise run package",
-    "verify": "mise run verify",
-    "audit": "mise run audit",
-    "smoke": "mise run smoke",
-    "generate": "mise run generate",
-    "clean": "mise run clean"
   }
 }

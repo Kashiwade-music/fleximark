@@ -21,6 +21,7 @@ name = "document_pipeline"
 harness = false
 
 [dev-dependencies]
+fleximark-test-support = { path = "../../dev/test-support" }
 fleximark-engine = { path = "../../core/engine" }
 fleximark-render-html = { path = "../../core/render-html" }
 

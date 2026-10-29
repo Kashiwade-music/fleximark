@@ -219,7 +219,12 @@
     ]
   },
   "l10n": "./l10n",
-  "scripts": {
-    "vscode:prepublish": "python ../../tooling/tasks/tasks.py vscode-prepublish"
+  "exports": {
+    "./src/*": "./src/*.mts",
+    "./webview/*": "./webview/*.mts"
+  },
+  "dependencies": {
+    "@fleximark/contracts": "workspace:*",
+    "@fleximark/preview": "workspace:*"
   }
 }

@@ -1,10 +1,10 @@
 //! Role: Verify authenticated preview HTTP framing, security and navigation.
-use fleximark_application::{PreviewSessionId, RenderFrame};
+use fleximark_application::{CancellationToken, DocumentStore, DocumentUpdate};
 use fleximark_preview_http::{BrowserAssets, PreviewPage, StoredEvent, serve_preview_request};
 use fleximark_protocol::method;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -22,29 +22,41 @@ fn preview_assets() -> BrowserAssets {
 }
 
 fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
-    let snapshot = fleximark_engine::RenderSnapshot {
-        document_version: 1,
-        renderer_fingerprint: "0".repeat(64),
-        style: None,
-        assets: vec![],
-        blocks: vec![fleximark_engine::RenderBlock {
-            id: fleximark_model::NodeId("node-1".into()),
-            html: "<p data-fleximark-node-id=\"node-1\">hello</p>".into(),
-            node_ids: vec![fleximark_model::NodeId("node-1".into())],
-        }],
-        navigation: vec![fleximark_model::NavigationEntry {
-            node_id: fleximark_model::NodeId("node-1".into()),
-            source_range: fleximark_model::SourceRange {
-                byte_start: 4,
-                byte_end: 9,
+    preview_pages_at_version(token, 1)
+}
+
+fn preview_pages_at_version(token: &str, version: u64) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
+    let mut store = DocumentStore::new(fleximark_model::PositionEncoding::Utf8);
+    let uri = "untitled:http-fixture";
+    store
+        .open(
+            DocumentUpdate {
+                uri: uri.into(),
+                version,
+                source: "x\n\n hello".into(),
             },
-            depth: 1,
-        }],
-    };
-    let mut frame = RenderFrame::from_snapshot(PreviewSessionId("preview-1".into()), 7, snapshot);
-    frame.source = Arc::from("x\n\nxhello");
-    let frame_event =
-        serde_json::to_string(&fleximark_preview_http::protocol::frame(&frame).unwrap()).unwrap();
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    let attachment = store.attach(uri, version).unwrap();
+    let mut frame = store
+        .render_with_cancellation(
+            &attachment.document_session_id,
+            version,
+            "preview-1",
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    for _ in 1..7 {
+        frame = store
+            .render_with_cancellation(
+                &attachment.document_session_id,
+                version,
+                "preview-1",
+                &CancellationToken::default(),
+            )
+            .unwrap();
+    }
     Arc::new(Mutex::new(HashMap::from([(
         token.to_owned(),
         PreviewPage {
@@ -52,14 +64,10 @@ fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
             daemon_instance_id: "daemon-1".into(),
             preview_session_id: "preview-1".into(),
             frame,
-            change_event: StoredEvent {
-                encoded: frame_event,
-                sequence: 1,
-            },
+            frame_sequence: 1,
             navigation_event: None,
             durable_navigation: None,
             next_sequence: 2,
-            document_version: 1.into(),
             last_browser_event: None,
         },
     )])))
@@ -75,6 +83,13 @@ fn preview_http_request(
         .local_addr()
         .expect("preview fixture address")
         .port();
+    let event_count = pages.lock().unwrap().values().next().map_or(1, |page| {
+        1 + [&page.navigation_event, &page.durable_navigation]
+            .into_iter()
+            .flatten()
+            .filter(|event| event.sequence > page.frame_sequence)
+            .count()
+    });
     let pages = Arc::clone(pages);
     let worker = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept preview fixture request");
@@ -82,15 +97,45 @@ fn preview_http_request(
     });
     let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect preview fixture");
     client
-        .write_all(&request(port))
+        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+        .unwrap();
+    let request = request(port);
+    let is_events = String::from_utf8_lossy(&request)
+        .lines()
+        .next()
+        .is_some_and(|line| line.contains("/events HTTP/1.1"));
+    client
+        .write_all(&request)
         .expect("write preview fixture request");
     client
         .shutdown(Shutdown::Write)
         .expect("finish preview fixture request");
     let mut response = Vec::new();
-    client
-        .read_to_end(&mut response)
-        .expect("read preview fixture response");
+    if is_events {
+        let mut reader = BufReader::new(client);
+        loop {
+            let mut line = Vec::new();
+            assert!(reader.read_until(b'\n', &mut line).unwrap() > 0);
+            response.extend_from_slice(&line);
+            if line == b"\r\n" {
+                break;
+            }
+        }
+        for _ in 0..event_count {
+            loop {
+                let mut line = Vec::new();
+                assert!(reader.read_until(b'\n', &mut line).unwrap() > 0);
+                response.extend_from_slice(&line);
+                if line == b"\n" {
+                    break;
+                }
+            }
+        }
+    } else {
+        client
+            .read_to_end(&mut response)
+            .expect("read preview fixture response");
+    }
     worker.join().expect("preview fixture worker");
     response
 }
@@ -117,9 +162,7 @@ fn preview_http_shell_preserves_exact_security_headers_and_rejections() {
     let body = preview_assets().preview_shell(token);
     assert!(body.contains(".katex{font:"));
     assert!(body.contains("data:font/woff2;base64,"));
-    assert!(body.contains("[data-admonition-kind=\"note\"]"));
-    assert!(body.contains("[data-admonition-kind=\"important\"]"));
-    assert!(body.contains("[data-admonition-kind=\"caution\"]"));
+    assert!(body.contains(&preview_assets().preview_css));
     let expected = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nContent-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; font-src data:; img-src 'self' https://i.ytimg.com data: blob:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; object-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()
@@ -148,14 +191,7 @@ fn preview_http_shell_preserves_exact_security_headers_and_rejections() {
 #[test]
 fn native_frame_integer_overflow_returns_a_structured_http_error() {
     let token = "overflow-frame";
-    let pages = preview_pages(token);
-    pages
-        .lock()
-        .unwrap()
-        .get_mut(token)
-        .unwrap()
-        .frame
-        .render_revision = u64::MAX;
+    let pages = preview_pages_at_version(token, u64::MAX);
     let response = preview_http_request(&pages, None, |port| {
         format!("GET /preview/{token}/frame HTTP/1.1\r\nHost: localhost:{port}\r\n\r\n")
             .into_bytes()
@@ -206,16 +242,25 @@ fn preview_http_enforces_header_and_body_parser_boundaries() {
         assert_eq!(response, bad_request);
     }
 
+    let body_pages = preview_pages(token);
+    let node = body_pages.lock().unwrap()[token]
+        .frame
+        .navigation
+        .last()
+        .unwrap()
+        .node_id
+        .0
+        .clone();
     let event = serde_json::to_string(&json!({
         "type":"revealNode",
         "previewSessionId":"preview-1",
         "renderRevision":7,
-        "nodeId":"node-1"
+        "nodeId":node
     }))
     .unwrap();
     let body = format!("{event}{}", " ".repeat(4096 - event.len()));
     let (sender, events) = mpsc::channel();
-    let response = preview_http_request(&preview_pages(token), Some(sender), |port| {
+    let response = preview_http_request(&body_pages, Some(sender), |port| {
         preview_navigation_request(token, port, 4096, &body)
     });
     assert_eq!(
@@ -276,17 +321,19 @@ fn preview_http_enforces_header_and_body_parser_boundaries() {
 fn preview_sse_preserves_wire_format_order_and_acknowledged_sequences() {
     let token = "fixture-token";
     let pages = preview_pages(token);
-    let expected_event = pages.lock().unwrap()[token].change_event.encoded.clone();
+    let expected_event = serde_json::to_string(
+        &fleximark_wire_mapping::frame(&pages.lock().unwrap()[token].frame).unwrap(),
+    )
+    .unwrap();
     let response = preview_http_request(&pages, None, |port| {
         format!(
                 "GET /preview/{token}/events HTTP/1.1\r\nHost: localhost:{port}\r\nLast-Event-ID: 0\r\n\r\n"
             )
             .into_bytes()
     });
-    let body = format!("retry: 250\nid: 1\ndata: {expected_event}\n\n");
+    let body = format!("id: 1\ndata: {expected_event}\n\n");
     let expected = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: keep-alive\r\n\r\n{body}"
     );
     assert_eq!(response, expected.as_bytes());
     {
@@ -296,10 +343,7 @@ fn preview_sse_preserves_wire_format_order_and_acknowledged_sequences() {
             encoded: "navigation-2".to_owned(),
             sequence: 2,
         });
-        page.change_event = StoredEvent {
-            encoded: "change-3".to_owned(),
-            sequence: 3,
-        };
+        page.frame_sequence = 3;
         page.next_sequence = 4;
     }
 
@@ -318,15 +362,18 @@ fn preview_sse_preserves_wire_format_order_and_acknowledged_sequences() {
         !from_start.contains("navigation-2"),
         "navigation from an older frame must not follow a new frame"
     );
-    assert!(from_start.contains("id: 3\ndata: change-3"));
+    assert!(from_start.contains(&format!("id: 3\ndata: {expected_event}")));
 
     let after_navigation = response(2);
     assert!(!after_navigation.contains("id: 2\n"));
-    assert!(after_navigation.contains("id: 3\ndata: change-3"));
+    assert!(after_navigation.contains(&format!("id: 3\ndata: {expected_event}")));
 
     let after_change = response(3);
     assert!(!after_change.contains("id: 2\n"));
-    assert!(!after_change.contains("id: 3\n"));
+    assert!(
+        after_change.contains(&format!("id: 3\ndata: {expected_event}")),
+        "reconnect always begins with the latest complete frame"
+    );
 }
 
 #[test]
@@ -334,12 +381,20 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
     let token = "fixture-token";
     let pages = preview_pages(token);
     let (sender, events) = mpsc::channel();
+    let node = pages.lock().unwrap()[token]
+        .frame
+        .navigation
+        .last()
+        .unwrap()
+        .node_id
+        .0
+        .clone();
     let request = |port: u16, revision: u64| {
         let body = serde_json::to_string(&json!({
             "type":"revealNode",
             "previewSessionId":"preview-1",
             "renderRevision":revision,
-            "nodeId":"node-1"
+            "nodeId":node
         }))
         .unwrap();
         preview_navigation_request(token, port, body.len(), &body)
@@ -381,7 +436,7 @@ fn preview_navigation_preserves_revision_gate_and_notification_wire() {
 }
 
 #[test]
-fn sse_reconnect_does_not_repeat_unchanged_frame_or_retained_navigation() {
+fn sse_reconnect_sends_latest_frame_before_retained_navigation() {
     let token = "reconnect";
     let pages = preview_pages(token);
     pages
@@ -409,9 +464,15 @@ fn sse_reconnect_does_not_repeat_unchanged_frame_or_retained_navigation() {
     assert!(initial.contains("rendererFingerprint"));
     assert!(initial.contains("id: 2\ndata: retained-jump"));
     let interrupted = request(Some(1));
-    assert!(!interrupted.contains("rendererFingerprint"));
+    assert!(interrupted.contains("rendererFingerprint"));
     assert!(interrupted.contains("id: 2\ndata: retained-jump"));
     let reconnect = request(Some(2));
-    assert!(!reconnect.contains("data:"));
-    assert!(!reconnect.contains("retained-jump"));
+    assert!(reconnect.contains("rendererFingerprint"));
+    assert!(reconnect.contains("retained-jump"));
+    for response in [&initial, &interrupted, &reconnect] {
+        assert!(
+            response.find("id: 1\ndata:").unwrap()
+                < response.find("id: 2\ndata: retained-jump").unwrap()
+        );
+    }
 }

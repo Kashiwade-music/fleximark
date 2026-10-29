@@ -9,6 +9,7 @@ pub(super) struct Initialization {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Capabilities {
+    pub workspace: WorkspaceCapabilities,
     pub position_encoding: &'static str,
     pub text_document_sync: DocumentSync,
     pub completion_provider: CompletionProvider,
@@ -116,4 +117,16 @@ pub(super) struct Hover {
 pub(super) struct MarkupContent {
     pub kind: &'static str,
     pub value: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct WorkspaceCapabilities {
+    pub workspace_folders: WorkspaceFolderCapabilities,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct WorkspaceFolderCapabilities {
+    pub supported: bool,
+    pub change_notifications: bool,
 }

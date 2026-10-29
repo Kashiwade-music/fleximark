@@ -1,0 +1,50 @@
+name: Publish reviewed VSIX products
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish-marketplace:
+    name: Publish exact target VSIX products to Visual Studio Marketplace
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: vscode-marketplace
+    permissions:
+      contents: read
+      id-token: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          ref: ${{ github.event.release.tag_name }}
+      - uses: ./.github/actions/setup-toolchain
+      - name: Download the manually published release products
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p .artifacts/release
+          gh release download "$RELEASE_REF" --dir .artifacts/release
+          echo "SOURCE_GIT_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Verify exact products and publish with OIDC
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ github.event.release.tag_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          python tooling/tasks/tasks.py release-assets --root .artifacts --source-git-head "$SOURCE_GIT_HEAD" --tag "$RELEASE_REF"
+          while IFS= read -r -d '' VSIX; do
+            gh attestation verify "$VSIX" --repo "$RELEASE_REPOSITORY"
+            yarn exec vsce publish --packagePath "$VSIX" --oidc --skip-duplicate
+          done < <(find .artifacts -type f -name '*.vsix' -print0)

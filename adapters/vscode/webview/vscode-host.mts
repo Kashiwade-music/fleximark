@@ -1,8 +1,6 @@
-import {
-  PreviewFailureGuard,
-  PreviewHost,
-} from "../../../web/preview/host.mjs";
-import type { EditorNavigationEvent } from "../../../web/preview/navigation.mjs";
+import type { PreviewNavigationEvent } from "@fleximark/contracts/protocol";
+import { PreviewFailureGuard, PreviewHost } from "@fleximark/preview/host";
+
 import {
   isInvalidAuthenticatedFrameMessage,
   isPreviewHostMessageEvent,
@@ -10,7 +8,7 @@ import {
 
 declare const acquireVsCodeApi: () => {
   postMessage(
-    message: { type: "ready" | "requestFrame" } | EditorNavigationEvent,
+    message: { type: "ready" | "requestFrame" } | PreviewNavigationEvent,
   ): void;
 };
 
@@ -21,29 +19,23 @@ const messageToken = document.querySelector<HTMLMetaElement>(
   'meta[name="fleximark-message-token"]',
 )?.content;
 if (!messageToken) throw new Error("preview message token is missing");
-let recoveryRequested = false;
-// VS Code's injected API shim hides window.parent before this script runs.
 // Authenticate the first host message by origin and token, then pin its source.
 let hostWindow: MessageEventSource | undefined;
-const state: { preview?: PreviewHost } = {};
 const failure = new PreviewFailureGuard(
   () => undefined,
-  () => state.preview?.dispose(),
-  () => root.replaceChildren("Preview unavailable. Reopen it to retry."),
+  () => undefined,
+  () =>
+    root.setAttribute(
+      "data-fleximark-error",
+      "Preview unavailable. Reopen it to retry.",
+    ),
 );
-const requestRecovery = () => {
-  if (failure.failed) return;
-  if (recoveryRequested) {
-    failure.fail();
-    return;
-  }
-  recoveryRequested = true;
-  vscode.postMessage({ type: "requestFrame" });
-};
-const preview = new PreviewHost(root, requestRecovery, (event) =>
-  vscode.postMessage(event),
+const preview = new PreviewHost(
+  root,
+  () => vscode.postMessage({ type: "requestFrame" }),
+  (event) => vscode.postMessage(event),
+  () => failure.fail(),
 );
-state.preview = preview;
 
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (failure.failed) return;
@@ -52,23 +44,14 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (!isPreviewHostMessageEvent(event.data, messageToken)) {
     if (isInvalidAuthenticatedFrameMessage(event.data, messageToken)) {
       hostWindow = event.source;
-      requestRecovery();
+      preview.fail(new Error("invalid authenticated preview frame"));
     }
     return;
   }
   hostWindow = event.source;
   const value =
     event.data.type === "previewFrame" ? event.data.frame : event.data.event;
-  if (event.data.type !== "previewFrame") {
-    preview.apply([value]);
-    return;
-  }
-  const stale =
-    value.previewSessionId === preview.previewSessionId &&
-    value.renderRevision <= preview.renderRevision;
-  const recoveryWasRequested = recoveryRequested;
-  if (preview.apply([value])) recoveryRequested = false;
-  else if (recoveryWasRequested && !stale) failure.fail();
+  preview.apply([value]);
 });
 
 window.addEventListener("unload", () => preview.dispose());

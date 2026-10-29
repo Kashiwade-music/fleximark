@@ -1,5 +1,5 @@
 //! Role: Hold authoritative document state and application-owned preview snapshots.
-use crate::snapshots::RenderFrame;
+use crate::snapshots::PreviewHandle;
 use fleximark_engine::DocumentEngine as EngineSession;
 use fleximark_model::{NavigationEntry, PositionEncoding};
 pub struct DocumentSession {
@@ -7,7 +7,9 @@ pub struct DocumentSession {
     pub uri: String,
     pub(crate) workspace_uri: Option<String>,
     pub(crate) engine: EngineSession,
-    pub(crate) previews: std::collections::HashMap<String, RenderFrame>,
+    pub(crate) asset_memo: crate::native::assets::AssetMemo,
+    pub(crate) authority: std::sync::Arc<crate::authority::DocumentAuthority>,
+    pub(crate) previews: std::collections::HashMap<String, PreviewHandle>,
 }
 
 impl DocumentSession {

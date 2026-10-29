@@ -134,14 +134,14 @@ fn exhausted_revision_keeps_the_last_published_frame() {
     registry
         .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
-    registry
+    let handle = registry
         .index
         .by_session_mut(&session)
         .unwrap()
         .previews
         .get_mut("one")
-        .unwrap()
-        .render_revision = u64::MAX;
+        .unwrap();
+    std::sync::Arc::make_mut(&mut handle.frame).render_revision = u64::MAX;
     let previous = registry.read_preview(&session, "one", None).unwrap();
     assert!(matches!(
         registry.render_with_cancellation(&session, 1, "one", &CancellationToken::default()),
@@ -378,4 +378,109 @@ fn cancellation_after_render_keeps_the_published_frame_and_revision() {
         .unwrap();
     assert_eq!(next.render_revision, previous.render_revision + 1);
     assert_eq!(next.blocks, previous.blocks);
+}
+
+#[test]
+fn retained_handles_are_shared_and_reject_source_recovery_close_and_disposal() {
+    let (mut store, id) = opened();
+    let first = store
+        .render_with_cancellation(&id, 1, "one", &CancellationToken::default())
+        .unwrap();
+    let read = store.read_preview(&id, "one", None).unwrap().unwrap();
+    assert!(std::sync::Arc::ptr_eq(first.frame_arc(), read.frame_arc()));
+    assert!(first.is_current());
+    store.mark_out_of_sync("file:///preview.md");
+    assert!(!first.is_current());
+    store
+        .change(
+            DocumentUpdate {
+                uri: "file:///preview.md".into(),
+                version: 1,
+                source: "# New same version".into(),
+            },
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    assert!(!first.is_current());
+    let current = store
+        .render_with_cancellation(&id, 1, "one", &CancellationToken::default())
+        .unwrap();
+    assert!(current.is_current());
+    assert!(!first.is_current());
+    store.dispose_preview(&id, "one").unwrap();
+    assert!(!current.is_current());
+    let current = store
+        .render_with_cancellation(&id, 1, "one", &CancellationToken::default())
+        .unwrap();
+    store.close("file:///preview.md");
+    assert!(!current.is_current());
+}
+#[test]
+fn cancelled_render_never_revalidates_the_previous_handle() {
+    let (mut store, id) = opened();
+    let first = store
+        .render_with_cancellation(&id, 1, "one", &CancellationToken::default())
+        .unwrap();
+    let epoch = store
+        .index
+        .by_session(&id)
+        .unwrap()
+        .authority
+        .state()
+        .unwrap()
+        .source_epoch;
+    let token = CancellationToken::default();
+    token.cancel();
+    assert!(
+        store
+            .render_with_cancellation(&id, 1, "one", &token)
+            .is_err()
+    );
+    assert!(!first.is_current());
+    assert_eq!(
+        store
+            .index
+            .by_session(&id)
+            .unwrap()
+            .authority
+            .state()
+            .unwrap()
+            .source_epoch,
+        epoch
+    );
+    let next = store
+        .render_with_cancellation(&id, 1, "one", &CancellationToken::default())
+        .unwrap();
+    assert!(next.is_current());
+    assert!(!first.is_current());
+}
+#[test]
+fn exhausted_source_epoch_does_not_commit_source_or_frame() {
+    let (mut store, id) = opened();
+    store
+        .index
+        .by_session(&id)
+        .unwrap()
+        .authority
+        .exhaust_epoch();
+    let first = store
+        .render_with_cancellation(&id, 1, "one", &CancellationToken::default())
+        .unwrap();
+    assert!(matches!(
+        store.change(
+            DocumentUpdate {
+                uri: "file:///preview.md".into(),
+                version: 2,
+                source: "# Rejected".into()
+            },
+            &CancellationToken::default()
+        ),
+        Err(ApplicationError::RevisionExhausted)
+    ));
+    assert_eq!(
+        store.source_for_uri("file:///preview.md").unwrap(),
+        "# Heading\n"
+    );
+    assert!(first.is_current());
+    assert_eq!(store.read_preview(&id, "one", None).unwrap(), Some(first));
 }

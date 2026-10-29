@@ -1,5 +1,6 @@
 /** Browser-neutral consumers of the Rust-owned FlexiMark wire contract. */
 import { validateContractSchema } from "./contract-validator.mjs";
+import { isRecord } from "./guards.mjs";
 import {
   CLIENT_NOTIFICATION_VALIDATORS,
   CONTRACT_DEFINITIONS,
@@ -9,12 +10,16 @@ import {
   TYPE_VALIDATORS,
 } from "./protocol.generated.mjs";
 import type * as Contract from "./protocol.generated.mjs";
+import { semanticHandlers } from "./semantic-validation.mjs";
 
 export {
   WORKSPACE_COMMAND_KIND,
   PROTOCOL_VERSION,
   COMMAND_DESCRIPTORS,
+  SEMANTIC_TOKEN_TYPES,
+  SEMANTIC_TOKEN_MODIFIERS,
 } from "./protocol.generated.mjs";
+export type * from "./protocol.generated.mjs";
 
 export function commandDescriptor<
   Kind extends Contract.WorkspaceCommand["command"],
@@ -30,59 +35,19 @@ export function commandDescriptor<
   if (!descriptor) throw new Error(`Missing command descriptor: ${kind}`);
   return descriptor;
 }
-export type {
-  AttachDocumentResult,
-  CommandResult,
-  CreatePreviewResult,
-  WorkspaceCommandRequest,
-  WorkspaceCommand,
-  WorkspaceCommandName,
-  LspWorkspaceCommandName,
-  CommandContext,
-  MigrationPlanResult,
-  WorkspaceStateResult,
-  WorkspaceUiCommandRequest,
-  WorkspaceUiContext,
-  GetNoteOptionsResult,
-  InitializeParams,
-  InitializeResult,
-  NavigationEntry,
-  NoteCategoryOption,
-  PreviewChangedParams,
-  PreviewTarget,
-  RenderAsset,
-  RenderBlock,
-  RenderFrame,
-  RenderStyle,
-  SourceNavigationEvent,
-  SourcePosition,
-  SourceRange,
-} from "./protocol.generated.mjs";
-
-export type Position = Contract.TextPosition;
-export type TextRange = Contract.TextRange;
-export type TextSelection = Contract.TextSelection;
-export type EditorNavigationEvent = Contract.PreviewNavigationEvent;
-export type PreviewNavigationEvent = Contract.RenderNavigationEvent;
-export type ClientPreviewEventParams = Contract.PreviewEventParams;
-export type ServerPreviewEventParams = Contract.ServerPreviewEventParams;
-export type RpcId = Contract.RpcId;
-export type CustomRequestMap = Contract.CustomRequestMap;
-export type ClientNotificationMap = Contract.ClientNotificationMap;
-
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface JsonRpcMessageEnvelope {
   jsonrpc: "2.0";
-  id?: RpcId;
+  id?: Contract.RpcId;
   method: string;
   params?: object | JsonValue[];
 }
 
 export interface JsonRpcResponseEnvelope {
   jsonrpc: "2.0";
-  id: RpcId | null;
+  id: Contract.RpcId | null;
   result?: JsonValue;
   error?: { code: number; message: string; data?: JsonValue };
 }
@@ -104,7 +69,7 @@ export interface PublishDiagnosticsParams {
 }
 
 export interface Diagnostic {
-  range: TextRange;
+  range: Contract.TextRange;
   severity?: number;
   code?: string | number;
   codeDescription?: { href: string };
@@ -112,7 +77,7 @@ export interface Diagnostic {
   message: string;
   tags?: number[];
   relatedInformation?: {
-    location: { uri: string; range: TextRange };
+    location: { uri: string; range: Contract.TextRange };
     message: string;
   }[];
   data?: JsonValue;
@@ -123,18 +88,73 @@ export interface ServerNotificationMap
   "textDocument/publishDiagnostics": PublishDiagnosticsParams;
 }
 
-export type Validator<T> = ((value: unknown) => boolean) & {
-  readonly __validatedType?: T;
-};
+export type Validator<T> = (value: unknown) => value is T;
+type ContractTypeName = keyof Contract.WireTypeMap;
+type ValidatorEntry = (typeof TYPE_VALIDATORS)[ContractTypeName];
 
-const object = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const validateWire = (entry: ValidatorEntry, value: unknown): boolean =>
+  validateContractSchema(
+    CONTRACT_DEFINITIONS,
+    { $ref: `#/$defs/${entry.schema}` },
+    value,
+  ) &&
+  (entry.semantic === null || semanticHandlers[entry.semantic](value));
+
+const wireValidator =
+  <Entry extends ValidatorEntry>(
+    entry: Entry,
+  ): Validator<Contract.WireTypeMap[Entry["schema"]]> =>
+  (value): value is Contract.WireTypeMap[Entry["schema"]] =>
+    validateWire(entry, value);
+
+export function hasContractShape<Name extends ContractTypeName>(
+  name: Name,
+  value: unknown,
+): value is Contract.WireTypeMap[Name] {
+  return validateWire(TYPE_VALIDATORS[name], value);
+}
+
+const contractValidator =
+  <Name extends ContractTypeName>(
+    name: Name,
+  ): Validator<Contract.WireTypeMap[Name]> =>
+  (value): value is Contract.WireTypeMap[Name] =>
+    hasContractShape(name, value);
+
+export const isTextRange = contractValidator("range");
+export const isRenderFrame = contractValidator("renderFrame");
+export const isPreviewNavigationEvent = contractValidator(
+  "previewNavigationEvent",
+);
+export const isRenderNavigationEvent = contractValidator(
+  "renderNavigationEvent",
+);
+
+export function shouldForwardPreviewNavigation(
+  value: unknown,
+  previewSessionId: string,
+  renderRevision: number,
+): value is Contract.PreviewNavigationEvent {
+  return (
+    isPreviewNavigationEvent(value) &&
+    value.previewSessionId === previewSessionId &&
+    value.renderRevision === renderRevision
+  );
+}
+
+export type PreviewHostEvent =
+  Contract.RenderFrame | Contract.RenderNavigationEvent;
+export const isPreviewHostEvent: Validator<PreviewHostEvent> = (
+  value,
+): value is PreviewHostEvent =>
+  isRenderFrame(value) || isRenderNavigationEvent(value);
+
 const string = (value: unknown): value is string => typeof value === "string";
 const safeInteger = (value: unknown): value is number =>
   Number.isSafeInteger(value);
 const array =
   <T,>(validator: Validator<T>): Validator<T[]> =>
-  (value) =>
+  (value): value is T[] =>
     Array.isArray(value) && value.every((item) => validator(item));
 
 function shape(
@@ -142,7 +162,7 @@ function shape(
   required: Record<string, Validator<unknown>>,
   optionalFields: Record<string, Validator<unknown>> = {},
 ): boolean {
-  if (!object(value)) return false;
+  if (!isRecord(value)) return false;
   const allowed = new Set([
     ...Object.keys(required),
     ...Object.keys(optionalFields),
@@ -158,186 +178,25 @@ function shape(
   );
 }
 
-type ContractTypeName = keyof typeof TYPE_VALIDATORS;
-
-export const hasContractShape = (
-  name: ContractTypeName,
-  value: unknown,
-): boolean =>
-  validateContractSchema(
-    CONTRACT_DEFINITIONS,
-    { $ref: `#/$defs/${TYPE_VALIDATORS[name]}` },
-    value,
-  );
-
-const contractValidator =
-  <T,>(
-    name: ContractTypeName,
-    semantics: (value: T) => boolean = () => true,
-  ): Validator<T> =>
-  (value): value is T =>
-    hasContractShape(name, value) && semantics(value as T);
-
-const decodedBase64Length = (value: string): number | undefined => {
-  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$(?![\s\S])/.test(value))
-    return;
-  return (
-    (value.length / 4) * 3 -
-    (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)
-  );
-};
-
-const rangeOrderIsValid = (range: Contract.SourceRange): boolean =>
-  range.byteEnd >= range.byteStart &&
-  (range.start.line < range.end.line ||
-    (range.start.line === range.end.line &&
-      range.start.character <= range.end.character));
-
-const navigationIsValid = (
-  navigation: readonly Contract.NavigationEntry[],
-): boolean =>
-  navigation.every(({ sourceRange }) => rangeOrderIsValid(sourceRange));
-
-const assetIsValid = (asset: Contract.RenderAsset): boolean =>
-  asset.reference === `fleximark-asset:${asset.contentHash}` &&
-  decodedBase64Length(asset.data) === asset.byteLength;
-
-const assetsAreValid = (assets: readonly Contract.RenderAsset[]): boolean =>
-  assets.every(assetIsValid) &&
-  new Set(assets.map(({ reference }) => reference)).size === assets.length;
-
-const frameSemanticsAreValid = (frame: Contract.RenderFrame): boolean => {
-  const blockIds = new Set(frame.blocks.map(({ id }) => id));
-  const nodeIds = frame.blocks.flatMap(({ nodeIds }) => nodeIds);
-  return (
-    /^[0-9a-f]{64}$/.test(frame.rendererFingerprint) &&
-    blockIds.size === frame.blocks.length &&
-    new Set(nodeIds).size === nodeIds.length &&
-    frame.blocks.every(({ id, nodeIds: ids }) => ids.includes(id)) &&
-    navigationIsValid(frame.navigation) &&
-    assetsAreValid(frame.assets)
-  );
-};
-
-const sourceNavigationSemanticsAreValid = (
-  event: Contract.SourceNavigationEvent,
-): boolean => rangeOrderIsValid(event.sourceRange);
-
-const previewEventParamsSemanticsAreValid = (
-  params: Contract.PreviewEventParams,
-): boolean =>
-  params.event.previewSessionId === params.previewSessionId &&
-  params.event.renderRevision === params.renderRevision;
-
-const serverPreviewEventParamsSemanticsAreValid = (
-  params: Contract.ServerPreviewEventParams,
-): boolean => {
-  const event = params.event;
-  if (event.type === "selectSource" || event.type === "revealSource")
-    return sourceNavigationSemanticsAreValid(event);
-  if (event.type === "selection" || event.type === "viewport")
-    return (
-      event.previewSessionId === params.previewSessionId &&
-      event.renderRevision === params.renderRevision
-    );
-  return false;
-};
-
-function semanticContractCheck(index: string, value: unknown): boolean {
-  if (
-    index === TYPE_VALIDATORS.createPreviewResult ||
-    index === TYPE_VALIDATORS.previewChangedParams
-  )
-    return frameSemanticsAreValid(
-      (value as Contract.CreatePreviewResult).frame,
-    );
-  if (index === TYPE_VALIDATORS.renderFrame)
-    return frameSemanticsAreValid(value as Contract.RenderFrame);
-  if (index === TYPE_VALIDATORS.previewEventParams)
-    return previewEventParamsSemanticsAreValid(
-      value as Contract.PreviewEventParams,
-    );
-  if (index === TYPE_VALIDATORS.serverPreviewEventParams)
-    return serverPreviewEventParamsSemanticsAreValid(
-      value as Contract.ServerPreviewEventParams,
-    );
-  return true;
-}
-
-const wireValidator =
-  <T,>(schemaName: string): Validator<T> =>
-  (value): boolean => {
-    return (
-      validateContractSchema(
-        CONTRACT_DEFINITIONS,
-        { $ref: `#/$defs/${schemaName}` },
-        value,
-      ) && semanticContractCheck(schemaName, value)
-    );
-  };
-
-export const isPosition = contractValidator<Position>("position");
-export const isTextRange = contractValidator<TextRange>("range");
-export const isSourcePosition =
-  contractValidator<Contract.SourcePosition>("sourcePosition");
-export const isSourceRange = contractValidator<Contract.SourceRange>(
-  "sourceRange",
-  rangeOrderIsValid,
-);
-export const isRenderFrame = contractValidator<Contract.RenderFrame>(
-  "renderFrame",
-  frameSemanticsAreValid,
-);
-export const isPreviewChangedParams =
-  contractValidator<Contract.PreviewChangedParams>("previewChangedParams");
-export const isEditorNavigationEvent = contractValidator<EditorNavigationEvent>(
-  "previewNavigationEvent",
-);
-export const isPreviewNavigationEvent =
-  contractValidator<PreviewNavigationEvent>("renderNavigationEvent");
-export const isSourceNavigationEvent =
-  contractValidator<Contract.SourceNavigationEvent>(
-    "sourceNavigationEvent",
-    sourceNavigationSemanticsAreValid,
-  );
-
-export function shouldForwardEditorNavigation(
-  value: unknown,
-  previewSessionId: string,
-  renderRevision: number,
-): value is EditorNavigationEvent {
-  return (
-    isEditorNavigationEvent(value) &&
-    (value as EditorNavigationEvent).previewSessionId === previewSessionId &&
-    (value as EditorNavigationEvent).renderRevision === renderRevision
-  );
-}
-
-export type PreviewHostEvent = Contract.RenderFrame | PreviewNavigationEvent;
-export const isPreviewHostEvent: Validator<PreviewHostEvent> = (
-  value,
-): value is PreviewHostEvent =>
-  isRenderFrame(value) || isPreviewNavigationEvent(value);
-
 type RequestParamsValidators = {
-  [Method in keyof CustomRequestMap]: Validator<
-    CustomRequestMap[Method]["params"]
+  [Method in keyof Contract.CustomRequestMap]: Validator<
+    Contract.CustomRequestMap[Method]["params"]
   >;
 };
 type RequestResultValidators = {
-  [Method in keyof CustomRequestMap]: Validator<
-    CustomRequestMap[Method]["result"]
+  [Method in keyof Contract.CustomRequestMap]: Validator<
+    Contract.CustomRequestMap[Method]["result"]
   >;
 };
 type ClientValidators = {
-  [Method in keyof ClientNotificationMap]: Validator<
-    ClientNotificationMap[Method]
+  [Method in keyof Contract.ClientNotificationMap]: Validator<
+    Contract.ClientNotificationMap[Method]
   >;
 };
 
 const wireValidatorMap = <Entry,>(
   entries: Readonly<Record<string, Entry>>,
-  select: (entry: Entry) => string,
+  select: (entry: Entry) => ValidatorEntry,
 ): Record<string, Validator<unknown>> =>
   Object.fromEntries(
     Object.entries(entries).map(([method, entry]) => [
@@ -376,9 +235,10 @@ export const isJsonValue: Validator<JsonValue> = (value): value is JsonValue =>
   typeof value === "string" ||
   (typeof value === "number" && Number.isFinite(value)) ||
   (Array.isArray(value) && value.every(isJsonValue)) ||
-  (object(value) && Object.values(value).every(isJsonValue));
+  (isRecord(value) && Object.values(value).every(isJsonValue));
 
-const isJsonRpcId = (value: unknown): boolean => hasContractShape("id", value);
+const isJsonRpcId = (value: unknown): value is Contract.RpcId =>
+  hasContractShape("id", value);
 
 export function isJsonRpcMessageEnvelope(
   value: unknown,
@@ -388,7 +248,7 @@ export function isJsonRpcMessageEnvelope(
     { jsonrpc: (item) => item === "2.0", method: string },
     {
       id: isJsonRpcId,
-      params: (item) => object(item) || array(isJsonValue)(item),
+      params: (item) => isRecord(item) || array(isJsonValue)(item),
     },
   );
 }
@@ -396,7 +256,7 @@ export function isJsonRpcMessageEnvelope(
 export function isJsonRpcResponseEnvelope(
   value: unknown,
 ): value is JsonRpcResponseEnvelope {
-  if (!object(value)) return false;
+  if (!isRecord(value)) return false;
   const hasResult = Object.hasOwn(value, "result");
   const hasError = Object.hasOwn(value, "error");
   return (
@@ -409,7 +269,7 @@ export function isJsonRpcResponseEnvelope(
       },
       {
         result: isJsonValue,
-        error: (item) =>
+        error: (item): item is NonNullable<JsonRpcResponseEnvelope["error"]> =>
           shape(
             item,
             { code: safeInteger, message: string },
@@ -420,22 +280,28 @@ export function isJsonRpcResponseEnvelope(
   );
 }
 
-const isDiagnostic: Validator<Diagnostic> = (value) =>
+const isDiagnostic: Validator<Diagnostic> = (value): value is Diagnostic =>
   shape(
     value,
     { range: isTextRange, message: string },
     {
       severity: safeInteger,
       code: (item) => string(item) || safeInteger(item),
-      codeDescription: (item) => shape(item, { href: string }),
+      codeDescription: (item): item is { href: string } =>
+        shape(item, { href: string }),
       source: string,
       tags: array(safeInteger),
-      relatedInformation: array((item) =>
-        shape(item, {
-          location: (location) =>
-            shape(location, { uri: string, range: isTextRange }),
-          message: string,
-        }),
+      relatedInformation: array(
+        (item): item is NonNullable<Diagnostic["relatedInformation"]>[number] =>
+          shape(item, {
+            location: (
+              location,
+            ): location is NonNullable<
+              Diagnostic["relatedInformation"]
+            >[number]["location"] =>
+              shape(location, { uri: string, range: isTextRange }),
+            message: string,
+          }),
       ),
       data: isJsonValue,
     },
@@ -447,7 +313,9 @@ export const serverNotificationValidators: {
   >;
 } = {
   ...fleximarkServerNotificationValidators,
-  "textDocument/publishDiagnostics": (value) =>
+  "textDocument/publishDiagnostics": (
+    value,
+  ): value is PublishDiagnosticsParams =>
     shape(
       value,
       { uri: string, diagnostics: array(isDiagnostic) },
@@ -457,7 +325,7 @@ export const serverNotificationValidators: {
 
 export function isCustomRequestMethod(
   method: string,
-): method is keyof CustomRequestMap {
+): method is keyof Contract.CustomRequestMap {
   return Object.hasOwn(customRequestParamsValidators, method);
 }
 

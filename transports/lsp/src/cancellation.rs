@@ -184,7 +184,13 @@ fn document_key(message: &IncomingMessage) -> Option<DocumentKey> {
         .or_else(|| {
             message
                 .params
-                .get("documentSessionId")
+                .pointer("/context/document/documentSessionId")
+                .or_else(|| {
+                    message
+                        .params
+                        .pointer("/arguments/0/context/document/documentSessionId")
+                })
+                .or_else(|| message.params.get("documentSessionId"))
                 .and_then(Value::as_str)
                 .map(|session| DocumentKey::Session(session.to_owned()))
         })

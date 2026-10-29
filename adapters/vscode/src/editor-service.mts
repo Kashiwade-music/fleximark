@@ -1,30 +1,12 @@
-import * as vscode from "vscode";
-
 import {
   type InitializeResult,
+  SEMANTIC_TOKEN_MODIFIERS,
+  SEMANTIC_TOKEN_TYPES,
   hasContractShape,
-} from "../../../contracts/typescript/protocol.mjs";
-import type { JsonRpcConnection } from "./rpc.mjs";
+} from "@fleximark/contracts/protocol";
+import * as vscode from "vscode";
 
-export function synchronizeEditorWorkspaces(
-  rpc: JsonRpcConnection,
-  previous: Set<string>,
-  folders: readonly vscode.WorkspaceFolder[],
-): void {
-  const current = new Set(folders.map((folder) => folder.uri.toString()));
-  const added = folders
-    .filter((folder) => !previous.has(folder.uri.toString()))
-    .map((folder) => ({ uri: folder.uri.toString(), name: folder.name }));
-  const removed = [...previous]
-    .filter((uri) => !current.has(uri))
-    .map((uri) => ({ uri, name: "" }));
-  if (added.length || removed.length)
-    rpc.notifyLsp("workspace/didChangeWorkspaceFolders", {
-      event: { added, removed },
-    });
-  previous.clear();
-  for (const uri of current) previous.add(uri);
-}
+import type { JsonRpcConnection } from "./rpc.mjs";
 
 export async function initializeEditor(
   rpc: JsonRpcConnection,
@@ -48,6 +30,7 @@ export async function initializeEditor(
           trusted: vscode.workspace.isTrusted,
         })),
         capabilities: {
+          sourceNavigationEvents: true,
           selectionEvents: true,
           viewportEvents: true,
         },
@@ -60,8 +43,8 @@ export async function initializeEditor(
         completion: { completionItem: { snippetSupport: true } },
         semanticTokens: {
           requests: { full: true },
-          tokenTypes: ["keyword", "string", "operator", "type", "property"],
-          tokenModifiers: [],
+          tokenTypes: SEMANTIC_TOKEN_TYPES,
+          tokenModifiers: SEMANTIC_TOKEN_MODIFIERS,
           formats: ["relative"],
           overlappingTokenSupport: false,
           multilineTokenSupport: false,
@@ -73,5 +56,5 @@ export async function initializeEditor(
   if (!hasContractShape("initializeResult", value))
     throw new Error(vscode.l10n.t("Invalid FlexiMark initialization response"));
   rpc.notifyLsp("initialized", {});
-  return value as InitializeResult;
+  return value;
 }

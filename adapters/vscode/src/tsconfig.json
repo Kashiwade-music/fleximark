@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node", "vscode"],
+    "rootDir": ".",
+    "outDir": "../../../.build/types/adapter",
+    "tsBuildInfoFile": "../../../.build/types/.tsbuildinfo/adapter.tsbuildinfo"
+  },
+  "include": ["**/*.mts"],
+  "references": [
+    { "path": "../../../contracts/typescript" },
+    { "path": "../../../web/preview" },
+    { "path": "../webview" }
+  ]
+}

@@ -1,7 +1,10 @@
 //! Role: Reconcile stable document node identities across source edits.
 use std::collections::{HashMap, HashSet};
 
-use fleximark_model::{Block, BlockKind, Document, Inline, InlineKind, Node, NodeId, SourceRange};
+use fleximark_model::{
+    Block, BlockKind, Document, Inline, InlineKind, Node, NodeId, SourceRange, Visitor, VisitorMut,
+    syntax::BuiltinSyntaxKind, walk_blocks, walk_blocks_mut,
+};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
@@ -139,21 +142,37 @@ fn assign_unique(
 }
 
 fn collect_identity(blocks: &[Block], parent: &str, output: &mut Vec<IdentityRecord>) {
-    for block in blocks {
-        let semantic = semantic_key(block);
-        output.push(IdentityRecord {
-            semantic: semantic.clone(),
-            structure: std::mem::discriminant(&block.kind),
-            parent: parent.to_owned(),
-            range: range_key(&block.range),
-            id: block.id.clone(),
-        });
-        for child in &block.children {
-            if let Node::Block(child) = child {
-                collect_identity(std::slice::from_ref(child), &semantic, output);
-            }
+    struct Identity<'a> {
+        ancestors: Vec<String>,
+        root: &'a str,
+        output: &'a mut Vec<IdentityRecord>,
+    }
+    impl Visitor for Identity<'_> {
+        fn visit_block(&mut self, block: &Block, depth: u32) {
+            self.ancestors.truncate(depth as usize);
+            let semantic = semantic_key(block);
+            self.output.push(IdentityRecord {
+                semantic: semantic.clone(),
+                structure: std::mem::discriminant(&block.kind),
+                parent: self
+                    .ancestors
+                    .last()
+                    .map_or(self.root, String::as_str)
+                    .to_owned(),
+                range: range_key(&block.range),
+                id: block.id.clone(),
+            });
+            self.ancestors.push(semantic);
         }
     }
+    walk_blocks(
+        blocks,
+        &mut Identity {
+            ancestors: Vec::new(),
+            root: parent,
+            output,
+        },
+    );
 }
 
 fn append_field(output: &mut Vec<u8>, field: &[u8]) {
@@ -186,8 +205,27 @@ fn optional(output: &mut Vec<u8>, value: Option<&str>) {
 
 fn semantic_key(block: &Block) -> String {
     let mut material = Vec::new();
-    encode_block(block, &mut material);
+    walk_blocks(std::slice::from_ref(block), &mut Semantic(&mut material));
     blake3::hash(&material).to_hex().to_string()
+}
+
+struct Semantic<'a>(&'a mut Vec<u8>);
+impl Visitor for Semantic<'_> {
+    fn visit_node(&mut self, node: &Node) {
+        field(
+            self.0,
+            match node {
+                Node::Block(_) => "block",
+                Node::Inline(_) => "inline",
+            },
+        );
+    }
+    fn visit_block(&mut self, block: &Block, _depth: u32) {
+        encode_block(block, self.0);
+    }
+    fn visit_inline(&mut self, inline: &Inline) {
+        encode_inline(inline, self.0);
+    }
 }
 
 fn encode_block(block: &Block, output: &mut Vec<u8>) {
@@ -237,11 +275,11 @@ fn encode_block(block: &Block, output: &mut Vec<u8>) {
             field(output, code);
         }
         BlockKind::Mermaid { source } => {
-            field(output, "mermaid");
+            field(output, BuiltinSyntaxKind::Mermaid.render_kind());
             field(output, source);
         }
         BlockKind::AbcNotation { source } => {
-            field(output, "abc");
+            field(output, BuiltinSyntaxKind::Abc.render_kind());
             field(output, source);
         }
         BlockKind::Math { source } => {
@@ -277,18 +315,6 @@ fn encode_block(block: &Block, output: &mut Vec<u8>) {
         }
     }
     number(output, block.children.len() as u64);
-    for child in &block.children {
-        match child {
-            Node::Block(block) => {
-                field(output, "block");
-                encode_block(block, output);
-            }
-            Node::Inline(inline) => {
-                field(output, "inline");
-                encode_inline(inline, output);
-            }
-        }
-    }
 }
 
 fn encode_inline(inline: &Inline, output: &mut Vec<u8>) {
@@ -311,37 +337,33 @@ fn encode_inline(inline: &Inline, output: &mut Vec<u8>) {
             field(output, "raw-html");
             field(output, html);
         }
-        InlineKind::Emphasis { children } => encode_nested("emphasis", children, output),
-        InlineKind::Strong { children } => encode_nested("strong", children, output),
-        InlineKind::Strikethrough { children } => encode_nested("strikethrough", children, output),
+        InlineKind::Emphasis { .. } => field(output, "emphasis"),
+        InlineKind::Strong { .. } => field(output, "strong"),
+        InlineKind::Strikethrough { .. } => field(output, "strikethrough"),
         InlineKind::Link {
-            destination,
-            title,
-            children,
+            destination, title, ..
         } => {
             field(output, "link");
             field(output, destination);
             field(output, title);
-            encode_nested("children", children, output);
+            field(output, "children");
         }
-        InlineKind::Image {
-            source,
-            title,
-            children,
-        } => {
+        InlineKind::Image { source, title, .. } => {
             field(output, "image");
             field(output, source);
             field(output, title);
-            encode_nested("children", children, output);
+            field(output, "children");
         }
     }
-}
-
-fn encode_nested(tag: &str, children: &[Inline], output: &mut Vec<u8>) {
-    field(output, tag);
-    number(output, children.len() as u64);
-    for child in children {
-        encode_inline(child, output);
+    if matches!(
+        inline.kind,
+        InlineKind::Emphasis { .. }
+            | InlineKind::Strong { .. }
+            | InlineKind::Strikethrough { .. }
+            | InlineKind::Link { .. }
+            | InlineKind::Image { .. }
+    ) {
+        number(output, inline.kind.children().len() as u64);
     }
 }
 
@@ -353,16 +375,15 @@ fn range_key(range: &SourceRange) -> String {
 }
 
 fn apply_ids(blocks: &mut [Block], ids: &mut impl Iterator<Item = NodeId>) {
-    for block in blocks {
-        if let Some(id) = ids.next() {
-            block.id = id;
-        }
-        for child in &mut block.children {
-            if let Node::Block(child) = child {
-                apply_ids(std::slice::from_mut(child), ids);
+    struct Ids<'a, I>(&'a mut I);
+    impl<I: Iterator<Item = NodeId>> VisitorMut for Ids<'_, I> {
+        fn visit_block(&mut self, block: &mut Block, _depth: u32) {
+            if let Some(id) = self.0.next() {
+                block.id = id;
             }
         }
     }
+    walk_blocks_mut(blocks, &mut Ids(ids));
 }
 
 pub(super) fn content_hash(source: &str) -> String {

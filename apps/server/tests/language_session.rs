@@ -338,3 +338,74 @@ fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental
         );
     }
 }
+
+#[test]
+fn byte_language_results_map_to_every_negotiated_encoding_with_unicode_and_crlf() {
+    for (encoding, character, title_length) in
+        [("utf-8", 18, 6), ("utf-16", 16, 4), ("utf-32", 15, 3)]
+    {
+        for snippets in [false, true] {
+            let mut server = native_server();
+            let initialized=server.request(1,"initialize",json!({"capabilities":{"general":{"positionEncodings":[encoding]},"textDocument":{"completion":{"completionItem":{"snippetSupport":snippets}}}}}));
+            assert_eq!(
+                initialized[0]["result"]["capabilities"]["positionEncoding"],
+                encoding
+            );
+            let document = "file:///byte-language.md";
+            open(
+                &mut server,
+                document,
+                "\u{1f600}\r\n  :::warning[\u{1f600}]\r\n",
+                1,
+            );
+            let completion=server.request(2,"textDocument/completion",json!({"textDocument":{"uri":document},"position":{"line":1,"character":character}}));
+            let items = completion[0]["result"]["items"].as_array().unwrap();
+            assert!(!items.is_empty());
+            for item in items {
+                assert_eq!(item["kind"], 15);
+                assert_eq!(item["insertTextFormat"], if snippets { 2 } else { 1 });
+                assert_eq!(
+                    item["textEdit"]["range"],
+                    json!({"start":{"line":1,"character":2},"end":{"line":1,"character":character}})
+                );
+                assert!(item["detail"].is_string());
+                assert!(item["filterText"].is_string());
+                if !snippets {
+                    assert!(!item["textEdit"]["newText"].as_str().unwrap().contains("${"));
+                }
+            }
+            let tokens = server.request(
+                3,
+                "textDocument/semanticTokens/full",
+                json!({"textDocument":{"uri":document}}),
+            );
+            assert_eq!(
+                tokens[0]["result"]["data"],
+                json!([1, 2, 3, 2, 0, 0, 3, 7, 0, 0, 0, 7, title_length, 1, 0])
+            );
+        }
+    }
+}
+#[test]
+fn semantic_tokens_resume_after_code_fences_without_highlighting_their_contents() {
+    let mut server = native_server();
+    initialize(&mut server, json!([]));
+    let document = "file:///semantic-code-fence.md";
+    open(
+        &mut server,
+        document,
+        "```rust\r\n:::hidden\r\n```\r\n:::after\r\n",
+        1,
+    );
+    let tokens = server.request(
+        2,
+        "textDocument/semanticTokens/full",
+        json!({"textDocument":{"uri":document}}),
+    );
+    assert_eq!(
+        tokens[0]["result"]["data"],
+        json!([
+            0, 0, 3, 2, 0, 0, 3, 4, 3, 0, 2, 0, 3, 2, 0, 1, 0, 3, 2, 0, 0, 3, 5, 0, 0
+        ])
+    );
+}

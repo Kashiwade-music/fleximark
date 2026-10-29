@@ -2,8 +2,23 @@
 use std::io::{BufRead, Write};
 use std::net::TcpStream;
 
-pub(crate) fn write_conversion_error(stream: &mut TcpStream, error: &impl std::fmt::Display) {
-    let body = serde_json::json!({"message":error.to_string()}).to_string();
+pub(crate) fn write_conversion_error(
+    stream: &mut TcpStream,
+    error: &fleximark_application::ApplicationError,
+) {
+    fleximark_application::logging::log_operational_failure(
+        "preview-http-conversion-failed",
+        error,
+        None,
+        None,
+        None,
+    );
+    let message = if error.kind() == fleximark_application::ErrorKind::Internal {
+        "preview conversion failed".to_owned()
+    } else {
+        error.to_string()
+    };
+    let body = serde_json::json!({"message":message}).to_string();
     let response = format!(
         "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()

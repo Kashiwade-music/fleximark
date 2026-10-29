@@ -1,7 +1,7 @@
 import type {
   NavigationEntry,
   RenderStyle,
-} from "../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
 
 export function identityMap(
   root: ParentNode,
@@ -132,18 +132,5 @@ export function validStyle(style: RenderStyle | null): boolean {
     (typeof style.css === "string" &&
       typeof style.fingerprint === "string" &&
       /^[0-9a-f]{64}$/.test(style.fingerprint))
-  );
-}
-
-export function sameStyle(
-  left: RenderStyle | null,
-  right: RenderStyle | null | undefined,
-): boolean {
-  return (
-    left === right ||
-    (left !== null &&
-      right != null &&
-      left.css === right.css &&
-      left.fingerprint === right.fingerprint)
   );
 }

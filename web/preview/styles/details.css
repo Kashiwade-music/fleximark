@@ -1,0 +1,29 @@
+.markdown-body {
+  & details[data-fleximark-node-id] {
+    margin: 0 0 1rem;
+    background-color: transparent;
+    border: 1px solid var(--fleximark-color-control-border);
+    border-radius: 6px;
+  }
+}
+
+.markdown-body {
+  & details[data-fleximark-node-id] > summary {
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    border-bottom: none;
+  }
+}
+
+.markdown-body {
+  & details[data-fleximark-node-id] > :not(summary) {
+    margin-right: 1rem;
+    margin-left: 1rem;
+  }
+}
+
+.markdown-body {
+  & details[data-fleximark-node-id][open] > summary {
+    border-bottom: 1px solid var(--fleximark-color-control-border);
+  }
+}

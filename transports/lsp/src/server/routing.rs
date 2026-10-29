@@ -3,6 +3,9 @@ use super::state::*;
 use super::wire::*;
 
 impl Server {
+    pub(crate) fn accepting_commands(&self) -> bool {
+        self.lsp_initialized && !self.shutdown
+    }
     pub fn set_preview_assets(&mut self, assets: Arc<fleximark_preview_assets::PreviewAssets>) {
         self.preview_assets = Some(assets);
     }
@@ -50,6 +53,7 @@ impl Server {
             pending_client_requests: HashSet::new(),
             lsp_initialized: false,
             snippet_support: false,
+            source_navigation_events: false,
             selection_events: false,
             viewport_events: false,
             shutdown: false,
@@ -146,6 +150,9 @@ impl Server {
             "textDocument/documentSymbol" => self.document_symbols(id, &message.params),
             "textDocument/diagnostic" => self.diagnostics(id, &message.params),
             "textDocument/codeAction" => self.code_actions(id, &message.params),
+            "workspace/didChangeWorkspaceFolders" => {
+                self.change_workspace_folders(id, message.params)
+            }
             "workspace/executeCommand" => self.standard_execute_command(id, message.params),
             method::ATTACH_DOCUMENT => self.attach_document(id, message.params),
             method::CREATE_PREVIEW => self.create_preview(id, message.params),

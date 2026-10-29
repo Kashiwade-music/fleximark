@@ -1,7 +1,7 @@
 # リファクタリング進捗ログ
 
 ## 状態
-- 現在のフェーズ: P3（P2 完了、配布target追加実験はCI統合後）
+- 現在のフェーズ: 完了（P0〜P6、最終 verify・レビュー完了）
 - 最終更新: 2026-10-29
 - 起点: `fd5cd1a`、ブランチ `feat/kashiwade/big-update`
 
@@ -18,24 +18,50 @@
 ## タスク
 | ID | 状態 | コミット | 備考 |
 |---|---|---|---|
-| P0-T1 | 完了 | 67980e9 | 全 suite の成功を確認。一括コマンドの lockfile 停止は上記に記録 |
-| P0-T2 | 完了 | 67980e9 | HEAD は指示書の起点と一致。指摘された旧 API を現コードで確認 |
-| P1-T1 | 完了 | 76bdaa6 | host/SDK/config/unsafe export/診断を撤去。レビュー2件を修正。generate all、check、test の全工程成功 |
-| P1-T2 | 完了 | 2946e5a | engine API 縮約、単一 range、plugin/provenance/annotations/型状態 export 撤去、CancellationToken を application へ移設 |
-| P1-T3 | 完了 | 2946e5a | plugin crate/fixture/依存を削除、protocol/config を 1 にリセット、schema と全 fixture を再生成 |
-| P1-T4 | 完了 | 2946e5a | tooling/CI/policy から plugin fixture 工程を削除、Zed の wasm target は維持 |
-| P1-T5 | 完了 | 2946e5a | TS の annotations DOM/watcher/trust 文言を追従、旧 field 拒否を検証 |
-| P1-T6 | 完了 | 2946e5a | README を更新。capabilities の旧 JSON は全件未参照であり P5-T4 で削除する |
-| P1-T7 | 完了 | 2946e5a / 本記録 | 最終 phase review 指摘なし。VS Code GUI結合テスト成功（workspace、standalone、restricted） |
-| P2-T1 | 完了 | 2df85ba | ApplicationError / ErrorKind、原因チェーン、RPC定数、共通の秘匿ログを統一。レビュー2件修正、全関門成功 |
-| P2-T2 | 完了 | 本コミット | 11 command、共通context/result、唯一の記述子。unknown fieldもstrictに拒否 |
-| P2-T3 | 完了 | 本コミット | DocumentStore / WorkspaceAuthority / WorkspaceOpsを公開入口に統合。byte API、config cache、共通trust gate |
-| P2-T4 | 完了 | 本コミット | LSP custom/standard/HTTPの共通dispatch、typed initialize/言語結果、resource instance注入 |
-| P2-T5 | 完了 | 本コミット | CLIをWorkspaceOpsへ統一、benchmarkを開発benchへ移設 |
-| P2-T6 | 完了 | 本コミット | VS Code/browserで生成command/context/result、migrationの確認後に同じplanId適用、選択UIと翻訳 |
-| P2-T7 | 完了 | 本記録 | レビューのmigration導線・循環・名称複写を修正。全関門とGUI成功 |
-| P4-T8 | 進行中 | 2df85ba（初期部分） | 配布正本、Rust共通検証、runtime/Zed、生成schema/TS/JS、Node検証まで接続。Python77テスト・全package・Zed WASM成功。CI接続後のtarget追加実験は残作業 |
-| P5-T1 | 完了 | ac4a8d3 | semantic-release の設定・script・専用test・7直接依存を削除。手動タグの draft release を維持し開発手順を記載 |
+| P0-T1 | 完了 | 67980e9 | 基準線の取得。部分実行の制約は上記に明記 |
+| P0-T2 | 完了 | 67980e9 | 起点と設計地図、旧APIの確認 |
+| P1-T1 | 完了 | 76bdaa6 | application/transport/configからWASM pluginを切離し |
+| P1-T2 | 完了 | 2946e5a | coreのplugin/provenance/annotationsと交換用serdeを撤去 |
+| P1-T3 | 完了 | 2946e5a | plugin crate/fixture削除、protocol/config versionを1へ |
+| P1-T4 | 完了 | 2946e5a | plugin tooling/CI/依存撤去、Zed WASI維持 |
+| P1-T5 | 完了 | 2946e5a | 生成契約・VS Code/browserを新形式へ追従 |
+| P1-T6 | 完了 | 2946e5a / 最終統合 | 旧README説明と未参照capabilities撤去 |
+| P1-T7 | 完了 | 2946e5a / 本記録 | phase reviewとworkspace/standalone/restricted GUI成功 |
+| P2-T1 | 完了 | 2df85ba | 詳細AppError・6分類・原因連鎖・RPC code・秘匿logger |
+| P2-T2 | 完了 | d7c2b57 | 11 commandとcontext/outcome、唯一の記述子 |
+| P2-T3 | 完了 | d7c2b57 | DocumentStore/WorkspaceAuthority/WorkspaceOps、byte APIと共通trust gate |
+| P2-T4 | 完了 | d7c2b57 | standard/custom LSP・HTTPを同じtyped dispatchへ |
+| P2-T5 | 完了 | d7c2b57 | CLIを同じAPIへ。benchmarkは開発benchへ |
+| P2-T6 | 完了 | d7c2b57 | 生成型と操作、migrationは同一planの確認後適用 |
+| P2-T7 | 完了 | d7c2b57 / 本記録 | migration導線・循環修正、全関門とGUI成功 |
+| P3-T1 | 完了 | 最終統合 | Arc frame/live authorityの所有統一、共通wire mapping |
+| P3-T2 | 完了 | 最終統合 | prepare/worker/complete、継続asset refresh、持続SSE、asset memo |
+| P3-T3 | 完了 | 最終統合 | folder追加restricted、削除detach、同daemon/sessionを維持 |
+| P3-T4 | 完了 | 最終統合 | production変更前に実framingの公開振る舞い基準線を追加 |
+| P3-T5 | 完了 | 最終統合 | DaemonConnectionとembedded/external preview状態、世代による無効化 |
+| P3-T6 | 完了 | 最終統合 | adapterサービス分割、folder変更時の再起動廃止、test seam撤去 |
+| P3-T7 | 完了 | 最終統合 | 共通PreviewSession、順序制御・一回の回復・冪等dispose |
+| P3-T8 | 完了 | 最終統合 / 本記録 | 競合・shutdown・10秒遅延・実browser/GUIを検証 |
+| P4-T1 | 完了 | 最終統合 | 組込み構文descriptor、補完・描画・YouTubeの正本 |
+| P4-T2 | 完了 | 最終統合 | renderer分割、ProtectedFragmentsでsanitize一本化、HTML golden保持 |
+| P4-T3 | 完了 | 最終統合 | IR visitor/walker、AssetRef/Sha256Hex、identity正規化 |
+| P4-T4 | 完了 | 最終統合 | languageはbyte範囲/内部enum、LSP位置と数値をtransportへ |
+| P4-T5 | 完了 | 最終統合 | math fence・inline意味・alert title保持、Debug fallback撤去 |
+| P4-T6 | 完了 | 最終統合 | 単一wire表と型/guard生成、fixtureをxtaskへ、verifyの契約確認は一回 |
+| P4-T7 | 完了 | 最終統合 | enhancer registry/Disposable、ABCとaudio分割、CSSを機能別に分割 |
+| P4-T8 | 完了 | 2df85ba / d7c2b57 / 最終統合 | Rust/TS/Node/Python/CIの配布正本統一、target追加実験成功 |
+| P4-T9 | 完了 | 最終統合 / 本記録 | 循環解消、protocol型追加実験、security/描画/配布を再検証 |
+| P5-T1 | 完了 | ac4a8d3 | semantic-release撤去、手動タグのdraft releaseへ一本化 |
+| P5-T2 | 完了 | 最終統合 | reusable verify workflow、配布正本から6 host matrixを生成 |
+| P5-T3 | 完了 | 最終統合 | tasks.pyへ入口統一、責務別module、共有build/watch factory |
+| P5-T4 | 完了 | 最終統合 | 未使用tooling/contracts/設定/専用testを撤去 |
+| P5-T5 | 完了 | 最終統合 | 変更ファイルだけwatch hashを再計算、削除も検知 |
+| P5-T6 | 完了 | 最終統合 | 通常/dev依存policyをmetadataで一致検査、server crate名整合 |
+| P5-T7 | 完了 | 最終統合 | package別TS project・import境界・行数制限、自動test発見とhost所属 |
+| P6-T1 | 完了 | 最終統合 | 公開振る舞い/featureごとにtest整理、共通fixture。比率目安の例外は下記 |
+| P6-T2 | 完了 | 最終統合 | README/ARCHITECTURE/DEVELOPMENT/IMPLEMENTATIONを実装に合わせて書直し |
+
+「最終統合」は本ログを含む最終コミットを指す。交差するAPI・生成物・build境界を一つの検証可能な単位として確定した。
 
 ## 判断の記録
 | 日付 | タスク | 判断 | 理由 |
@@ -79,7 +105,8 @@ P2-T1 / 配布検証初期部分: `mise run generate all`、`mise run check`、`
 | application の plugin export テスト | export の取消時既存出力保持、旧registry拒否 | native/export/tests.rs の cancelled_export_preserves_existing_destination、old_export_registry_and_marker_fields_are_rejected |
 
 ## 残課題
-- 指示書 P1〜P6 の実装・検証・フェーズレビュー。
+- 製品機能・必須検証の未完了、保留判断、利用者の確認待ちはない。
+- P6-T1のTS test/body比率は目安1.2に対し下記の最終値。独立したsecurity/競合/GUIのassertを維持する判断を記録した。
 - 固定 submodule `tooling/xtask-core` の README の配置名は変更しない。実配置 `tooling/xtask-core` と upstream 記述 `vendor/xtask-core` の不一致は所有元の課題として残す。
 
 ## P2 統合の記録
@@ -90,4 +117,170 @@ P2-T1 / 配布検証初期部分: `mise run generate all`、`mise run check`、`
 - command名は生成WORKSPACE_COMMAND_KINDへ統一した。新操作の主要変更点はprotocol command/記述子、application dispatch、native実装、transport結果変換、CLI引数である。引数のないbrowser操作は記述子から選択される。
 - server service_contractの4テストをapplication/native/service_contract_tests.rsへ移動した。native byte APIから外したUTF-16/全文同期の観点はserver/language_session.rsの同名テストへ移し、UTF-8/16/32、emoji/CRLF、incremental拒否を保持した。
 - benchmarkは `cargo bench -p fleximark-cli --bench document_pipeline -- --json` とする。all-targetsの既定benchでは軽量parse/render/update smokeを実行する。
-- P4-T8のtarget追加実験はP5のCI matrix接続後に行う。未完部分を完了扱いしない。
+- P4-T8のtarget追加実験はP5のCI matrix接続後に成功した（下記）。
+
+## P3〜P5 の実装記録
+
+以下は統合中の判断の記録。現在の完了状態と最終関門は上のタスク表・末尾の最終結果を参照する。
+
+- 独立したcore/toolingを前倒ししP3と並行実装した。大きな公開API変更の途中ではコミットせず、共有checkout全体が関門を通ってから検証可能な単位を確定する。
+- P3レビュー: 末尾slash付きroot削除の影響文書検索を正規化し、旧theme/assetsを残さず同previewへ再配信する回帰テストを追加した。
+- P3の競合処理: migration/initと本文編集が重なりasset policyが変わる場合、最新source/configのasset解決をContinueとして同じworker laneへ再配送する。元のnative副作用は一度だけ実行し、同じpending replyを最後まで保持する。
+- P3 Rust局所: app85テスト（継続処理の追加suiteは別途最終実行）、LSP/server43テスト＋doctest、HTTP10テスト成功。10秒遅延中の補完、1.2秒の実HTTP、終了時待機解除、同root直列化、最新asset復旧を確認。
+- P4レビュー: descriptorのrender kindとenum対応の重複を、const fnからの導出へ変更した。model/renderer/HTTPの構造検査による循環はleaf値型と一方向の描画callbackへ分割して修正済み。policyやsubmoduleで免除しない。
+- P4の数式不具合は実CLIでCodeBlock出力を確認してから修正した（`.build/refactoring/math-baseline.log`）。parser/renderer双方でmath fenceを検証した。
+- 配布targetの追加実験: distribution.jsonに一時targetを一行追加し、schema/Node/TS定数、Python validator、Rust tests、CI matrixへ到達しpackage dry-runも成功。正本と生成物は復旧済（`p4-target-experiment.log`）。
+- protocol型の追加実験: DTO定義とwire表一行だけでschema・TS型・validatorが生成され、protocol/codegenテスト成功。型と生成物を復旧済（`p4-protocol-probe.log`）。Windowsの一時ファイルロックは再実行で解消した。
+- P4 CSSは現行119 selector/declarationを色変数の解決後に比較して保持。HTTPのshellテストは旧selector3件の存在確認から注入CSS全体の包含確認へ変更し、認証・headers・fontの観点は維持。GUI・実browserと分割前後の外観比較も成功した。
+- P5 Pythonは69テスト成功。Plan/dry-runと失敗時停止、runtime/VSIX/identityの観点を新moduleへ移設した。廃止callback専用testを削除、mixed VSIX testの配布安全性は保持。phase12の文字列/count検査は廃止し、suite所属/TS所属/locked metadataの実用的検査をtest_source_boundariesへ移した。
+- CIのdraft自動公開を発見したためD5に合わせて停止した。Marketplace機能は公開イベントで同じ配布物を再検証するworkflowへ移した。実際のtag/release/Marketplace操作は行っていない。
+- rust-cacheはSwatinem/rust-cache v2.9.2のSHA `6323deb102c322ba6fcbdcafc7e3dddab59af2b6`を使用（[upstream commit](https://github.com/Swatinem/rust-cache/commit/6323deb102c322ba6fcbdcafc7e3dddab59af2b6)）。P5レビューの関数内動的importは通常importへ修正した。
+
+## P6-T1 Rustテスト移動前の観点表
+| 移動元 | 保持する観点 | 移動先 |
+|---|---|---|
+| native/service_contract_tests::initialization_preserves_active_defaults_and_typed_resource_locations | 初期設定・themeの正確な既定値、返却URI | native/workspace のtest module |
+| native/service_contract_tests::export_metadata_preserves_marker_registry_and_journal_wire_schema | marker/registry/journalの独立したkeys・型・field順・整形・digest連鎖・全7状態 | native/export/contracts_tests.rs |
+| native/service_contract_tests::managed_export_rejects_a_symlinked_entry_without_touching_the_target | Unix symlink先の保持・置換拒否 | native/export/contracts_tests.rs |
+| native/service_contract_tests::managed_export_rejects_a_junctioned_entry_without_touching_the_target | Windows junction先の保持・置換拒否 | native/export/contracts_tests.rs |
+| native/service_contract_tests::workspace_control_junction_is_rejected_without_touching_its_target | Windows workspace control junction拒否・target不変更 | native/workspace のtest module |
+
+既存export/testsのownershipは変更拒否・世代・ユーザー資源保護、journalは改竄・回復を検証する。上記の独立wire形式の検査とは異なるため、同じ題材であっても削除せず機能単位へ統合する。一時workspace作成の実装だけをdev/test-supportへ共通化する。
+
+## TS振る舞いの観点対応（P3-T4〜T6 / P6-T1）
+
+
+P3-T4では既存テストを削除せず、公開adapter APIと実LSP framingで検証する基準線を追加した。
+
+| 既存テスト                                          | 維持する観点                                         | 新しいruntime-behaviorの対応ケース                                                    |
+| --------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| preview-coordinator / document-lifecycle            | 開く、全文更新、閉じる、embedded/external            | opens, pushes unsaved updates, closes and changes preview targets                     |
+| daemon-runtime / daemon-supervisor                  | 切断、文書とpreviewの再同期                          | reconnects after a daemon disconnect and replays the latest document and preview      |
+| preview-coordinator / document-coordinator          | 古い接続の保留応答と遅延イベントを破棄               | invalidates a delayed response when its connection dies and rejects old daemon events |
+| browser-navigation-runtime / adapter-preview-events | embeddedのnavigation送信、externalからsourceへの移動 | forwards authenticated embedded navigation and browser source navigation              |
+| multi-root-runtime / standalone-runtime             | workspace追加・削除後も開いた文書とpreviewを維持     | updates workspace membership while keeping the document preview usable                |
+
+既存のDOM保持、認証、asset、navigation範囲、trust、echo、未保存文書、実browser/SSEの検査は元のテストに残す。内部依存bagのテストを縮小するのはP6-T1で観点の対応を確認してから行う。
+
+folder増減の基準線は通知またはinitializeのwire内容でmembershipの反映を確かめる。現在の再起動をテスト要件にはしない。再起動禁止の期待値はP3-T6で追加する。
+
+pollingはsupport/polling.mtsのpollUntil/untilへ統一する。standalone-runtimeとmulti-root-runtimeは置換済み。browser-dom-harnessとbrowser-navigation-runtimeはweb担当へ同じAPIの置換を引き継いだ。
+
+## P3-T5/T6で移した単体テスト
+
+preview-coordinator.test.mtsの18観点はpreview-controller.test.mtsへ移し、実framingを使うPreviewHarnessから公開Controller APIを検査する。旧依存bagや本番test seamには接続しない。
+
+| 旧観点                                                 | 新PreviewControllerテスト                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| same-chunkでcreate/rebind直後に来るframe               | keeps same-chunk pushed frames while opening and rebinding                      |
+| create完了直後の接続断                                 | removes an uncommitted preview when its connection closes after creation        |
+| rpc/generation/daemon identityの違い                   | connection identity is immutable and disposal aborts pending work first         |
+| stale candidateのversion/session/文書object/membership | rejects stale create results before committing UI                               |
+| frameを埋め込まないCSP shell                           | builds a CSP shell without embedding frame data                                 |
+| rerender完了時の旧binding                              | rerenders only a current binding and fences stale completion                    |
+| push配送とbinding交換後のlate post                     | delivers pushed frames without reading and fences replaced bindings             |
+| readyまで最新frame保持と再配送                         | keeps the latest frame until ready and recovers one rejected delivery           |
+| frame配送成功後のnavigation                            | forwards matching navigation after successful asynchronous frame delivery       |
+| 配送errorの報告                                        | reports delivery failure after the one permitted recovery                       |
+| 古いdaemonからのchanged通知                            | ignores changed notifications from a stale daemon identity                      |
+| external revisionとbrowser navigation                  | keeps only external revision and validates browser source navigation against it |
+| viewport navigation                                    | forwards editor viewport navigation to the embedded preview                     |
+| rootからdetached文書への追従                           | moves an embedded preview from its root to detached Markdown                    |
+| dead sessionをdisposeせずpanel再接続                   | reattaches a disconnected panel without disposing its dead remote session       |
+| replay不能時のpanel保持                                | retains disconnected panels when replay is unavailable                          |
+| dispose応答待ち前のmembership削除                      | removes membership before awaiting remote disposal                              |
+| disconnected panelを閉じる                             | closes disconnected panels without disposing dead remote sessions               |
+
+追加で、delivery session自体を交換した後のlate completionによるrevision逆行を検査する。source-navigationの非同期identityとechoの既存assertはadapter-preview-eventsに保持し、公開SourceNavigation/EditorEventForwarderへ接続した。redaction corpusはerror-policy.testへ移動した。
+
+supervisorのworkspace変更による再起動期待値をlive daemon保持へ置換し、古いexitの破棄・process終了待ち・停止後の再起動禁止は維持した。multi-root editorテストの削除時daemon identity/generation期待値を不変へ変更した。実fake daemonテストはfolder追加→trust通知→削除→workspace外Markdownを同一daemonで処理する。
+
+テスト用のcrash/snapshot/external preview入口はExtensionMode.Testだけが作るextension-test-apiへ移した。editorテストで使う補助クラスはtests/supportに置き、本番Adapterにはテストメソッドも再exportも残さない。
+
+P4-T6の型metadata変更は、この段階ではentry.schemaを読む最小追従だけを行った。semantic registryとnavigation型名の整理は次のP4-T6作業として分ける。
+
+P6 Rustの移動後は独立wire DTOと全assertを維持した。application90・共通fixture2・CLI7・server全suiteと4crate clippy成功。root workspaceのall-targetsも統合前半で成功し、最終関門でも再実行して成功した。
+
+## P6-T1 TS fixture共通化前の観点表
+| 対象 | 共通化する準備 | 維持する観点 |
+|---|---|---|
+| preview-client / preview-extended | frame/block/entry/specialFrame/inertRuntimes | 全DOM保持・asset・ABC/Mermaid寿命・navigation assert |
+| browser-host / vscode-host | 同じframe fixtureのoverride | host認証・origin/source/token・revision・future nav・回復上限 |
+| preview-client / browser-host / vscode-host | linkedom global descriptorの一時設定・復旧 | window.parent隠蔽・異origin拒否・認証の各個別assert |
+| preview-clientのassetケース | object URLの保存・置換・復元 | URL再利用・commit後revoke・AVIF MIME・巨大asset拒否 |
+
+実GUIやsecurityの独自ケースは削除しない。調査で安全に減らせる見積りは全体350〜500行で、比率の数字のためにassertを削らない。共通supportも行数に含めた最終計測を下記に記載する。
+
+## P6-T1 adapterテスト整理前の対応表
+| 対象 | 共通化・置換 | 保持する観点 |
+|---|---|---|
+| unit/document-coordinator | runtime/connection/documentの反復準備をローカルfixtureへ | Unicode全文同期・reopen競合・RPC拒否/transport失敗の区別・close時panel保持・所属一意 |
+| editor/wiring | provider registrar収集とplain/snippet入力のケース化 | selector/trigger・型変換・params・retirement中の成功/失敗 |
+| editor/wiring watcher | glob文字列exact検査をevent挙動へ | config/theme create/change/delete・所属root・retired event/遅延失敗の抑止 |
+| editor/multi-root-runtime | folder event観測/timeout cleanupのhelper | 実VS Code eventを必須とし、同daemonでmembershipと設定が反映されること |
+| unit/protocol-contract | combinator/JSON equalityの重複準備を名前付きケースへ | 全入力と期待値、depth制限、全semantic検査 |
+
+fake runtimeと完全に重なるように見えるケースにもobject保持やrootの独立性があるため、同等の公開観測を置かず削除しない。redaction corpusはunit/error-policyへ移設済みで、process終了待ち・late exit・停止後restart禁止はsupervisor側に保持する。
+
+## 統合製品・外観の確認
+- `mise run package all` 成功。runtime ZIP・VSIX・Zed ZIPを新しいworkspace importsと分割CSSで組み立てた（`p5-package-integrated.log`）。
+- browserで同じframeを分割前後のCSSに適用して目視した。admonition・数式・code・表・Mermaid・ABCの表示を確認し、同じ1000px viewportで9 top-level blockの幅・高さ・文字色・背景色が完全一致した。一時browser tabs・viewport・daemon/serverは終了した。
+- package境界の否定試験はstdinだけで実施し、web previewからvscodeへのimportをno-restricted-importsが拒否した。sourceへの違反は残していない（`p5-boundary-negative.log`）。
+
+## 最終検証・レビュー（P3〜P6 / §13）
+- 親が境界・所有範囲・移行順・完了条件を設計してから詳細指示を配布した。実装・レビューの全サブエージェントは利用者指定の **GPT-6.1 Sol low** を使用した。
+- `mise run generate all`、`mise run check`、`mise run test`、`mise run package all`、最終 `mise run verify` はすべて成功。verifyは25工程を省略せず、Rust/Python/Node、high/critical audit、release build、runtime/VSIX/Zed ZIP、性能、実Chromium、VS Codeのworkspace/standalone/restricted、identity、clean-install smokeを実行した。
+- 最終ログ: `.build/refactoring/final-generate.log`、`final-check.log`、`final-test.log`、`p5-package-integrated.log`、`final-verify.log`。Node単体は136件・17 suite・skipなし。契約codegen checkはverify内で一回だけ実行した。
+- readonly reviewerが起点`fd5cd1a`からのブランチ全体と未commit統合差分を不変条件・機能・完了条件に照らして検査した。root末尾slash、descriptor重複、依存循環、draft自動公開等を修正後、最終指摘なし。fixture整合assertと監査修正も追補レビュー済み。
+- 最終GUIで残っていた旧external revision期待値を、初期の正のrevision・GET前後の不変・navigation後の整合という公開観測に更新した。Windows watcher fixture削除はfolder除外と安全なpath確認後に限ってfs.rmの短い再試行を追加した。scroll・watcher・認証のassertは保持した。
+- さらに実GUIでrevealSourceのAtTopが選択付きshowDocumentに上書きされる二重配送を検出した。sourceNavigationEvents能力を明示し、VS Codeはtyped通知だけ、Zed等は標準showDocumentだけにした。省略/false/true×select/revealの6条件で単一配送とstale/close拒否を回帰確認し、元の厳密なscroll条件を保持した。
+- auditは既存間接依存の脆弱性を検出したため、DOMPurify3.4.17、cheerio経由Undici7.30.1、node-gyp経由Undici8.12.2、identity経由MSAL Node7.1.2へ限定resolutionを設定した。severity/ignore条件は変更せず、最終auditは`No audit suggestions`。MSALのmajor更新は削除APIを使わないことを読取り確認し、identityのpublic/confidential両flowを資格情報・ネットワークなしでAPI smoke確認した。ログ: `final-audit.log`、`msal-compatibility.log`。
+- 監査根拠: [DOMPurify advisory](https://github.com/advisories/GHSA-cg2g-xh64-v4q7)、[Undici advisory](https://github.com/advisories/GHSA-xjj6-f33q-929c)、[MSAL advisory](https://github.com/advisories/GHSA-xcx6-jx8p-x3h5)、[MSAL変更履歴](https://raw.githubusercontent.com/AzureAD/microsoft-authentication-library-for-js/dev/lib/msal-node/CHANGELOG.md)。
+- 固定submoduleは変更していない。`REFACTORING_INSTRUCTIONS.md`と`REFACTORING_ASSESSMENT.md`を保持した。生成図・schema・型・fixture・policyは正本から再生成し、循環や禁止依存を免除していない。
+- stage検査で新規goldenのCRLF混在を発見し、入力Markdownと期待HTMLをリポジトリ指定LFへ統一した。codeのliteral CR一個、Mermaid/ABC JSONのescaped CRLF四個だけが入力のLF化に対応する差分で、tag/属性/NodeId/安全なescapeは同一。readonly reviewとrenderer全23テストで厳密なHTML比較を保持することを確認した（`final-renderer-newlines.log`）。
+
+## 最終の機能チェックリスト
+全行成功。下表のRust/Nodeは`final-test.log`と`final-verify.log`、GUI/実browser/配布は`final-verify.log`で確認した。
+
+| ID | 確認方法 |
+|---|---|
+| F1 | preview-client/preview-controller、server preview_session、実editorの本文・DOM保持 |
+| F2 | browser-host、preview-http SSE、実Chromiumで同一ページの未保存変更をSSE受信 |
+| F3 | browser-navigation-runtimeの実DOM→HTTP→daemon→editor scrollとpreview-controllerのsource移動 |
+| F4 | standalone hostのfile/未保存文書・文書切替・crash recovery |
+| F5 | multi-root-runtimeの同daemonでroot追加/除外・未保存文書/preview保持 |
+| F6 | restricted editor host、applicationの書込み拒否・trust取消・古い完了拒否 |
+| F7 | server language_session、wire mapping、Unicode/CRLF/encodingとfence内token抑止 |
+| F8 | application native/workspace・theme、command_dispatch、workspace_browser |
+| F9 | native/notes、note-options、workspace workflowのカテゴリ/テンプレート/名前検証 |
+| F10 | applicationとserverのcollectAdmonitions、typed command/result |
+| F11 | native/exportのownership/journal/recovery/取消/改竄/リンク拒否、export-ack |
+| F12 | migration crate、CLI、workspace workflowのplan確認→同一planId適用 |
+| F13 | Zed adapter、server standard Code Action/executeCommand/showDocument、認証済workspace UI |
+| F14 | supervisor/runtime-behavior、実browser/editorでdaemon再起動後の未保存source回復 |
+| F15 | 配布manifest/実fs検証、全package、VSIX identity/clean-install smoke、Zed WASM/ZIP |
+| F16 | renderer golden/security、preview-extendedのmath/Mermaid/ABC再生寿命等、実Chromium数式描画とCSS外観比較 |
+
+## 最終計測（P0と同じ除外条件）
+| 言語 | 基準 非空行 / file | 最終 非空行 / file | 行数差 |
+|---|---|---|---|
+| Rust | 27,180 / 130 | 30,776 / 155 | +3,596 |
+| TypeScript | 14,052 / 75 | 14,998 / 98 | +946 |
+| Python | 3,655 / 22 | 3,716 / 31 | +61 |
+| JSON | 3,596 / 35 | 4,381 / 44 | +785 |
+| CSS | 752 / 3 | 830 / 14 | +78 |
+| JS | 487 / 8 | 482 / 6 | -5 |
+
+- daemon/CLIのnormal/build依存の重複除外行数: **328 → 173（−155）**。wasmtime/cranelift/ed25519-dalek/wit-bindgenはない。Zed独立WASIはこの集計の対象外。
+- unit全体の成功時間は26.45秒（`final-test-time.json`）。基準は164.78秒で契約確認停止＋Node単独1.98秒だったため、完全成功同士の速度比較とはしない。verifyの性能budgetも成功した。
+- TS本体6,496行、tests/support込み8,502行、比率**1.309**。1.2以下という目安には未到達。公開振る舞い・security・競合・GUIの独立assertを残し、比率のための本体水増し・集計移動・テスト削除はしない。fixture共通化は実施したが、watcherの新しい実挙動検査等も加えた。
+- 総行数が一律に減ったとは主張しない。typed境界・worker/競合試験・厳格配布検証を追加した。P0と同じ規則のため、contracts/schemas外の新しい配布schemaはJSON集計に含む。
+- workspace操作一件は基本5箇所（protocol command/記述子・outcome、application dispatch、native実装、transport結果、CLI引数）。引数なしbrowser操作は記述子から選択でき、専用UIが必要ならform/翻訳を別途加える。
+- wire型一件は型定義＋単一wire表一行。schema/TS型/validator/型mapへ伝播することを一時型追加で実証して復旧済み（`p4-protocol-probe.log`）。
+- 配布target一件はdistribution.json一行＋再生成。Rust/TS/Node/Python/CI matrix/package dry-runへ伝播することを一時target追加で実証して復旧済み（`p4-target-experiment.log`）。
+
+## 最終の判断・逸脱
+- P3〜P6は共有API・生成型・wire mapping・project分割・自動test発見が交差するため、全体関門を通した一つの最終統合コミットにまとめた。指示書の「1タスク1コミットを基本」からの逸脱として明記し、42タスクの結果と前段コミットを上表で対応させた。ビルド不能な途中コミットは作っていない。
+- P6-T1の比率は上記の目安超過を記録した。安全性/機能の検証を守る判断についてreadonly reviewで追加懸念はなかった。
+- 必須auditを満たすため既存間接依存の修正版を固定した。新たな機能依存は導入していない。
+- 利用者の明示指示により、最終commit後に現ブランチをoriginへ通常pushする。PR・タグ・実releaseの作成は行わない。

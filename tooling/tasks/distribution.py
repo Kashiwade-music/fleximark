@@ -1,7 +1,6 @@
 """Assemble versioned native runtimes and editor products from independent outputs."""
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import platform
@@ -11,7 +10,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-from _tools import ROOT, run, script_entrypoint
+from _tools import ROOT, run
 from distribution_contract import SPEC, TARGETS, metadata, normalize_arch, normalize_platform, read_manifest, target_spec, verify_runtime
 
 
@@ -70,6 +69,14 @@ def build_native(target: str | None = None) -> None:
     run("cargo", *args)
 
 
+def archive_directory(output: Path, archive: Path) -> None:
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as stream:
+        for path in sorted(output.rglob("*")):
+            if path.is_file():
+                stream.write(path, path.relative_to(output).as_posix())
+    archive.with_suffix(".zip.sha256").write_text(f"{digest(archive)}  {archive.name}\n", encoding="utf-8")
+
+
 def assemble_runtime(target: str, *, native_dir: Path | None = None, preview_dir: Path | None = None) -> Path:
     output = staging(target, "runtime")
     reset_output(output)
@@ -91,11 +98,7 @@ def assemble_runtime(target: str, *, native_dir: Path | None = None, preview_dir
     manifest = {"schemaVersion": 1, "version": release["version"], "target": target, "protocolVersion": release["protocol_version"], "files": files}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     archive = output.parent / f'fleximark-{release["version"]}-{target}.zip'
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as stream:
-        for path in sorted(output.rglob("*")):
-            if path.is_file():
-                stream.write(path, path.relative_to(output).as_posix())
-    archive.with_suffix(".zip.sha256").write_text(f"{digest(archive)}  {archive.name}\n", encoding="utf-8")
+    archive_directory(output, archive)
     return archive
 
 
@@ -128,12 +131,12 @@ def assemble_vscode(target: str, archive: Path) -> Path:
         expected = {item["path"].removeprefix("runtime/") for item in runtime_manifest_artifacts(payload, "runtime archive manifest")} | {"manifest.json"}
         if set(stream.namelist()) != expected or len(stream.namelist()) != len(expected):
             raise RuntimeError("runtime archive does not match canonical file set")
-        if sum(item.file_size for item in stream.infolist()) > 512 * SPEC["limits"]["manifestBytes"]:
+        if sum(item.file_size for item in stream.infolist()) > SPEC["limits"]["totalBytes"]:
             raise RuntimeError("runtime archive exceeds total size limit")
         for item in stream.infolist():
             if item.filename.startswith("/") or ".." in Path(item.filename).parts or "\\" in item.filename:
                 raise RuntimeError("unsafe runtime archive member")
-            if item.file_size > 256 * 1024 * 1024 or item.file_size > max(1, item.compress_size) * 200:
+            if item.file_size > SPEC["limits"]["fileBytes"] or item.file_size > max(1, item.compress_size) * 200:
                 raise RuntimeError("runtime archive member exceeds resource limits")
         stream.extractall(runtime)
     if "windows" not in target:
@@ -141,27 +144,3 @@ def assemble_vscode(target: str, archive: Path) -> Path:
             (runtime / "bin" / name).chmod(0o755)
     verify_runtime(runtime, target)
     return output
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("versions", "native", "runtime", "vscode"))
-    parser.add_argument("--target", default=host_target())
-    parser.add_argument("--native-dir", type=Path)
-    parser.add_argument("--archive", type=Path)
-    args = parser.parse_args()
-    if args.command == "versions":
-        generate_versions()
-    elif args.command == "native":
-        generate_versions()
-        build_native(args.target)
-    elif args.command == "runtime":
-        print(assemble_runtime(args.target, native_dir=args.native_dir))
-    else:
-        if args.archive is None:
-            parser.error("vscode requires --archive")
-        print(assemble_vscode(args.target, args.archive))
-
-
-if __name__ == "__main__":
-    script_entrypoint(main)

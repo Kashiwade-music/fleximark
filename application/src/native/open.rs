@@ -4,7 +4,7 @@ use fleximark_engine::DocumentEngine;
 #[cfg(test)]
 use fleximark_model::{DocumentUri, PositionEncoding};
 
-use super::{ApplicationError, resolve_render_assets};
+use super::ApplicationError;
 #[cfg(test)]
 use super::{workspace_for_document, workspace_path};
 
@@ -38,7 +38,12 @@ pub fn open_document(
     let config = super::workspace::validate_config(
         &workspace_path(&workspace)?.join(".fleximark/config.toml"),
     )?;
-    refresh_document_assets(&mut engine, &workspace, &config)?;
+    refresh_document_assets(
+        &mut engine,
+        &workspace,
+        &config,
+        &mut super::assets::AssetMemo::default(),
+    )?;
     Ok(engine)
 }
 
@@ -46,12 +51,14 @@ pub fn refresh_document_assets(
     engine: &mut DocumentEngine,
     workspace: &str,
     config: &fleximark_config::FlexiMarkConfig,
+    memo: &mut super::assets::AssetMemo,
 ) -> Result<(), ApplicationError> {
-    let assets = resolve_render_assets(
+    let assets = super::assets::resolve_render_assets_cached(
         &engine.document().uri.0,
         workspace,
         engine.document(),
         config,
+        memo,
     )?;
     let config = engine
         .render_config()

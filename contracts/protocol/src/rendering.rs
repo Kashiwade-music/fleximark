@@ -59,6 +59,7 @@ pub struct RenderStyle {
         feature = "contract-schema",
         schemars(regex(pattern = "^[0-9a-f]{64}$"))
     )]
+    #[serde(deserialize_with = "crate::value_validation::sha256")]
     pub fingerprint: String,
 }
 
@@ -70,6 +71,7 @@ pub struct RenderAsset {
         feature = "contract-schema",
         schemars(regex(pattern = "^fleximark-asset:[0-9a-f]{64}$"))
     )]
+    #[serde(deserialize_with = "crate::value_validation::asset_reference")]
     pub reference: String,
     #[cfg_attr(feature = "contract-schema", schemars(extend("enum" = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "audio/mpeg", "audio/ogg", "audio/wav"])))]
     pub media_type: String,
@@ -77,6 +79,7 @@ pub struct RenderAsset {
         feature = "contract-schema",
         schemars(regex(pattern = "^[0-9a-f]{64}$"))
     )]
+    #[serde(deserialize_with = "crate::value_validation::sha256")]
     pub content_hash: String,
     pub byte_length: JsSafeU64,
     #[cfg_attr(feature = "contract-schema", schemars(extend("contentEncoding" = "base64")))]

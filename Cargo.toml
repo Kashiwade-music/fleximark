@@ -10,6 +10,7 @@ members = [
   "contracts/protocol",
   "tooling/codegen",
   "dev/xtask",
+  "dev/test-support",
   "core/language",
   "application",
   "apps/server",
@@ -19,6 +20,7 @@ members = [
   "migration",
   "transports/lsp",
   "transports/preview-http",
+  "transports/wire-mapping",
 ]
 
 exclude = ["tooling/xtask-core", "adapters/zed"]

@@ -1,3 +1,5 @@
+import { isRecord } from "./guards.mjs";
+
 /** Validates the JSON Schema vocabulary emitted by the Rust contract generator. */
 interface Schema {
   $ref?: string;
@@ -27,8 +29,6 @@ interface Schema {
   propertyNames?: unknown;
   additionalProperties?: unknown;
 }
-const object = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 const equal = (left: unknown, right: unknown): boolean => {
   if (left === right) return true;
   if (Array.isArray(left) && Array.isArray(right))
@@ -36,7 +36,7 @@ const equal = (left: unknown, right: unknown): boolean => {
       left.length === right.length &&
       left.every((item, index) => equal(item, right[index]))
     );
-  if (object(left) && object(right))
+  if (isRecord(left) && isRecord(right))
     return (
       Object.keys(left).length === Object.keys(right).length &&
       Object.keys(left).every(
@@ -54,7 +54,7 @@ export function validateContractSchema(
 ): boolean {
   if (depth > 128) return false;
   if (typeof schema === "boolean") return schema;
-  if (!object(schema)) return false;
+  if (!isRecord(schema)) return false;
   const rule = schema as Schema;
   const check = (child: unknown, item = value) =>
     validateContractSchema(definitions, child, item, depth + 1);
@@ -98,7 +98,7 @@ export function validateContractSchema(
       case "array":
         return Array.isArray(value);
       case "object":
-        return object(value);
+        return isRecord(value);
       default:
         return false;
     }
@@ -144,7 +144,7 @@ export function validateContractSchema(
     )
       return false;
   }
-  if (object(value)) {
+  if (isRecord(value)) {
     if (rule.required?.some((name: string) => !Object.hasOwn(value, name)))
       return false;
     const properties = rule.properties ?? {};

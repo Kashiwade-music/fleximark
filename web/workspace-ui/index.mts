@@ -1,9 +1,10 @@
+import { WORKSPACE_COMMAND_KIND } from "@fleximark/contracts/protocol";
 import type {
   CommandResult,
   WorkspaceStateResult,
   WorkspaceUiCommandRequest,
-} from "../../contracts/typescript/protocol.generated.mjs";
-import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol.generated";
+
 import {
   browserCommands,
   categoryPaths,

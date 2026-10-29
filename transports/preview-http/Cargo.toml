@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+fleximark-wire-mapping = { path = "../wire-mapping" }
 fleximark-application = { path = "../../application" }
 fleximark-model = { path = "../../core/model" }
 fleximark-protocol = { path = "../../contracts/protocol" }

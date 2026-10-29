@@ -1,19 +1,13 @@
-import {
-  type PreviewHostEvent,
-  type PreviewNavigationEvent,
-  isPreviewNavigationEvent,
-  isRenderFrame,
-} from "../../contracts/typescript/protocol.mjs";
-import { AsyncTaskObserver } from "./async-tasks.mjs";
-import { PreviewEnhancer } from "./enhance.mjs";
-import { PreviewDocument, type RenderFrame } from "./index.mjs";
-import {
-  type EditorNavigationEvent,
-  PreviewNavigation,
-} from "./navigation.mjs";
-import { previewRuntimes } from "./runtimes.mjs";
+import { type PreviewHostEvent } from "@fleximark/contracts/protocol";
+import type { PreviewNavigationEvent } from "@fleximark/contracts/protocol";
 
-export type { PreviewHostEvent } from "../../contracts/typescript/protocol.mjs";
+import { PreviewEnhancer } from "./enhance.mjs";
+import { PreviewDocument } from "./index.mjs";
+import { PreviewNavigation } from "./navigation.mjs";
+import { previewRuntimes } from "./runtimes.mjs";
+import { PreviewSession } from "./session.mjs";
+
+export type { PreviewHostEvent } from "@fleximark/contracts/protocol";
 
 export class PreviewFailureGuard {
   #failed = false;
@@ -42,16 +36,31 @@ export class PreviewHost {
   readonly #preview: PreviewDocument;
   readonly #enhancer = new PreviewEnhancer(previewRuntimes);
   readonly #navigation: PreviewNavigation;
-  readonly #tasks = new AsyncTaskObserver();
+  readonly #session: PreviewSession;
   #disposed = false;
 
   constructor(
     root: HTMLElement,
     requestFrame: () => void,
-    sendNavigation: (event: EditorNavigationEvent) => void,
+    sendNavigation: (event: PreviewNavigationEvent) => void,
+    reportError: (error: unknown) => void = () => undefined,
   ) {
     this.#root = root;
-    this.#preview = new PreviewDocument(root, requestFrame);
+    this.#preview = new PreviewDocument(root, () => undefined);
+    this.#session = new PreviewSession({
+      apply: (frame) => {
+        if (!this.#preview.apply(frame)) return false;
+        this.#navigation.setKnownIds(
+          this.#preview.navigation.map(({ nodeId }) => nodeId),
+          this.#preview.navigation,
+        );
+        void this.#enhancer.render(this.#root).catch(reportError);
+        return true;
+      },
+      navigate: (event) => this.#navigation.receive(event),
+      requestRecovery: requestFrame,
+      reportError,
+    });
     this.#navigation = new PreviewNavigation(root, (event) => {
       const previewSessionId = this.#preview.previewSessionId;
       if (!previewSessionId || this.#preview.renderRevision < 1) return;
@@ -73,40 +82,21 @@ export class PreviewHost {
 
   apply(events: readonly PreviewHostEvent[]): boolean {
     if (this.#disposed) return false;
-    let changed = false;
-    let accepted = true;
     for (const event of events) {
-      if (isPreviewNavigationEvent(event)) {
-        const navigation = event as PreviewNavigationEvent;
-        if (
-          navigation.previewSessionId !== this.#preview.previewSessionId ||
-          navigation.renderRevision !== this.#preview.renderRevision
-        )
-          continue;
-        this.#navigation.receive(navigation);
-        continue;
-      }
-      if (!isRenderFrame(event) || !this.#preview.apply(event as RenderFrame)) {
-        accepted = false;
-        break;
-      }
-      this.#navigation.setKnownIds(
-        this.#preview.navigation.map(({ nodeId }) => nodeId),
-        this.#preview.navigation,
-      );
-      changed = true;
+      if ("type" in event) void this.#session.receiveNavigation(event);
+      else if (this.#session.receiveFrame(event) === false) return false;
     }
-    if (changed && !this.#disposed)
-      this.#tasks.observe(this.#enhancer.render(this.#root));
-    return accepted;
+    return true;
+  }
+
+  fail(error: unknown): void {
+    this.#session.fail(error);
   }
 
   dispose(): void {
-    if (this.#disposed) {
-      this.#enhancer.dispose();
-      return;
-    }
+    if (this.#disposed) return;
     this.#disposed = true;
+    this.#session.dispose();
     this.#navigation.dispose();
     this.#enhancer.dispose();
     this.#preview.dispose();

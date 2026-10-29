@@ -49,7 +49,7 @@
       "name": "create preview result with external URL",
       "definition": "createPreviewResult",
       "value": {
-        "previewSessionId": "preview",
+        "previewSessionId": "rust-render-frame-fixture",
         "url": "http://127.0.0.1:3000/preview",
         "frame": {
           "previewSessionId": "rust-render-frame-fixture",

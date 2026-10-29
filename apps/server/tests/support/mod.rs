@@ -5,8 +5,7 @@ use fleximark_protocol::{IncomingMessage, RpcId};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub struct NativeServer {
     server: Server,
@@ -99,8 +98,7 @@ pub fn read_frame(server: &mut Server, preview: &str) -> Value {
     for (uri, _) in registry.open_documents() {
         let session = registry.session_id_for_uri(&uri).unwrap();
         if let Some(frame) = registry.read_preview(session, preview, None).unwrap() {
-            return serde_json::to_value(fleximark_preview_http::protocol::frame(&frame).unwrap())
-                .unwrap();
+            return serde_json::to_value(fleximark_wire_mapping::frame(&frame).unwrap()).unwrap();
         }
     }
     panic!("preview frame was not published")
@@ -127,29 +125,9 @@ pub fn http(url: &str, suffix: &str, method: &str, body: Option<&str>) -> String
     stream.read_to_string(&mut response).unwrap();
     response
 }
-pub struct TestDirectory(PathBuf);
-impl Deref for TestDirectory {
-    type Target = Path;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+pub use fleximark_test_support::TempWorkspace as TestDirectory;
 pub fn test_directory(label: &str) -> TestDirectory {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "fleximark-composition-{label}-{}-{nonce}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&path).unwrap();
-    TestDirectory(path)
+    TestDirectory::new(label).unwrap()
 }
 pub fn uri(path: &Path) -> String {
     fleximark_application::WorkspaceAuthority::path_to_file_uri(path).unwrap()

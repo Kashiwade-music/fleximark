@@ -1,4 +1,4 @@
-import type { SourcePosition } from "../../../contracts/typescript/protocol.mjs";
+import type { SourcePosition } from "@fleximark/contracts/protocol";
 
 export function sourcePositionToCharacter(
   line: string,

@@ -182,3 +182,6 @@ pub fn acknowledge_export(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod contracts_tests;

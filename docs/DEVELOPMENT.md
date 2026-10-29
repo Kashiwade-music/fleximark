@@ -1,6 +1,6 @@
 # 開発手順
 
-リポジトリ直下で `mise run <操作> [対象]` を実行する。Yarn のラッパーも同じ処理を呼ぶ。
+リポジトリ直下で `mise run <操作> [対象]` を実行する。
 設定は [mise.toml](../mise.toml)、実装は [tasks.py](../tooling/tasks/tasks.py)。
 
 ## 初回の準備
@@ -11,7 +11,7 @@ mise run setup
 ```
 
 `mise install` は固定バージョンの toolchain を導入する。
-`setup` は固定 submodule、Yarn/Python の依存関係、rustfmt/clippy、wasm32-wasip2 を導入する。ネットワークが必要。
+`setup` は固定 submodule、Yarn の依存関係、rustfmt/clippy、wasm32-wasip2 を導入する。ネットワークが必要。
 
 ## コマンドと実行内容
 
@@ -39,7 +39,7 @@ mise run setup
 `build` / `package` は対象指定が必須。ビルドはエディタを起動せず、`package` はテスト・公開を行わない。
 runtime/Zed の ZIP は組立処理の一部なので `build` でも生成する。VSIX は `package` / `verify` で生成する。
 `check` は検査用にコンパイルするが、test suite は実行しない。古い生成物は再生成したうえで失敗する。
-`test` の省略時は `unit`（GUI なし）。`yarn test` も同じ Python/Rust/Node テストを呼ぶ。
+`test` の省略時は `unit`（GUI なし）。Python は標準ライブラリだけを使い、独立した依存環境を必要としない。
 `test editor` / `smoke` は GUI が必要で、初回は VS Code をダウンロードする場合がある。
 `verify` は GUI・実 Chrome/Edge・ネットワークが必要。browser は `FLEXIMARK_BROWSER` で指定できる。
 Linux の GUI 検証には `xvfb-run -a mise run verify` を使う。
@@ -76,9 +76,17 @@ version の正本は `release.toml`。ビルド対象は現在の OS/CPU。daemo
 protocol は Rust の契約から schema/TypeScript/fixture を生成する。図・翻訳・version も source と一緒に差分を確認する。
 構造検査の違反は所有元の source で修正し、固定 submodule `tooling/xtask-core` や生成図を直接変更しない。
 
-CI は `python tooling/tasks/tasks.py ci <phase>` を呼び、ローカルと同じ処理を使う。
+CI と release は共通の verify.yml を呼び、各 job は `python tooling/tasks/tasks.py ci <phase>` でローカルと同じ処理を使う。matrix は distribution.json から setup job が生成する。Windows/macOS の product job でも Rust unit tests を実行する。
 `quality` = check + unit tests、`product` = runtime/VS Code build + 性能/editor/VSIX/identity/smoke、`zed` = Zed WASM/ZIP のみ。
 ネットワーク audit は独立した必須工程。全 6 platform を各 host で検証し、Linux x64 では `FLEXIMARK_BROWSER_DOM=true` も指定する。
+
+## TSテストの追加
+
+実行hostに応じて `tests/typescript/unit`、`editor`、`standalone` に `*.test.mts` を置き、`suiteName` と `suite` をexportする。unitはNode、editorはworkspace付きVS Code、standaloneはfolderなしの独立VS Codeで実行する。共通の準備はsupportに置く。
+
+buildが各directoryを探索し、`.build/tests/generated`へstatic import付きentryを生成する。tsconfigのglobで型検査するため、個々のtestをconfig・aggregator・build一覧へ登録しない。package間importにはYarn workspace名を使い、生成物を直接編集しない。
+
+TypeScriptはpackageごとのcomposite projectとbuiltin ESLintで依存境界を検査し、999 code linesの上限を適用する。`web/preview`からeditor APIへ依存させず、contractsをbrowser/editorから独立させる。
 
 ## リリース
 
@@ -88,9 +96,16 @@ CI は `python tooling/tasks/tasks.py ci <phase>` を呼び、ローカルと同
 2. `mise run generate versions` で各製品へ反映する。
 3. CHANGELOG を手で更新し、変更を commit する。
 4. `vX.Y.Z` タグを作成して push する。
-5. `release.yml` が作成した draft release と配布物を確認して公開する。
+5. `release.yml` が作成した draft release と配布物を確認して手動で公開する。
+6. 公開イベントを受けた marketplace.yml が、同じ release の VSIX・source identity・attestation を確認して Marketplace へ送る。
 
 protocol と config の形式は、リリースまでは version 1 を維持する。
+
+内部の配布操作も共通CLIで実行する。`mise run artifact create|verify|validate`、`mise run release-assets --root ... --source-git-head ... --tag ...`、`mise run distribution runtime --target ...` を使い、各moduleを直接起動しない。
+
+watch の runtime manifest 更新は、各ファイルの mtime とサイズが変わったときだけ SHA-256 を再計算する。
+
+`web/preview/katex.css` は KaTeX の配布CSSからfontを埋め込んだ追跡資源である。旧vendor scriptは撤去した。KaTeX更新時は同じ配布物のCSS/fontと表示を確認して更新する。
 
 ## 旧コマンドからの移行
 

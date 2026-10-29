@@ -88,9 +88,15 @@ fn optional_present_fixture_matches_directional_public_dtos() {
     );
 
     let create_preview = case(&fixture, "createPreviewResult");
+    let frame: fleximark_protocol::RenderFrame =
+        serde_json::from_value(create_preview["frame"].clone()).unwrap();
+    assert_eq!(
+        create_preview["previewSessionId"],
+        json!(frame.preview_session_id.0)
+    );
     let create_preview_result = CreatePreviewResult {
-        frame: serde_json::from_value(create_preview["frame"].clone()).unwrap(),
-        preview_session_id: "preview".into(),
+        preview_session_id: frame.preview_session_id.0.clone(),
+        frame,
         url: Some("http://127.0.0.1:3000/preview".into()),
     };
     assert_eq!(

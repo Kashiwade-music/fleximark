@@ -1,8 +1,0 @@
-name: Validate source
-description: Run the same source checks and unit/native tests as local development
-runs:
-  using: composite
-  steps:
-    - uses: ./.github/actions/setup-toolchain
-    - shell: bash
-      run: python tooling/tasks/tasks.py ci quality

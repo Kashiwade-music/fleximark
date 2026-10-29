@@ -1,15 +1,17 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "lib": ["ES2024", "DOM"],
-    "types": [],
-    "rootDir": ".",
-    "outDir": ".build/types/browser",
-    "tsBuildInfoFile": ".build/types/.tsbuildinfo/browser.tsbuildinfo"
-  },
-  "include": [
-    "web/**/*.mts",
-    "contracts/typescript/**/*.mts",
-    "adapters/vscode/webview/**/*.mts"
+  "files": [],
+  "references": [
+    {
+      "path": "contracts/typescript"
+    },
+    {
+      "path": "web/preview"
+    },
+    {
+      "path": "web/workspace-ui"
+    },
+    {
+      "path": "adapters/vscode/webview"
+    }
   ]
 }

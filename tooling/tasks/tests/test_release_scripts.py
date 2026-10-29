@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, call, patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 import _tools
-import tasks
+import task_watch as tasks
 import distribution
 import distribution_contract
 import build
@@ -256,7 +256,7 @@ class DistributionTests(unittest.TestCase):
     def test_browser_and_adapter_have_distinct_entries_and_outputs(self):
         self.assertIn("adapters/vscode/webview/vscode-host.mts", build.preview_args(production=True))
         self.assertIn("--outfile=.build/vscode/dist/extension.cjs", build.extension_args(production=True))
-        self.assertIn("tests/typescript/pure.test.mts", build.pure_test_args())
+        self.assertIn(".build/tests/generated/unit.test.mts", build.pure_test_args())
 
 class WatchCleanupTests(unittest.TestCase):
     def setUp(self):
@@ -267,11 +267,8 @@ class WatchCleanupTests(unittest.TestCase):
         copy = patch.object(tasks.shutil, "copytree")
         copy.start()
         self.addCleanup(copy.stop)
-        check = patch.object(tasks, "check_protocol_contract")
-        check.start()
-        self.addCleanup(check.stop)
 
-    def test_dev_announces_ready_only_after_every_watcher_is_ready(self) -> None:
+    def test_watch_announces_ready_only_after_every_watcher_is_ready(self) -> None:
         children = [MagicMock(), MagicMock(), MagicMock()]
         for child in children:
             child.poll.return_value = None
@@ -363,11 +360,10 @@ class WatchCleanupTests(unittest.TestCase):
         self.assertEqual(process.wait.call_args_list, [call(timeout=5), call(timeout=5)])
         process.kill.assert_called_once_with()
 
-    def test_dev_cleans_up_started_children_when_a_later_spawn_fails(self) -> None:
+    def test_watch_cleans_up_started_children_when_a_later_spawn_fails(self) -> None:
         child = MagicMock()
         child.poll.side_effect = [None, None]
         with (
-            patch.object(tasks, "check_protocol_contract"),
             patch.object(tasks.javascript_build, "clean"),
             patch.object(
                 tasks.javascript_build,

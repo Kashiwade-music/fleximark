@@ -50,3 +50,22 @@ export interface PreviewRuntimes {
     ): void;
   };
 }
+
+export interface Disposable {
+  dispose(): void;
+}
+
+export interface EnhancerContext {
+  readonly runtimes: PreviewRuntimes;
+  current(): boolean;
+  nextId(): number;
+  report(error: unknown): void;
+}
+
+export interface Enhancer {
+  readonly kind: string;
+  enhance(
+    element: HTMLElement,
+    context: EnhancerContext,
+  ): Disposable | Promise<Disposable>;
+}

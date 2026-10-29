@@ -1,4 +1,5 @@
 //! Role: Own native document, workspace, and preview services.
+mod authority;
 mod cancellation;
 mod cancellation_checks;
 mod document;
@@ -11,6 +12,12 @@ mod index;
 pub mod logging;
 pub(crate) mod native;
 mod operations;
+mod workspace_worker;
+pub use workspace_worker::{OperationCompletion, OperationProgress, PreparedWorkspaceOperation};
+#[cfg(test)]
+mod continuation_tests;
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod operations_tests;
 pub use operations::{CommandOutcome, MigrationAppliedOutcome, WorkspaceOps};
@@ -29,7 +36,7 @@ fn content_hash(text: &str) -> String {
     blake3::hash(text.as_bytes()).to_hex().to_string()
 }
 pub use requests::*;
-pub use snapshots::{PreviewSessionId, RenderFrame};
+pub use snapshots::{PreviewHandle, PreviewSessionId, RenderFrame};
 mod workspace;
 mod workspace_config;
 
@@ -41,9 +48,7 @@ use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
 
 use error::engine_error;
 pub use error::{ApplicationError, ErrorKind};
-pub use fleximark_language::{
-    CompletionItem, SEMANTIC_TOKEN_TYPES, completion_items, semantic_tokens,
-};
+pub use fleximark_language::{CompletionItem, completion_items, semantic_tokens};
 use index::SessionIndex;
 pub use workspace::{WorkspaceAuthority, WorkspaceMembership, WorkspaceState, WorkspaceStatus};
 
@@ -102,7 +107,12 @@ impl DocumentStore {
             .by_uri_mut(uri)
             .ok_or(ApplicationError::NotOpen)?;
         let config = self.workspaces.cached_config(&workspace)?;
-        native::refresh_document_assets(&mut session.engine, &workspace, &config)
+        native::refresh_document_assets(
+            &mut session.engine,
+            &workspace,
+            &config,
+            &mut session.asset_memo,
+        )
     }
     pub fn open_documents(&self) -> Vec<(String, fleximark_model::Document)> {
         self.index
@@ -148,12 +158,24 @@ impl DocumentStore {
         #[cfg(test)]
         cancellation_checks::checkpoint("configuration_prepared");
         cancellation_checks::check(cancellation, "reconfigure_commit")?;
+        for (uri, _) in &replacements {
+            self.index
+                .by_uri(uri)
+                .ok_or(ApplicationError::NotOpen)?
+                .authority
+                .check_advance()?;
+        }
         self.workspaces.replace(workspace_uri, render_config);
         for (uri, engine) in replacements {
-            self.index
+            let session = self
+                .index
                 .by_uri_mut(&uri)
-                .ok_or(ApplicationError::NotOpen)?
-                .engine = engine;
+                .ok_or(ApplicationError::NotOpen)?;
+            session
+                .authority
+                .commit(engine.document().document_version)?;
+            session.asset_memo.clear();
+            session.engine = engine;
         }
         Ok(())
     }
@@ -196,7 +218,12 @@ impl DocumentStore {
         .map_err(engine_error)?;
         cancellation_checks::check(cancellation, "open_commit")?;
         let id = format!("document-{}", NEXT_DOCUMENT.fetch_add(1, Ordering::Relaxed));
+        if let Some(previous) = self.index.by_uri(&item.uri) {
+            previous.authority.close();
+        }
         self.index.insert(DocumentSession {
+            asset_memo: Default::default(),
+            authority: std::sync::Arc::new(authority::DocumentAuthority::new(version)),
             id,
             uri: item.uri,
             workspace_uri,
@@ -247,18 +274,28 @@ impl DocumentStore {
         cancellation_checks::checkpoint("change_candidate");
         if cancellation.is_cancelled() {
             session.engine.mark_out_of_sync();
+            session.authority.invalidate();
             return Err(ApplicationError::Cancelled);
         }
-        result.map_err(engine_error)?;
+        if let Err(error) = result {
+            session.engine.mark_out_of_sync();
+            session.authority.invalidate();
+            return Err(engine_error(error));
+        }
         if let Err(error) = cancellation_checks::check(cancellation, "change_commit") {
             session.engine.mark_out_of_sync();
+            session.authority.invalidate();
             return Err(error);
         }
+        session.authority.commit(version_u64)?;
         session.engine = candidate;
         Ok(())
     }
 
     pub fn close(&mut self, uri: &str) {
+        if let Some(session) = self.index.by_uri(uri) {
+            session.authority.close();
+        }
         self.index.remove_by_uri(uri);
     }
     pub fn attach(
@@ -329,7 +366,7 @@ impl DocumentStore {
         version: u64,
         preview_id: &str,
         cancellation: &CancellationToken,
-    ) -> Result<RenderFrame, ApplicationError> {
+    ) -> Result<PreviewHandle, ApplicationError> {
         let session = self
             .index
             .by_session_mut(session_id)
@@ -347,7 +384,7 @@ impl DocumentStore {
         session_id: &str,
         preview_id: &str,
         after_revision: Option<u64>,
-    ) -> Result<Option<RenderFrame>, ApplicationError> {
+    ) -> Result<Option<PreviewHandle>, ApplicationError> {
         let session = self
             .index
             .by_session(session_id)
@@ -366,11 +403,15 @@ impl DocumentStore {
         session_id: &str,
         preview_id: &str,
     ) -> Result<(), ApplicationError> {
-        self.index
+        if let Some(previous) = self
+            .index
             .by_session_mut(session_id)
             .ok_or(ApplicationError::UnknownSession)?
             .previews
-            .remove(preview_id);
+            .remove(preview_id)
+        {
+            previous.invalidate_publication();
+        }
         Ok(())
     }
 
@@ -411,7 +452,83 @@ impl DocumentStore {
     pub fn mark_out_of_sync(&mut self, uri: &str) {
         if let Some(session) = self.index.by_uri_mut(uri) {
             session.engine.mark_out_of_sync();
+            session.authority.invalidate();
         }
+    }
+    pub fn add_workspace(&mut self, uri: String) -> Result<WorkspaceStatus, ApplicationError> {
+        let existing = self.workspace_statuses();
+        let status = self.workspaces.add_restricted(uri)?;
+        if existing.iter().any(|old| old.uri == status.uri) {
+            return Ok(status);
+        }
+        let attach = self
+            .index
+            .iter()
+            .filter_map(|(uri, session)| {
+                self.workspaces
+                    .membership(uri)
+                    .filter(|membership| {
+                        membership.uri == status.uri
+                            && session.workspace_uri.as_deref() != Some(status.uri.as_str())
+                    })
+                    .map(|_| uri.to_owned())
+            })
+            .collect::<Vec<_>>();
+        for uri in &attach {
+            if let Err(error) = self
+                .index
+                .by_uri(uri)
+                .ok_or(ApplicationError::NotOpen)?
+                .authority
+                .check_advance()
+            {
+                self.workspaces.remove_root(&status.uri);
+                return Err(error);
+            }
+        }
+        for uri in attach {
+            let session = self
+                .index
+                .by_uri_mut(&uri)
+                .ok_or(ApplicationError::NotOpen)?;
+            session.engine.set_render_config(Default::default())?;
+            session.asset_memo.clear();
+            session.workspace_uri = Some(status.uri.clone());
+            session
+                .authority
+                .commit(session.document().document_version)?;
+        }
+        Ok(status)
+    }
+    pub fn remove_workspace(&mut self, uri: &str) -> Result<(), ApplicationError> {
+        let uri = uri.trim_end_matches('/');
+        let detach = self
+            .index
+            .iter()
+            .filter(|(_, session)| session.workspace_uri.as_deref() == Some(uri))
+            .map(|(uri, _)| uri.to_owned())
+            .collect::<Vec<_>>();
+        for uri in &detach {
+            self.index
+                .by_uri(uri)
+                .ok_or(ApplicationError::NotOpen)?
+                .authority
+                .check_advance()?;
+        }
+        self.workspaces.remove_root(uri);
+        for uri in detach {
+            let session = self
+                .index
+                .by_uri_mut(&uri)
+                .ok_or(ApplicationError::NotOpen)?;
+            session.engine.set_render_config(Default::default())?;
+            session.asset_memo.clear();
+            session.workspace_uri = None;
+            session
+                .authority
+                .commit(session.document().document_version)?;
+        }
+        Ok(())
     }
     pub fn authority(&self) -> &WorkspaceAuthority {
         &self.workspaces

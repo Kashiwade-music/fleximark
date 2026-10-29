@@ -1,19 +1,18 @@
+import { isRecord } from "@fleximark/contracts/guards";
+import { WORKSPACE_COMMAND_KIND } from "@fleximark/contracts/protocol";
+import { hasContractShape } from "@fleximark/contracts/protocol";
 import type {
   CommandResult,
   MigrationPlanResult,
   NoteCategoryOption,
   WorkspaceStateResult,
   WorkspaceUiCommandRequest,
-} from "../../contracts/typescript/protocol.generated.mjs";
-import { COMMAND_DESCRIPTORS } from "../../contracts/typescript/protocol.generated.mjs";
-import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
-import { hasContractShape } from "../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol.generated";
+import { COMMAND_DESCRIPTORS } from "@fleximark/contracts/protocol.generated";
 
 export const browserCommands = COMMAND_DESCRIPTORS.filter(
   (command) => command.browserUi,
 );
-const object = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string";
 export function isWorkspaceState(v: unknown): v is WorkspaceStateResult {
   return hasContractShape("workspaceStateResult", v);
@@ -84,7 +83,7 @@ export async function readResponse<T>(
   const value: unknown = await response.json();
   if (!response.ok)
     throw new Error(
-      object(value) && text(value.error)
+      isRecord(value) && text(value.error)
         ? value.error
         : "Request failed (" + response.status + ").",
     );

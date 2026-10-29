@@ -1,0 +1,120 @@
+.markdown-body {
+  & figure,
+  & pre {
+    margin: 1rem 0;
+  }
+}
+
+.markdown-body {
+  & pre,
+  & code {
+    color: inherit;
+    font-family:
+      "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    background-color: var(--fleximark-color-control-background);
+  }
+}
+
+.markdown-body {
+  & pre {
+    padding: 1rem;
+    height: auto;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border-radius: 6px;
+  }
+}
+
+.markdown-body {
+  & code {
+    padding: 0;
+    font-size: 0.95em;
+    border-radius: 4px;
+  }
+}
+
+.markdown-body {
+  & p > code,
+  & li > code {
+    padding: 2px 5px;
+    color: indianred;
+  }
+}
+
+.markdown-body {
+  & figure[data-fleximark-kind="code"] {
+    margin: 1rem 0;
+    background-color: var(--fleximark-color-control-background);
+    border-radius: 6px;
+  }
+}
+
+.markdown-body {
+  & figure[data-fleximark-kind="code"] > .fleximark-code-title {
+    padding: 0.6rem 1rem;
+    font-weight: 600;
+    background-color: transparent;
+    border-bottom: 1px solid var(--fleximark-color-control-border);
+  }
+}
+
+.markdown-body {
+  & figure[data-fleximark-kind="code"] > pre {
+    margin: 0;
+    background-color: transparent !important;
+  }
+}
+
+.markdown-body {
+  & figure[data-fleximark-kind="code"] > pre > code {
+    display: block;
+  }
+}
+
+.markdown-body {
+  &
+    figure[data-fleximark-kind="code"]
+    > pre
+    > code:has(> .fleximark-code-line) {
+    display: grid;
+    grid-auto-rows: minmax(1.35rem, auto);
+  }
+}
+
+.markdown-body {
+  & figure[data-fleximark-kind="code"] .fleximark-code-line[data-line]::before {
+    display: inline-block;
+    min-width: 1.25rem;
+    margin-right: 1rem;
+    color: gray;
+    text-align: right;
+    content: attr(data-line);
+  }
+}
+
+.markdown-body {
+  & .fleximark-token-keyword {
+    color: var(--fleximark-color-token-keyword);
+  }
+}
+
+.markdown-body {
+  & .fleximark-token-string {
+    color: var(--fleximark-color-token-string);
+  }
+}
+
+.markdown-body {
+  & .fleximark-token-number {
+    color: var(--fleximark-color-token-number);
+  }
+}
+
+.markdown-body {
+  & .fleximark-token-comment {
+    color: var(--fleximark-color-token-comment);
+  }
+}

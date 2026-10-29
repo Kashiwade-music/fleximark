@@ -1,17 +1,23 @@
+import { BUILTIN_RENDER_KINDS } from "@fleximark/contracts/syntax.generated";
+
+import type { Disposable } from "./types.mjs";
+
 export function renderTabs(
   block: HTMLElement,
   activeTabs: Map<string, string>,
   nextId: () => number,
-): void {
+): Disposable {
   const panels = [...block.children].filter(
     (child): child is HTMLElement =>
-      child instanceof HTMLElement && child.dataset.fleximarkKind === "tab",
+      child instanceof HTMLElement &&
+      child.dataset.fleximarkKind === BUILTIN_RENDER_KINDS.TAB,
   );
   if (!panels.length) throw new Error("tabs requires at least one tab");
   block.querySelector(":scope > [role='tablist']")?.remove();
   const tablist = document.createElement("div");
   tablist.setAttribute("role", "tablist");
   const containerId = block.dataset.fleximarkNodeId ?? "";
+  const releases: (() => void)[] = [];
   const buttons = panels.map((panel, index) => {
     const button = document.createElement("button");
     const suffix = `${nextId()}-${index}`;
@@ -34,7 +40,7 @@ export function renderTabs(
       if (containerId && panelId) activeTabs.set(containerId, panelId);
     };
     button.addEventListener("click", activate);
-    button.addEventListener("keydown", (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       const next =
         event.key === "ArrowRight"
           ? (index + 1) % panels.length
@@ -49,6 +55,11 @@ export function renderTabs(
       event.preventDefault();
       buttons[next].click();
       buttons[next].focus();
+    };
+    button.addEventListener("keydown", onKeyDown);
+    releases.push(() => {
+      button.removeEventListener("click", activate);
+      button.removeEventListener("keydown", onKeyDown);
     });
     tablist.append(button);
     return button;
@@ -61,4 +72,10 @@ export function renderTabs(
       panels.findIndex((panel) => panel.dataset.fleximarkNodeId === active),
     )
   ].click();
+  return {
+    dispose() {
+      for (const release of releases) release();
+      tablist.remove();
+    },
+  };
 }

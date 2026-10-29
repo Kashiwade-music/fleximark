@@ -4,14 +4,15 @@ use crate::error::EngineError;
 use crate::identity::{content_hash, reconcile_node_ids};
 use fleximark_model::{Document, DocumentUri, NavigationEntry, PositionEncoding};
 use fleximark_parser::parse;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct DocumentEngine {
-    pub(super) source: String,
+    pub(super) source: Arc<str>,
     pub(super) position_encoding: PositionEncoding,
-    pub(super) document: Document,
+    pub(super) document: Arc<Document>,
     pub(super) out_of_sync: bool,
-    pub(super) render_config: RenderConfig,
+    pub(super) render_config: Arc<RenderConfig>,
 }
 
 impl DocumentEngine {
@@ -26,11 +27,11 @@ impl DocumentEngine {
         let mut document = parse(uri, version, &source)?;
         reconcile_node_ids(None, &mut document);
         Ok(Self {
-            source,
+            source: source.into(),
             position_encoding,
-            document,
+            document: Arc::new(document),
             out_of_sync: false,
-            render_config,
+            render_config: Arc::new(render_config),
         })
     }
     pub fn document(&self) -> &Document {
@@ -81,7 +82,7 @@ impl DocumentEngine {
 
     pub fn set_render_config(&mut self, config: RenderConfig) -> Result<(), EngineError> {
         config.validate()?;
-        self.render_config = config;
+        self.render_config = Arc::new(config);
         Ok(())
     }
 
@@ -120,8 +121,8 @@ impl DocumentEngine {
     fn install_source(&mut self, version: u64, source: String) -> Result<(), EngineError> {
         let mut document = parse(self.document.uri.clone(), version, &source)?;
         reconcile_node_ids(Some(&self.document), &mut document);
-        self.source = source;
-        self.document = document;
+        self.source = source.into();
+        self.document = Arc::new(document);
         Ok(())
     }
 }

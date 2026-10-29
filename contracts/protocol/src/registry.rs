@@ -1,5 +1,11 @@
 //! Role: Declare the current protocol types, methods and message directions.
+use crate::command_values::*;
+use crate::commands::*;
+use crate::lsp_values::*;
+use crate::rendering::*;
+use crate::wire_values::*;
 use serde::Serialize;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MethodDirection {
@@ -12,305 +18,302 @@ pub enum MethodKind {
     Request,
     Notification,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WireType {
-    Unit,
-    Id,
-    Position,
-    Range,
-    Selection,
-    NodeId,
-    PreviewSessionId,
-    SourcePosition,
-    SourceRange,
-    NavigationEntry,
-    RenderStyle,
-    RenderAsset,
-    RenderBlock,
-    RenderFrame,
-    PreviewNavigationEvent,
-    SourceNavigationEvent,
-    RenderNavigationEvent,
-    WorkspaceGrant,
-    ClientInfo,
-    ClientCapabilities,
-    WorkspaceStatus,
-    ServerCapabilities,
-    InitializeParams,
-    InitializeResult,
-    AttachDocumentParams,
-    AttachDocumentResult,
-    CreatePreviewParams,
-    PreviewTarget,
-    CreatePreviewResult,
-    PreviewChangedParams,
-    RerenderPreviewParams,
-    DisposePreviewParams,
-    SetSelectionParams,
-    SetViewportParams,
-    PreviewEventParams,
-    ServerPreviewEventParams,
-    WorkspaceCommandRequest,
-    CommandContext,
-    DocumentCommandContext,
-    WorkspaceCommand,
-    MigrationPlanResult,
-    MigrationStatus,
-    WorkspaceStateRequest,
-    WorkspaceStateResult,
-    WorkspaceUiContext,
-    WorkspaceUiWorkspace,
-    WorkspaceUiDocument,
-    WorkspaceUiCommandRequest,
-    WorkspaceUiError,
-
-    CommandMessage,
-    CommandResult,
-    NoteCategoryOption,
-    GetNoteOptionsResult,
-    ReconfigureWorkspaceParams,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Contract {
+    Deserialize,
+    Serialize,
 }
-impl WireType {
-    pub const ALL: &[Self] = &[
-        Self::Unit,
-        Self::Id,
-        Self::Position,
-        Self::Range,
-        Self::Selection,
-        Self::NodeId,
-        Self::PreviewSessionId,
-        Self::SourcePosition,
-        Self::SourceRange,
-        Self::NavigationEntry,
-        Self::RenderStyle,
-        Self::RenderAsset,
-        Self::RenderBlock,
-        Self::RenderFrame,
-        Self::PreviewNavigationEvent,
-        Self::SourceNavigationEvent,
-        Self::RenderNavigationEvent,
-        Self::WorkspaceGrant,
-        Self::ClientInfo,
-        Self::ClientCapabilities,
-        Self::WorkspaceStatus,
-        Self::ServerCapabilities,
-        Self::InitializeParams,
-        Self::InitializeResult,
-        Self::AttachDocumentParams,
-        Self::AttachDocumentResult,
-        Self::CreatePreviewParams,
-        Self::PreviewTarget,
-        Self::CreatePreviewResult,
-        Self::PreviewChangedParams,
-        Self::RerenderPreviewParams,
-        Self::DisposePreviewParams,
-        Self::SetSelectionParams,
-        Self::SetViewportParams,
-        Self::PreviewEventParams,
-        Self::ServerPreviewEventParams,
-        Self::WorkspaceCommandRequest,
-        Self::CommandContext,
-        Self::DocumentCommandContext,
-        Self::WorkspaceCommand,
-        Self::MigrationPlanResult,
-        Self::MigrationStatus,
-        Self::WorkspaceStateRequest,
-        Self::WorkspaceStateResult,
-        Self::WorkspaceUiContext,
-        Self::WorkspaceUiWorkspace,
-        Self::WorkspaceUiDocument,
-        Self::WorkspaceUiCommandRequest,
-        Self::WorkspaceUiError,
-        Self::CommandMessage,
-        Self::CommandResult,
-        Self::NoteCategoryOption,
-        Self::GetNoteOptionsResult,
-        Self::ReconfigureWorkspaceParams,
-    ];
-    pub const fn wire_name(self) -> &'static str {
-        match self {
-            Self::Unit => "Unit",
-            Self::Id => "RpcId",
-            Self::Position => "TextPosition",
-            Self::Range => "TextRange",
-            Self::Selection => "TextSelection",
-            Self::NodeId => "NodeId",
-            Self::PreviewSessionId => "PreviewSessionId",
-            Self::SourcePosition => "SourcePosition",
-            Self::SourceRange => "SourceRange",
-            Self::NavigationEntry => "NavigationEntry",
-            Self::RenderStyle => "RenderStyle",
-            Self::RenderAsset => "RenderAsset",
-            Self::RenderBlock => "RenderBlock",
-            Self::RenderFrame => "RenderFrame",
-            Self::PreviewNavigationEvent => "PreviewNavigationEvent",
-            Self::SourceNavigationEvent => "SourceNavigationEvent",
-            Self::RenderNavigationEvent => "RenderNavigationEvent",
-            Self::WorkspaceGrant => "WorkspaceGrant",
-            Self::ClientInfo => "ClientInfo",
-            Self::ClientCapabilities => "ClientCapabilities",
-            Self::WorkspaceStatus => "WorkspaceStatus",
-            Self::ServerCapabilities => "ServerCapabilities",
-            Self::InitializeParams => "InitializeParams",
-            Self::InitializeResult => "InitializeResult",
-            Self::AttachDocumentParams => "AttachDocumentParams",
-            Self::AttachDocumentResult => "AttachDocumentResult",
-            Self::CreatePreviewParams => "CreatePreviewParams",
-            Self::PreviewTarget => "PreviewTarget",
-            Self::CreatePreviewResult => "CreatePreviewResult",
-            Self::PreviewChangedParams => "PreviewChangedParams",
-            Self::RerenderPreviewParams => "RerenderPreviewParams",
-            Self::DisposePreviewParams => "DisposePreviewParams",
-            Self::SetSelectionParams => "SetSelectionParams",
-            Self::SetViewportParams => "SetViewportParams",
-            Self::PreviewEventParams => "PreviewEventParams",
-            Self::ServerPreviewEventParams => "ServerPreviewEventParams",
-            Self::WorkspaceCommandRequest => "WorkspaceCommandRequest",
-            Self::CommandContext => "CommandContext",
-            Self::DocumentCommandContext => "DocumentCommandContext",
-            Self::WorkspaceCommand => "WorkspaceCommand",
-            Self::MigrationPlanResult => "MigrationPlanResult",
-            Self::MigrationStatus => "MigrationStatus",
-            Self::WorkspaceStateRequest => "WorkspaceStateRequest",
-            Self::WorkspaceStateResult => "WorkspaceStateResult",
-            Self::WorkspaceUiContext => "WorkspaceUiContext",
-            Self::WorkspaceUiWorkspace => "WorkspaceUiWorkspace",
-            Self::WorkspaceUiDocument => "WorkspaceUiDocument",
-            Self::WorkspaceUiCommandRequest => "WorkspaceUiCommandRequest",
-            Self::WorkspaceUiError => "WorkspaceUiError",
-            Self::CommandMessage => "CommandMessage",
-            Self::CommandResult => "CommandResult",
-            Self::NoteCategoryOption => "NoteCategoryOption",
-            Self::GetNoteOptionsResult => "GetNoteOptionsResult",
-            Self::ReconfigureWorkspaceParams => "ReconfigureWorkspaceParams",
-        }
+#[derive(Clone, Copy, Debug)]
+pub struct WireDescriptor {
+    pub wire_name: &'static str,
+    pub schema_name: &'static str,
+    pub typescript_name: &'static str,
+    pub contract: Contract,
+    pub semantic: Option<&'static str>,
+    pub accept: Option<fn(serde_json::Value) -> Result<(), serde_json::Error>>,
+    #[cfg(feature = "contract-schema")]
+    pub schema: fn(Contract) -> Result<serde_json::Value, String>,
+}
+#[cfg(feature = "contract-schema")]
+trait SchemaType: schemars::JsonSchema {}
+#[cfg(feature = "contract-schema")]
+impl<T: schemars::JsonSchema> SchemaType for T {}
+#[cfg(not(feature = "contract-schema"))]
+trait SchemaType {}
+#[cfg(not(feature = "contract-schema"))]
+impl<T> SchemaType for T {}
+fn accept<T: serde::de::DeserializeOwned>(
+    value: serde_json::Value,
+) -> Result<(), serde_json::Error> {
+    serde_json::from_value::<T>(value).map(drop)
+}
+#[cfg(feature = "contract-schema")]
+fn schema_for<T: SchemaType>(contract: Contract) -> Result<serde_json::Value, String> {
+    let settings = schemars::generate::SchemaSettings::draft2020_12();
+    let settings = match contract {
+        Contract::Deserialize => settings.for_deserialize(),
+        Contract::Serialize => settings.for_serialize(),
+    };
+    serde_json::to_value(settings.into_generator().into_root_schema_for::<T>())
+        .map_err(|error| error.to_string())
+}
+const fn receive<T: serde::de::DeserializeOwned + SchemaType>(
+    wire_name: &'static str,
+    schema_name: &'static str,
+    typescript_name: &'static str,
+) -> WireDescriptor {
+    WireDescriptor {
+        wire_name,
+        schema_name,
+        typescript_name,
+        contract: Contract::Deserialize,
+        semantic: None,
+        accept: Some(accept::<T>),
+        #[cfg(feature = "contract-schema")]
+        schema: schema_for::<T>,
     }
-    pub const fn schema_name(self) -> &'static str {
-        match self {
-            Self::Unit => "unit",
-            Self::Id => "id",
-            Self::Position => "position",
-            Self::Range => "range",
-            Self::Selection => "selection",
-            Self::NodeId => "nodeId",
-            Self::PreviewSessionId => "previewSessionId",
-            Self::SourcePosition => "sourcePosition",
-            Self::SourceRange => "sourceRange",
-            Self::NavigationEntry => "navigationEntry",
-            Self::RenderStyle => "renderStyle",
-            Self::RenderAsset => "renderAsset",
-            Self::RenderBlock => "renderBlock",
-            Self::RenderFrame => "renderFrame",
-            Self::PreviewNavigationEvent => "previewNavigationEvent",
-            Self::SourceNavigationEvent => "sourceNavigationEvent",
-            Self::RenderNavigationEvent => "renderNavigationEvent",
-            Self::WorkspaceGrant => "workspaceGrant",
-            Self::ClientInfo => "clientInfo",
-            Self::ClientCapabilities => "clientCapabilities",
-            Self::WorkspaceStatus => "workspaceStatus",
-            Self::ServerCapabilities => "serverCapabilities",
-            Self::InitializeParams => "initializeParams",
-            Self::InitializeResult => "initializeResult",
-            Self::AttachDocumentParams => "attachDocumentParams",
-            Self::AttachDocumentResult => "attachDocumentResult",
-            Self::CreatePreviewParams => "createPreviewParams",
-            Self::PreviewTarget => "previewTarget",
-            Self::CreatePreviewResult => "createPreviewResult",
-            Self::PreviewChangedParams => "previewChangedParams",
-            Self::RerenderPreviewParams => "rerenderPreviewParams",
-            Self::DisposePreviewParams => "disposePreviewParams",
-            Self::SetSelectionParams => "setSelectionParams",
-            Self::SetViewportParams => "setViewportParams",
-            Self::PreviewEventParams => "previewEventParams",
-            Self::ServerPreviewEventParams => "serverPreviewEventParams",
-            Self::WorkspaceCommandRequest => "workspaceCommandRequest",
-            Self::CommandContext => "commandContext",
-            Self::DocumentCommandContext => "documentCommandContext",
-            Self::WorkspaceCommand => "workspaceCommand",
-            Self::MigrationPlanResult => "migrationPlanResult",
-            Self::MigrationStatus => "migrationStatus",
-            Self::WorkspaceStateRequest => "workspaceStateRequest",
-            Self::WorkspaceStateResult => "workspaceStateResult",
-            Self::WorkspaceUiContext => "workspaceUiContext",
-            Self::WorkspaceUiWorkspace => "workspaceUiWorkspace",
-            Self::WorkspaceUiDocument => "workspaceUiDocument",
-            Self::WorkspaceUiCommandRequest => "workspaceUiCommandRequest",
-            Self::WorkspaceUiError => "workspaceUiError",
-            Self::CommandMessage => "commandMessage",
-            Self::CommandResult => "commandResult",
-            Self::NoteCategoryOption => "noteCategoryOption",
-            Self::GetNoteOptionsResult => "getNoteOptionsResult",
-            Self::ReconfigureWorkspaceParams => "reconfigureWorkspaceParams",
-        }
+}
+const fn send<T: SchemaType>(
+    wire_name: &'static str,
+    schema_name: &'static str,
+    typescript_name: &'static str,
+) -> WireDescriptor {
+    WireDescriptor {
+        wire_name,
+        schema_name,
+        typescript_name,
+        contract: Contract::Serialize,
+        semantic: None,
+        accept: None,
+        #[cfg(feature = "contract-schema")]
+        schema: schema_for::<T>,
     }
-    pub const fn typescript_name(self) -> &'static str {
-        match self {
-            Self::Unit => "null",
-            Self::Id => "RpcId",
-            Self::Position => "TextPosition",
-            Self::Range => "TextRange",
-            Self::Selection => "TextSelection",
-            Self::NodeId => "NodeId",
-            Self::PreviewSessionId => "PreviewSessionId",
-            Self::SourcePosition => "SourcePosition",
-            Self::SourceRange => "SourceRange",
-            Self::NavigationEntry => "NavigationEntry",
-            Self::RenderStyle => "RenderStyle",
-            Self::RenderAsset => "RenderAsset",
-            Self::RenderBlock => "RenderBlock",
-            Self::RenderFrame => "RenderFrame",
-            Self::PreviewNavigationEvent => "PreviewNavigationEvent",
-            Self::SourceNavigationEvent => "SourceNavigationEvent",
-            Self::RenderNavigationEvent => "RenderNavigationEvent",
-            Self::WorkspaceGrant => "WorkspaceGrant",
-            Self::ClientInfo => "ClientInfo",
-            Self::ClientCapabilities => "ClientCapabilities",
-            Self::WorkspaceStatus => "WorkspaceStatus",
-            Self::ServerCapabilities => "ServerCapabilities",
-            Self::InitializeParams => "InitializeParams",
-            Self::InitializeResult => "InitializeResult",
-            Self::AttachDocumentParams => "AttachDocumentParams",
-            Self::AttachDocumentResult => "AttachDocumentResult",
-            Self::CreatePreviewParams => "CreatePreviewParams",
-            Self::PreviewTarget => "PreviewTarget",
-            Self::CreatePreviewResult => "CreatePreviewResult",
-            Self::PreviewChangedParams => "PreviewChangedParams",
-            Self::RerenderPreviewParams => "RerenderPreviewParams",
-            Self::DisposePreviewParams => "DisposePreviewParams",
-            Self::SetSelectionParams => "SetSelectionParams",
-            Self::SetViewportParams => "SetViewportParams",
-            Self::PreviewEventParams => "PreviewEventParams",
-            Self::ServerPreviewEventParams => "ServerPreviewEventParams",
-            Self::WorkspaceCommandRequest => "WorkspaceCommandRequest",
-            Self::CommandContext => "CommandContext",
-            Self::DocumentCommandContext => "DocumentCommandContext",
-            Self::WorkspaceCommand => "WorkspaceCommand",
-            Self::MigrationPlanResult => "MigrationPlanResult",
-            Self::MigrationStatus => "MigrationStatus",
-            Self::WorkspaceStateRequest => "WorkspaceStateRequest",
-            Self::WorkspaceStateResult => "WorkspaceStateResult",
-            Self::WorkspaceUiContext => "WorkspaceUiContext",
-            Self::WorkspaceUiWorkspace => "WorkspaceUiWorkspace",
-            Self::WorkspaceUiDocument => "WorkspaceUiDocument",
-            Self::WorkspaceUiCommandRequest => "WorkspaceUiCommandRequest",
-            Self::WorkspaceUiError => "WorkspaceUiError",
-            Self::CommandMessage => "CommandMessage",
-            Self::CommandResult => "CommandResult",
-            Self::NoteCategoryOption => "NoteCategoryOption",
-            Self::GetNoteOptionsResult => "GetNoteOptionsResult",
-            Self::ReconfigureWorkspaceParams => "ReconfigureWorkspaceParams",
-        }
+}
+impl WireDescriptor {
+    pub const fn with_semantic(mut self, semantic: &'static str) -> Self {
+        self.semantic = Some(semantic);
+        self
     }
+}
+pub const WIRE_TYPES: &[WireDescriptor] = &[
+    receive::<LspTextDocument>("LspTextDocument", "lspTextDocument", "LspTextDocument"),
+    receive::<LspDocumentParams>(
+        "LspDocumentParams",
+        "lspDocumentParams",
+        "LspDocumentParams",
+    ),
+    receive::<LspCodeActionParams>(
+        "LspCodeActionParams",
+        "lspCodeActionParams",
+        "LspCodeActionParams",
+    ),
+    receive::<LspExecuteCommandParams>(
+        "LspExecuteCommandParams",
+        "lspExecuteCommandParams",
+        "LspExecuteCommandParams",
+    ),
+    receive::<LspEditorCommand>("LspEditorCommand", "lspEditorCommand", "LspEditorCommand"),
+    receive::<LspCodeAction>("LspCodeAction", "lspCodeAction", "LspCodeAction"),
+    send::<LspSemanticTokens>(
+        "LspSemanticTokens",
+        "lspSemanticTokens",
+        "LspSemanticTokens",
+    ),
+    send::<LspShowDocumentParams>(
+        "LspShowDocumentParams",
+        "lspShowDocumentParams",
+        "LspShowDocumentParams",
+    ),
+    send::<LspLogMessageParams>(
+        "LspLogMessageParams",
+        "lspLogMessageParams",
+        "LspLogMessageParams",
+    ),
+    receive::<()>("Unit", "unit", "null"),
+    receive::<RpcId>("RpcId", "id", "RpcId"),
+    receive::<TextPosition>("TextPosition", "position", "TextPosition"),
+    receive::<TextRange>("TextRange", "range", "TextRange"),
+    receive::<TextSelection>("TextSelection", "selection", "TextSelection"),
+    send::<NodeId>("NodeId", "nodeId", "NodeId"),
+    send::<PreviewSessionId>("PreviewSessionId", "previewSessionId", "PreviewSessionId"),
+    send::<SourcePosition>("SourcePosition", "sourcePosition", "SourcePosition"),
+    send::<SourceRange>("SourceRange", "sourceRange", "SourceRange"),
+    send::<NavigationEntry>("NavigationEntry", "navigationEntry", "NavigationEntry"),
+    send::<RenderStyle>("RenderStyle", "renderStyle", "RenderStyle"),
+    send::<RenderAsset>("RenderAsset", "renderAsset", "RenderAsset"),
+    send::<RenderBlock>("RenderBlock", "renderBlock", "RenderBlock"),
+    send::<RenderFrame>("RenderFrame", "renderFrame", "RenderFrame").with_semantic("frame"),
+    receive::<PreviewNavigationEvent>(
+        "PreviewNavigationEvent",
+        "previewNavigationEvent",
+        "PreviewNavigationEvent",
+    ),
+    send::<SourceNavigationEvent>(
+        "SourceNavigationEvent",
+        "sourceNavigationEvent",
+        "SourceNavigationEvent",
+    ),
+    send::<RenderNavigationEvent>(
+        "RenderNavigationEvent",
+        "renderNavigationEvent",
+        "RenderNavigationEvent",
+    ),
+    receive::<WorkspaceGrant>("WorkspaceGrant", "workspaceGrant", "WorkspaceGrant"),
+    receive::<ClientInfo>("ClientInfo", "clientInfo", "ClientInfo"),
+    receive::<ClientCapabilities>(
+        "ClientCapabilities",
+        "clientCapabilities",
+        "ClientCapabilities",
+    ),
+    send::<WorkspaceStatus>("WorkspaceStatus", "workspaceStatus", "WorkspaceStatus"),
+    send::<ServerCapabilities>(
+        "ServerCapabilities",
+        "serverCapabilities",
+        "ServerCapabilities",
+    ),
+    receive::<InitializeParams>("InitializeParams", "initializeParams", "InitializeParams"),
+    send::<InitializeResult>("InitializeResult", "initializeResult", "InitializeResult"),
+    receive::<AttachDocumentParams>(
+        "AttachDocumentParams",
+        "attachDocumentParams",
+        "AttachDocumentParams",
+    ),
+    send::<AttachDocumentResult>(
+        "AttachDocumentResult",
+        "attachDocumentResult",
+        "AttachDocumentResult",
+    ),
+    receive::<CreatePreviewParams>(
+        "CreatePreviewParams",
+        "createPreviewParams",
+        "CreatePreviewParams",
+    ),
+    receive::<PreviewTarget>("PreviewTarget", "previewTarget", "PreviewTarget"),
+    send::<CreatePreviewResult>(
+        "CreatePreviewResult",
+        "createPreviewResult",
+        "CreatePreviewResult",
+    )
+    .with_semantic("frameEnvelope"),
+    send::<PreviewChangedParams>(
+        "PreviewChangedParams",
+        "previewChangedParams",
+        "PreviewChangedParams",
+    )
+    .with_semantic("frameEnvelope"),
+    receive::<RerenderPreviewParams>(
+        "RerenderPreviewParams",
+        "rerenderPreviewParams",
+        "RerenderPreviewParams",
+    ),
+    receive::<DisposePreviewParams>(
+        "DisposePreviewParams",
+        "disposePreviewParams",
+        "DisposePreviewParams",
+    ),
+    receive::<SetSelectionParams>(
+        "SetSelectionParams",
+        "setSelectionParams",
+        "SetSelectionParams",
+    ),
+    receive::<SetViewportParams>(
+        "SetViewportParams",
+        "setViewportParams",
+        "SetViewportParams",
+    ),
+    receive::<PreviewEventParams>(
+        "PreviewEventParams",
+        "previewEventParams",
+        "PreviewEventParams",
+    )
+    .with_semantic("previewEvent"),
+    send::<ServerPreviewEventParams>(
+        "ServerPreviewEventParams",
+        "serverPreviewEventParams",
+        "ServerPreviewEventParams",
+    )
+    .with_semantic("serverPreviewEvent"),
+    receive::<WorkspaceCommandRequest>(
+        "WorkspaceCommandRequest",
+        "workspaceCommandRequest",
+        "WorkspaceCommandRequest",
+    ),
+    receive::<CommandContext>("CommandContext", "commandContext", "CommandContext"),
+    receive::<DocumentCommandContext>(
+        "DocumentCommandContext",
+        "documentCommandContext",
+        "DocumentCommandContext",
+    ),
+    receive::<WorkspaceCommand>("WorkspaceCommand", "workspaceCommand", "WorkspaceCommand"),
+    receive::<MigrationPlanResult>(
+        "MigrationPlanResult",
+        "migrationPlanResult",
+        "MigrationPlanResult",
+    ),
+    receive::<MigrationStatus>("MigrationStatus", "migrationStatus", "MigrationStatus"),
+    receive::<WorkspaceStateRequest>(
+        "WorkspaceStateRequest",
+        "workspaceStateRequest",
+        "WorkspaceStateRequest",
+    ),
+    receive::<WorkspaceStateResult>(
+        "WorkspaceStateResult",
+        "workspaceStateResult",
+        "WorkspaceStateResult",
+    ),
+    receive::<WorkspaceUiContext>(
+        "WorkspaceUiContext",
+        "workspaceUiContext",
+        "WorkspaceUiContext",
+    ),
+    receive::<WorkspaceUiWorkspace>(
+        "WorkspaceUiWorkspace",
+        "workspaceUiWorkspace",
+        "WorkspaceUiWorkspace",
+    ),
+    receive::<WorkspaceUiDocument>(
+        "WorkspaceUiDocument",
+        "workspaceUiDocument",
+        "WorkspaceUiDocument",
+    ),
+    receive::<WorkspaceUiCommandRequest>(
+        "WorkspaceUiCommandRequest",
+        "workspaceUiCommandRequest",
+        "WorkspaceUiCommandRequest",
+    ),
+    send::<WorkspaceUiError>("WorkspaceUiError", "workspaceUiError", "WorkspaceUiError"),
+    send::<CommandMessage>("CommandMessage", "commandMessage", "CommandMessage"),
+    send::<CommandResult>("CommandResult", "commandResult", "CommandResult"),
+    send::<NoteCategoryOption>(
+        "NoteCategoryOption",
+        "noteCategoryOption",
+        "NoteCategoryOption",
+    ),
+    send::<GetNoteOptionsResult>(
+        "GetNoteOptionsResult",
+        "getNoteOptionsResult",
+        "GetNoteOptionsResult",
+    ),
+    receive::<ReconfigureWorkspaceParams>(
+        "ReconfigureWorkspaceParams",
+        "reconfigureWorkspaceParams",
+        "ReconfigureWorkspaceParams",
+    ),
+];
+pub fn wire_type(name: &str) -> Result<&'static WireDescriptor, String> {
+    WIRE_TYPES
+        .iter()
+        .find(|descriptor| descriptor.wire_name == name)
+        .ok_or_else(|| format!("unknown wire type: {name}"))
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MethodSpec {
     pub name: &'static str,
     pub direction: MethodDirection,
     pub kind: MethodKind,
-    pub client_to_server_params_type: Option<WireType>,
-    pub server_to_client_params_type: Option<WireType>,
-    pub result_type: Option<WireType>,
+    pub client_to_server_params_type: Option<&'static str>,
+    pub server_to_client_params_type: Option<&'static str>,
+    pub result_type: Option<&'static str>,
 }
 pub mod method {
     //! Role: Name the current extension methods carried alongside standard LSP.
@@ -330,47 +333,47 @@ pub const METHOD_SPECS: &[MethodSpec] = &[
         name: method::ATTACH_DOCUMENT,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Request,
-        client_to_server_params_type: Some(WireType::AttachDocumentParams),
+        client_to_server_params_type: Some("AttachDocumentParams"),
         server_to_client_params_type: None,
-        result_type: Some(WireType::AttachDocumentResult),
+        result_type: Some("AttachDocumentResult"),
     },
     MethodSpec {
         name: method::CREATE_PREVIEW,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Request,
-        client_to_server_params_type: Some(WireType::CreatePreviewParams),
+        client_to_server_params_type: Some("CreatePreviewParams"),
         server_to_client_params_type: None,
-        result_type: Some(WireType::CreatePreviewResult),
+        result_type: Some("CreatePreviewResult"),
     },
     MethodSpec {
         name: method::PREVIEW_CHANGED,
         direction: MethodDirection::ServerToClient,
         kind: MethodKind::Notification,
         client_to_server_params_type: None,
-        server_to_client_params_type: Some(WireType::PreviewChangedParams),
+        server_to_client_params_type: Some("PreviewChangedParams"),
         result_type: None,
     },
     MethodSpec {
         name: method::RERENDER_PREVIEW,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Request,
-        client_to_server_params_type: Some(WireType::RerenderPreviewParams),
+        client_to_server_params_type: Some("RerenderPreviewParams"),
         server_to_client_params_type: None,
-        result_type: Some(WireType::Unit),
+        result_type: Some("Unit"),
     },
     MethodSpec {
         name: method::DISPOSE_PREVIEW,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Request,
-        client_to_server_params_type: Some(WireType::DisposePreviewParams),
+        client_to_server_params_type: Some("DisposePreviewParams"),
         server_to_client_params_type: None,
-        result_type: Some(WireType::Unit),
+        result_type: Some("Unit"),
     },
     MethodSpec {
         name: method::SET_SELECTION,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Notification,
-        client_to_server_params_type: Some(WireType::SetSelectionParams),
+        client_to_server_params_type: Some("SetSelectionParams"),
         server_to_client_params_type: None,
         result_type: None,
     },
@@ -378,7 +381,7 @@ pub const METHOD_SPECS: &[MethodSpec] = &[
         name: method::SET_VIEWPORT,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Notification,
-        client_to_server_params_type: Some(WireType::SetViewportParams),
+        client_to_server_params_type: Some("SetViewportParams"),
         server_to_client_params_type: None,
         result_type: None,
     },
@@ -386,27 +389,111 @@ pub const METHOD_SPECS: &[MethodSpec] = &[
         name: method::PREVIEW_EVENT,
         direction: MethodDirection::Bidirectional,
         kind: MethodKind::Notification,
-        client_to_server_params_type: Some(WireType::PreviewEventParams),
-        server_to_client_params_type: Some(WireType::ServerPreviewEventParams),
+        client_to_server_params_type: Some("PreviewEventParams"),
+        server_to_client_params_type: Some("ServerPreviewEventParams"),
         result_type: None,
     },
     MethodSpec {
         name: method::EXECUTE_COMMAND,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Request,
-        client_to_server_params_type: Some(WireType::WorkspaceCommandRequest),
+        client_to_server_params_type: Some("WorkspaceCommandRequest"),
         server_to_client_params_type: None,
-        result_type: Some(WireType::CommandResult),
+        result_type: Some("CommandResult"),
     },
     MethodSpec {
         name: method::RECONFIGURE_WORKSPACE,
         direction: MethodDirection::ClientToServer,
         kind: MethodKind::Request,
-        client_to_server_params_type: Some(WireType::ReconfigureWorkspaceParams),
+        client_to_server_params_type: Some("ReconfigureWorkspaceParams"),
         server_to_client_params_type: None,
-        result_type: Some(WireType::Unit),
+        result_type: Some("Unit"),
     },
 ];
 pub fn method_spec(name: &str) -> Option<&'static MethodSpec> {
     METHOD_SPECS.iter().find(|spec| spec.name == name)
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct LspMethodSpec {
+    pub name: &'static str,
+    pub params: Option<&'static str>,
+}
+pub const LSP_METHODS: &[LspMethodSpec] = &[
+    LspMethodSpec {
+        name: "initialize",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "initialized",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "shutdown",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "exit",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "$/cancelRequest",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/didOpen",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/didChange",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/didClose",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/completion",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/semanticTokens/full",
+        params: Some("LspDocumentParams"),
+    },
+    LspMethodSpec {
+        name: "textDocument/hover",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/documentSymbol",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/diagnostic",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "textDocument/codeAction",
+        params: Some("LspCodeActionParams"),
+    },
+    LspMethodSpec {
+        name: "workspace/didChangeWorkspaceFolders",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "workspace/executeCommand",
+        params: Some("LspExecuteCommandParams"),
+    },
+    LspMethodSpec {
+        name: "textDocument/publishDiagnostics",
+        params: None,
+    },
+    LspMethodSpec {
+        name: "window/showDocument",
+        params: Some("LspShowDocumentParams"),
+    },
+    LspMethodSpec {
+        name: "window/logMessage",
+        params: Some("LspLogMessageParams"),
+    },
+];

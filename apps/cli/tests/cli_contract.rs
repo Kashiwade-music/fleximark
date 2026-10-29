@@ -1,8 +1,7 @@
 //! Role: Verify CLI command behavior and filesystem contracts.
+use fleximark_test_support::TempWorkspace;
 use std::fs;
-use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn run(arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_fleximark"))
@@ -37,7 +36,8 @@ fn invalid_invocations_preserve_stderr_and_failure_exit() {
 
 #[test]
 fn render_writes_html_to_stdout_without_stderr() {
-    let path = temporary_markdown_path();
+    let fixture = TempWorkspace::new("cli-render").unwrap();
+    let path = fixture.join("document.md");
     fs::write(&path, "# CLI contract\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_fleximark"))
         .arg("render")
@@ -55,20 +55,9 @@ fn render_writes_html_to_stdout_without_stderr() {
     assert!(!stdout.ends_with('\n'));
 }
 
-fn temporary_markdown_path() -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "fleximark-cli-contract-{}-{}.md",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ))
-}
-
 #[test]
 fn migration_dry_run_is_explicit_and_apply_preserves_legacy_inputs() {
-    let root = temporary_markdown_path().with_extension("workspace");
+    let root = TempWorkspace::new("cli-contract").unwrap();
     let control = root.join(".fleximark");
     fs::create_dir_all(&control).unwrap();
     fs::write(
@@ -102,12 +91,11 @@ fn migration_dry_run_is_explicit_and_apply_preserves_legacy_inputs() {
     assert!(again.status.success());
     let plan: serde_json::Value = serde_json::from_slice(&again.stdout).unwrap();
     assert_eq!(plan["status"], "alreadyCurrent");
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn restricted_render_ignores_invalid_configuration_and_workspace_writes_are_denied() {
-    let root = temporary_markdown_path().with_extension("workspace");
+    let root = TempWorkspace::new("cli-contract").unwrap();
     fs::create_dir_all(root.join(".fleximark")).unwrap();
     fs::write(root.join(".fleximark/config.toml"), "invalid = [").unwrap();
     let document = root.join("doc.md");
@@ -125,12 +113,11 @@ fn restricted_render_ignores_invalid_configuration_and_workspace_writes_are_deni
         "invalid = ["
     );
     assert!(!root.join(".fleximark/theme.css").exists());
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn create_note_applies_nested_category_template_and_name_and_rejects_unsafe_options() {
-    let root = temporary_markdown_path().with_extension("workspace");
+    let root = TempWorkspace::new("cli-contract").unwrap();
     fs::create_dir_all(root.join(".fleximark")).unwrap();
     fs::write(
         root.join(".fleximark/config.toml"),
@@ -185,7 +172,6 @@ daily = ["# ${FILE_NAME}", "${1:Body}"]
         before
     );
     assert!(!root.join("escape.md").exists());
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -198,7 +184,7 @@ fn product_binary_rejects_benchmark_command() {
 
 #[test]
 fn migration_settings_are_explicit_and_recovery_rejects_conflicting_options() {
-    let root = temporary_markdown_path().with_extension("workspace");
+    let root = TempWorkspace::new("cli-contract").unwrap();
     fs::create_dir_all(root.join(".fleximark")).unwrap();
     fs::write(
         root.join(".fleximark/fleximark.json"),
@@ -235,5 +221,4 @@ fn migration_settings_are_explicit_and_recovery_rejects_conflicting_options() {
     }
     assert_eq!(fs::read_to_string(settings).unwrap(), settings_text);
     assert!(!root.join(".fleximark/config.toml").exists());
-    fs::remove_dir_all(root).unwrap();
 }

@@ -1,5 +1,5 @@
 [package]
-name = "fleximarkd"
+name = "fleximark-server"
 version = "0.16.14"
 edition.workspace = true
 license.workspace = true
@@ -15,6 +15,8 @@ fleximark-application = { path = "../../application" }
 fleximark-preview-assets = { path = "../../runtime/preview-assets" }
 
 [dev-dependencies]
+fleximark-test-support = { path = "../../dev/test-support" }
+fleximark-wire-mapping = { path = "../../transports/wire-mapping" }
 fleximark-engine = { path = "../../core/engine" }
 fleximark-model = { path = "../../core/model" }
 fleximark-protocol = { path = "../../contracts/protocol" }

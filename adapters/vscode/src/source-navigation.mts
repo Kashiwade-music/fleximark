@@ -1,23 +1,21 @@
-import * as vscode from "vscode";
-
 import type {
   SourceNavigationEvent,
   SourcePosition,
-} from "../../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
+import * as vscode from "vscode";
+
 import {
   sourcePositionToCharacter,
   sourcePositionWithinLine,
 } from "./position.mjs";
 import type { PreviewEchoState } from "./preview-coordinator.mjs";
-import type { DocumentRuntime, PreviewState } from "./runtime-state.mjs";
+import type { PreviewState } from "./runtime-state.mjs";
 import { findVisibleSourceEditor } from "./workspace-selection.mjs";
 
 export async function applySourceNavigation(
-  runtime: DocumentRuntime,
   preview: PreviewState,
   event: SourceNavigationEvent,
   echoes: PreviewEchoState,
-  isCurrent: (runtime: DocumentRuntime, preview: PreviewState) => boolean,
 ): Promise<void> {
   const expectedRevision = preview.binding.renderRevision;
   const expectedBinding = preview.binding;
@@ -50,7 +48,7 @@ export async function applySourceNavigation(
       preview: false,
     }));
   if (
-    !isCurrent(runtime, preview) ||
+    !expectedBinding.isCurrent() ||
     preview.binding !== expectedBinding ||
     preview.binding.renderRevision !== expectedRevision ||
     !vscode.workspace.textDocuments.includes(document) ||

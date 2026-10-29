@@ -241,6 +241,5 @@ mod tests {
         }
         let untrusted = configured_render_config(&uri, false, 3).unwrap();
         assert!(untrusted.style.is_none());
-        fs::remove_dir_all(root).unwrap();
     }
 }

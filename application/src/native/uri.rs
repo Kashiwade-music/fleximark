@@ -190,7 +190,5 @@ mod tests {
             );
             std::fs::remove_dir(&linked).unwrap();
         }
-        std::fs::remove_dir_all(root).unwrap();
-        std::fs::remove_dir_all(outside).unwrap();
     }
 }

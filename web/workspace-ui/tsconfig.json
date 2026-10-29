@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": [],
+    "rootDir": ".",
+    "outDir": "../../.build/types/workspace-ui",
+    "tsBuildInfoFile": "../../.build/types/.tsbuildinfo/workspace-ui.tsbuildinfo"
+  },
+  "include": ["**/*.mts"],
+  "references": [
+    {
+      "path": "../../contracts/typescript"
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 //! Role: Adapt custom preview methods and native workspace reconfiguration.
-use super::protocol::{counter, native_position, range, wire_frame};
+use super::positions::native_position;
 use super::state::*;
 use super::wire::*;
+use fleximark_wire_mapping::{counter, frame as wire_frame, source_range};
 
 impl Server {
     pub(super) fn initialize_workspaces(
@@ -16,6 +17,7 @@ impl Server {
             .transpose()?
             .unwrap_or_default();
         let statuses = self.registry.configure_native_workspaces(roots)?;
+        self.source_navigation_events = capabilities.source_navigation_events;
         self.selection_events = capabilities.selection_events;
         self.viewport_events = capabilities.viewport_events;
         Ok(InitializeResult {
@@ -115,7 +117,6 @@ impl Server {
                 token,
                 document_session_id: session.to_owned(),
                 explicit_jump,
-                delivered_revision: frame.render_revision,
             },
         );
         self.refresh_explicit_jump(&preview_id)?;
@@ -225,9 +226,13 @@ impl Server {
         }
         for (preview_id, state) in &self.preview_states {
             if state.document_session_id == params.document_session_id {
+                let revision = match self.preview_frame(preview_id) {
+                    Ok(frame) => frame.render_revision,
+                    Err(error) => return id.map(|id| session_error(id, error)),
+                };
                 let event = RenderNavigationEvent::Selection {
                     preview_session_id: preview_id.clone(),
-                    render_revision: match counter(state.delivered_revision) {
+                    render_revision: match counter(revision) {
                         Ok(revision) => revision,
                         Err(error) => return id.map(|id| boundary_error(id, error)),
                     },
@@ -247,7 +252,7 @@ impl Server {
                     .push(preview_event_notification(ServerPreviewEventParams {
                         daemon_instance_id: params.daemon_instance_id.clone(),
                         preview_session_id: preview_id.clone(),
-                        render_revision: match counter(state.delivered_revision) {
+                        render_revision: match counter(revision) {
                             Ok(revision) => revision,
                             Err(error) => return id.map(|id| boundary_error(id, error)),
                         },
@@ -300,9 +305,13 @@ impl Server {
         };
         for (preview_id, state) in &self.preview_states {
             if state.document_session_id == params.document_session_id {
+                let revision = match self.preview_frame(preview_id) {
+                    Ok(frame) => frame.render_revision,
+                    Err(error) => return id.map(|id| session_error(id, error)),
+                };
                 let event = RenderNavigationEvent::Viewport {
                     preview_session_id: preview_id.clone(),
-                    render_revision: match counter(state.delivered_revision) {
+                    render_revision: match counter(revision) {
                         Ok(revision) => revision,
                         Err(error) => return id.map(|id| boundary_error(id, error)),
                     },
@@ -315,7 +324,7 @@ impl Server {
                     .push(preview_event_notification(ServerPreviewEventParams {
                         daemon_instance_id: params.daemon_instance_id.clone(),
                         preview_session_id: preview_id.clone(),
-                        render_revision: match counter(state.delivered_revision) {
+                        render_revision: match counter(revision) {
                             Ok(revision) => revision,
                             Err(error) => return id.map(|id| boundary_error(id, error)),
                         },
@@ -356,9 +365,13 @@ impl Server {
                 node_id,
             } => (preview_session_id, *render_revision, node_id),
         };
-        if params.render_revision.get() != state.delivered_revision
+        let revision = match self.preview_frame(&params.preview_session_id) {
+            Ok(frame) => frame.render_revision,
+            Err(error) => return id.map(|id| session_error(id, error)),
+        };
+        if params.render_revision.get() != revision
             || event_preview_id != &params.preview_session_id
-            || event_revision.get() != state.delivered_revision
+            || event_revision.get() != revision
         {
             return id.map(|id| {
                 response_value(Response::error(
@@ -371,7 +384,7 @@ impl Server {
         let entry = match self.registry.navigate_preview(
             &state.document_session_id,
             &params.preview_session_id,
-            state.delivered_revision,
+            revision,
             &NodeId(node_id.0.clone()),
         ) {
             Ok(Some(entry)) => entry,
@@ -397,9 +410,9 @@ impl Server {
         };
         let event = match navigation {
             PreviewNavigationEvent::SelectNode { .. } => SourceNavigationEvent::SelectSource {
-                source_range: match range(
+                source_range: match source_range(
                     &entry.source_range,
-                    &source_frame.source,
+                    &fleximark_model::SourceIndex::new(&source_frame.source),
                     source_frame.position_encoding,
                 ) {
                     Ok(range) => range,
@@ -407,9 +420,9 @@ impl Server {
                 },
             },
             PreviewNavigationEvent::RevealNode { .. } => SourceNavigationEvent::RevealSource {
-                source_range: match range(
+                source_range: match source_range(
                     &entry.source_range,
-                    &source_frame.source,
+                    &fleximark_model::SourceIndex::new(&source_frame.source),
                     source_frame.position_encoding,
                 ) {
                     Ok(range) => range,
@@ -421,7 +434,7 @@ impl Server {
             .push(preview_event_notification(ServerPreviewEventParams {
                 daemon_instance_id: params.daemon_instance_id,
                 preview_session_id: params.preview_session_id,
-                render_revision: match counter(state.delivered_revision) {
+                render_revision: match counter(revision) {
                     Ok(revision) => revision,
                     Err(error) => return id.map(|id| boundary_error(id, error)),
                 },
@@ -463,33 +476,10 @@ impl Server {
             return Some(session_error(id, error));
         }
 
-        let sessions = self
-            .registry
-            .workspace_documents(&params.workspace_uri)
-            .into_iter()
-            .filter_map(|(uri, _)| self.registry.session_id_for_uri(&uri).map(str::to_owned))
-            .collect::<Vec<_>>();
-        for (preview_id, state) in self.preview_states.clone() {
-            if !sessions.contains(&state.document_session_id) {
-                continue;
-            }
-            let version = match self.registry.current_version(&state.document_session_id) {
-                Ok(version) => version,
-                Err(error) => return Some(session_error(id, error)),
-            };
-            let frame = match self.registry.render_with_cancellation(
-                &state.document_session_id,
-                version,
-                &preview_id,
-                &self.work_cancellation,
-            ) {
-                Ok(frame) => frame,
-                Err(error) => return Some(session_error(id, error)),
-            };
-            match self.publish_frame(&preview_id, &frame) {
-                Ok(true) => {}
-                Ok(false) => return None,
-                Err(error) => return Some(boundary_error(id, error)),
+        let documents = self.registry.workspace_documents(&params.workspace_uri);
+        for (uri, _) in documents {
+            if let Err(error) = self.publish_document_previews(&uri) {
+                return Some(session_error(id, error));
             }
         }
         Some(response_value(Response::success(id, Value::Null)))
@@ -502,17 +492,28 @@ impl Server {
     }
 }
 impl Server {
-    pub(super) fn mark_preview_document_version(
-        &self,
-        document_session_id: &str,
-        document_version: JsSafeU64,
-    ) {
-        for state in self.preview_states.values() {
-            if state.document_session_id == document_session_id {
-                if let Some(token) = &state.token {
-                    self.previews.mark_document_version(token, document_version);
-                }
-            }
-        }
+    pub(super) fn attach_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
+        let id = id?;
+        let params = match deserialize_params::<AttachDocumentParams>(&id, params) {
+            Ok(p) => p,
+            Err(e) => return Some(e),
+        };
+        let result = (|| {
+            self.verify_daemon(&params.daemon_instance_id)?;
+            let version = u64::try_from(params.expected_document_version.get())
+                .map_err(|_| ApplicationError::VersionMismatch)?;
+            let attached = self.registry.attach(&params.uri, version)?;
+            Ok::<_, ApplicationError>(fleximark_protocol::AttachDocumentResult {
+                document_session_id: attached.document_session_id,
+                document_version: i64::try_from(attached.document_version)
+                    .ok()
+                    .and_then(|version| fleximark_protocol::JsSafeI64::new(version).ok())
+                    .ok_or(ApplicationError::IntegerRange(attached.document_version))?,
+            })
+        })();
+        Some(match result {
+            Ok(result) => response_value(Response::success(id, result)),
+            Err(error) => session_error(id, error),
+        })
     }
 }

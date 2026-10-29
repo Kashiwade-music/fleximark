@@ -1,9 +1,8 @@
-import * as vscode from "vscode";
-
 import {
   type PublishDiagnosticsParams,
   serverNotificationValidators,
-} from "../../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
+import * as vscode from "vscode";
 
 export function isPublishDiagnosticsParams(
   value: unknown,

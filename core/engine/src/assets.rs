@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use fleximark_model::{AssetRef, Sha256Hex};
 use fleximark_render_html::RenderContext;
 use serde::{Deserialize, Serialize};
 
@@ -131,17 +132,9 @@ impl RenderConfig {
     }
 
     pub fn validate(&self) -> Result<(), EngineError> {
-        for hash in [&self.config_hash] {
-            if hash.len() != 64
-                || !hash
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-            {
-                return Err(EngineError::Configuration(
-                    "render config contains a non-canonical hash".to_owned(),
-                ));
-            }
-        }
+        Sha256Hex::try_from(self.config_hash.as_str()).map_err(|_| {
+            EngineError::Configuration("render config contains a non-canonical hash".to_owned())
+        })?;
         if self
             .style
             .as_ref()
@@ -258,10 +251,13 @@ impl ResolvedRenderAsset {
             ));
         }
         let content_hash = content_hash_bytes(bytes);
+        let hash = Sha256Hex::try_from(content_hash.as_str())
+            .map_err(|error| EngineError::Asset(error.to_string()))?;
+        let reference = AssetRef::from_hash(hash).to_string();
         let asset = Self {
             source,
             published: RenderAsset {
-                reference: format!("fleximark-asset:{content_hash}"),
+                reference,
                 media_type,
                 content_hash,
                 byte_length: (bytes.len() as u64),
@@ -281,6 +277,10 @@ impl ResolvedRenderAsset {
     }
 
     fn validate(&self) -> Result<(), EngineError> {
+        let hash = Sha256Hex::try_from(self.published.content_hash.as_str())
+            .map_err(|error| EngineError::Asset(error.to_string()))?;
+        let reference = AssetRef::try_from(self.published.reference.as_str())
+            .map_err(|error| EngineError::Asset(error.to_string()))?;
         let media_type_valid = !self.published.media_type.is_empty()
             && self.published.media_type.bytes().all(|byte| {
                 byte.is_ascii_lowercase()
@@ -293,8 +293,7 @@ impl ResolvedRenderAsset {
         if !media_type_valid
             || decoded.len() as u64 != self.published.byte_length
             || content_hash_bytes(&decoded) != self.published.content_hash
-            || self.published.reference
-                != format!("fleximark-asset:{}", self.published.content_hash)
+            || reference != AssetRef::from_hash(hash)
         {
             return Err(EngineError::Asset(
                 "resolved asset metadata does not match its content".to_owned(),

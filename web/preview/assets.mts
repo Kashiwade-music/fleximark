@@ -1,4 +1,4 @@
-import type { RenderAsset } from "../../contracts/typescript/protocol.mjs";
+import type { RenderAsset } from "@fleximark/contracts/protocol";
 
 export function validAssets(assets: readonly RenderAsset[]): boolean {
   const references = new Set<string>();

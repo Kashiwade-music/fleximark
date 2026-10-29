@@ -1,0 +1,92 @@
+.markdown-body {
+  & [data-fleximark-kind="mermaid"] > [data-fleximark-output] {
+    position: relative;
+    margin: 1rem 0;
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="mermaid"] > [data-fleximark-output] > svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+.markdown-body {
+  & .fleximark-mermaid-enlarge {
+    display: block;
+    margin: 0 0 0.5rem auto;
+    padding: 0.3rem 0.65rem;
+    color: var(--fleximark-color-accent);
+    font: inherit;
+    cursor: pointer;
+    background: var(--fleximark-color-control-background);
+    border: 1px solid var(--fleximark-color-control-border);
+    border-radius: 4px;
+  }
+}
+
+.fleximark-mermaid-dialog {
+  box-sizing: border-box;
+  width: calc(100vw - 2rem);
+  max-width: none;
+  height: calc(100vh - 2rem);
+  max-height: none;
+  padding: 0;
+  color: var(--fleximark-color-text);
+  background: var(--fleximark-color-surface);
+  border: 1px solid var(--fleximark-color-control-border);
+  border-radius: 6px;
+}
+
+.fleximark-mermaid-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.fleximark-mermaid-dialog::backdrop {
+  background: var(--fleximark-color-dialog-backdrop);
+}
+
+.fleximark-mermaid-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.65rem;
+  border-bottom: 1px solid var(--fleximark-color-control-border);
+}
+
+.fleximark-mermaid-toolbar > button {
+  padding: 0.3rem 0.65rem;
+  color: var(--fleximark-color-accent);
+  font: inherit;
+  cursor: pointer;
+  background: var(--fleximark-color-control-background);
+  border: 1px solid var(--fleximark-color-control-border);
+  border-radius: 4px;
+}
+
+.fleximark-mermaid-toolbar > button:last-child {
+  margin-left: auto;
+}
+
+.fleximark-mermaid-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.fleximark-mermaid-viewport > svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.fleximark-mermaid-enlarge:focus-visible,
+.fleximark-mermaid-toolbar > button:focus-visible {
+  outline: 2px solid var(--fleximark-color-accent);
+  outline-offset: 2px;
+}

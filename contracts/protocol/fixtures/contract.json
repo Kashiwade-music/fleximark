@@ -26,7 +26,7 @@
         "target": "externalBrowser"
       },
       "result": {
-        "previewSessionId": "preview",
+        "previewSessionId": "rust-render-frame-fixture",
         "frame": {
           "previewSessionId": "rust-render-frame-fixture",
           "documentVersion": 7,
@@ -97,8 +97,8 @@
       "kind": "notification",
       "params": {
         "daemonInstanceId": "daemon",
-        "previewSessionId": "preview",
-        "renderRevision": 2,
+        "previewSessionId": "rust-render-frame-fixture",
+        "renderRevision": 1,
         "frame": {
           "previewSessionId": "rust-render-frame-fixture",
           "documentVersion": 7,

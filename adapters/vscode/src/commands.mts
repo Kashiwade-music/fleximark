@@ -1,6 +1,4 @@
-import * as vscode from "vscode";
-
-import { WORKSPACE_COMMAND_KIND } from "../../../contracts/typescript/protocol.mjs";
+import { WORKSPACE_COMMAND_KIND } from "@fleximark/contracts/protocol";
 import {
   COMMAND_DESCRIPTORS,
   type CommandResult,
@@ -12,7 +10,8 @@ import {
   type WorkspaceCommandName,
   type WorkspaceCommandRequest,
   commandDescriptor,
-} from "../../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
+import * as vscode from "vscode";
 
 export function buildWorkspaceOperation(
   kind: WorkspaceCommandName,
@@ -285,10 +284,7 @@ export function registerCommands(
       run(() => {
         const target = vscode.workspace
           .getConfiguration("fleximark")
-          .get<"embeddedHtml" | "externalBrowser">(
-            "previewTarget",
-            "embeddedHtml",
-          );
+          .get<PreviewTarget>("previewTarget", "embeddedHtml");
         return adapter.openPreview(target);
       }),
     ),

@@ -76,6 +76,64 @@ fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_c
 }
 
 #[test]
+fn browser_navigation_has_one_delivery_owner_for_each_client_capability() {
+    for source_events in [None, Some(false), Some(true)] {
+        for event_type in ["selectSource", "revealSource"] {
+            let mut server = native_server();
+            let mut capabilities = json!({});
+            if let Some(enabled) = source_events {
+                capabilities["sourceNavigationEvents"] = json!(enabled);
+            }
+            let initialized = server.request(
+                1,
+                "initialize",
+                json!({"capabilities":{},"initializationOptions":{"fleximark":{"capabilities":capabilities}}}),
+            );
+            assert!(initialized[0].get("result").is_some());
+            let document = "untitled:navigation-delivery";
+            open(&mut server, document, "# Source\n", 1);
+            let preview = preview(&mut server, document, 1, "externalBrowser");
+            let frame = &preview["frame"];
+            let event = json!({
+                "jsonrpc":"2.0",
+                "method":method::PREVIEW_EVENT,
+                "params":{
+                    "daemonInstanceId":daemon(&server),
+                    "previewSessionId":preview["previewSessionId"],
+                    "renderRevision":frame["renderRevision"],
+                    "event":{"type":event_type,"sourceRange":frame["navigation"][0]["sourceRange"]}
+                }
+            });
+            let routed = server.browser_notification(event.clone());
+            assert_eq!(
+                routed.len(),
+                1,
+                "{source_events:?} {event_type}: {routed:?}"
+            );
+            if source_events == Some(true) {
+                assert_eq!(routed, vec![event.clone()]);
+            } else {
+                assert_eq!(routed[0]["method"], "window/showDocument");
+                assert_eq!(routed[0]["params"]["uri"], document);
+                assert_eq!(routed[0]["params"]["external"], false);
+                assert_eq!(routed[0]["params"]["selection"]["start"]["line"], 0);
+                server.client_response(
+                    &json!({"jsonrpc":"2.0","id":routed[0]["id"],"result":{"success":true}}),
+                );
+            }
+            let mut stale = event.clone();
+            stale["params"]["renderRevision"] = json!(0);
+            assert!(server.browser_notification(stale).is_empty());
+            server.notify(
+                "textDocument/didClose",
+                json!({"textDocument":{"uri":document}}),
+            );
+            assert!(server.browser_notification(event).is_empty());
+        }
+    }
+}
+
+#[test]
 fn explicit_preview_selection_survives_initial_browser_load_and_returns_to_source() {
     let (sender, events) = mpsc::channel();
     let mut server = Server::with_assets(Some(sender), browser_assets()).unwrap();

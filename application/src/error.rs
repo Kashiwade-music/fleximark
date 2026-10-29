@@ -272,7 +272,6 @@ mod tests {
             .unwrap();
         assert!(matches!(error, ApplicationError::Io(_)));
         assert!(error.source().unwrap().is::<std::io::Error>());
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -333,7 +332,6 @@ mod tests {
                 );
             }
         }
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

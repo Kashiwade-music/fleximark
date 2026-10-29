@@ -1,4 +1,4 @@
-//! Role: Deliver LSP and RPC requests and session events over the daemon transport.
+//! Role: Route ordered input events while workspace jobs execute independently.
 use std::collections::VecDeque;
 use std::io::{self, BufReader, BufWriter};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -7,6 +7,7 @@ use std::thread;
 use fleximark_protocol::{IncomingMessage, Response, read_frame, write_frame};
 use serde_json::Value;
 
+use super::operations::{ActorOperations, InputEvent};
 use crate::cancellation::{CancellationCoordinator, WorkPermit};
 use crate::server::{Server, response_value};
 use crate::telemetry::log_operational_failure;
@@ -88,16 +89,31 @@ pub fn run(
     });
     let mut server = Server::with_assets(Some(browser_outgoing), assets)?;
     server.set_preview_assets(resources);
+    install_workspace_handler(&server, input_sender.clone());
+
+    let operations = ActorOperations::new(input_sender, coordinator.clone());
+    run_actor(server, &coordinator, &output, input_receiver, operations)
+}
+
+fn install_workspace_handler(server: &Server, sender: mpsc::Sender<InputEvent>) {
     server.set_workspace_handler(Arc::new(move |request| {
         let (reply, response) = mpsc::channel();
-        input_sender
+        sender
             .send(InputEvent::Workspace { request, reply })
             .map_err(fleximark_application::ApplicationError::internal)?;
         response
-            .recv_timeout(std::time::Duration::from_secs(1))
+            .recv()
             .map_err(fleximark_application::ApplicationError::internal)?
     }));
+}
 
+fn run_actor(
+    mut server: Server,
+    coordinator: &CancellationCoordinator,
+    output: &CoalescingOutput,
+    input_receiver: mpsc::Receiver<InputEvent>,
+    mut operations: ActorOperations,
+) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (message, permit) = match input_receiver.recv()? {
             InputEvent::Message { message, permit } => (message, permit),
@@ -109,6 +125,22 @@ pub fn run(
             }
             InputEvent::Response(response) => {
                 server.client_response(&response);
+                continue;
+            }
+            InputEvent::OperationFinished {
+                operation_id,
+                completion,
+            } => {
+                for event in operations.finish(&mut server, operation_id, *completion) {
+                    output.push(event);
+                }
+                continue;
+            }
+            InputEvent::Workspace {
+                request: crate::preview_http::WorkspaceRequest::Command(request),
+                reply,
+            } => {
+                operations.start_http(&mut server, request, reply);
                 continue;
             }
             InputEvent::Workspace { request, reply } => {
@@ -130,10 +162,29 @@ pub fn run(
             InputEvent::Closed => break,
             InputEvent::Failed(error) => return Err(error.into()),
         };
-        process_message(&mut server, &coordinator, &output, message, permit)?;
+        if matches!(
+            message.method.as_str(),
+            fleximark_protocol::method::EXECUTE_COMMAND | "workspace/executeCommand"
+        ) && server.accepting_commands()
+        {
+            for event in operations.start_lsp(&mut server, message, permit) {
+                output.push(event);
+            }
+            continue;
+        }
+        let shutdown = message.method == "shutdown";
+        process_message(&mut server, coordinator, output, message, permit)?;
+        if shutdown {
+            for event in operations.shutdown() {
+                output.push(event);
+            }
+        }
         if server.exit {
             break;
         }
+    }
+    for event in operations.shutdown() {
+        output.push(event);
     }
     Ok(())
 }
@@ -267,24 +318,6 @@ fn process_message_with_observer(
         observer("sent");
     }
     Ok(())
-}
-
-enum InputEvent {
-    Browser(Value),
-    Response(Value),
-    Workspace {
-        request: crate::preview_http::WorkspaceRequest,
-        reply: mpsc::Sender<
-            Result<crate::preview_http::WorkspaceResponse, fleximark_application::ApplicationError>,
-        >,
-    },
-    Message {
-        message: IncomingMessage,
-        permit: Option<WorkPermit>,
-    },
-    Invalid,
-    Closed,
-    Failed(String),
 }
 
 #[cfg(test)]
@@ -451,6 +484,20 @@ mod tests {
         let initial_revision = server.previews.pages.lock().unwrap()[&token]
             .frame
             .render_revision;
+        let owned = server
+            .registry
+            .read_preview(&session_id, preview_id, None)
+            .unwrap()
+            .unwrap();
+        assert!(
+            Arc::ptr_eq(
+                owned.frame_arc(),
+                server.previews.pages.lock().unwrap()[&token]
+                    .frame
+                    .frame_arc()
+            ),
+            "HTTP must share the application frame Arc"
+        );
 
         let change_two = message(
             None,
@@ -502,3 +549,7 @@ mod tests {
         coordinator.finish(&change_three_permit);
     }
 }
+
+#[cfg(test)]
+#[path = "worker_tests.rs"]
+mod worker_tests;

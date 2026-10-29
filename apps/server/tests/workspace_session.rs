@@ -213,3 +213,180 @@ fn asset_errors_have_precise_ranges_without_blocking_safe_images() {
     assert_eq!(frame["assets"].as_array().unwrap().len(), 1);
     assert!(frame["blocks"].to_string().contains("Asset unavailable"));
 }
+
+#[test]
+fn workspace_folders_add_grant_configure_and_detach_without_restarting_or_losing_preview() {
+    let root = test_directory("dynamic-workspace");
+    let workspace = uri(&root);
+    initialize_workspace(&workspace).unwrap();
+    std::fs::write(
+        root.join(".fleximark/theme.css"),
+        ":root { color: purple; }",
+    )
+    .unwrap();
+    let document = uri(&root.join("document.md"));
+    std::fs::write(root.join("document.md"), "# Disk").unwrap();
+    let mut server = native_server();
+    let initialized = initialize(&mut server, json!([]));
+    assert_eq!(
+        initialized["capabilities"]["workspace"]["workspaceFolders"]["supported"],
+        true
+    );
+    assert_eq!(
+        initialized["capabilities"]["workspace"]["workspaceFolders"]["changeNotifications"],
+        true
+    );
+    let identity = daemon(&server);
+    open(&mut server, &document, "# Unsaved", 1);
+    let original_session = session(&server, &document);
+    let initial = preview(&mut server, &document, 1, "externalBrowser");
+    let preview_id = initial["previewSessionId"].as_str().unwrap();
+    server.notify(
+        "workspace/didChangeWorkspaceFolders",
+        json!({"event":{"added":[{"uri":workspace,"name":"root"}],"removed":[]}}),
+    );
+    let status = server
+        .sessions()
+        .workspace_statuses()
+        .into_iter()
+        .find(|status| status.uri == workspace)
+        .unwrap();
+    assert!(!status.trusted);
+    assert!(matches!(
+        status.state,
+        fleximark_application::WorkspaceState::Restricted
+    ));
+    assert_eq!(
+        server
+            .sessions()
+            .workspace_for_document(&document)
+            .unwrap()
+            .uri,
+        workspace
+    );
+    let restricted = read_frame(&mut server, preview_id);
+    assert!(restricted["style"].is_null());
+    let denied = server.request(
+        8,
+        method::EXECUTE_COMMAND,
+        command_request(
+            &server,
+            Some(&workspace),
+            None,
+            json!({"command":"editTheme"}),
+        ),
+    );
+    assert_eq!(
+        denied[0]["error"]["code"],
+        fleximark_protocol::error_code::WRITE_DENIED
+    );
+    let granted = server.request(
+        9,
+        method::RECONFIGURE_WORKSPACE,
+        json!({"daemonInstanceId":identity,"workspaceUri":workspace,"trusted":true}),
+    );
+    assert!(granted[0].get("result").is_some(), "{granted:?}");
+    let trusted = read_frame(&mut server, preview_id);
+    assert_eq!(trusted["style"]["css"], ":root { color: purple; }");
+    assert!(
+        trusted["renderRevision"].as_u64().unwrap()
+            > restricted["renderRevision"].as_u64().unwrap()
+    );
+    server.notify(
+        "workspace/didChangeWorkspaceFolders",
+        json!({"event":{"added":[],"removed":[{"uri":workspace,"name":"root"}]}}),
+    );
+    assert!(server.sessions().workspace_statuses().is_empty());
+    assert!(
+        server
+            .sessions()
+            .workspace_for_document(&document)
+            .is_none()
+    );
+    assert_eq!(session(&server, &document), original_session);
+    assert_eq!(daemon(&server), identity);
+    let detached = read_frame(&mut server, preview_id);
+    assert!(detached["style"].is_null());
+    assert!(detached["blocks"].to_string().contains("Unsaved"));
+    assert!(
+        detached["renderRevision"].as_u64().unwrap() > trusted["renderRevision"].as_u64().unwrap()
+    );
+    assert!(http(initial["url"].as_str().unwrap(), "/frame", "GET", None).contains("Unsaved"));
+}
+
+#[test]
+fn trailing_slash_folder_changes_refresh_the_same_preview_and_clear_theme_and_assets() {
+    let root = test_directory("trailing-slash-folder");
+    let workspace = uri(&root);
+    initialize_workspace(&workspace).unwrap();
+    std::fs::write(
+        root.join(".fleximark/theme.css"),
+        ":root { color: purple; }",
+    )
+    .unwrap();
+    std::fs::write(root.join("image.png"), b"\x89PNG\r\n\x1a\nvalid").unwrap();
+    let document = uri(&root.join("document.md"));
+    let source = "# Unsaved\n\n![local](image.png)\n";
+    std::fs::write(root.join("document.md"), source).unwrap();
+    let mut server = native_server();
+    initialize(&mut server, json!([{"uri":workspace,"trusted":true}]));
+    open(&mut server, &document, source, 1);
+    let identity = session(&server, &document);
+    let initial = preview(&mut server, &document, 1, "externalBrowser");
+    let preview_id = initial["previewSessionId"].as_str().unwrap();
+    assert_eq!(initial["frame"]["assets"].as_array().unwrap().len(), 1);
+    assert_eq!(initial["frame"]["style"]["css"], ":root { color: purple; }");
+    let changed = server.notify(
+        "workspace/didChangeWorkspaceFolders",
+        json!({"event":{"added":[],"removed":[{"uri":format!("{workspace}/"),"name":"root"}]}}),
+    );
+    let frame = &changed
+        .iter()
+        .find(|event| event["method"] == method::PREVIEW_CHANGED)
+        .unwrap()["params"]["frame"];
+    assert_eq!(frame["previewSessionId"], preview_id);
+    assert!(frame["style"].is_null());
+    assert!(frame["assets"].as_array().unwrap().is_empty());
+    assert!(
+        frame["renderRevision"].as_u64().unwrap()
+            > initial["frame"]["renderRevision"].as_u64().unwrap()
+    );
+    assert_eq!(session(&server, &document), identity);
+    assert!(
+        server
+            .sessions()
+            .workspace_for_document(&document)
+            .is_none()
+    );
+    let response = http(initial["url"].as_str().unwrap(), "/frame", "GET", None);
+    let payload: serde_json::Value =
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(payload["frame"]["renderRevision"], frame["renderRevision"]);
+    assert!(payload["frame"]["style"].is_null());
+    assert!(payload["frame"]["assets"].as_array().unwrap().is_empty());
+    let added = server.notify(
+        "workspace/didChangeWorkspaceFolders",
+        json!({"event":{"added":[{"uri":format!("{workspace}/"),"name":"root"}],"removed":[]}}),
+    );
+    assert!(
+        added
+            .iter()
+            .any(|event| event["method"] == method::PREVIEW_CHANGED)
+    );
+    assert_eq!(
+        server
+            .sessions()
+            .workspace_for_document(&document)
+            .unwrap()
+            .uri,
+        workspace
+    );
+    assert!(
+        !server
+            .sessions()
+            .workspace_for_document(&document)
+            .unwrap()
+            .trusted
+    );
+    assert_eq!(session(&server, &document), identity);
+}

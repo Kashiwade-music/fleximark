@@ -4,7 +4,6 @@ min_version = "2026.5.12"
 node = "24.21.0"
 python = "3.14.7"
 rust = "1.95.0"
-uv = "0.12.12"
 
 [settings]
 idiomatic_version_file_enable_tools = ["yarn"]
@@ -61,3 +60,27 @@ run = "python tooling/tasks/tasks.py generate"
 [tasks.clean]
 description = "Remove JS/TS and test output in .build; keep target and .artifacts"
 run = "python tooling/tasks/tasks.py clean"
+
+[tasks.bundle]
+description = "Build a JavaScript bundle group"
+run = "python tooling/tasks/tasks.py bundle"
+
+[tasks.contract]
+description = "Generate or check protocol artifacts"
+run = "python tooling/tasks/tasks.py contract"
+
+[tasks.distribution]
+description = "Assemble explicit distribution inputs"
+run = "python tooling/tasks/tasks.py distribution"
+
+[tasks.artifact]
+description = "Create or verify VSIX identity"
+run = "python tooling/tasks/tasks.py artifact"
+
+[tasks.release-assets]
+description = "Verify complete release assets"
+run = "python tooling/tasks/tasks.py release-assets"
+
+[tasks.ci]
+hide = true
+run = "python tooling/tasks/tasks.py ci"

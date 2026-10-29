@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
@@ -13,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from _tools import ROOT, script_entrypoint
+from _tools import ROOT
 from distribution_contract import SPEC, SHA256_PATTERN, SEMVER_PATTERN, read_manifest
 
 
@@ -379,7 +378,7 @@ def runtime_manifest_artifacts(payload: bytes, label: str) -> list[dict[str, Any
     return [{"path": "runtime/" + path, "sha256": checksum} for path, checksum in manifest["files"].items()]
 
 
-def _validate_daemon_manifest(archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo]) -> None:
+def _validate_runtime_manifest(archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo]) -> None:
     manifest = _json_object(archive.read("extension/runtime/manifest.json"), "packaged runtime manifest")
     package = _json_object(archive.read("extension/package.json"), "packaged extension")
     if manifest.get("version") != package.get("version"):
@@ -394,18 +393,6 @@ def _validate_daemon_manifest(archive: zipfile.ZipFile, by_name: dict[str, zipfi
         if artifact["path"].startswith("runtime/bin/") and not artifact["path"].endswith(".exe"):
             if ((info.external_attr >> 16) & 0o111) == 0:
                 raise RuntimeError("packaged Unix binary is not executable")
-
-
-def validate_prebuilt_inputs(root: Path = ROOT) -> None:
-    from distribution import verify_runtime
-    manifest = _json_object((root / "runtime" / "manifest.json").read_bytes(), "runtime manifest")
-    verify_runtime(root / "runtime", manifest["target"])
-    for name in ("dist/extension.cjs", "dist/webview/vscode-host.js"):
-        path = root / name
-        if not path.is_file() or path.is_symlink():
-            raise RuntimeError(f"invalid prebuilt bundle: {name}")
-        if not MIN_RUNTIME_SIZE < path.stat().st_size <= MAX_ENTRY_SIZE:
-            raise RuntimeError(f"prebuilt bundle is too small or too large: {name}")
 
 
 def validate_vsix(vsix: Path, *, expected_version: str | None = None) -> str:
@@ -429,7 +416,7 @@ def validate_vsix(vsix: Path, *, expected_version: str | None = None) -> str:
                 raise RuntimeError(
                     f"VSIX version {version} does not match expected {expected_version}"
                 )
-            _validate_daemon_manifest(archive, by_name)
+            _validate_runtime_manifest(archive, by_name)
             return version
     except zipfile.BadZipFile as error:
         raise RuntimeError("VSIX is not a valid ZIP archive") from error
@@ -579,67 +566,3 @@ def verify_identity(
     if hash_before_validation != hash_after_validation:
         raise RuntimeError("VSIX changed while it was being validated")
     return identity
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Create or verify release identity, or validate a FlexiMark VSIX"
-    )
-    operations = parser.add_subparsers(dest="operation", required=True)
-
-    create = operations.add_parser("create")
-    create.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
-    create.add_argument("--identity", type=Path, default=DEFAULT_IDENTITY)
-    create.add_argument("--expected-version")
-    create.add_argument("--git-tag")
-    create.add_argument("--source-git-head")
-    create.add_argument("--print-sha256", action="store_true")
-
-    verify = operations.add_parser("verify")
-    verify.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
-    verify.add_argument("--identity", type=Path, default=DEFAULT_IDENTITY)
-    verify.add_argument(
-        "--expected-sha256", default=os.environ.get("FLEXIMARK_EXPECTED_SHA256")
-    )
-    verify.add_argument(
-        "--expected-git-tag", default=os.environ.get("FLEXIMARK_EXPECTED_GIT_TAG")
-    )
-    verify.add_argument(
-        "--expected-source-git-head",
-        default=os.environ.get("FLEXIMARK_EXPECTED_SOURCE_GIT_HEAD"),
-    )
-    verify.add_argument("--print-sha256", action="store_true")
-
-    validate = operations.add_parser("validate")
-    validate.add_argument("--vsix", type=Path, default=DEFAULT_VSIX)
-    validate.add_argument("--expected-version")
-
-    args = parser.parse_args()
-
-    if args.operation == "validate":
-        validate_vsix(args.vsix, expected_version=args.expected_version)
-        return
-    if args.operation == "create":
-        if not args.expected_version or not args.git_tag or not args.source_git_head:
-            raise RuntimeError("create requires version, git tag, and source git head")
-        identity = create_identity(
-            args.vsix,
-            args.identity,
-            expected_version=args.expected_version,
-            git_tag=args.git_tag,
-            source_git_head=args.source_git_head,
-        )
-    else:
-        identity = verify_identity(
-            args.vsix,
-            args.identity,
-            expected_sha256=args.expected_sha256,
-            expected_git_tag=args.expected_git_tag,
-            expected_source_git_head=args.expected_source_git_head,
-        )
-    if args.print_sha256:
-        print(identity["sha256"])
-
-
-if __name__ == "__main__":
-    script_entrypoint(main)

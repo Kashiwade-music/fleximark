@@ -10,7 +10,7 @@ impl Server {
         &mut self,
         request: crate::preview_http::WorkspaceRequest,
     ) -> Result<crate::preview_http::WorkspaceResponse, ApplicationError> {
-        if !self.lsp_initialized {
+        if !self.lsp_initialized || self.shutdown {
             return Err(ApplicationError::InvalidState(
                 "server is not initialized".into(),
             ));
@@ -56,7 +56,7 @@ impl Server {
             document_version,
         })
     }
-    fn resolve_ui_context(
+    pub(crate) fn resolve_ui_context(
         &self,
         context: WorkspaceUiContext,
     ) -> Result<CommandContext, ApplicationError> {
@@ -167,19 +167,16 @@ impl Server {
         let Some(state) = self.preview_states.get(preview) else {
             return vec![];
         };
+        let Ok(frame) = self.preview_frame(preview) else {
+            return vec![];
+        };
         if message
             .pointer("/params/renderRevision")
             .and_then(Value::as_u64)
-            != Some(state.delivered_revision)
+            != Some(frame.render_revision)
         {
             return vec![];
-        };
-        let Ok(Some(frame)) = self
-            .registry
-            .read_preview(&state.document_session_id, preview, None)
-        else {
-            return vec![];
-        };
+        }
         let Some(range) = message
             .pointer("/params/event/event/sourceRange")
             .or_else(|| message.pointer("/params/event/sourceRange"))
@@ -197,12 +194,13 @@ impl Server {
             Ok(document) => document,
             Err(_) => return vec![],
         };
+        if self.source_navigation_events {
+            return vec![message];
+        }
         let uri = document.uri.clone();
         let selection = json!({"start":{"line":range["start"]["line"],"character":range["start"]["character"]},"end":{"line":range["end"]["line"],"character":range["end"]["character"]}});
         self.show_document(&uri, false, Some(selection));
-        let mut events = vec![message];
-        events.append(&mut self.outgoing_events);
-        events
+        std::mem::take(&mut self.outgoing_events)
     }
 
     pub fn client_response(&mut self, response: &Value) {

@@ -365,7 +365,6 @@ daily = ["# ${FILE_NAME}", "${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONT
             create_note_with_options(&uri, Some(&category), Some("daily"), Some("session")),
             Err(ApplicationError::NoteAlreadyExists)
         ));
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -401,7 +400,6 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
                 format!("# {name}\nName: {name}\nBody\n\n${{UNKNOWN}}\n")
             );
         }
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -419,7 +417,6 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
         let name = note.file_stem().unwrap().to_str().unwrap();
         assert!(name.starts_with("note-"));
         assert_eq!(fs::read_to_string(&note).unwrap(), format!("# {name}\n"));
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -433,7 +430,6 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
                 Err(ApplicationError::InvalidNoteName)
             ));
         }
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -468,7 +464,6 @@ file_name_suffix = ""
                 .ends_with("_ミックス.md")
         );
         assert!(!root.join("notes").exists());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -511,7 +506,6 @@ Right = { Same = {} }
             right.parent().unwrap(),
             root.join("notes/Right/Same").canonicalize().unwrap()
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -533,6 +527,5 @@ Right = { Same = {} }
         let output = fs::read_to_string(workspace_path(&result.uri).unwrap()).unwrap();
         assert!(output.contains(":::info\nkeep in\n:::"));
         assert!(!output.contains("# Keep out") && !output.contains("Trailing"));
-        fs::remove_dir_all(root).unwrap();
     }
 }

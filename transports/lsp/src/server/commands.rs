@@ -18,6 +18,29 @@ pub(super) fn note_options(
         templates: options.templates,
     }
 }
+pub(crate) struct PreparedCommand {
+    context: fleximark_protocol::CommandContext,
+    operation: fleximark_application::PreparedWorkspaceOperation,
+}
+pub(crate) struct CommandCompletion {
+    context: fleximark_protocol::CommandContext,
+    operation: fleximark_application::OperationCompletion,
+}
+pub(crate) enum CommandProgress {
+    Complete(Box<CommandResult>),
+    Continue(Box<PreparedCommand>),
+}
+impl PreparedCommand {
+    pub(crate) fn workspace_uri(&self) -> Option<&str> {
+        self.operation.workspace_uri()
+    }
+    pub(crate) fn execute(self) -> CommandCompletion {
+        CommandCompletion {
+            context: self.context,
+            operation: self.operation.execute(),
+        }
+    }
+}
 impl Server {
     pub(super) fn workspace_ui_url(
         &self,
@@ -38,9 +61,38 @@ impl Server {
     }
     pub(super) fn dispatch_command(
         &mut self,
-        mut request: WorkspaceCommandRequest,
+        request: WorkspaceCommandRequest,
         browser: bool,
     ) -> Result<CommandResult, ApplicationError> {
+        let mut prepared = self.prepare_command(request, browser)?;
+        loop {
+            match self.complete_command(prepared.execute())? {
+                CommandProgress::Complete(result) => return Ok(*result),
+                CommandProgress::Continue(next) => prepared = *next,
+            }
+        }
+    }
+    pub(crate) fn prepare_background_command(
+        &mut self,
+        request: WorkspaceCommandRequest,
+        browser: bool,
+        cancellation: CancellationToken,
+    ) -> Result<PreparedCommand, ApplicationError> {
+        let previous = std::mem::replace(&mut self.work_cancellation, cancellation);
+        let result = self.prepare_command(request, browser);
+        self.work_cancellation = previous;
+        result
+    }
+    pub(crate) fn prepare_command(
+        &mut self,
+        mut request: WorkspaceCommandRequest,
+        browser: bool,
+    ) -> Result<PreparedCommand, ApplicationError> {
+        if !self.lsp_initialized || self.shutdown {
+            return Err(ApplicationError::InvalidState(
+                "server is not accepting commands".into(),
+            ));
+        }
         self.verify_daemon(&request.daemon_instance_id)?;
         if browser && !request.operation.descriptor().browser_ui {
             return Err(ApplicationError::InvalidState(
@@ -62,12 +114,48 @@ impl Server {
             }
         }
         let context = request.context.clone();
-        let outcome = fleximark_application::WorkspaceOps::new(
+        let operation = fleximark_application::WorkspaceOps::new(
             &mut self.registry,
             self.preview_assets.clone(),
         )
-        .execute(request.operation, request.context, &self.work_cancellation)?;
+        .prepare(request.operation, request.context, &self.work_cancellation)?;
+        Ok(PreparedCommand { context, operation })
+    }
+    pub(crate) fn complete_command(
+        &mut self,
+        completion: CommandCompletion,
+    ) -> Result<CommandProgress, ApplicationError> {
+        let context = completion.context;
+        let progress = fleximark_application::WorkspaceOps::new(
+            &mut self.registry,
+            self.preview_assets.clone(),
+        )
+        .complete(completion.operation)?;
+        let outcome = match progress {
+            fleximark_application::OperationProgress::Complete(outcome) => outcome,
+            fleximark_application::OperationProgress::Continue(operation) => {
+                return Ok(CommandProgress::Continue(Box::new(PreparedCommand {
+                    context,
+                    operation,
+                })));
+            }
+        };
         use fleximark_application::CommandOutcome as Out;
+        if matches!(outcome, Out::Initialized(_) | Out::MigrationApplied(_)) {
+            if let Some(workspace) = &context.workspace_uri {
+                for (uri, _) in self.registry.workspace_documents(workspace) {
+                    if let Err(error) = self.publish_document_previews(&uri) {
+                        crate::telemetry::log_operational_failure(
+                            "preview-update-failed",
+                            &error,
+                            Some(&uri),
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
+        }
         let result = match outcome {
             Out::Initialized(value) => CommandResult::WorkspaceInitialized {
                 config_uri: value.config_uri,
@@ -88,13 +176,13 @@ impl Server {
             },
             Out::Exported(value) => CommandResult::HtmlExported {
                 output_uri: value.output_uri,
-                generation: super::protocol::counter(value.generation)?,
+                generation: fleximark_wire_mapping::counter(value.generation)?,
                 message: None,
             },
             Out::ExportAcknowledged => CommandResult::ExportAcknowledged { message: None },
             Out::Admonitions(value) => CommandResult::AdmonitionsCollected {
                 uri: value.uri,
-                count: super::protocol::counter(value.count as u64)?,
+                count: fleximark_wire_mapping::counter(value.count as u64)?,
                 message: None,
             },
             Out::MigrationPlanned(plan) => CommandResult::MigrationPlanned {
@@ -155,6 +243,6 @@ impl Server {
             CommandResult::WorkspaceOpened { url, .. } => self.show_document(url, true, None),
             _ => {}
         }
-        Ok(result)
+        Ok(CommandProgress::Complete(Box::new(result)))
     }
 }

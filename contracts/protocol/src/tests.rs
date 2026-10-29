@@ -1,13 +1,10 @@
 //! Role: Verify current protocol framing, validation and independent contract fixtures.
-fn accept<T: serde::de::DeserializeOwned>(case: &ContractCase) -> T {
-    serde_json::from_value(case.params.clone()).unwrap()
-}
 
 use std::collections::HashSet;
 use std::io::{BufReader, Cursor};
 
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -149,37 +146,19 @@ fn accept_contract_params(case: &ContractCase, spec: &MethodSpec) {
         .client_to_server_params_type
         .or(spec.server_to_client_params_type)
         .unwrap();
-    match params_type {
-        WireType::InitializeParams => {
-            let params = accept::<InitializeParams>(case);
-            assert!(params.workspaces.is_empty());
-        }
-        WireType::AttachDocumentParams => drop(accept::<AttachDocumentParams>(case)),
-        WireType::CreatePreviewParams => {
-            let params = accept::<CreatePreviewParams>(case);
-            assert_eq!(params.target, PreviewTarget::ExternalBrowser);
-        }
-        WireType::RerenderPreviewParams => drop(accept::<RerenderPreviewParams>(case)),
-        WireType::PreviewChangedParams => {
-            let params = PreviewChangedParams {
-                frame: serde_json::from_value(case.params["frame"].clone()).unwrap(),
-                daemon_instance_id: case.params["daemonInstanceId"].as_str().unwrap().into(),
-                preview_session_id: case.params["previewSessionId"].as_str().unwrap().into(),
-                render_revision: JsSafeU64::new(case.params["renderRevision"].as_u64().unwrap())
-                    .unwrap(),
-            };
-            assert_eq!(serde_json::to_value(params).unwrap(), case.params);
-        }
-        WireType::DisposePreviewParams => drop(accept::<DisposePreviewParams>(case)),
-        WireType::SetSelectionParams => drop(accept::<SetSelectionParams>(case)),
-        WireType::SetViewportParams => drop(accept::<SetViewportParams>(case)),
-        WireType::PreviewEventParams => drop(accept::<PreviewEventParams>(case)),
-        WireType::WorkspaceCommandRequest => drop(accept::<WorkspaceCommandRequest>(case)),
-        WireType::ReconfigureWorkspaceParams => drop(accept::<ReconfigureWorkspaceParams>(case)),
-        wire_type => panic!(
-            "registry uses non-params type {wire_type:?} for {}",
-            case.method
-        ),
+    let descriptor = wire_type(params_type).unwrap();
+    if let Some(accept) = descriptor.accept {
+        accept(case.params.clone()).unwrap();
+    } else {
+        assert_eq!(params_type, "PreviewChangedParams");
+        let params = PreviewChangedParams {
+            frame: serde_json::from_value(case.params["frame"].clone()).unwrap(),
+            daemon_instance_id: case.params["daemonInstanceId"].as_str().unwrap().into(),
+            preview_session_id: case.params["previewSessionId"].as_str().unwrap().into(),
+            render_revision: JsSafeU64::new(case.params["renderRevision"].as_u64().unwrap())
+                .unwrap(),
+        };
+        assert_eq!(serde_json::to_value(params).unwrap(), case.params);
     }
 }
 
@@ -187,7 +166,7 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
     let string = |field: &str| case.result[field].as_str().unwrap().to_owned();
     let integer = |field: &str| JsSafeI64::new(case.result[field].as_i64().unwrap()).unwrap();
     match spec.result_type {
-        Some(WireType::InitializeResult) => serde_json::to_value(InitializeResult {
+        Some("InitializeResult") => serde_json::to_value(InitializeResult {
             protocol_version: case.result["protocolVersion"].as_u64().unwrap() as u32,
             daemon_instance_id: string("daemonInstanceId"),
             capabilities: ServerCapabilities {
@@ -203,12 +182,12 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
             }],
         })
         .unwrap(),
-        Some(WireType::AttachDocumentResult) => serde_json::to_value(AttachDocumentResult {
+        Some("AttachDocumentResult") => serde_json::to_value(AttachDocumentResult {
             document_session_id: string("documentSessionId"),
             document_version: integer("documentVersion"),
         })
         .unwrap(),
-        Some(WireType::CreatePreviewResult) => serde_json::to_value(CreatePreviewResult {
+        Some("CreatePreviewResult") => serde_json::to_value(CreatePreviewResult {
             frame: serde_json::from_value(case.result["frame"].clone()).unwrap(),
             preview_session_id: string("previewSessionId"),
             url: case
@@ -218,8 +197,8 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
                 .map(str::to_owned),
         })
         .unwrap(),
-        Some(WireType::RenderFrame) => case.result.clone(),
-        Some(WireType::GetNoteOptionsResult) => serde_json::to_value(GetNoteOptionsResult {
+        Some("RenderFrame") => case.result.clone(),
+        Some("GetNoteOptionsResult") => serde_json::to_value(GetNoteOptionsResult {
             categories: case.result["categories"]
                 .as_array()
                 .unwrap()
@@ -234,12 +213,12 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
                 .collect(),
         })
         .unwrap(),
-        Some(WireType::CommandResult) => serde_json::to_value(
+        Some("CommandResult") => serde_json::to_value(
             serde_json::from_value::<CommandResult>(case.result.clone()).unwrap(),
         )
         .unwrap(),
         None => case.result.clone(),
-        Some(WireType::Unit) => {
+        Some("Unit") => {
             assert!(
                 case.result.is_null(),
                 "unit result changed for {}",
@@ -361,14 +340,14 @@ fn method_registry_is_unique_and_directionally_complete() {
     assert_eq!(preview_event.direction, MethodDirection::Bidirectional);
     assert_eq!(
         preview_event.client_to_server_params_type,
-        Some(WireType::PreviewEventParams)
+        Some("PreviewEventParams")
     );
     assert_eq!(
         preview_event.server_to_client_params_type,
-        Some(WireType::ServerPreviewEventParams)
+        Some("ServerPreviewEventParams")
     );
     assert_eq!(
-        serde_json::to_value(WireType::RenderFrame).unwrap(),
+        serde_json::to_value(wire_type("RenderFrame").unwrap().schema_name).unwrap(),
         "renderFrame"
     );
 }
@@ -483,5 +462,33 @@ fn obsolete_client_capabilities_are_rejected() {
         let mut capabilities = json!({});
         capabilities[field] = json!(true);
         assert!(serde_json::from_value::<ClientCapabilities>(capabilities).is_err());
+    }
+}
+
+#[test]
+fn serialization_failure_preserves_its_source_without_writing_a_frame() {
+    struct Failing;
+    impl serde::Serialize for Failing {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("fixture serialization failure"))
+        }
+    }
+    let mut bytes = Vec::new();
+    let error = write_frame(&mut bytes, &Failing).unwrap_err();
+    assert!(bytes.is_empty());
+    assert!(matches!(error, FrameError::Serialization(_)));
+    let cause = std::error::Error::source(&error).unwrap();
+    assert!(cause.downcast_ref::<serde_json::Error>().is_some());
+    assert_eq!(cause.to_string(), "fixture serialization failure");
+    assert!(cause.source().is_none());
+}
+#[test]
+fn rpc_ids_convert_to_json_values_without_serialization() {
+    assert_eq!(Value::from(RpcId::from("request")), json!("request"));
+    for integer in [-MAX_SAFE_INTEGER, 0, MAX_SAFE_INTEGER] {
+        assert_eq!(
+            Value::from(RpcId::try_from(integer).unwrap()),
+            json!(integer)
+        );
     }
 }

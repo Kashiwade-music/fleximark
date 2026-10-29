@@ -35,17 +35,6 @@ export interface DaemonSupervisorDependencies<Process, Rpc, Timer, Status> {
   disposeStatus(status: Status): void;
 }
 
-export interface DaemonSupervisorSnapshot<Process, Rpc> {
-  process?: Process;
-  rpc?: Rpc;
-  daemonInstanceId?: string;
-  connectionGeneration: number;
-  workspaceRevision: number;
-  appliedWorkspaceRevision: number;
-  restartCount: number;
-  restarting: boolean;
-}
-
 export class DaemonSupervisor<Process, Rpc, Timer, Status> {
   readonly #dependencies: DaemonSupervisorDependencies<
     Process,
@@ -55,15 +44,12 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
   >;
   #process?: Process;
   #rpc?: Rpc;
-  #daemonInstanceId?: string;
+  #ready = false;
   #startPromise?: Promise<void>;
   #restartTimer?: Timer;
   #restartCount = 0;
   #lastStartedAt = 0;
   #connectionGeneration = 0;
-  #workspaceRevision = 0;
-  #appliedWorkspaceRevision = -1;
-  #restarting = false;
   #recoverySequence = 0;
   #recoveryId?: string;
   #recoveryStatus?: Status;
@@ -84,29 +70,8 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     return this.#rpc;
   }
 
-  get daemonInstanceId(): string | undefined {
-    return this.#daemonInstanceId;
-  }
-
   get connectionGeneration(): number {
     return this.#connectionGeneration;
-  }
-
-  snapshot(): DaemonSupervisorSnapshot<Process, Rpc> {
-    return {
-      process: this.#process,
-      rpc: this.#rpc,
-      daemonInstanceId: this.#daemonInstanceId,
-      connectionGeneration: this.#connectionGeneration,
-      workspaceRevision: this.#workspaceRevision,
-      appliedWorkspaceRevision: this.#appliedWorkspaceRevision,
-      restartCount: this.#restartCount,
-      restarting: this.#restarting,
-    };
-  }
-
-  workspaceChanged(): void {
-    this.#workspaceRevision += 1;
   }
 
   beginDispose(): void {
@@ -131,22 +96,21 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
         if (this.#stopping || this.#disposed) return;
         continue;
       }
-      if (
-        this.#rpc &&
-        !this.#dependencies.rpcClosed(this.#rpc) &&
-        this.#daemonInstanceId &&
-        this.#appliedWorkspaceRevision === this.#workspaceRevision
-      )
+      if (this.#rpc && !this.#dependencies.rpcClosed(this.#rpc) && this.#ready)
         return;
 
       const operation = (
-        this.#process ? this.#restart() : this.#launch()
+        this.#process
+          ? this.#dependencies
+              .waitForExit(this.#process)
+              .then(() => this.#launch())
+          : this.#launch()
       ).catch((error: unknown) => {
         const rpc = this.#rpc;
         const process = this.#process;
         this.#rpc = undefined;
         this.#process = undefined;
-        this.#daemonInstanceId = undefined;
+        this.#ready = false;
         if (rpc)
           this.#dependencies.closeRpc(
             rpc,
@@ -180,7 +144,7 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     const process = this.#process;
     this.#rpc = undefined;
     this.#process = undefined;
-    this.#daemonInstanceId = undefined;
+    this.#ready = false;
     if (rpc) {
       void this.#dependencies
         .requestShutdown(rpc)
@@ -203,33 +167,6 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     this.#disposeRecoveryStatus();
   }
 
-  async #restart(): Promise<void> {
-    const process = this.#process;
-    if (!process) return this.#launch();
-    this.#restarting = true;
-    const exited = this.#dependencies.waitForExit(process);
-    if (this.#rpc)
-      this.#dependencies.closeRpc(
-        this.#rpc,
-        new Error("FlexiMark daemon is restarting"),
-      );
-    this.#dependencies.kill(process);
-    await exited;
-    if (
-      this.#stopping ||
-      this.#disposed ||
-      !this.#dependencies.runtimeCount()
-    ) {
-      this.#restarting = false;
-      return;
-    }
-    this.#rpc = undefined;
-    this.#process = undefined;
-    this.#daemonInstanceId = undefined;
-    this.#restarting = false;
-    await this.#launch();
-  }
-
   async #launch(): Promise<void> {
     const binary = await this.#dependencies.resolveBinary();
     if (this.#stopping || this.#disposed || !this.#dependencies.runtimeCount())
@@ -241,17 +178,12 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     const recoveryId =
       this.#recoveryId ?? `launch-${this.#recoverySequence + 1}`;
     this.#dependencies.log(
-      `[${recoveryId}] launching daemon generation=${generation} runtimes=${this.#dependencies.runtimeCount()} workspaceRevision=${this.#workspaceRevision}`,
+      `[${recoveryId}] launching daemon generation=${generation} runtimes=${this.#dependencies.runtimeCount()}`,
     );
     this.#rpc = rpc;
     this.#dependencies.bindConnection(process, rpc, generation);
     this.#dependencies.onRpcClose(rpc, () => {
-      if (
-        this.#rpc === rpc &&
-        this.#process === process &&
-        !this.#stopping &&
-        !this.#restarting
-      )
+      if (this.#rpc === rpc && this.#process === process && !this.#stopping)
         this.#dependencies.kill(process);
     });
     this.#dependencies.onExit(process, (code, signal) =>
@@ -263,15 +195,13 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
     await this.#dependencies.initializeProtocol(rpc);
     if (this.#process !== process || this.#rpc !== rpc || this.#stopping)
       return;
-    const workspaceRevision = this.#workspaceRevision;
-    const daemonInstanceId = await this.#dependencies.initializeWorkspaces(rpc);
+    await this.#dependencies.initializeWorkspaces(rpc);
     if (this.#process !== process || this.#rpc !== rpc || this.#stopping)
       return;
-    this.#daemonInstanceId = daemonInstanceId;
+    this.#ready = true;
     await this.#dependencies.replayDocuments(rpc);
     if (this.#process !== process || this.#rpc !== rpc || this.#stopping)
       return;
-    this.#appliedWorkspaceRevision = workspaceRevision;
     this.#lastStartedAt = this.#dependencies.now();
     const replayed = await this.#dependencies.replayPreviews(rpc);
     if (
@@ -304,9 +234,8 @@ export class DaemonSupervisor<Process, Rpc, Timer, Status> {
       );
     this.#rpc = undefined;
     this.#process = undefined;
-    this.#daemonInstanceId = undefined;
+    this.#ready = false;
     this.#dependencies.resetAdapterState();
-    if (this.#restarting) return;
     if (this.#dependencies.now() - this.#lastStartedAt > 30_000)
       this.#restartCount = 0;
     const recoveryId = `recovery-${++this.#recoverySequence}`;

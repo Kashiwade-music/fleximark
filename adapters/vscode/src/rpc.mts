@@ -1,12 +1,12 @@
-import { EventEmitter } from "node:events";
-import type { Readable, Writable } from "node:stream";
-
 import {
   type ClientNotificationMap,
   type CustomRequestMap,
+  type JsonRpcMessageEnvelope,
+  type JsonRpcResponseEnvelope,
   type JsonValue,
   type LspMethod,
   type RpcId,
+  type ServerNotificationMap,
   type Validator,
   clientNotificationValidators,
   customRequestParamsValidators,
@@ -16,34 +16,20 @@ import {
   isJsonRpcResponseEnvelope,
   isServerNotificationMethod,
   serverNotificationValidators,
-} from "../../../contracts/typescript/protocol.mjs";
-
-export interface JsonRpcResponse {
-  jsonrpc: "2.0";
-  id: RpcId | null;
-  result?: JsonValue;
-  error?: { code: number; message: string; data?: JsonValue };
-}
-
-export interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  id?: RpcId;
-  method: string;
-  params?: object | JsonValue[];
-}
+} from "@fleximark/contracts/protocol";
+import { EventEmitter } from "node:events";
+import type { Readable, Writable } from "node:stream";
 
 interface PendingRequest {
   method: string;
-  validateResult?: Validator<unknown>;
-  receive?: (value: unknown) => void;
-  resolve: (value: unknown) => void;
+  accept(value: unknown): boolean;
   reject: (reason: Error) => void;
   timer: NodeJS.Timeout;
 }
 
 type Envelope =
-  | { kind: "response"; value: JsonRpcResponse }
-  | { kind: "message"; value: JsonRpcRequest }
+  | { kind: "response"; value: JsonRpcResponseEnvelope }
+  | { kind: "message"; value: JsonRpcMessageEnvelope }
   | { kind: "invalid" };
 
 function decodeEnvelope(value: unknown): Envelope {
@@ -73,6 +59,13 @@ export class JsonRpcConnection extends EventEmitter {
   #buffer = Buffer.alloc(0);
   #nextId = 1;
   #closed = false;
+
+  onNotification<Method extends keyof ServerNotificationMap>(
+    method: Method,
+    listener: (params: ServerNotificationMap[Method]) => void,
+  ): void {
+    this.on(method, listener);
+  }
 
   constructor(input: Readable, output: Writable) {
     super();
@@ -105,18 +98,16 @@ export class JsonRpcConnection extends EventEmitter {
     timeoutMs?: number,
     receive?: (result: CustomRequestMap[Method]["result"]) => void,
   ): Promise<CustomRequestMap[Method]["result"]> {
-    const validator = customRequestParamsValidators[
-      method
-    ] as Validator<unknown>;
+    const validator = customRequestParamsValidators[method];
     if (!validator(params))
       return Promise.reject(new Error(`Invalid params for ${method}`));
     return this.#request(
       method,
       params,
-      customRequestResultValidators[method] as Validator<unknown>,
+      customRequestResultValidators[method],
       timeoutMs,
-      receive as ((value: unknown) => void) | undefined,
-    ) as Promise<CustomRequestMap[Method]["result"]>;
+      receive,
+    );
   }
 
   requestLsp<Result>(
@@ -128,21 +119,14 @@ export class JsonRpcConnection extends EventEmitter {
       return Promise.reject(
         new Error(`Custom method ${method} must use the typed request API`),
       );
-    return this.#request(
-      method,
-      params,
-      undefined,
-      timeoutMs,
-    ) as Promise<Result>;
+    return this.#request<Result>(method, params, undefined, timeoutMs);
   }
 
   notify<Method extends keyof ClientNotificationMap>(
     method: Method,
     params: ClientNotificationMap[Method],
   ): void {
-    const validator = clientNotificationValidators[
-      method
-    ] as Validator<unknown>;
+    const validator = clientNotificationValidators[method];
     if (!validator(params)) throw new Error(`Invalid params for ${method}`);
     if (!this.#closed) this.#write({ jsonrpc: "2.0", method, params });
   }
@@ -154,9 +138,9 @@ export class JsonRpcConnection extends EventEmitter {
   }
 
   respond(
-    id: number | string,
+    id: RpcId,
     result?: JsonValue,
-    error?: JsonRpcResponse["error"],
+    error?: JsonRpcResponseEnvelope["error"],
   ): void {
     if (!this.#closed) this.#write({ jsonrpc: "2.0", id, result, error });
   }
@@ -175,26 +159,43 @@ export class JsonRpcConnection extends EventEmitter {
     this.emit("close", reason);
   }
 
-  #request(
+  #request<Result>(
     method: string,
     params: object | JsonValue[] | undefined,
-    validateResult: Validator<unknown> | undefined,
+    validateResult: Validator<Result> | undefined,
     timeoutMs = 15_000,
-    receive?: (value: unknown) => void,
-  ): Promise<unknown> {
+    receive?: (value: Result) => void,
+  ): Promise<Result> {
     if (this.#closed)
       return Promise.reject(new Error("JSON-RPC connection is closed"));
     const id = this.#nextId++;
-    return new Promise((resolve, reject) => {
+    return new Promise<Result>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`JSON-RPC request timed out: ${method}`));
       }, timeoutMs);
       this.#pending.set(id, {
         method,
-        validateResult,
-        receive,
-        resolve,
+        accept: (value) => {
+          const complete = (result: Result) => {
+            this.#pending.delete(id);
+            clearTimeout(timer);
+            try {
+              receive?.(result);
+              resolve(result);
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error(String(error)));
+            }
+          };
+          if (validateResult) {
+            if (!validateResult(value)) return false;
+            complete(value);
+          } else {
+            // Standard LSP methods are the explicit untyped transport boundary.
+            complete(value as Result);
+          }
+          return true;
+        },
         reject,
         timer,
       });
@@ -202,7 +203,7 @@ export class JsonRpcConnection extends EventEmitter {
     });
   }
 
-  #write(message: JsonRpcRequest | JsonRpcResponse): void {
+  #write(message: JsonRpcMessageEnvelope | JsonRpcResponseEnvelope): void {
     const body = Buffer.from(JSON.stringify(message));
     this.#output.write(`Content-Length: ${body.length}\r\n\r\n`);
     this.#output.write(body);
@@ -269,33 +270,23 @@ export class JsonRpcConnection extends EventEmitter {
         );
         return;
       }
-      if (!pending.validateResult || pending.validateResult(message.result)) {
-        this.#pending.delete(message.id);
-        clearTimeout(pending.timer);
-        try {
-          // Bind response-owned state before dispatching the next wire message.
-          pending.receive?.(message.result);
-          pending.resolve(message.result);
-        } catch (error) {
-          pending.reject(
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        }
-        return;
-      }
+      if (pending.accept(message.result)) return;
       this.close(new Error(`Invalid protocol result for ${pending.method}`));
       return;
     }
 
     const message = envelope.value;
+    if (message.method === "window/showDocument") {
+      this.emit("request", message);
+      return;
+    }
     if (!isServerNotificationMethod(message.method)) return;
-    const validator = serverNotificationValidators[
-      message.method
-    ] as Validator<unknown>;
+    const validator = serverNotificationValidators[message.method];
     if (!validator(message.params)) {
       this.emit("invalidMessage", message);
       return;
     }
     this.emit("message", message);
+    this.emit(message.method, message.params);
   }
 }

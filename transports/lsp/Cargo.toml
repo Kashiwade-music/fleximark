@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+fleximark-wire-mapping = { path = "../wire-mapping" }
 fleximark-application = { path = "../../application" }
 fleximark-engine = { path = "../../core/engine" }
 fleximark-model = { path = "../../core/model" }
@@ -16,3 +17,7 @@ fleximark-preview-assets = { path = "../../runtime/preview-assets" }
 serde.workspace = true
 serde_json.workspace = true
 
+
+[dev-dependencies]
+fleximark-test-support = { path = "../../dev/test-support" }
+fleximark-distribution = { path = "../../contracts/distribution" }

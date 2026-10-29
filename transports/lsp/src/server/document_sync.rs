@@ -92,9 +92,6 @@ impl Server {
         if id.is_some() {
             return Self::notification_id(id);
         }
-        let attempted_version = params
-            .pointer("/textDocument/version")
-            .and_then(Value::as_u64);
         let uri = params
             .pointer("/textDocument/uri")
             .and_then(Value::as_str)
@@ -128,12 +125,6 @@ impl Server {
         let uri = uri?;
         if let Err(error) = result {
             self.registry.mark_out_of_sync(&uri);
-            if let (Some(session), Some(version)) = (
-                self.registry.session_id_for_uri(&uri).map(str::to_owned),
-                attempted_version.and_then(|version| super::protocol::counter(version).ok()),
-            ) {
-                self.mark_preview_document_version(&session, version);
-            }
             crate::telemetry::log_operational_failure(
                 "document-sync-failed",
                 &error,
@@ -143,22 +134,20 @@ impl Server {
             );
             return None;
         }
-        let session = self.registry.session_id_for_uri(&uri).map(str::to_owned);
-        if let Some(session) = session {
-            if let Ok(version) = self
-                .registry
-                .current_version(&session)
-                .and_then(super::protocol::counter)
-            {
-                self.mark_preview_document_version(&session, version);
-            }
-        }
         if self.publication_cancellation.is_cancelled() {
             return None;
         }
         let trace = OperationalTrace::new(Some(&uri), None, None);
         if self.refresh_changed_document_assets(&uri, &trace) {
-            self.publish_changed_document(&uri);
+            if let Err(error) = self.publish_document_previews(&uri) {
+                crate::telemetry::log_operational_failure(
+                    "preview-update-failed",
+                    &error,
+                    Some(&uri),
+                    None,
+                    None,
+                );
+            }
         }
         None
     }

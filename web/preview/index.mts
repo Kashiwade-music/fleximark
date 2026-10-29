@@ -1,8 +1,8 @@
 import type {
   NavigationEntry,
   RenderFrame,
-} from "../../contracts/typescript/protocol.mjs";
-import { isRenderFrame } from "../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
+
 import {
   createAssetUrls,
   resolveAssetUrls,
@@ -23,7 +23,7 @@ export type {
   RenderStyle,
   SourcePosition,
   SourceRange,
-} from "../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
 
 interface DisplayedBlock {
   readonly html: string;
@@ -69,7 +69,6 @@ export class PreviewDocument {
   }
 
   apply(frame: RenderFrame): boolean {
-    if (!isRenderFrame(frame)) return this.#reject();
     if (
       frame.previewSessionId === this.#sessionId &&
       frame.renderRevision <= this.#revision

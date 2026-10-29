@@ -4,5 +4,8 @@
   "type": "module",
   "dependencies": {
     "@fleximark/contracts": "workspace:*"
+  },
+  "exports": {
+    "./*": "./*.mts"
   }
 }

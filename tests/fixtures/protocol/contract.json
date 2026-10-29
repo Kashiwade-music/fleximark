@@ -87,7 +87,7 @@
           "rendererFingerprint": "892f02a14914d3ad19c5020b1393f66cc41c72bd8ec5a6439265492decd29140",
           "style": null
         },
-        "previewSessionId": "preview"
+        "previewSessionId": "rust-render-frame-fixture"
       }
     },
     {
@@ -158,8 +158,8 @@
           "rendererFingerprint": "892f02a14914d3ad19c5020b1393f66cc41c72bd8ec5a6439265492decd29140",
           "style": null
         },
-        "previewSessionId": "preview",
-        "renderRevision": 2
+        "previewSessionId": "rust-render-frame-fixture",
+        "renderRevision": 1
       },
       "result": null
     },

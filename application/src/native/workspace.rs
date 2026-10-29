@@ -265,7 +265,6 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         assert_eq!(fs::read_to_string(config).unwrap(), custom);
         assert_eq!(fs::read_to_string(theme).unwrap(), "/* custom theme */\n");
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -280,8 +279,6 @@ mod tests {
         #[cfg(windows)]
         let link_result = std::os::windows::fs::symlink_dir(&outside, &linked);
         if link_result.is_err() {
-            fs::remove_dir_all(root).unwrap();
-            fs::remove_dir_all(outside).unwrap();
             return;
         }
         let uri = path_to_file_uri(&root).unwrap();
@@ -307,8 +304,6 @@ mod tests {
         );
         assert!(!outside.join("theme.css").exists());
         fs::remove_file(&linked).unwrap_or_else(|_| fs::remove_dir(&linked).unwrap());
-        fs::remove_dir_all(root).unwrap();
-        fs::remove_dir_all(outside).unwrap();
     }
 
     #[test]
@@ -337,7 +332,6 @@ mod tests {
             fs::read_to_string(control.join("parserPlugin.js")).unwrap(),
             "throw new Error('executed')"
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -356,6 +350,58 @@ mod tests {
                 fleximark_config::ConfigError::Syntax(_)
             ))
         ));
-        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn initialization_preserves_active_defaults_and_typed_resource_locations() {
+        let root = test_workspace("defaults");
+        let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
+
+        let result = initialize_workspace(&workspace_uri).expect("initialize workspace");
+
+        let config =
+            fs::read_to_string(root.join(".fleximark/config.toml")).expect("read default config");
+        assert_eq!(
+            config
+                .lines()
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .collect::<Vec<_>>(),
+            ["schema_version = 1", "[notes]", "root = \".\""]
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".fleximark/theme.css")).expect("read default theme"),
+            THEME
+        );
+        assert_eq!(
+            result.config_uri,
+            path_to_file_uri(&root.join(".fleximark/config.toml")).expect("config URI")
+        );
+        assert_eq!(
+            result.theme_uri,
+            path_to_file_uri(&root.join(".fleximark/theme.css")).unwrap()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn workspace_control_junction_is_rejected_without_touching_its_target() {
+        let root = test_workspace("junction-root");
+        let outside = test_workspace("junction-target");
+        fs::write(outside.join("sentinel.txt"), "user bytes").expect("write target sentinel");
+        fs::write(outside.join("config.toml"), "schema_version = 1\n")
+            .expect("write target config");
+        let junction = root.join(".fleximark");
+        let _junction_guard = crate::native::test_support::create_junction(&junction, &outside);
+
+        let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
+        assert!(matches!(
+            initialize_workspace(&workspace_uri),
+            Err(ApplicationError::LinkedControlDirectory)
+        ));
+        assert_eq!(
+            fs::read_to_string(outside.join("sentinel.txt")).expect("read target sentinel"),
+            "user bytes"
+        );
+        assert!(!outside.join("theme.css").exists());
     }
 }

@@ -1,6 +1,12 @@
+import {
+  type LspMethod,
+  type LspSemanticTokens,
+  SEMANTIC_TOKEN_MODIFIERS,
+  SEMANTIC_TOKEN_TYPES,
+  type TextPosition,
+  type TextRange,
+} from "@fleximark/contracts/protocol";
 import * as vscode from "vscode";
-
-import type { LspMethod } from "../../../contracts/typescript/protocol.mjs";
 
 interface ProviderAdapter {
   requestLanguageFeature<T>(
@@ -10,21 +16,11 @@ interface ProviderAdapter {
   ): Promise<T | undefined>;
 }
 
-interface WirePosition {
-  line: number;
-  character: number;
-}
-
-interface WireRange {
-  start: WirePosition;
-  end: WirePosition;
-}
-
-function toWirePosition(position: vscode.Position): WirePosition {
+function toWirePosition(position: vscode.Position): TextPosition {
   return { line: position.line, character: position.character };
 }
 
-function toVscodeRange(range: WireRange): vscode.Range {
+function toVscodeRange(range: TextRange): vscode.Range {
   return new vscode.Range(
     range.start.line,
     range.start.character,
@@ -32,14 +28,6 @@ function toVscodeRange(range: WireRange): vscode.Range {
     range.end.character,
   );
 }
-
-const semanticTokenTypes = [
-  "keyword",
-  "string",
-  "operator",
-  "type",
-  "property",
-] as const;
 
 export function registerProviders(
   adapter: ProviderAdapter,
@@ -66,7 +54,7 @@ export function registerProviders(
                 filterText: string;
                 insertTextFormat: number;
                 textEdit: {
-                  range: WireRange;
+                  range: TextRange;
                   newText: string;
                 };
               }[];
@@ -99,7 +87,7 @@ export function registerProviders(
       {
         async provideDocumentSemanticTokens(document) {
           const result = await request(() =>
-            adapter.requestLanguageFeature<{ data: number[] }>(
+            adapter.requestLanguageFeature<LspSemanticTokens>(
               "textDocument/semanticTokens/full",
               document,
             ),
@@ -109,7 +97,10 @@ export function registerProviders(
           );
         },
       },
-      new vscode.SemanticTokensLegend([...semanticTokenTypes]),
+      new vscode.SemanticTokensLegend(
+        [...SEMANTIC_TOKEN_TYPES],
+        [...SEMANTIC_TOKEN_MODIFIERS],
+      ),
     ),
     registrar.registerHoverProvider(
       { language: "markdown" },
@@ -137,8 +128,8 @@ export function registerProviders(
               {
                 name: string;
                 kind: number;
-                range: WireRange;
-                selectionRange: WireRange;
+                range: TextRange;
+                selectionRange: TextRange;
               }[]
             >("textDocument/documentSymbol", document),
           );

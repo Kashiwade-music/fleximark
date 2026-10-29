@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import concurrent.futures
 import hashlib
 import json
@@ -12,7 +11,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from distribution_contract import normalize_arch, normalize_platform
-from _tools import ROOT, run, script_entrypoint
+from _tools import ROOT, run
 
 
 EXTENSION_ID = "kashiwade.fleximark"
@@ -200,15 +199,3 @@ def smoke_vsix(vsix: Path) -> None:
             str(executable_path), str(scratch), str(extensions),
             timeout=120,
         )
-
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Smoke-test an installed FlexiMark VSIX")
-    parser.add_argument("vsix", nargs="?", default="fleximark.vsix", type=Path)
-    args = parser.parse_args()
-    smoke_vsix(args.vsix)
-
-
-if __name__ == "__main__":
-    script_entrypoint(main)

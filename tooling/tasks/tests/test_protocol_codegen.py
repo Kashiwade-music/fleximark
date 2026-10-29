@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, call
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -12,6 +12,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import protocol_codegen
+import tasks
 import build as javascript_build
 
 
@@ -25,15 +26,10 @@ class ProtocolCodegenTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 run_mock.reset_mock()
                 task()
-                run_mock.assert_called_once_with(
-                    "cargo",
-                    "run",
-                    "--locked",
-                    "-p",
-                    "fleximark-protocol-codegen",
-                    "--",
-                    mode,
-                )
+                self.assertEqual(run_mock.call_args_list, [
+                    call("cargo", "run", "--locked", "-p", "fleximark-protocol-codegen", "--", mode),
+                    call("cargo", "xtask", "fixtures", mode),
+                ])
 
     def test_invalid_public_and_internal_inputs_are_rejected(self) -> None:
         with self.assertRaises(RuntimeError):
@@ -54,7 +50,7 @@ class ProtocolCodegenTests(unittest.TestCase):
                 self.subTest(target=target),
                 patch.object(sys, "argv", ["build.py", target]),
                 patch.object(
-                    javascript_build,
+                    protocol_codegen,
                     "check_protocol_contract",
                     side_effect=lambda: events.append("check"),
                 ),
@@ -64,7 +60,7 @@ class ProtocolCodegenTests(unittest.TestCase):
                     side_effect=lambda *args, **kwargs: events.append("build"),
                 ),
             ):
-                javascript_build.main()
+                tasks.main(["bundle", target])
             self.assertEqual(events, ["check", "build"])
 
 

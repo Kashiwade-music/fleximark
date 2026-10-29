@@ -3,8 +3,13 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@fleximark/contracts": "workspace:*",
     "abcjs": "6.7.0",
     "katex": "0.16.47",
     "mermaid": "11.17.2"
+  },
+  "exports": {
+    "./*": "./*.mts",
+    "./*.css": "./*.css"
   }
 }

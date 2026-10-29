@@ -1,7 +1,6 @@
 """Verify the complete release set before any asset is published."""
 from __future__ import annotations
 
-import argparse
 import zipfile
 import tomllib
 from pathlib import Path
@@ -51,17 +50,3 @@ def verify(root: Path, source_git_head: str, tag: str) -> None:
             for path in expected:
                 if archive.read(path) != extension.read("extension/runtime/" + path):
                     raise RuntimeError("VSIX runtime differs from shared native archive")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("verify",))
-    parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--source-git-head", required=True)
-    parser.add_argument("--tag", required=True)
-    args = parser.parse_args()
-    verify(args.root, args.source_git_head, args.tag)
-
-
-if __name__ == "__main__":
-    script_entrypoint(main)

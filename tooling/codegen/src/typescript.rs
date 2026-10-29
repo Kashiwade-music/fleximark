@@ -2,6 +2,9 @@
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 pub(crate) fn schema_to_typescript(schema: &Value) -> Result<String, String> {
+    if let Value::Bool(allowed) = schema {
+        return Ok(if *allowed { "unknown" } else { "never" }.to_owned());
+    }
     let object = schema
         .as_object()
         .ok_or_else(|| "boolean schemas are unsupported in TypeScript output".to_owned())?;
@@ -9,14 +12,14 @@ pub(crate) fn schema_to_typescript(schema: &Value) -> Result<String, String> {
         return Ok(reference.to_owned());
     }
     if let Some(value) = object.get("const") {
-        return Ok(json_literal(value));
+        return json_literal(value);
     }
     if let Some(Value::Array(values)) = object.get("enum") {
-        return Ok(values
+        return values
             .iter()
             .map(json_literal)
-            .collect::<Vec<_>>()
-            .join(" | "));
+            .collect::<Result<Vec<_>, _>>()
+            .map(|items| items.join(" | "));
     }
     for (union_key, separator) in [("oneOf", " | "), ("anyOf", " | "), ("allOf", " & ")] {
         if let Some(Value::Array(items)) = object.get(union_key) {
@@ -60,7 +63,7 @@ fn object_schema_to_typescript(object: &Map<String, Value>) -> Result<String, St
         for (name, schema) in properties {
             fields.push(format!(
                 "{}{}: {}",
-                ts_property(name),
+                ts_property(name)?,
                 if required.contains(name.as_str()) {
                     ""
                 } else {
@@ -105,17 +108,17 @@ fn primitive_ts(kind: &str) -> &'static str {
     }
 }
 
-fn json_literal(value: &Value) -> String {
-    serde_json::to_string(value).expect("JSON literals serialize")
+fn json_literal(value: &Value) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|error| error.to_string())
 }
 
-fn ts_property(name: &str) -> String {
+fn ts_property(name: &str) -> Result<String, String> {
     if name.chars().enumerate().all(|(index, character)| {
         character == '_'
             || character == '$'
             || (character.is_ascii_alphanumeric() && (index > 0 || !character.is_ascii_digit()))
     }) {
-        name.to_owned()
+        Ok(name.to_owned())
     } else {
         json_literal(&Value::String(name.to_owned()))
     }

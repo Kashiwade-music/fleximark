@@ -287,6 +287,7 @@ dependencies = [
  "fleximark-preview-assets",
  "fleximark-protocol",
  "fleximark-render-html",
+ "fleximark-test-support",
  "getrandom 0.2.17",
  "serde",
  "serde_json",
@@ -305,6 +306,7 @@ dependencies = [
  "fleximark-preview-assets",
  "fleximark-protocol",
  "fleximark-render-html",
+ "fleximark-test-support",
  "libc",
  "serde_json",
  "windows-sys 0.59.0",
@@ -348,7 +350,6 @@ name = "fleximark-language"
 version = "0.1.0"
 dependencies = [
  "fleximark-model",
- "serde",
 ]
 
 [[package]]
@@ -356,12 +357,15 @@ name = "fleximark-lsp-transport"
 version = "0.1.0"
 dependencies = [
  "fleximark-application",
+ "fleximark-distribution",
  "fleximark-engine",
  "fleximark-language",
  "fleximark-model",
  "fleximark-preview-assets",
  "fleximark-preview-http",
  "fleximark-protocol",
+ "fleximark-test-support",
+ "fleximark-wire-mapping",
  "serde",
  "serde_json",
 ]
@@ -405,6 +409,7 @@ dependencies = [
  "fleximark-engine",
  "fleximark-model",
  "fleximark-protocol",
+ "fleximark-wire-mapping",
  "getrandom 0.2.17",
  "serde",
  "serde_json",
@@ -425,10 +430,7 @@ name = "fleximark-protocol-codegen"
 version = "0.1.0"
 dependencies = [
  "fleximark-config",
- "fleximark-engine",
- "fleximark-model",
  "fleximark-protocol",
- "fleximark-render-html",
  "schemars",
  "serde",
  "serde_json",
@@ -445,16 +447,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fleximark-wire"
-version = "0.1.0"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "fleximarkd"
+name = "fleximark-server"
 version = "0.16.14"
 dependencies = [
  "fleximark-application",
@@ -464,9 +457,34 @@ dependencies = [
  "fleximark-preview-assets",
  "fleximark-preview-http",
  "fleximark-protocol",
+ "fleximark-test-support",
+ "fleximark-wire-mapping",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "fleximark-test-support"
+version = "0.1.0"
+
+[[package]]
+name = "fleximark-wire"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fleximark-wire-mapping"
+version = "0.1.0"
+dependencies = [
+ "fleximark-application",
+ "fleximark-engine",
+ "fleximark-model",
+ "fleximark-protocol",
 ]
 
 [[package]]
@@ -1476,6 +1494,11 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "fleximark-engine",
+ "fleximark-model",
+ "fleximark-protocol",
+ "fleximark-render-html",
+ "serde_json",
  "xtask-core",
 ]
 

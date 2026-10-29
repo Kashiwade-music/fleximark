@@ -1,4 +1,4 @@
-import type { EditorNavigationEvent } from "./navigation.mjs";
+import type { PreviewNavigationEvent } from "@fleximark/contracts/protocol";
 
 export class BrowserNavigationTransport {
   readonly #controller = new AbortController();
@@ -9,7 +9,7 @@ export class BrowserNavigationTransport {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  send(event: EditorNavigationEvent): void {
+  send(event: PreviewNavigationEvent): void {
     if (this.#disposed) return;
     let request: Promise<Response>;
     try {

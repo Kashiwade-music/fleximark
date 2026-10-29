@@ -8,12 +8,14 @@ use comrak::{
 use fleximark_model::{
     Block, BlockKind, Document, DocumentMetadata, DocumentUri, Inline, InlineKind, Node, NodeId,
     PositionEncoding, SourceIndex, SourceRange, ValidationError,
+    syntax::{BuiltinSyntaxKind, lookup_alert, lookup_directive, lookup_fence, youtube_video_id},
 };
 
 #[derive(Debug)]
 pub enum ParseError {
     InvalidSourcePosition(String),
     InvalidDocument(ValidationError),
+    UnsupportedNode,
 }
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -24,6 +26,7 @@ impl std::fmt::Display for ParseError {
                 value
             ),
             Self::InvalidDocument(value) => std::fmt::Display::fmt(value, f),
+            Self::UnsupportedNode => f.write_str("unsupported Markdown node"),
         }
     }
 }
@@ -103,7 +106,7 @@ fn convert_block<'a>(
                         },
                         Vec::new(),
                     ),
-                    NodeValue::Link(link) if is_youtube_url(&link.url) => (
+                    NodeValue::Link(link) if youtube_video_id(&link.url).is_some() => (
                         BlockKind::Media {
                             source: link.url.clone(),
                         },
@@ -124,13 +127,19 @@ fn convert_block<'a>(
         NodeValue::BlockQuote | NodeValue::MultilineBlockQuote(_) => {
             (BlockKind::Quote, block_nodes(node, positions, next_id)?)
         }
-        NodeValue::Alert(alert) => (
-            BlockKind::Admonition {
-                kind: format!("{:?}", alert.alert_type).to_lowercase(),
-                title: format!("{:?}", alert.alert_type),
-            },
-            block_nodes(node, positions, next_id)?,
-        ),
+        NodeValue::Alert(alert) => {
+            let descriptor = lookup_alert(alert.alert_type.default_title())
+                .ok_or(ParseError::UnsupportedNode)?;
+            (
+                BlockKind::Admonition {
+                    kind: descriptor.name.to_owned(),
+                    title: alert
+                        .title
+                        .unwrap_or_else(|| descriptor.default_title.to_owned()),
+                },
+                block_nodes(node, positions, next_id)?,
+            )
+        }
         NodeValue::List(list) => (
             BlockKind::List {
                 ordered: list.list_type == ListType::Ordered,
@@ -171,11 +180,18 @@ fn convert_block<'a>(
         }
         NodeValue::CodeBlock(code) => {
             let (language, title, line_numbers) = parse_code_info(&code.info);
-            let kind = match language.as_deref() {
-                Some("mermaid") => BlockKind::Mermaid {
+            let kind = match language
+                .as_deref()
+                .and_then(lookup_fence)
+                .map(|descriptor| descriptor.kind)
+            {
+                Some(BuiltinSyntaxKind::Mermaid) => BlockKind::Mermaid {
                     source: code.literal,
                 },
-                Some("abc") => BlockKind::AbcNotation {
+                Some(BuiltinSyntaxKind::Abc) => BlockKind::AbcNotation {
+                    source: code.literal,
+                },
+                Some(BuiltinSyntaxKind::Math) => BlockKind::Math {
                     source: code.literal,
                 },
                 _ => BlockKind::CodeBlock {
@@ -198,17 +214,17 @@ fn convert_block<'a>(
                 .and_then(|value| value.strip_suffix(']'))
                 .map(str::trim)
                 .filter(|value| !value.is_empty());
-            let kind = match name {
-                "tabs" => BlockKind::Tabs,
-                "tab" => BlockKind::Tab {
+            let kind = match lookup_directive(name).map(|descriptor| descriptor.kind) {
+                Some(BuiltinSyntaxKind::Tabs) => BlockKind::Tabs,
+                Some(BuiltinSyntaxKind::Tab) => BlockKind::Tab {
                     label: label.unwrap_or("Tab").to_owned(),
                 },
-                "details" => BlockKind::Details {
+                Some(BuiltinSyntaxKind::Details) => BlockKind::Details {
                     summary: label.unwrap_or("Details").to_owned(),
                 },
-                "info" | "tip" | "important" | "warning" | "danger" => BlockKind::Admonition {
+                Some(BuiltinSyntaxKind::Admonition) => BlockKind::Admonition {
                     kind: name.to_owned(),
-                    title: label.map(str::to_owned).unwrap_or_else(|| name.to_owned()),
+                    title: label.unwrap_or(name).to_owned(),
                 },
                 _ => BlockKind::Directive {
                     name: name.to_owned(),
@@ -216,26 +232,6 @@ fn convert_block<'a>(
             };
             (kind, block_nodes(node, positions, next_id)?)
         }
-        NodeValue::FootnoteDefinition(definition) => (
-            BlockKind::Directive {
-                name: format!("footnote-definition:{}", definition.name),
-            },
-            block_nodes(node, positions, next_id)?,
-        ),
-        other @ (NodeValue::DescriptionList
-        | NodeValue::DescriptionItem(_)
-        | NodeValue::DescriptionTerm
-        | NodeValue::DescriptionDetails
-        | NodeValue::Subtext) => (
-            BlockKind::Directive {
-                name: format!("{other:?}")
-                    .split(['(', '{'])
-                    .next()
-                    .unwrap_or("block")
-                    .to_owned(),
-            },
-            mixed_nodes(node, positions, next_id)?,
-        ),
         NodeValue::Text(_)
         | NodeValue::SoftBreak
         | NodeValue::LineBreak
@@ -250,7 +246,6 @@ fn convert_block<'a>(
         | NodeValue::Superscript
         | NodeValue::Link(_)
         | NodeValue::Image(_)
-        | NodeValue::FootnoteReference(_)
         | NodeValue::Math(_)
         | NodeValue::Escaped
         | NodeValue::WikiLink(_)
@@ -259,6 +254,7 @@ fn convert_block<'a>(
         | NodeValue::SpoileredText
         | NodeValue::EscapedTag(_) => return Ok(None),
         NodeValue::FrontMatter(_) | NodeValue::Document => return Ok(None),
+        _ => return Err(ParseError::UnsupportedNode),
     };
     let range = positions.range_enclosing(sourcepos, &children)?;
     let id = NodeId::pending(*next_id);
@@ -269,13 +265,6 @@ fn convert_block<'a>(
         kind,
         children,
     }))
-}
-
-fn is_youtube_url(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    lower.starts_with("https://youtu.be/")
-        || lower.starts_with("https://www.youtube.com/watch?")
-        || lower.starts_with("https://youtube.com/watch?")
 }
 
 fn block_nodes<'a>(
@@ -354,8 +343,9 @@ fn convert_inline<'a>(
         | NodeValue::Underline
         | NodeValue::Subscript
         | NodeValue::SpoileredText
-        | NodeValue::Escaped => InlineKind::Emphasis {
-            children: nested()?,
+        | NodeValue::Escaped => InlineKind::Text {
+            // Unsupported formatting degrades to its literal text, never to emphasis.
+            value: inline_plain_text(&nested()?),
         },
         NodeValue::Link(link) => InlineKind::Link {
             destination: link.url,
@@ -372,16 +362,6 @@ fn convert_inline<'a>(
             title: String::new(),
             children: nested()?,
         },
-        NodeValue::FootnoteReference(reference) => InlineKind::Link {
-            destination: format!("#footnote-{}", reference.name),
-            title: String::new(),
-            children: vec![Inline {
-                range: range.clone(),
-                kind: InlineKind::Text {
-                    value: format!("[{}]", reference.name),
-                },
-            }],
-        },
         NodeValue::Math(math) => InlineKind::Math {
             source: math.literal,
         },
@@ -392,11 +372,27 @@ fn convert_inline<'a>(
         NodeValue::EscapedTag(tag) => InlineKind::Text {
             value: tag.to_owned(),
         },
-        other => InlineKind::Text {
-            value: format!("{other:?}"),
-        },
+        _ => return Err(ParseError::UnsupportedNode),
     };
     Ok(Some(Inline { range, kind }))
+}
+
+fn inline_plain_text(inlines: &[Inline]) -> String {
+    struct Text(String);
+    impl fleximark_model::Visitor for Text {
+        fn visit_inline(&mut self, inline: &Inline) {
+            match &inline.kind {
+                InlineKind::Text { value } | InlineKind::Code { value } => self.0.push_str(value),
+                InlineKind::Math { source } => self.0.push_str(source),
+                InlineKind::RawHtml { html } => self.0.push_str(html),
+                InlineKind::SoftBreak | InlineKind::HardBreak => self.0.push('\n'),
+                _ => {}
+            }
+        }
+    }
+    let mut text = Text(String::new());
+    fleximark_model::walk_inlines(inlines, &mut text);
+    text.0
 }
 
 fn parse_code_info(info: &str) -> (Option<String>, Option<String>, bool) {
@@ -702,5 +698,93 @@ mod tests {
             &source[range.byte_start as usize..range.byte_end as usize],
             "- 近距離\n  - ベース幅: 3.0\n- 遠距離\n  - エラー: 10.0"
         );
+    }
+    #[test]
+    fn every_builtin_descriptor_is_recognized() -> Result<(), ParseError> {
+        use fleximark_model::syntax::{BUILTIN_SYNTAX, SyntaxRecognition};
+        for descriptor in BUILTIN_SYNTAX {
+            for recognizer in descriptor.recognizers {
+                let source = match recognizer {
+                    SyntaxRecognition::Fence(name) => format!("```{name}\ncontent\n```\n"),
+                    SyntaxRecognition::Directive(_)
+                        if descriptor.kind == BuiltinSyntaxKind::Tabs =>
+                    {
+                        "::::tabs\n:::tab[First]\ncontent\n:::\n::::\n".to_owned()
+                    }
+                    SyntaxRecognition::Directive(name) => format!(":::{name}\ncontent\n:::\n"),
+                    SyntaxRecognition::Alert(name) => format!("> [!{name}]\n> content\n"),
+                    SyntaxRecognition::Youtube => "https://youtu.be/dQw4w9WgXcQ\n".to_owned(),
+                };
+                let document = parse(DocumentUri("file:///catalog.md".to_owned()), 1, &source)?;
+                let block = document.blocks.first().ok_or(ParseError::UnsupportedNode)?;
+                let matches = match descriptor.kind {
+                    BuiltinSyntaxKind::Admonition | BuiltinSyntaxKind::Alert => {
+                        matches!(block.kind, BlockKind::Admonition { .. })
+                    }
+                    BuiltinSyntaxKind::Mermaid => matches!(block.kind, BlockKind::Mermaid { .. }),
+                    BuiltinSyntaxKind::Abc => matches!(block.kind, BlockKind::AbcNotation { .. }),
+                    BuiltinSyntaxKind::Math => matches!(block.kind, BlockKind::Math { .. }),
+                    BuiltinSyntaxKind::Youtube => matches!(block.kind, BlockKind::Media { .. }),
+                    BuiltinSyntaxKind::Tabs => matches!(block.kind, BlockKind::Tabs),
+                    BuiltinSyntaxKind::Tab => matches!(block.kind, BlockKind::Tab { .. }),
+                    BuiltinSyntaxKind::Details => matches!(block.kind, BlockKind::Details { .. }),
+                };
+                assert!(matches, "{}: {:?}", descriptor.name, block.kind);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn math_fences_are_display_math_and_alert_titles_are_preserved() -> Result<(), ParseError> {
+        let source = "```math\nE=mc^2\n```\n\n> [!NOTE] Custom title\n> Body\n\n:::unknown[Custom]\nBody\n:::\n";
+        let document = parse(DocumentUri("file:///special.md".to_owned()), 1, source)?;
+        assert!(
+            matches!(&document.blocks[0].kind, BlockKind::Math { source } if source == "E=mc^2\n")
+        );
+        assert!(
+            matches!(&document.blocks[1].kind, BlockKind::Admonition { kind, title } if kind == "note" && title == "Custom title")
+        );
+        assert!(
+            matches!(&document.blocks[2].kind, BlockKind::Directive { name } if name == "unknown")
+        );
+        assert!(!document.blocks[2].children.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_inline_formatting_degrades_to_text_without_emphasis() -> Result<(), ParseError> {
+        for (source, expected) in [
+            ("==marked==", "marked"),
+            ("^super^", "super"),
+            ("\\*escaped\\*", "*escaped*"),
+        ] {
+            let arena = Arena::new();
+            let mut options = Options::default();
+            options.extension.highlight = true;
+            options.extension.superscript = true;
+            let root = parse_document(&arena, source, &options);
+            let paragraph = root.first_child().ok_or(ParseError::UnsupportedNode)?;
+            let block = convert_block(paragraph, &ParserSourceIndex::new(source), &mut 0)?
+                .ok_or(ParseError::UnsupportedNode)?;
+            let inlines = block
+                .children
+                .iter()
+                .filter_map(|node| {
+                    if let Node::Inline(inline) = node {
+                        Some(inline.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(inline_plain_text(&inlines), expected);
+            assert!(
+                inlines
+                    .iter()
+                    .all(|inline| matches!(inline.kind, InlineKind::Text { .. }))
+            );
+        }
+        Ok(())
     }
 }

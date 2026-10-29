@@ -31,3 +31,12 @@ impl Server {
         )
     }
 }
+
+pub(super) fn native_position(
+    position: &fleximark_protocol::TextPosition,
+) -> Result<super::lsp_types::Position, ApplicationError> {
+    Ok(super::lsp_types::Position {
+        line: position.line.get(),
+        character: position.character.get(),
+    })
+}

@@ -1,5 +1,9 @@
 import type * as vscode from "vscode";
 
+import {
+  ConnectionBinding,
+  type DaemonConnection,
+} from "./daemon-connection.mjs";
 import { type JsonRpcConnection, JsonRpcResponseError } from "./rpc.mjs";
 import type {
   DocumentRuntime,
@@ -11,22 +15,10 @@ function deactivatePreviewSession(preview: PreviewState): void {
   preview.binding.active = false;
 }
 
-export interface DaemonOrigin {
-  readonly rpc: JsonRpcConnection;
-  readonly daemonInstanceId: string;
-  readonly generation: number;
-}
-
 export async function syncDocument(
   runtime: DocumentRuntime,
   document: vscode.TextDocument,
-  origin: DaemonOrigin,
-  isCurrent: (
-    runtime: DocumentRuntime,
-    document: vscode.TextDocument,
-    state: DocumentState,
-    origin: DaemonOrigin,
-  ) => boolean,
+  connection: DaemonConnection,
   changeDocument: (document: vscode.TextDocument) => void,
 ): Promise<void> {
   const uri = document.uri.toString();
@@ -34,19 +26,23 @@ export async function syncDocument(
   if (existing?.sessionId) return;
   if (existing?.syncing) return existing.syncing;
   const state: DocumentState = existing ?? { version: document.version };
+  const binding = new ConnectionBinding(
+    connection,
+    () => !runtime.removed && runtime.documents.get(uri) === state,
+  );
   const operation = (async () => {
     const version = document.version;
     const text = document.getText();
-    origin.rpc.notifyLsp("textDocument/didOpen", {
+    connection.rpc.notifyLsp("textDocument/didOpen", {
       textDocument: { uri, languageId: document.languageId, version, text },
     });
-    const attached = await origin.rpc.request("fleximark/attachDocument", {
-      daemonInstanceId: origin.daemonInstanceId,
+    const attached = await connection.rpc.request("fleximark/attachDocument", {
+      daemonInstanceId: connection.daemonInstanceId,
       uri,
       expectedDocumentVersion: version,
     });
     if (!attached) return;
-    if (!isCurrent(runtime, document, state, origin)) return;
+    if (!binding.isCurrent()) return;
     state.sessionId = attached.documentSessionId;
     state.version = version;
     if (document.version !== version) changeDocument(document);
@@ -92,7 +88,7 @@ export function closeDocument(
   for (const preview of runtime.previews.values())
     if (preview.documentUri === uri) {
       deactivatePreviewSession(preview);
-      if (!preview.panel)
+      if (preview.target === "externalBrowser")
         runtime.previews.delete(preview.binding.previewSessionId);
     }
   runtime.documents.delete(uri);

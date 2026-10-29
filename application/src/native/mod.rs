@@ -1,5 +1,5 @@
 //! Role: Native workspace lib operations and validation.
-mod assets;
+pub(crate) mod assets;
 mod export;
 mod integrity;
 mod notes;
@@ -28,9 +28,6 @@ pub use workspace::{initialize_workspace, workspace_for_document};
 
 #[cfg(test)]
 pub(crate) mod test_support;
-
-#[cfg(test)]
-mod service_contract_tests;
 
 #[cfg(test)]
 pub use export::export_html;

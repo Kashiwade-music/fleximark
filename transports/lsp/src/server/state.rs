@@ -22,7 +22,7 @@ pub(super) use std::sync::Arc;
 
 pub(super) use crate::cancellation::CancellationCoordinator;
 pub(super) use crate::preview_http::{PreviewServer, random_token};
-pub(super) use crate::telemetry::{OperationalTrace, log_operational_event};
+pub(super) use crate::telemetry::OperationalTrace;
 
 pub struct Server {
     pub(super) preview_assets: Option<Arc<fleximark_preview_assets::PreviewAssets>>,
@@ -31,6 +31,7 @@ pub struct Server {
     pub(super) pending_client_requests: HashSet<String>,
     pub(super) lsp_initialized: bool,
     pub(super) snippet_support: bool,
+    pub(super) source_navigation_events: bool,
     pub(super) selection_events: bool,
     pub(super) viewport_events: bool,
     pub(super) shutdown: bool,
@@ -48,6 +49,4 @@ pub(crate) struct PreviewState {
     pub(crate) token: Option<String>,
     pub(super) document_session_id: String,
     pub(super) explicit_jump: Option<super::lsp_types::Position>,
-    // Browser delivery state only; the engine owns the authoritative render revision.
-    pub(super) delivered_revision: u64,
 }

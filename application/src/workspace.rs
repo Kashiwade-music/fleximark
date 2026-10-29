@@ -25,9 +25,11 @@ pub struct WorkspaceMembership {
     pub uri: String,
     pub trusted: bool,
 }
+#[derive(Clone)]
 struct Workspace {
     uri: String,
     trusted: bool,
+    lease: crate::CancellationToken,
     canonical_root: Option<PathBuf>,
     state: WorkspaceState,
     render: RenderConfig,
@@ -45,6 +47,126 @@ pub struct WorkspaceAuthority {
     pub(super) next_plan: u64,
 }
 impl WorkspaceAuthority {
+    pub(crate) fn worker_snapshot(&self, uri: Option<&str>) -> Self {
+        let mut rooted = self
+            .rooted
+            .iter()
+            .filter(|entry| Some(entry.uri.as_str()) == uri)
+            .cloned()
+            .collect::<Vec<_>>();
+        for entry in &mut rooted {
+            entry.lease = crate::CancellationToken::default();
+        }
+        Self {
+            rooted,
+            failures: self
+                .failures
+                .iter()
+                .filter(|(root, _)| Some(root.as_str()) == uri)
+                .map(|(root, error)| (root.clone(), Arc::clone(error)))
+                .collect(),
+            migrations: HashMap::new(),
+            next_plan: self.next_plan,
+        }
+    }
+    pub(crate) fn validate_execution_root(&self, uri: &str) -> Result<(), ApplicationError> {
+        let entry = self
+            .rooted
+            .iter()
+            .find(|entry| entry.uri == uri)
+            .ok_or_else(|| ApplicationError::InvalidState("workspace is not registered".into()))?;
+        let actual = Self::workspace_path(uri)?;
+        if entry.canonical_root.as_ref() != Some(&actual) {
+            return Err(ApplicationError::LinkedPath(
+                "workspace root changed after authorization".into(),
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn operation_lease(&self, uri: &str) -> Option<crate::CancellationToken> {
+        self.rooted
+            .iter()
+            .find(|entry| entry.uri == uri)
+            .map(|entry| entry.lease.clone())
+    }
+    pub(crate) fn operation_matches(&self, uri: &str, lease: &crate::CancellationToken) -> bool {
+        self.operation_lease(uri)
+            .is_some_and(|current| current.same_scope(lease))
+    }
+    pub(crate) fn operation_current(&self, uri: &str, lease: &crate::CancellationToken) -> bool {
+        self.operation_lease(uri)
+            .is_some_and(|current| current.same_scope(lease) && !lease.is_cancelled())
+    }
+    pub(crate) fn merge_worker_root(&mut self, uri: &str, worker: &Self) {
+        self.migrations.retain(|_, (root, _)| root != uri);
+        if let (Some(current), Some(snapshot)) = (
+            self.rooted.iter_mut().find(|entry| entry.uri == uri),
+            worker.rooted.iter().find(|entry| entry.uri == uri),
+        ) {
+            current.lease.cancel();
+            current.lease = crate::CancellationToken::default();
+            current.config = snapshot.config.clone();
+            current.render = snapshot.render.clone();
+            current.state = snapshot.state.clone();
+            self.failures.remove(uri);
+            if let Some(error) = worker.failures.get(uri) {
+                self.failures.insert(uri.into(), Arc::clone(error));
+            }
+        }
+    }
+    pub(crate) fn root_render(&self, uri: &str) -> Option<RenderConfig> {
+        self.rooted
+            .iter()
+            .find(|entry| entry.uri == uri)
+            .map(|entry| entry.render.clone())
+    }
+    pub(crate) fn add_restricted(
+        &mut self,
+        uri: String,
+    ) -> Result<WorkspaceStatus, ApplicationError> {
+        let uri = uri.trim_end_matches('/').to_owned();
+        if let Some(existing) = self.statuses().into_iter().find(|status| status.uri == uri) {
+            return Ok(existing);
+        }
+        let canonical = Self::workspace_path(&uri)?;
+        if let Some(existing) = self
+            .rooted
+            .iter()
+            .find(|entry| entry.canonical_root.as_ref() == Some(&canonical))
+        {
+            return Ok(WorkspaceStatus {
+                uri: existing.uri.clone(),
+                state: existing.state.clone(),
+                trusted: existing.trusted,
+            });
+        }
+        let config = Arc::new(FlexiMarkConfig::from_toml(
+            crate::native::workspace::CONFIG,
+        )?);
+        self.rooted.push(Workspace {
+            uri: uri.clone(),
+            trusted: false,
+            lease: crate::CancellationToken::default(),
+            canonical_root: Some(canonical),
+            state: WorkspaceState::Restricted,
+            render: RenderConfig::default(),
+            config: Some(config),
+        });
+        self.sort_roots();
+        Ok(WorkspaceStatus {
+            uri,
+            state: WorkspaceState::Restricted,
+            trusted: false,
+        })
+    }
+    pub(crate) fn remove_root(&mut self, uri: &str) {
+        for entry in self.rooted.iter().filter(|entry| entry.uri == uri) {
+            entry.lease.cancel();
+        }
+        self.rooted.retain(|entry| entry.uri != uri);
+        self.failures.remove(uri);
+        self.migrations.retain(|_, (root, _)| root != uri);
+    }
     pub fn path_to_file_uri(path: &Path) -> Result<String, ApplicationError> {
         crate::native::path_to_file_uri(path)
     }
@@ -115,12 +237,16 @@ impl WorkspaceAuthority {
         let default = Arc::new(FlexiMarkConfig::from_toml(
             crate::native::workspace::CONFIG,
         )?);
+        for entry in &self.rooted {
+            entry.lease.cancel();
+        }
         self.rooted = roots
             .into_iter()
             .map(|(uri, render)| Workspace {
                 canonical_root: Self::workspace_path(&uri).ok(),
                 uri: uri.trim_end_matches('/').to_owned(),
                 trusted: true,
+                lease: crate::CancellationToken::default(),
                 state: WorkspaceState::Trusted,
                 render,
                 config: Some(Arc::clone(&default)),
@@ -133,6 +259,8 @@ impl WorkspaceAuthority {
     }
     pub(super) fn revoke(&mut self, uri: &str) {
         if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.uri == uri) {
+            entry.lease.cancel();
+            entry.lease = crate::CancellationToken::default();
             entry.trusted = false;
             entry.state = WorkspaceState::Restricted;
             entry.render = RenderConfig::default();
@@ -143,17 +271,16 @@ impl WorkspaceAuthority {
     pub(super) fn invalidate(&mut self, uri: &str) {
         self.failures.remove(uri.trim_end_matches('/'));
         if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.uri == uri) {
+            entry.lease.cancel();
+            entry.lease = crate::CancellationToken::default();
             entry.config = None;
         }
         self.migrations.retain(|_, (root, _)| root != uri);
     }
     pub(super) fn is_trusted(&self, uri: &str) -> bool {
-        let Ok(root) = Self::workspace_path(uri) else {
-            return false;
-        };
         self.rooted
             .iter()
-            .find(|entry| entry.canonical_root.as_ref() == Some(&root))
+            .find(|entry| entry.uri == uri.trim_end_matches('/'))
             .is_some_and(|entry| entry.trusted)
     }
     pub(super) fn set_state(&mut self, uri: &str, state: WorkspaceState) {
@@ -172,6 +299,7 @@ impl WorkspaceAuthority {
             self.rooted.push(Workspace {
                 uri: uri.trim_end_matches('/').to_owned(),
                 trusted: matches!(state, WorkspaceState::Trusted),
+                lease: crate::CancellationToken::default(),
                 canonical_root: Self::workspace_path(uri).ok(),
                 state,
                 render: RenderConfig::default(),
@@ -226,6 +354,7 @@ impl WorkspaceAuthority {
             self.rooted.push(Workspace {
                 uri: uri.into(),
                 trusted: true,
+                lease: crate::CancellationToken::default(),
                 canonical_root: Self::workspace_path(uri).ok(),
                 state: WorkspaceState::Trusted,
                 render,

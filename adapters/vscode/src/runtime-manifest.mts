@@ -1,27 +1,19 @@
-import { createHash } from "node:crypto";
-import * as path from "node:path";
-
-import { validateContractSchema } from "../../../contracts/typescript/contract-validator.mjs";
+import { validateContractSchema } from "@fleximark/contracts/contract-validator";
 import {
   DISTRIBUTION_LIMITS,
   DISTRIBUTION_TARGETS,
   RUNTIME_MANIFEST_SCHEMA,
-} from "../../../contracts/typescript/distribution.generated.mjs";
-import { PROTOCOL_VERSION } from "../../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/distribution.generated";
+import { isRecord } from "@fleximark/contracts/guards";
+import { PROTOCOL_VERSION } from "@fleximark/contracts/protocol";
+import { createHash } from "node:crypto";
+import * as path from "node:path";
 
 export interface RuntimeManifestEnvironment {
   extensionRoot: string;
   platform: NodeJS.Platform;
   arch: string;
   read(path: string, maximumBytes: number): Promise<Buffer>;
-}
-export function runtimeTarget(
-  platform: string,
-  arch: string,
-): string | undefined {
-  return DISTRIBUTION_TARGETS.find(
-    (target) => target.os === platform && target.arch === arch,
-  )?.triple;
 }
 export async function verifyRuntimeBinary(
   environment: RuntimeManifestEnvironment,
@@ -35,9 +27,8 @@ export async function verifyRuntimeBinary(
   if (encoded.length > DISTRIBUTION_LIMITS.manifestBytes)
     throw new Error("Invalid FlexiMark runtime manifest size");
   const value: unknown = JSON.parse(encoded.toString("utf8"));
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Invalid FlexiMark runtime manifest");
-  const manifest = value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("Invalid FlexiMark runtime manifest");
+  const manifest = value;
   const target = DISTRIBUTION_TARGETS.find(
     (target) =>
       target.os === environment.platform && target.arch === environment.arch,

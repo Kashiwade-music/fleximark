@@ -1,8 +1,11 @@
 //! Role: Verify HTML rendering, sanitization, and navigation behavior.
 
 use super::*;
-use fleximark_model::DocumentUri;
+use crate::resource_policy::{ResourceUse, resolve_resource};
+use crate::sanitize::clean_raw_html;
+use fleximark_model::{DocumentUri, InlineKind, Node};
 use fleximark_parser::parse;
+use std::collections::HashSet;
 
 #[test]
 fn renders_typed_special_blocks_with_owned_identity() {
@@ -562,4 +565,129 @@ fn rendered_metadata_contains_valid_navigation_for_nested_unicode_blocks() {
             && source.is_char_boundary(entry.source_range.byte_start as usize)
             && source.is_char_boundary(entry.source_range.byte_end as usize)
     }));
+}
+
+#[test]
+fn split_renderer_matches_pre_refactoring_html_fixtures() {
+    // HTML fixtures were captured with the pre-split renderer against the same parsed IR.
+    for (name, source, expected) in [
+        (
+            "blocks",
+            include_str!("../tests/fixtures/blocks.md"),
+            include_str!("../tests/fixtures/blocks.html"),
+        ),
+        (
+            "nested",
+            include_str!("../tests/fixtures/nested.md"),
+            include_str!("../tests/fixtures/nested.html"),
+        ),
+        (
+            "inline",
+            include_str!("../tests/fixtures/inline.md"),
+            include_str!("../tests/fixtures/inline.html"),
+        ),
+        (
+            "collisions",
+            include_str!("../tests/fixtures/collisions.md"),
+            include_str!("../tests/fixtures/collisions.html"),
+        ),
+    ] {
+        let document = parse(DocumentUri("file:///golden.md".into()), 1, source).unwrap();
+        let html = HtmlRenderer
+            .render(&document, &RenderContext::default())
+            .unwrap();
+        assert_eq!(html, expected, "fixture {name}");
+    }
+}
+
+#[test]
+fn every_builtin_descriptor_renders_its_declared_kind() {
+    use fleximark_model::syntax::{BUILTIN_SYNTAX, BuiltinSyntaxKind, SyntaxRecognition};
+    for descriptor in BUILTIN_SYNTAX {
+        for recognizer in descriptor.recognizers {
+            let source = match recognizer {
+                SyntaxRecognition::Fence(name) => format!("```{name}\nx^2\n```\n"),
+                SyntaxRecognition::Directive(name) => match descriptor.kind {
+                    BuiltinSyntaxKind::Tabs => {
+                        "::::tabs\n:::tab[First]\nbody\n:::\n::::\n".to_owned()
+                    }
+                    BuiltinSyntaxKind::Tab => {
+                        "::::tabs\n:::tab[First]\nbody\n:::\n::::\n".to_owned()
+                    }
+                    _ => format!(":::{name}[Title]\nbody\n:::\n"),
+                },
+                SyntaxRecognition::Alert(name) => format!("> [!{name}]\n> body\n"),
+                SyntaxRecognition::Youtube => "https://youtu.be/dQw4w9WgXcQ\n".to_owned(),
+            };
+            let document = parse(DocumentUri("file:///descriptor.md".into()), 1, &source).unwrap();
+            let html = HtmlRenderer
+                .render(&document, &RenderContext::default())
+                .unwrap();
+            // Details uses its native semantic element rather than an enhancer marker.
+            if descriptor.kind == BuiltinSyntaxKind::Details {
+                assert!(html.contains("<details "), "{}: {html}", descriptor.name);
+            } else {
+                assert!(
+                    html.contains(&format!(
+                        "data-fleximark-kind=\"{}\"",
+                        descriptor.render_kind
+                    )),
+                    "{}: {html}",
+                    descriptor.name
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn math_fence_renders_display_math_instead_of_a_code_figure() {
+    let document = parse(
+        DocumentUri("file:///math.md".into()),
+        1,
+        "```math\nx^2 + y^2\n```\n",
+    )
+    .unwrap();
+    let html = HtmlRenderer
+        .render(&document, &RenderContext::default())
+        .unwrap();
+    assert_eq!(
+        html,
+        "<div data-fleximark-node-id=\"pending-0\" data-fleximark-kind=\"math\">x^2 + y^2\n</div>\n"
+    );
+}
+
+#[test]
+fn duplicate_nested_node_ids_are_rejected_by_shared_navigation_collection() {
+    let mut document = parse(DocumentUri("file:///duplicate.md".into()), 1, "> child\n").unwrap();
+    let id = document.blocks[0].id.clone();
+    let Node::Block(child) = &mut document.blocks[0].children[0] else {
+        panic!("expected nested block");
+    };
+    child.id = id.clone();
+    assert_eq!(
+        HtmlRenderer.render(&document, &RenderContext::default()),
+        Err(RenderError::DuplicateNodeId(id.0))
+    );
+}
+
+#[test]
+fn resolved_asset_policy_accepts_only_canonical_shared_asset_references() {
+    for digest in ["A".repeat(64), "a".repeat(63), "g".repeat(64)] {
+        let reference = format!("fleximark-asset:{digest}");
+        let context = RenderContext {
+            resolved_resources: [("image.png".to_owned(), reference)].into(),
+            ..RenderContext::default()
+        };
+        assert!(resolve_resource("image.png", &context, ResourceUse::Image).is_err());
+    }
+    let reference = format!("fleximark-asset:{}", "a".repeat(64));
+    let context = RenderContext {
+        resolved_resources: [("image.png".to_owned(), reference.clone())].into(),
+        ..RenderContext::default()
+    };
+    assert_eq!(
+        resolve_resource("image.png", &context, ResourceUse::Image),
+        Ok(reference)
+    );
 }

@@ -1,21 +1,22 @@
+import { isRecord } from "@fleximark/contracts/guards";
 import {
-  type EditorNavigationEvent,
   type PreviewHostEvent,
+  type PreviewNavigationEvent,
   type RenderFrame,
-  isEditorNavigationEvent,
   isPreviewHostEvent,
+  isPreviewNavigationEvent,
   isRenderFrame,
-} from "../../../contracts/typescript/protocol.mjs";
+} from "@fleximark/contracts/protocol";
 
 export type WebviewInboundMessage =
-  { type: "ready" } | { type: "requestFrame" } | EditorNavigationEvent;
+  { type: "ready" } | { type: "requestFrame" } | PreviewNavigationEvent;
 export function isWebviewInboundMessage(
   value: unknown,
 ): value is WebviewInboundMessage {
-  if (!object(value)) return false;
+  if (!isRecord(value)) return false;
   if (value.type === "ready" || value.type === "requestFrame")
     return Object.keys(value).length === 1;
-  return isEditorNavigationEvent(value);
+  return isPreviewNavigationEvent(value);
 }
 export type PreviewHostMessage =
   | {
@@ -24,9 +25,6 @@ export type PreviewHostMessage =
       frame: RenderFrame;
     }
   | { type: "previewEvent"; messageToken: string; event: PreviewHostEvent };
-
-const object = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 
 export function isPreviewHostMessageEvent(
   value: unknown,
@@ -38,7 +36,7 @@ export function isPreviewHostMessageEvent(
 export function isPreviewHostMessage(
   value: unknown,
 ): value is PreviewHostMessage {
-  if (!object(value) || typeof value.messageToken !== "string") return false;
+  if (!isRecord(value) || typeof value.messageToken !== "string") return false;
   if (value.type === "previewFrame")
     return (
       Object.keys(value).every((key) =>
@@ -58,14 +56,9 @@ export function isInvalidAuthenticatedFrameMessage(
   value: unknown,
   messageToken: string,
 ): boolean {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    isPreviewHostMessageEvent(value, messageToken)
-  )
+  if (!isRecord(value) || isPreviewHostMessageEvent(value, messageToken))
     return false;
-  const message = value as Record<string, unknown>;
+  const message = value;
   if (message.messageToken !== messageToken) return false;
   return message.type === "previewFrame";
 }

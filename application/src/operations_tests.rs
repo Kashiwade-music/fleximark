@@ -8,7 +8,7 @@ fn context(uri: &str) -> CommandContext {
         document: None,
     }
 }
-fn root(label: &str) -> (std::path::PathBuf, String) {
+fn root(label: &str) -> (fleximark_test_support::TempWorkspace, String) {
     let path = native::test_support::test_workspace(label);
     let uri = WorkspaceAuthority::path_to_file_uri(&path).unwrap();
     (path, uri)
@@ -40,7 +40,6 @@ fn restricted_commands_fail_before_workspace_resources_are_read() {
         ));
     }
     assert!(!path.join(".fleximark").exists());
-    std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
@@ -94,7 +93,6 @@ fn cached_config_is_reused_until_explicit_reload_and_invalidity_keeps_trust() {
         .err()
         .unwrap();
     assert!(matches!(error, ApplicationError::Config(_)));
-    std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
@@ -177,7 +175,6 @@ fn migration_apply_uses_its_owned_plan_and_revalidates_changed_inputs() {
             )
             .is_err()
     );
-    std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
@@ -234,5 +231,4 @@ fn restricted_preview_validates_document_version_without_workspace_theme_reads()
             .contains("Safe")
     );
     assert!(!path.join(".fleximark").exists());
-    std::fs::remove_dir_all(path).unwrap();
 }

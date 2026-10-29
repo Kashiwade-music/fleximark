@@ -1,5 +1,5 @@
 //! Role: Behavioral verification of document processing.
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -123,7 +123,8 @@ fn resolved_assets_are_published_and_fingerprinted_without_source_paths() {
     .unwrap();
     session.render_config = RenderConfig::default()
         .with_resolved_assets(vec![first_asset])
-        .unwrap();
+        .unwrap()
+        .into();
     let context = session.render_config.context.clone();
     let first = session.render(&context).unwrap();
     assert_eq!(first.assets.len(), 1);
@@ -148,7 +149,8 @@ fn resolved_assets_are_published_and_fingerprinted_without_source_paths() {
             )
             .unwrap(),
         ])
-        .unwrap();
+        .unwrap()
+        .into();
     let context = session.render_config.context.clone();
     let second = session.render(&context).unwrap();
     assert_ne!(first.renderer_fingerprint, second.renderer_fingerprint);
@@ -254,7 +256,7 @@ fn render_configuration_is_transactional_and_preserves_document_identity() -> Re
 #[test]
 fn portable_render_preserves_style_and_sanitizes_html() -> Result<(), EngineError> {
     let mut session = open("hello\n\n<script>alert(1)</script>\n");
-    session.render_config.style = Some(RenderStyle::from_validated_css(
+    Arc::make_mut(&mut session.render_config).style = Some(RenderStyle::from_validated_css(
         "body { color: green; }".to_owned(),
     ));
     let context = RenderContext {
@@ -290,4 +292,86 @@ fn navigation_selects_the_smallest_deepest_unicode_block() {
     assert!(selected.depth >= 2);
     assert!(selected.source_range.byte_start <= selected.source_range.byte_end);
     assert!(selected.source_range.byte_start <= 3 && selected.source_range.byte_end >= 5);
+}
+
+#[test]
+fn engine_clone_shares_inputs_and_preserves_worker_snapshot() -> Result<(), EngineError> {
+    let mut current = open("# Worker snapshot\n");
+    let worker = current.clone();
+    assert!(Arc::ptr_eq(&current.source, &worker.source));
+    assert!(Arc::ptr_eq(&current.document, &worker.document));
+    assert!(Arc::ptr_eq(&current.render_config, &worker.render_config));
+    let context = RenderContext::default();
+    let before = worker.render(&context)?;
+
+    current.change(2, "# Updated document\n".to_owned())?;
+    assert!(!Arc::ptr_eq(&current.source, &worker.source));
+    assert!(!Arc::ptr_eq(&current.document, &worker.document));
+    assert!(Arc::ptr_eq(&current.render_config, &worker.render_config));
+    assert_eq!(
+        current.document().blocks[0].id,
+        worker.document().blocks[0].id
+    );
+    current.set_render_config(RenderConfig {
+        style: Some(RenderStyle::from_validated_css(
+            "main { color: green; }".to_owned(),
+        )),
+        ..RenderConfig::default()
+    })?;
+    assert!(!Arc::ptr_eq(&current.render_config, &worker.render_config));
+    assert_eq!(worker.source(), "# Worker snapshot\n");
+    assert_eq!(worker.render(&context)?, before);
+    assert_ne!(current.render(&context)?, before);
+
+    let retained = current.clone();
+    assert!(matches!(
+        current.set_render_config(RenderConfig {
+            config_hash: "invalid".to_owned(),
+            ..RenderConfig::default()
+        }),
+        Err(EngineError::Configuration(_))
+    ));
+    assert!(Arc::ptr_eq(&current.source, &retained.source));
+    assert!(Arc::ptr_eq(&current.document, &retained.document));
+    assert!(Arc::ptr_eq(&current.render_config, &retained.render_config));
+    assert!(matches!(
+        current.change(1, "stale".to_owned()),
+        Err(EngineError::StaleVersion { .. })
+    ));
+    assert!(current.is_out_of_sync());
+    assert!(!worker.is_out_of_sync());
+    assert_eq!(worker.render(&context)?, before);
+    Ok(())
+}
+
+#[test]
+fn asset_and_config_boundaries_reject_noncanonical_shared_values() -> Result<(), EngineError> {
+    let original = ResolvedRenderAsset::from_validated_bytes(
+        "asset.png".to_owned(),
+        "image/png".to_owned(),
+        b"image",
+    )?;
+    for value in ["a".repeat(63), "A".repeat(64), "g".repeat(64)] {
+        let mut asset = original.clone();
+        asset.published.content_hash = value.clone();
+        assert!(matches!(
+            RenderConfig::default().with_resolved_assets(vec![asset]),
+            Err(EngineError::Asset(_))
+        ));
+        let config = RenderConfig {
+            config_hash: value.clone(),
+            ..RenderConfig::default()
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(EngineError::Configuration(_))
+        ));
+        let mut asset = original.clone();
+        asset.published.reference = format!("fleximark-asset:{value}");
+        assert!(matches!(
+            RenderConfig::default().with_resolved_assets(vec![asset]),
+            Err(EngineError::Asset(_))
+        ));
+    }
+    Ok(())
 }
