@@ -22,25 +22,26 @@ fn preview_assets() -> BrowserAssets {
 }
 
 fn preview_pages(token: &str) -> Arc<Mutex<HashMap<String, PreviewPage>>> {
-    let mut frame = RenderFrame::from_snapshot(PreviewSessionId("preview-1".into()), 7, serde_json::from_value(json!({
-        "documentVersion":1,
-        "rendererFingerprint":"0000000000000000000000000000000000000000000000000000000000000000",
-        "style":null,
-        "assets":[],
-        "blocks":[{"id":"node-1","html":"<p data-fleximark-node-id=\"node-1\">hello</p>","nodeIds":["node-1"]}],
-        "navigation":[{
-            "nodeId":"node-1",
-            "sourceRange":{
-                "byteStart":4,
-                "byteEnd":9,
-                "start":{"line":2,"character":1,"encoding":"utf8"},
-                "end":{"line":2,"character":6,"encoding":"utf8"}
-            },
-            "depth":1
+    let snapshot = fleximark_engine::RenderSnapshot {
+        document_version: 1,
+        renderer_fingerprint: "0".repeat(64),
+        style: None,
+        assets: vec![],
+        blocks: vec![fleximark_engine::RenderBlock {
+            id: fleximark_model::NodeId("node-1".into()),
+            html: "<p data-fleximark-node-id=\"node-1\">hello</p>".into(),
+            node_ids: vec![fleximark_model::NodeId("node-1".into())],
         }],
-        "annotations":{}
-    }))
-    .unwrap());
+        navigation: vec![fleximark_model::NavigationEntry {
+            node_id: fleximark_model::NodeId("node-1".into()),
+            source_range: fleximark_model::SourceRange {
+                byte_start: 4,
+                byte_end: 9,
+            },
+            depth: 1,
+        }],
+    };
+    let mut frame = RenderFrame::from_snapshot(PreviewSessionId("preview-1".into()), 7, snapshot);
     frame.source = Arc::from("x\n\nxhello");
     let frame_event =
         serde_json::to_string(&fleximark_preview_http::protocol::frame(&frame).unwrap()).unwrap();

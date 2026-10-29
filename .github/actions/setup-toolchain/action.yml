@@ -16,7 +16,7 @@ runs:
     - name: Install Rust components
       shell: bash
       run: rustup component add rustfmt clippy
-    - name: Install editor and fixture WebAssembly target
+    - name: Install Zed WebAssembly target
       shell: bash
       run: rustup target add wasm32-wasip2
     - name: Restore Rust dependencies and owned workspace outputs
@@ -26,7 +26,7 @@ runs:
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'Cargo.lock', 'adapters/zed/Cargo.lock', 'tests/fixtures/plugin-component/Cargo.lock', '.gitmodules') }}
+        key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'Cargo.lock', 'adapters/zed/Cargo.lock', '.gitmodules') }}
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash

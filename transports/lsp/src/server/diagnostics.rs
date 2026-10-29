@@ -116,7 +116,8 @@ pub(super) fn collect_heading_symbols(
 ) {
     for block in blocks {
         if let BlockKind::Heading { .. } = block.kind {
-            if let Some(range) = block.provenance.navigation_range() {
+            {
+                let range = &block.range;
                 let Some(start) = source.byte_to_position(range.byte_start as usize, encoding)
                 else {
                     continue;

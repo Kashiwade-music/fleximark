@@ -1,7 +1,6 @@
 //! Role: Define external render and navigation payloads.
 use fleximark_wire::JsSafeU64;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -107,5 +106,4 @@ pub struct RenderFrame {
     pub assets: Vec<RenderAsset>,
     pub blocks: Vec<RenderBlock>,
     pub navigation: Vec<NavigationEntry>,
-    pub annotations: BTreeMap<String, String>,
 }

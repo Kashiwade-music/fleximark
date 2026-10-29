@@ -675,23 +675,33 @@ fn cancelled_export_preserves_existing_destination() {
         &[],
     )
     .unwrap();
+    acknowledge_export(&source_uri, &workspace_uri, &destination_uri).unwrap();
     let engine =
         crate::native::open_document(source_uri.clone(), "# Changed".into(), true).unwrap();
-    let token = CancellationToken::default();
-    token.cancel();
-    assert!(matches!(
-        export_document(
+    for stage in [
+        "export_start",
+        "export_render_start",
+        "export_rendered",
+        "export_assets",
+    ] {
+        let token = CancellationToken::default();
+        crate::cancellation_checks::cancel_at(stage, &token);
+        let result = export_document(
             &engine,
             &source_uri,
             &workspace_uri,
             &destination_uri,
-            &token
-        ),
-        Err(ServiceError::Cancelled)
-    ));
-    assert_eq!(
-        fs::read_to_string(destination.join("index.html")).unwrap(),
-        "<p>Original</p>"
-    );
+            &token,
+        );
+        assert!(
+            matches!(result, Err(ServiceError::Cancelled)),
+            "stage {stage}: {result:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("index.html")).unwrap(),
+            "<p>Original</p>"
+        );
+        assert!(token.is_cancelled());
+    }
     fs::remove_dir_all(root).unwrap();
 }

@@ -88,7 +88,6 @@ export function suite(): void {
   test("does not mutate the child list for an unchanged complete frame", () => {
     const unchanged = {
       ...frame(1, [block("a", "one"), block("b", "two")]),
-      annotations: { source: "stable" },
     };
     assert.equal(preview.apply(unchanged), true);
     const originalChildren = [...root.children];
@@ -243,64 +242,6 @@ export function suite(): void {
       true,
     );
     assert.notEqual(root.firstElementChild, original);
-  });
-
-  test("commits annotations as inert JSON and updates or removes them atomically", () => {
-    const malicious = '</script><img data-injected src="x">';
-    assert.equal(
-      preview.apply({
-        ...frame(1, [block("a", "safe")]),
-        annotations: { plugin: malicious },
-      }),
-      true,
-    );
-    const original = root.querySelector<HTMLScriptElement>(
-      "script[data-fleximark-render-annotations]",
-    );
-    assert.ok(original);
-    assert.equal(original.type, "application/json");
-    assert.equal(original.textContent, JSON.stringify({ plugin: malicious }));
-    assert.equal(root.querySelector("img[data-injected]"), null);
-
-    assert.equal(
-      preview.apply({
-        ...frame(2, [
-          {
-            id: "bad",
-            nodeIds: ["bad"],
-            html: '<script data-fleximark-node-id="bad">bad</script>',
-          },
-        ]),
-        annotations: { plugin: "must-not-commit" },
-      }),
-      false,
-    );
-    assert.equal(
-      root.querySelector("script[data-fleximark-render-annotations]"),
-      original,
-    );
-    assert.equal(original.textContent, JSON.stringify({ plugin: malicious }));
-
-    assert.equal(
-      preview.apply({
-        ...frame(3, [block("a", "updated")]),
-        annotations: { plugin: "updated" },
-      }),
-      true,
-    );
-    assert.equal(
-      root.querySelector("script[data-fleximark-render-annotations]")
-        ?.textContent,
-      JSON.stringify({ plugin: "updated" }),
-    );
-    assert.equal(
-      preview.apply({ ...frame(4, [block("a", "updated")]), annotations: {} }),
-      true,
-    );
-    assert.equal(
-      root.querySelector("script[data-fleximark-render-annotations]"),
-      null,
-    );
   });
 
   test("highlights only changed blocks and cleans timers on replacement and disposal", () => {
@@ -940,7 +881,6 @@ function frame(
     assets: [],
     blocks,
     navigation: blocks.map(({ id }, line) => entry(id, line)),
-    annotations: {},
   };
 }
 

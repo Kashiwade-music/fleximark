@@ -75,7 +75,6 @@ pub(crate) fn render_config(
     config.style = style;
     config.config_hash = config_hash;
     config.config_generation = generation;
-    config.plugin_generation = generation;
     Ok(config)
 }
 

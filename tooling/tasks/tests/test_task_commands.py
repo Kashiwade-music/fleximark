@@ -101,10 +101,10 @@ class TaskCommandTests(unittest.TestCase):
         python.assert_called_once()
         node.assert_called_once()
         cargo_tests = [call.args for call in run.call_args_list]
-        self.assertEqual(len(cargo_tests), 3)
+        self.assertEqual(len(cargo_tests), 2)
         self.assertTrue(all(command[:2] == ("cargo", "test") for command in cargo_tests))
         self.assertTrue(any("--workspace" in command for command in cargo_tests))
-        for owner in ("adapters/zed/Cargo.toml", "tests/fixtures/plugin-component/Cargo.toml"):
+        for owner in ("adapters/zed/Cargo.toml",):
             self.assertTrue(any(owner in command for command in cargo_tests))
         editor.assert_not_called()
         package.assert_not_called()

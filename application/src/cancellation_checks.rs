@@ -1,6 +1,6 @@
 //! Role: Check cancellation before application state is committed.
+use crate::CancellationToken;
 use crate::SessionError;
-use fleximark_plugin_api::CancellationToken;
 
 pub(crate) fn check(token: &CancellationToken, _stage: &'static str) -> Result<(), SessionError> {
     #[cfg(test)]

@@ -31,11 +31,6 @@ interface DisplayedBlock {
   readonly assetReferences: readonly string[];
 }
 
-interface DisplayedAnnotations {
-  readonly json: string;
-  readonly element: HTMLScriptElement;
-}
-
 /** Applies complete frames while preserving unchanged top-level block DOM. */
 export class PreviewDocument {
   readonly #root: HTMLElement;
@@ -51,7 +46,6 @@ export class PreviewDocument {
   #navigation: NavigationEntry[] = [];
   #assetUrls = new Map<string, string>();
   #blocks = new Map<string, DisplayedBlock>();
-  #annotations?: DisplayedAnnotations;
   #rejectedFrame?: string;
 
   constructor(root: HTMLElement, requestFrame: () => void) {
@@ -169,27 +163,14 @@ export class PreviewDocument {
       )
         return reject(addedAssetUrls);
 
-      const annotationJson = annotationJsonFor(frame.annotations);
-      const previousAnnotations = this.#annotations;
-      const annotationScript =
-        previousAnnotations && annotationJson === previousAnnotations.json
-          ? previousAnnotations.element
-          : annotationElement(annotationJson);
       this.#clearHighlights();
-      reconcileChildren(this.#root, [
-        ...(annotationScript ? [annotationScript] : []),
-        ...nextElements,
-      ]);
+      reconcileChildren(this.#root, nextElements);
       for (const element of highlighted) this.#highlight(element);
       this.#sessionId = frame.previewSessionId;
       this.#revision = frame.renderRevision;
       this.#rendererFingerprint = frame.rendererFingerprint;
       this.#navigation = frame.navigation;
       this.#blocks = nextBlocks;
-      this.#annotations =
-        annotationJson && annotationScript
-          ? { json: annotationJson, element: annotationScript }
-          : undefined;
       this.#rejectedFrame = undefined;
       const css = frame.style?.css ?? "";
       if (this.#style.textContent !== css) this.#style.textContent = css;
@@ -219,7 +200,6 @@ export class PreviewDocument {
     revokeAssetUrls(this.#assetUrls.values());
     this.#assetUrls.clear();
     this.#blocks.clear();
-    this.#annotations = undefined;
   }
 
   #highlight(element: HTMLElement): void {
@@ -247,24 +227,6 @@ export class PreviewDocument {
     this.#requestFrame();
     return false;
   }
-}
-
-function annotationJsonFor(
-  annotations: Readonly<Record<string, string>>,
-): string | undefined {
-  if (Object.keys(annotations).length === 0) return;
-  return JSON.stringify(annotations);
-}
-
-function annotationElement(
-  json: string | undefined,
-): HTMLScriptElement | undefined {
-  if (!json) return;
-  const script = document.createElement("script");
-  script.type = "application/json";
-  script.dataset.fleximarkRenderAnnotations = "";
-  script.textContent = json;
-  return script;
 }
 
 /** Makes direct children match a complete frame without detaching retained nodes. */

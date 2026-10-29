@@ -1,22 +1,22 @@
 {
-  "schemaVersion": 7,
   "notifications": [
     {
       "method": "fleximark/previewEvent",
       "params": {
         "daemonInstanceId": "daemon",
-        "previewSessionId": "preview",
-        "renderRevision": 1,
         "event": {
-          "type": "selection",
-          "previewSessionId": "preview",
-          "renderRevision": 1,
+          "activePosition": null,
           "nodeIds": [
             "document-root"
           ],
-          "activePosition": null
-        }
+          "previewSessionId": "preview",
+          "renderRevision": 1,
+          "type": "selection"
+        },
+        "previewSessionId": "preview",
+        "renderRevision": 1
       }
     }
-  ]
+  ],
+  "schemaVersion": 1
 }

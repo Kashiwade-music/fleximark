@@ -3,7 +3,7 @@ use caseless::Caseless;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use unicode_normalization::UnicodeNormalization;
-pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FlexiMarkConfig {
@@ -185,32 +185,32 @@ mod tests {
     #[test]
     fn plugins_are_unknown_fields() {
         assert!(matches!(
-            FlexiMarkConfig::from_toml("schema_version=2\n[[plugins]]\nid='old'\n"),
+            FlexiMarkConfig::from_toml("schema_version=1\n[[plugins]]\nid='old'\n"),
             Err(ConfigError::Syntax(_))
         ));
     }
 
     #[test]
     fn config_defaults_are_secure_and_unknown_fields_are_rejected() {
-        let config = FlexiMarkConfig::from_toml("schema_version = 2\n").unwrap();
+        let config = FlexiMarkConfig::from_toml("schema_version = 1\n").unwrap();
         assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
         assert_eq!(config.notes, NotesConfig::default());
         assert_eq!(config.notes.root, ".");
         assert_eq!(config.assets, AssetsConfig::default());
-        assert!(FlexiMarkConfig::from_toml("schema_version = 2\nlegacy = true\n").is_err());
+        assert!(FlexiMarkConfig::from_toml("schema_version = 1\nlegacy = true\n").is_err());
     }
 
     #[test]
     fn note_root_accepts_workspace_root_and_safe_relative_directories() {
         for root in [".", "notes", "content/notes", "日本語/ノート"] {
-            let source = format!("schema_version = 2\n[notes]\nroot = {root:?}\n");
+            let source = format!("schema_version = 1\n[notes]\nroot = {root:?}\n");
             assert_eq!(
                 FlexiMarkConfig::from_toml(&source).unwrap().notes.root,
                 root
             );
         }
         for root in ["", "..", "../notes", "/notes", "notes\\nested", "CON"] {
-            let source = format!("schema_version = 2\n[notes]\nroot = {root:?}\n");
+            let source = format!("schema_version = 1\n[notes]\nroot = {root:?}\n");
             assert!(
                 matches!(
                     FlexiMarkConfig::from_toml(&source),
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn recursive_note_categories_accept_inline_and_dotted_maps_and_safe_names() {
         let config = FlexiMarkConfig::from_toml(
-            r#"schema_version = 2
+            r#"schema_version = 1
 
 [notes.categories]
 Work = { Project = {}, Reports = { Weekly = {} } }
@@ -243,14 +243,14 @@ Right = { Same = {} }
         assert!(config.notes.categories["Right"].0.contains_key("Same"));
 
         let dotted = FlexiMarkConfig::from_toml(
-            r#"schema_version = 2
+            r#"schema_version = 1
 [notes.categories.Work.Project]
 "#,
         )
         .unwrap();
         assert!(dotted.notes.categories["Work"].0.contains_key("Project"));
 
-        let traversal = r#"schema_version = 2
+        let traversal = r#"schema_version = 1
 [notes.categories]
 ".." = {}
 "#;
@@ -305,7 +305,7 @@ Right = { Same = {} }
             assert!(is_safe_note_category_name(safe_name));
         }
 
-        let ascii_collision = r#"schema_version = 2
+        let ascii_collision = r#"schema_version = 1
 [notes.categories]
 Work = {}
 work = {}
@@ -315,20 +315,20 @@ work = {}
             ConfigError::NoteCategoryCollision("work".into())
         );
         let normalization_collision =
-            "schema_version = 2\n[notes.categories]\n\"Café\" = {}\n\"Cafe\u{301}\" = {}\n";
+            "schema_version = 1\n[notes.categories]\n\"Café\" = {}\n\"Cafe\u{301}\" = {}\n";
         assert_eq!(
             FlexiMarkConfig::from_toml(normalization_collision).unwrap_err(),
             ConfigError::NoteCategoryCollision("Café".into())
         );
         let unicode_case_collision =
-            "schema_version = 2\n[notes.categories]\n\"École\" = {}\n\"école\" = {}\n";
+            "schema_version = 1\n[notes.categories]\n\"École\" = {}\n\"école\" = {}\n";
         assert_eq!(
             FlexiMarkConfig::from_toml(unicode_case_collision).unwrap_err(),
             ConfigError::NoteCategoryCollision("école".into())
         );
         for collision in [
-            "schema_version = 2\n[notes.categories]\n\"Σ\" = {}\n\"ς\" = {}\n",
-            "schema_version = 2\n[notes.categories]\nS = {}\n\"ſ\" = {}\n",
+            "schema_version = 1\n[notes.categories]\n\"Σ\" = {}\n\"ς\" = {}\n",
+            "schema_version = 1\n[notes.categories]\nS = {}\n\"ſ\" = {}\n",
         ] {
             assert!(matches!(
                 FlexiMarkConfig::from_toml(collision),

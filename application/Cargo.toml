@@ -8,7 +8,6 @@ rust-version.workspace = true
 [dependencies]
 blake3.workspace = true
 fleximark-model = { path = "../core/model" }
-fleximark-plugin-api = { path = "../core/plugin-api" }
 fleximark-language = { path = "../core/language" }
 fleximark-engine = { path = "../core/engine" }
 fleximark-render-html = { path = "../core/render-html" }
@@ -24,9 +23,6 @@ getrandom = "0.2.17"
 serde_json.workspace = true
 toml.workspace = true
 fleximark-migration = { path = "../migration" }
-
-[dev-dependencies]
-ed25519-dalek.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

@@ -49,7 +49,7 @@ impl crate::registry::SessionRegistry {
         &self,
         operation: WorkspaceOperation,
         request: OperationRequest<'_>,
-        cancellation: &fleximark_plugin_api::CancellationToken,
+        cancellation: &crate::CancellationToken,
     ) -> Result<OperationOutcome, ServiceOperationError> {
         use crate::native;
         use OperationOutcome as Out;

@@ -1,7 +1,8 @@
 //! Role: Own native document, workspace, and preview services.
+mod cancellation;
 mod cancellation_checks;
 mod document;
-mod empty_executor;
+pub use cancellation::CancellationToken;
 mod outcomes;
 mod registry;
 pub use registry::SessionRegistry;
@@ -26,13 +27,11 @@ mod workspace_config;
 pub use workspace_config::WorkspaceConfigurationStatus;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fleximark_engine::{DocumentEngine as EngineSession, RenderConfig, ResolvedAssets};
 use fleximark_model::{DocumentUri, NavigationEntry, NodeId, PositionEncoding};
-use fleximark_plugin_api::CancellationToken;
 
 pub use error::SessionError;
 use error::engine_error;
@@ -150,28 +149,20 @@ impl SessionRegistry {
                     .clone()
                     .with_resolved_assets(assets.remove(uri).unwrap_or_default())
                     .map_err(engine_error)?;
-                let engine = EngineSession::open_configured(
-                    DocumentUri(uri.to_owned()),
-                    session.engine.document().document_version,
-                    session.engine.source().to_owned(),
-                    session.engine.position_encoding(),
-                    config.clone(),
-                    Arc::new(crate::empty_executor::EmptyPluginExecutor(config)),
-                    cancellation,
-                )
-                .map_err(engine_error)?;
+                let mut engine = session.engine.clone();
+                engine.set_render_config(config).map_err(engine_error)?;
                 replacements.push((uri.to_owned(), engine));
             }
         }
+        #[cfg(test)]
+        cancellation_checks::checkpoint("configuration_prepared");
         cancellation_checks::check(cancellation, "reconfigure_commit")?;
         self.workspaces.replace(workspace_uri, render_config);
         for (uri, engine) in replacements {
             self.index
                 .by_uri_mut(&uri)
                 .ok_or(SessionError::NotOpen)?
-                .engine
-                .adopt_reconfiguration(engine)
-                .map_err(engine_error)?;
+                .engine = engine;
         }
         Ok(())
     }
@@ -201,25 +192,15 @@ impl SessionRegistry {
             .matching(&item.uri)
             .map(|(workspace_uri, config)| (workspace_uri.to_owned(), config.clone()));
         let workspace_uri = self.workspace_for_document(&item.uri).map(|(uri, _)| uri);
-        let engine = match workspace {
-            Some((_, config)) => EngineSession::open_configured(
-                DocumentUri(item.uri.clone()),
-                version,
-                item.text.clone(),
-                self.position_encoding,
-                config.clone(),
-                Arc::new(crate::empty_executor::EmptyPluginExecutor(config)),
-                cancellation,
-            )
-            .map_err(engine_error),
-            None => EngineSession::open(
-                DocumentUri(item.uri.clone()),
-                version,
-                item.text.clone(),
-                self.position_encoding,
-            )
-            .map_err(engine_error),
-        }?;
+        let config = workspace.map(|(_, config)| config).unwrap_or_default();
+        let engine = EngineSession::open(
+            DocumentUri(item.uri.clone()),
+            version,
+            item.text.clone(),
+            self.position_encoding,
+            config,
+        )
+        .map_err(engine_error)?;
         cancellation_checks::check(cancellation, "open_commit")?;
         let id = format!("document-{}", NEXT_DAEMON.fetch_add(1, Ordering::Relaxed));
         self.index.insert(DocumentSession {
@@ -281,10 +262,12 @@ impl SessionRegistry {
         let session = self.index.by_uri_mut(&uri).ok_or(SessionError::NotOpen)?;
         let mut candidate = session.engine.clone();
         let result = if candidate.is_out_of_sync() {
-            candidate.resynchronize_with_cancellation(version_u64, text, cancellation)
+            candidate.resync(version_u64, text)
         } else {
-            candidate.change_full_text_with_cancellation(version_u64, text, cancellation)
+            candidate.change(version_u64, text)
         };
+        #[cfg(test)]
+        cancellation_checks::checkpoint("change_candidate");
         if cancellation.is_cancelled() {
             session.engine.mark_out_of_sync();
             return Err(SessionError::Cancelled);

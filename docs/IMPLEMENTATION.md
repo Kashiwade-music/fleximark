@@ -4,13 +4,13 @@
 
 ## 実装単位
 
-- `core/{model,parser,render-html,engine,language,plugin-api}` は editor に依存しない文書処理を所有する。
+- `core/{model,parser,render-html,engine,language}` は editor に依存しない文書処理を所有する。
 - `application` は文書・workspace・preview の権威状態と native 操作を所有する。`application/src/native` は filesystem、設定、アセット、note、theme、export を実装する。
 - application の workspace はプラグイン host を保持しない。設定と theme から render policy を作り、config の plugins は通常の未知フィールドとして拒否する。config schema は `contracts/config/schema.template.json` と config の version 定数から codegen で生成する。
-- `runtime/{wasm-plugins,preview-assets}` は Wasmtime と配布資源の実装を所有する。
+- `runtime/preview-assets` は配布資源の実装を所有する。
 - `transports/{lsp,preview-http}` は外部 DTO への変換と通信を所有する。
 - `apps/{server,cli}` はそれぞれ `fleximarkd` と `fleximark` を組み立てる。
-- `contracts/{protocol,config,plugin,wire,typescript,schemas,capabilities,distribution}` は現在の公開形式、生成 binding、製品能力と配布形式を所有する。
+- `contracts/{protocol,config,wire,typescript,schemas,distribution}` は現在の公開形式、生成 binding と配布形式を所有する。
 - `web/{preview,workspace-ui}` は共通描画と操作フォームを所有する。
 - `adapters/{vscode,zed}` は各 editor 製品を所有する。
 - `migration` は CLI と application の明示操作で使う旧ユーザーデータ移行だけを所有する。
@@ -20,9 +20,9 @@
 
 core の位置は UTF-8 byte 範囲だけを保持し、共有 SourceIndex が行・文字位置を変換する。位置と counter は native 値であり、JavaScript 制約や protocol Schema を持たない。protocol DTO は core/application/runtime の型を import せず、自身の外部表現を定義する。
 
-`PluginExecutor` は core が所有する object-safe port である。engine は Wasmtime host を参照しない。hook・前処理結果・診断の共通型は `core/plugin-api` を正本として SDK と runtime が共有する。runtime は署名、capability、execution budget を適用し、block と inline の規模制限も検証する。文書更新は形状・出典・identity を含む候補の検証後に反映する。
+文書更新は全文解析とモデル検証の後、既存 IR と照合して NodeId を維持し、成功した候補を反映する。block と inline は単一の UTF-8 byte 範囲を持つ。動的なプラグイン機構や変換元の edit map は持たない。
 
-`DocumentEngine` は source、IR、処理設定、抽象 plugin を保持する。`RenderSnapshot` に preview framing はない。application の frame は immutable snapshot と原文を共有し、session identity と preview ごとの revision を付ける。最新 frame の配送と破棄を管理し、読取りだけで revision を進めず、失敗・中断・counter 上限時に以前の公開結果を失わない。
+`DocumentEngine` は source、IR、描画設定を保持する。公開処理は `open/change/resync/set_render_config/render` に集約する。`RenderSnapshot` に preview framing はない。application が中断を確認し、候補の engine と frame を成功時だけ反映する。frame は immutable snapshot と原文を共有し、session identity と preview ごとの revision を持つ。読取りだけで revision を進めず、失敗・中断・counter 上限時に以前の公開結果を保持する。
 
 `core/language` は補完の内部 enum と絶対 token span を返す。LSP の数値 kind、snippet format 値、相対 token 配列への変換は transport に閉じる。
 
@@ -44,6 +44,6 @@ root の `release.toml` が製品 version を所有する。native archive は d
 
 `cargo xtask check` は明示した依存 allowlist、module の循環、Role と code line 上限を検査する。手書きロジックを隠す macro exemption は設けず、解析できる明示的な Rust 実装を用いる。
 
-[crate 図](../architecture/crates.svg) と [module 図](../architecture/modules/) は xtask が生成する。Zed の独立 workspace にも同じ検査と [生成図](../adapters/zed/architecture/) がある。WASM fixture の独立 workspace も同じ検査と [生成図](../tests/fixtures/plugin-component/architecture/) を持つ。fixture の手書き hook と tests は通常解析し、SDK が公式 `wit_bindgen` で生成する ABI export だけを正確な macro path で識別する。生成 SVG は source と一緒に更新して追跡する。
+[crate 図](../architecture/crates.svg) と [module 図](../architecture/modules/) は xtask が生成する。Zed の独立 workspace にも同じ検査と [生成図](../adapters/zed/architecture/) がある。生成 SVG は source と一緒に更新して追跡する。
 
-pure core の unit tests は Node output や concrete WASM host を必要としない。実 WASM の署名・budget・hook、application の filesystem transaction、移行、LSP/HTTP、browser、adapter、配布 archive を対応する試験で検証する。ローカルの `check` と `test` を CI/release の `ci quality` が共用し、製品検証は `ci product` が担当する。全体の入口は `mise run verify`。コマンドの処理範囲は [DEVELOPMENT.md](DEVELOPMENT.md) を参照する。
+pure core の unit tests は Node output を必要としない。application の filesystem transaction、移行、LSP/HTTP、browser、adapter、配布 archive を対応する試験で検証する。ローカルの `check` と `test` を CI/release の `ci quality` が共用し、製品検証は `ci product` が担当する。全体の入口は `mise run verify`。コマンドの処理範囲は [DEVELOPMENT.md](DEVELOPMENT.md) を参照する。

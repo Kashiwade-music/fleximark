@@ -15,7 +15,7 @@
       "type": "string"
     }
   },
-  "$id": "https://fleximark.dev/schemas/config-v2.json",
+  "$id": "https://fleximark.dev/schemas/config-v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -71,12 +71,12 @@
       "type": "object"
     },
     "schema_version": {
-      "const": 2
+      "const": 1
     }
   },
   "required": [
     "schema_version"
   ],
-  "title": "FlexiMark configuration v2",
+  "title": "FlexiMark configuration v1",
   "type": "object"
 }

@@ -1,32 +1,32 @@
 {
-  "schemaVersion": 7,
   "events": [
     {
-      "type": "selection",
+      "nodeIds": [],
       "previewSessionId": "preview",
       "renderRevision": 1,
-      "nodeIds": []
+      "type": "selection"
     },
     {
-      "type": "selection",
-      "previewSessionId": "preview",
-      "renderRevision": 1,
+      "activePosition": null,
       "nodeIds": [
         "document-root"
       ],
-      "activePosition": null
+      "previewSessionId": "preview",
+      "renderRevision": 1,
+      "type": "selection"
     },
     {
-      "type": "selection",
-      "previewSessionId": "preview",
-      "renderRevision": 2,
+      "activePosition": {
+        "character": 5,
+        "line": 3
+      },
       "nodeIds": [
         "paragraph"
       ],
-      "activePosition": {
-        "line": 3,
-        "character": 5
-      }
+      "previewSessionId": "preview",
+      "renderRevision": 2,
+      "type": "selection"
     }
-  ]
+  ],
+  "schemaVersion": 1
 }

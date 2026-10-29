@@ -119,7 +119,6 @@ pub fn frame(
                 })
             })
             .collect::<Result<Vec<_>, ConversionError>>()?,
-        annotations: frame.annotations.clone(),
     })
 }
 #[cfg(test)]
@@ -161,7 +160,6 @@ mod tests {
                 assets: Vec::new(),
                 blocks: Vec::new(),
                 navigation: Vec::new(),
-                annotations: Default::default(),
             },
         );
         assert_eq!(frame(&native), Err(ConversionError::IntegerRange(u64::MAX)));

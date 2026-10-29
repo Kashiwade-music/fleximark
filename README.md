@@ -27,8 +27,8 @@ workspace initialization, theme editing, admonition collection and HTML export.
 Migration of old workspace data is an explicit command.
 
 VS Code can also preview a standalone Markdown file or an unsaved Markdown
-buffer without opening a folder. Workspace configuration, local assets and
-plugins remain scoped to explicitly trusted workspaces.
+buffer without opening a folder. Workspace configuration and local assets
+remain scoped to explicitly trusted workspaces. Extensions are built in.
 
 FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interactive workspace.  
 Write, preview, organize, and present your notes — all without leaving your editor.

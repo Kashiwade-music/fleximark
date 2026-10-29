@@ -987,6 +987,5 @@ function frame(renderRevision: number): RenderFrame {
       },
     ],
     navigation: [],
-    annotations: {},
   };
 }

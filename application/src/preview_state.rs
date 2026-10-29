@@ -1,9 +1,9 @@
 //! Role: Publish preview snapshots and reject stale navigation.
+use crate::CancellationToken;
 use crate::document::DocumentSession;
 use crate::error::{SessionError, engine_error};
 use crate::snapshots::{PreviewSessionId, RenderFrame};
 use fleximark_model::{NavigationEntry, NodeId};
-use fleximark_plugin_api::CancellationToken;
 
 impl DocumentSession {
     pub(crate) fn publish(
@@ -17,11 +17,12 @@ impl DocumentSession {
                 .checked_add(1)
                 .ok_or(SessionError::RevisionExhausted)
         })?;
+        crate::cancellation_checks::check(cancellation, "render_start")?;
         let snapshot = self
             .engine
-            .render_configured(cancellation)
-            .map_err(engine_error)?
-            .snapshot;
+            .render(&self.engine.render_config().context)
+            .map_err(engine_error)?;
+        crate::cancellation_checks::check(cancellation, "render_commit")?;
         let mut frame =
             RenderFrame::from_snapshot(PreviewSessionId(id.to_owned()), revision, snapshot);
         frame.source = std::sync::Arc::from(self.engine.source());

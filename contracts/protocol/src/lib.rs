@@ -7,7 +7,7 @@ mod rendering;
 pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
 pub use registry::*;
 pub use rendering::*;
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 1;
 pub const CONTENT_MODIFIED: i64 = -32801;
 /// Limits incoming control messages; outgoing render frames may contain large assets.
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;

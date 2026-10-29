@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, HashSet};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use fleximark_plugin_api::PluginExecutor;
 use fleximark_render_html::RenderContext;
 use serde::{Deserialize, Serialize};
 
@@ -61,8 +60,6 @@ pub struct RenderConfig {
     pub style: Option<RenderStyle>,
     pub config_hash: String,
     pub config_generation: u64,
-    pub plugin_set_hash: String,
-    pub plugin_generation: u64,
     pub renderer_version: String,
     pub sanitizer_version: String,
     pub(super) assets: Vec<ResolvedRenderAsset>,
@@ -77,8 +74,6 @@ impl Default for RenderConfig {
             style: None,
             config_hash: empty.clone(),
             config_generation: 0,
-            plugin_set_hash: empty,
-            plugin_generation: 0,
             renderer_version: "html-v1".to_owned(),
             sanitizer_version: "builtin-sanitizer-v2".to_owned(),
             assets: Vec::new(),
@@ -88,25 +83,6 @@ impl Default for RenderConfig {
 }
 
 impl RenderConfig {
-    pub fn for_plugins(
-        context: RenderContext,
-        style: Option<RenderStyle>,
-        plugins: &dyn PluginExecutor,
-    ) -> Self {
-        Self {
-            context,
-            style,
-            config_hash: plugins.config_hash().to_owned(),
-            config_generation: plugins.generation(),
-            plugin_set_hash: plugins.plugin_set_hash(),
-            plugin_generation: plugins.generation(),
-            renderer_version: "html-v1".to_owned(),
-            sanitizer_version: "builtin-sanitizer-v2".to_owned(),
-            assets: Vec::new(),
-            asset_diagnostics: Vec::new(),
-        }
-    }
-
     /// Installs assets that were resolved and read by the trusted service boundary.
     pub fn with_resolved_assets(
         mut self,
@@ -154,23 +130,14 @@ impl RenderConfig {
         &self.asset_diagnostics
     }
 
-    pub fn validate_for(&self, plugins: &dyn PluginExecutor) -> Result<(), EngineError> {
-        if self.config_hash != plugins.config_hash()
-            || self.config_generation != plugins.generation()
-            || self.plugin_set_hash != plugins.plugin_set_hash()
-            || self.plugin_generation != plugins.generation()
-        {
-            return Err(EngineError::Plugin(
-                "render config and plugin set generations do not match".to_owned(),
-            ));
-        }
-        for hash in [&self.config_hash, &self.plugin_set_hash] {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        for hash in [&self.config_hash] {
             if hash.len() != 64
                 || !hash
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
             {
-                return Err(EngineError::Plugin(
+                return Err(EngineError::Configuration(
                     "render config contains a non-canonical hash".to_owned(),
                 ));
             }
@@ -180,12 +147,12 @@ impl RenderConfig {
             .as_ref()
             .is_some_and(|style| style.fingerprint != content_hash(&style.css))
         {
-            return Err(EngineError::Plugin(
+            return Err(EngineError::Configuration(
                 "render style fingerprint does not match its CSS content".to_owned(),
             ));
         }
         if self.renderer_version.is_empty() || self.sanitizer_version.is_empty() {
-            return Err(EngineError::Plugin(
+            return Err(EngineError::Configuration(
                 "renderer and sanitizer versions are required".to_owned(),
             ));
         }
@@ -230,8 +197,7 @@ pub struct ResolvedRenderAsset {
     pub(super) published: RenderAsset,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetDiagnostic {
     pub source: String,
     pub kind: AssetDiagnosticKind,

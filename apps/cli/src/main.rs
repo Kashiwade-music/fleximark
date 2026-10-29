@@ -5,9 +5,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use fleximark_application::CancellationToken;
 use fleximark_engine::DocumentEngine;
 use fleximark_model::{DocumentUri, PositionEncoding};
-use fleximark_plugin_api::CancellationToken;
 
 fn main() {
     if let Err(error) = run() {
@@ -69,12 +69,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     1,
                     source.clone(),
                     PositionEncoding::Utf8,
+                    Default::default(),
                 )?;
                 let parse_ms = parse_started.elapsed().as_secs_f64() * 1_000.0;
                 let render_started = Instant::now();
                 let full = session.render(&fleximark_render_html::RenderContext::default())?;
                 let render_ms = render_started.elapsed().as_secs_f64() * 1_000.0;
-                let full_bytes = serde_json::to_vec(&full)?.len();
+                let full_bytes = full.html().len();
                 let mut frame_bytes = 0;
                 let mut max_frame_bytes = 0;
                 let mut edit_update_ms = 0.0;
@@ -85,16 +86,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let mut changed = source.clone();
                     changed.replace_range(..4, replacement);
                     let update_started = Instant::now();
-                    session.change_full_text_with_cancellation(
-                        edit + 2,
-                        changed,
-                        &CancellationToken::default(),
-                    )?;
+                    session.change(edit + 2, changed)?;
                     edit_update_ms += update_started.elapsed().as_secs_f64() * 1_000.0;
                     let edit_render_started = Instant::now();
                     let frame = session.render(&fleximark_render_html::RenderContext::default())?;
                     edit_render_ms += edit_render_started.elapsed().as_secs_f64() * 1_000.0;
-                    let bytes = serde_json::to_vec(&frame)?.len();
+                    let bytes = frame.html().len();
                     frame_bytes += bytes;
                     max_frame_bytes = max_frame_bytes.max(bytes);
                 }
@@ -116,11 +113,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }));
             }
             let special_started = Instant::now();
-            let mut special = DocumentEngine::open(
+            let special = DocumentEngine::open(
                 DocumentUri("file:///benchmark-special.md".into()),
                 1,
                 "```mermaid\ngraph TD; A-->B\n```\n```abc\nX:1\nK:C\nC\n```\n$E=mc^2$\n".into(),
                 PositionEncoding::Utf8,
+                Default::default(),
             )?;
             special.render(&fleximark_render_html::RenderContext::default())?;
             let special_render_ms = special_started.elapsed().as_secs_f64() * 1_000.0;
@@ -128,6 +126,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "{}",
                 serde_json::to_string(&serde_json::json!({
                     "schemaVersion": 1,
+                    "byteMetric": "renderedHtmlUtf8",
                     "peakMemoryBytes": peak_memory_bytes()?,
                     "specialRenderMs": special_render_ms,
                     "documents": results
@@ -138,10 +137,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let path = path.ok_or("render requires a document")?;
             let source = fs::read_to_string(&path)?;
             let uri = path_to_uri(Path::new(&path))?;
-            let mut session =
+            let session =
                 fleximark_application::native::open_document(uri, source, trusted_workspace)?;
-            let frame = session.render_configured(&CancellationToken::default())?;
-            let html = frame.snapshot.html();
+            let frame = session.render(&session.render_config().context)?;
+            let html = frame.html();
             io::stdout().lock().write_all(html.as_bytes())?;
         }
         "init" | "edit-theme" | "create-note" => {

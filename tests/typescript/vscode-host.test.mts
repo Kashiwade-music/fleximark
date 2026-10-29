@@ -151,6 +151,5 @@ function frame() {
       },
     ],
     navigation: [],
-    annotations: {},
   };
 }

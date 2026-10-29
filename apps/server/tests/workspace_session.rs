@@ -93,7 +93,7 @@ fn invalid_configuration_disables_only_its_root() {
     fleximark_application::native::initialize_workspace(&invalid_uri).unwrap();
     std::fs::write(
         invalid.join(".fleximark/config.toml"),
-        "schema_version=2\nunknown=true\n",
+        "schema_version=1\nunknown=true\n",
     )
     .unwrap();
     let mut server = native_server();

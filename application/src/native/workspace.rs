@@ -12,7 +12,7 @@ use crate::native::{ServiceError, path_to_file_uri, workspace_path};
 
 pub(crate) const CONFIG: &str = r###"# FlexiMark workspace configuration
 # Uncomment optional entries and their section headers below to enable them.
-schema_version = 2
+schema_version = 1
 
 [notes]
 # Save notes under this workspace-relative directory. Use "." for the workspace root.
@@ -261,7 +261,7 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         let config = root.join(".fleximark/config.toml");
         let theme = root.join(".fleximark/theme.css");
-        let custom = "schema_version = 2\n[notes]\nroot = \"custom\"\n";
+        let custom = "schema_version = 1\n[notes]\nroot = \"custom\"\n";
         fs::write(&config, custom).unwrap();
         fs::write(&theme, "/* custom theme */\n").unwrap();
         initialize_workspace(&uri).unwrap();
@@ -349,7 +349,7 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 2\nunknown = true\n",
+            "schema_version = 1\nunknown = true\n",
         )
         .unwrap();
         assert!(matches!(

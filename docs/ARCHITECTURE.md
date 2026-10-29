@@ -2,25 +2,23 @@
 
 FlexiMark は、純粋な文書処理、状態と native I/O をまとめた application、通信、エディター製品で構成する。VS Code と通常版 Zed は同じ native runtime を利用する。同じ状態や値型を層ごとに複製せず、一つの所有者から利用する。
 
-Cargo の実依存関係は [生成された crate 図](../architecture/crates.svg)、crate 内の参照関係は [生成された module 図](../architecture/modules/) を参照する。Zed 拡張には [独立 workspace の図](../adapters/zed/architecture/crates.svg)、WASM fixture にも [独立 workspace の図](../tests/fixtures/plugin-component/architecture/crates.svg) がある。これらは `cargo xtask check` が生成する追跡対象であり、説明用の手描き図ではない。
+Cargo の実依存関係は [生成された crate 図](../architecture/crates.svg)、crate 内の参照関係は [生成された module 図](../architecture/modules/) を参照する。Zed 拡張には [独立 workspace の図](../adapters/zed/architecture/crates.svg) がある。これらは `cargo xtask check` が生成する追跡対象である。
 
 ## 所有者と依存方向
 
 | 配置 | 責務 |
 | --- | --- |
-| `core/model` | 文書 IR、NodeId、UTF-8 byte 範囲、共有 SourceIndex、生成元情報とモデル検証 |
+| `core/model` | 文書 IR、NodeId、UTF-8 byte 範囲、共有 SourceIndex、モデル検証 |
 | `core/parser` | comrak の解析結果から検証済み文書 IR を生成 |
 | `core/render-html` | IR から安全化した HTML、ノード一覧、navigation を生成 |
-| `core/engine` | ソース前処理、解析、NodeId 照合、変換、描画 snapshot、export の処理段階 |
+| `core/engine` | 全文解析、NodeId 照合、候補の反映、描画 snapshot |
 | `core/language` | 補完候補と構文の意味分類。LSP の数値 kind や相対 token 配列は生成しない |
-| `core/plugin-api` | object-safe な `PluginExecutor`、中断 token、hook 値、診断、実行結果 |
 | `application` | 文書・workspace・preview の権威状態、更新と公開、ファイル・設定・theme・note・アセット・export の native 実装と型付き操作結果 |
-| `runtime/wasm-plugins` | 署名・manifest 検証、Wasmtime、権限、時間・memory・fuel・出力量制限 |
 | `runtime/preview-assets` | インストール済み runtime manifest と browser 資源の検証・読込み |
 | `transports/lsp` | 標準 LSP、FlexiMark の preview/workspace 契約、application と外部 DTO の変換 |
 | `transports/preview-http` | loopback HTTP、SSE、browser navigation、workspace UI の要求配送 |
 | `apps/server` / `apps/cli` | `fleximarkd` / `fleximark` の composition root |
-| `contracts` | protocol、wire、config、plugin ABI、生成 TypeScript・Schema、capability と配布形式 |
+| `contracts` | protocol、wire、config、生成 TypeScript・Schema、配布形式 |
 | `web/preview` / `web/workspace-ui` | 共通描画クライアントと note・theme・export 等のブラウザ操作画面 |
 | `adapters/vscode` / `adapters/zed` | editor API、言語登録、接続、起動・配布と製品固有 UI |
 | `migration` | 明示操作でのみ使う旧ユーザーデータの読取り・変換 |
@@ -28,9 +26,9 @@ Cargo の実依存関係は [生成された crate 図](../architecture/crates.s
 
 core は concrete runtime、protocol DTO、filesystem、browser bundle に依存しない。内部ソース範囲は UTF-8 byte offset だけを保持し、行・文字位置は共有 SourceIndex から通信境界で生成する。文書 counter は native `u64` で扱う。JavaScript の数値制約、JSON Schema、外部 DTO は contracts と transport の所有である。
 
-完全 frame 配送の wire protocol は version 7、byte 範囲を共有する文書 schema と plugin API/WIT は version 2 である。旧 protocol と旧 plugin API は境界で拒否し、旧形式用の実行経路は維持しない。plugin manifest 自体の schema は version 1 のままである。
+完全 frame 配送の wire protocol と config schema は version 1 である。リリースまでは形式変更でも version を上げず、旧形式を境界で拒否する。内部 IR に交換用の document schema version は置かない。拡張構文は組込みコードで実装し、動的なプラグイン機構は持たない。
 
-application は workspace 所属・trust・設定と文書状態を一か所で管理し、native 関数を直接実行する。転送専用の `WorkspaceServices` / `NativeWorkspace` は置かない。`CreatedNote`、`ThemeResource`、`ExportReceipt` などの型付き結果を返し、外部向けの message と JSON 応答は transport が組み立てる。CLI と daemon は共通の native 処理を利用し、両 package 間に依存はない。`PluginExecutor` は pure core と WASM runtime の実行境界として残す。
+application は workspace 所属・trust・設定と文書状態を管理し、native 操作の型付き結果を返す。外部向けの message と JSON 応答は transport が組み立てる。CLI と daemon は共通の native 処理を利用する。中断 token は application が所有し、描画前と候補反映前、export の各段の境界で検査する。
 
 ## 起動と文書同期
 
@@ -46,15 +44,12 @@ LSP transport は補完、Semantic Tokens、hover、document symbols、diagnosti
 
 文書更新では次の順序を保つ。
 
-1. プラグインによるソース前処理。
-2. 全文解析と、前処理 edit map から元ソースへの生成元範囲の復元。
-3. 既存 IR と照合した NodeId の維持、モデル検証。
-4. block 変換、document 変換、候補検証。
-5. 成功した候補だけを `DocumentEngine` に反映。
+1. 全文解析とモデル検証を行う。
+2. 既存 IR と照合して NodeId を維持し、成功した候補だけを反映する。
 
-core の `RenderSnapshot` は document version、ブロック HTML、style、assets、annotations、navigation、renderer fingerprint を持つ。daemon ID、preview ID、render revision、購読状態を含まない。
+core の `RenderSnapshot` は document version、ブロック HTML、style、assets、navigation、renderer fingerprint を持つ。daemon ID、preview ID、render revision、購読状態を含まない。
 
-application が immutable な snapshot を `PreviewSessionId` と単調な revision で包み、preview ごとに最新の完全な `RenderFrame` を保存する。初回と変更時に完全 frame を配送し、クライアントが通知後に再取得する経路は設けない。読取りは revision を進めず、プラグインも再実行しない。描画に失敗した場合、中断された場合、revision が上限に達した場合は前の frame を保持する。文書を閉じるとキャッシュを破棄する。再設定しても preview identity と revision の系列を維持する。
+application が immutable な snapshot を `PreviewSessionId` と単調な revision で包み、preview ごとに最新の完全な `RenderFrame` を保存する。初回と変更時に完全 frame を配送し、読取りは revision を進めない。描画に失敗した場合、中断された場合、revision が上限に達した場合は前の frame を保持する。文書を閉じるとキャッシュを破棄する。再設定しても preview identity と revision の系列を維持する。
 
 navigation は daemon identity、文書 session、文書 version、preview revision と NodeId を照合する。元ソース変更後の frame による古い移動要求は拒否する。source-to-preview の明示移動と browser-to-source の移動には同じ対応表を使う。
 

@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use fleximark_plugin_api::CancellationToken;
+use fleximark_application::CancellationToken;
 use fleximark_protocol::{IncomingMessage, RpcId};
 use serde_json::Value;
 

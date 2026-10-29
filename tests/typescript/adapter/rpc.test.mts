@@ -93,7 +93,6 @@ export function suite(): void {
         ],
         blocks: [],
         navigation: [],
-        annotations: {},
       },
     };
     const pending = connection.request("fleximark/createPreview", {

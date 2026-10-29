@@ -1,8 +1,8 @@
 //! Role: Configure native workspace authority and transactional reconfiguration.
+use crate::CancellationToken;
 use crate::error::SessionError;
 use crate::native;
 use crate::registry::SessionRegistry;
-use fleximark_plugin_api::CancellationToken;
 use std::collections::{HashMap, HashSet};
 pub struct WorkspaceConfigurationStatus {
     pub uri: String,
@@ -84,7 +84,10 @@ impl SessionRegistry {
             let mut failure = None;
             for (document_uri, _) in documents {
                 if let Some(session) = self.index.by_uri_mut(&document_uri) {
-                    if let Err(error) = session.engine.clear_configuration() {
+                    if let Err(error) = session
+                        .engine
+                        .set_render_config(fleximark_engine::RenderConfig::default())
+                    {
                         failure = Some(error);
                     }
                 }

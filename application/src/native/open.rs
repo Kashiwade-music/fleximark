@@ -1,9 +1,7 @@
 //! Role: Open CLI documents and resolve assets with the shared native policy.
-use std::sync::Arc;
 
 use fleximark_engine::DocumentEngine;
 use fleximark_model::{DocumentUri, PositionEncoding};
-use fleximark_plugin_api::CancellationToken;
 
 use super::{ServiceError, resolve_render_assets, workspace_for_document};
 
@@ -27,18 +25,12 @@ pub fn open_document(
             1,
             source,
             PositionEncoding::Utf8,
+            Default::default(),
         )?);
     };
     let config = super::configured_render_config(&workspace, true, 1)?;
-    let mut engine = DocumentEngine::open_configured(
-        DocumentUri(uri),
-        1,
-        source,
-        PositionEncoding::Utf8,
-        config.clone(),
-        Arc::new(crate::empty_executor::EmptyPluginExecutor(config)),
-        &CancellationToken::default(),
-    )?;
+    let mut engine =
+        DocumentEngine::open(DocumentUri(uri), 1, source, PositionEncoding::Utf8, config)?;
     refresh_document_assets(&mut engine, &workspace)?;
     Ok(engine)
 }
@@ -52,5 +44,5 @@ pub fn refresh_document_assets(
         .render_config()
         .clone()
         .with_resolved_assets(assets)?;
-    Ok(engine.reconfigure_render(config)?)
+    Ok(engine.set_render_config(config)?)
 }

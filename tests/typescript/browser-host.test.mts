@@ -205,6 +205,5 @@ function frame(renderRevision: number, text: string) {
         },
       },
     ],
-    annotations: {},
   };
 }

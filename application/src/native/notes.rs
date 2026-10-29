@@ -242,7 +242,8 @@ pub fn collect_admonitions(
     fn collect<'a>(blocks: &[Block], source: &'a str, output: &mut Vec<&'a str>) {
         for block in blocks {
             if matches!(block.kind, BlockKind::Admonition { .. }) {
-                if let Some(range) = block.provenance.primary_range() {
+                {
+                    let range = &block.range;
                     if let (Ok(start), Ok(end)) = (
                         usize::try_from(range.byte_start),
                         usize::try_from(range.byte_end),
@@ -299,7 +300,7 @@ mod tests {
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            r##"schema_version = 2
+            r##"schema_version = 1
 
 [notes]
 root = "notes"
@@ -347,7 +348,7 @@ daily = ["# ${FILE_NAME}", "${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONT
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            r##"schema_version = 2
+            r##"schema_version = 1
 [notes]
 file_name_prefix = "prefix-"
 file_name_suffix = "-suffix"
@@ -383,7 +384,7 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 2\n[notes.templates]\ndefault = [\"# ${FILE_NAME}\"]\n",
+            "schema_version = 1\n[notes.templates]\ndefault = [\"# ${FILE_NAME}\"]\n",
         )
         .unwrap();
         let result = create_note(&uri).unwrap();
@@ -415,7 +416,7 @@ default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            r#"schema_version = 2
+            r#"schema_version = 1
 [notes]
 file_name_prefix = "${CURRENT_YEAR}${CURRENT_MONTH}${CURRENT_DATE}_"
 file_name_suffix = ""
@@ -450,7 +451,7 @@ file_name_suffix = ""
         initialize_workspace(&uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            r#"schema_version = 2
+            r#"schema_version = 1
 [notes]
 root = "notes"
 [notes.categories]
@@ -497,6 +498,7 @@ Right = { Same = {} }
             1,
             source.to_owned(),
             fleximark_model::PositionEncoding::Utf8,
+            Default::default(),
         )
         .unwrap();
         let result = collect_admonitions(session.document(), source, &uri).unwrap();

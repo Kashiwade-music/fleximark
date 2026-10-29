@@ -195,6 +195,7 @@ export function suite(): void {
       mediaType: "image/avif",
     }));
     assert.equal(isRenderFrame(frame), true);
+    assert.equal(isRenderFrame({ ...frame, annotations: {} }), false);
     assert.equal(
       customRequestResultValidators["fleximark/createPreview"]({
         previewSessionId: "preview",

@@ -266,7 +266,8 @@ fn collect_render_metadata(
         return Err(RenderError::DuplicateNodeId(block.id.0.clone()));
     }
     node_ids.push(block.id.clone());
-    if let Some(source_range) = block.provenance.navigation_range() {
+    {
+        let source_range = block.range.clone();
         navigation.push(NavigationEntry {
             node_id: block.id.clone(),
             source_range,
@@ -440,9 +441,8 @@ fn render_block(block: &Block, context: &RenderContext) -> Result<String, Render
             "<div data-fleximark-node-id=\"{id}\" data-fleximark-kind=\"raw-html\">{}</div>\n",
             clean_raw_html(&neutralize_internal_markers(html))
         ),
-        BlockKind::Plugin { namespace, name } => format!(
-            "<div data-fleximark-node-id=\"{id}\" data-plugin-namespace=\"{}\" data-plugin-name=\"{}\">{}</div>\n",
-            escape_attribute(namespace),
+        BlockKind::Directive { name } => format!(
+            "<div data-fleximark-node-id=\"{id}\" data-fleximark-directive=\"{}\">{}</div>\n",
             escape_attribute(name),
             children()?
         ),

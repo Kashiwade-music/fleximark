@@ -10,7 +10,6 @@ base64.workspace = true
 blake3.workspace = true
 fleximark-model = { path = "../model" }
 fleximark-parser = { path = "../parser" }
-fleximark-plugin-api = { path = "../plugin-api" }
 fleximark-render-html = { path = "../render-html" }
 serde.workspace = true
 serde_json.workspace = true

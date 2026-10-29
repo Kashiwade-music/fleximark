@@ -1,5 +1,4 @@
 //! Role: Parse Markdown into the document model.
-use std::collections::BTreeMap;
 
 use comrak::{
     Arena, Options,
@@ -7,8 +6,8 @@ use comrak::{
     parse_document,
 };
 use fleximark_model::{
-    Block, BlockKind, DOCUMENT_SCHEMA_VERSION, Document, DocumentMetadata, DocumentUri, Inline,
-    InlineKind, Node, NodeId, PositionEncoding, SourceIndex, SourceProvenance, ValidationError,
+    Block, BlockKind, Document, DocumentMetadata, DocumentUri, Inline, InlineKind, Node, NodeId,
+    PositionEncoding, SourceIndex, SourceRange, ValidationError,
 };
 
 #[derive(Debug)]
@@ -74,7 +73,6 @@ pub fn parse(
         }
     }
     let document = Document {
-        schema_version: DOCUMENT_SCHEMA_VERSION,
         document_version,
         uri,
         metadata,
@@ -212,16 +210,14 @@ fn convert_block<'a>(
                     kind: name.to_owned(),
                     title: label.map(str::to_owned).unwrap_or_else(|| name.to_owned()),
                 },
-                _ => BlockKind::Plugin {
-                    namespace: "directive".to_owned(),
+                _ => BlockKind::Directive {
                     name: name.to_owned(),
                 },
             };
             (kind, block_nodes(node, positions, next_id)?)
         }
         NodeValue::FootnoteDefinition(definition) => (
-            BlockKind::Plugin {
-                namespace: "commonmark".to_owned(),
+            BlockKind::Directive {
                 name: format!("footnote-definition:{}", definition.name),
             },
             block_nodes(node, positions, next_id)?,
@@ -231,8 +227,7 @@ fn convert_block<'a>(
         | NodeValue::DescriptionTerm
         | NodeValue::DescriptionDetails
         | NodeValue::Subtext) => (
-            BlockKind::Plugin {
-                namespace: "commonmark".to_owned(),
+            BlockKind::Directive {
                 name: format!("{other:?}")
                     .split(['(', '{'])
                     .next()
@@ -265,14 +260,13 @@ fn convert_block<'a>(
         | NodeValue::EscapedTag(_) => return Ok(None),
         NodeValue::FrontMatter(_) | NodeValue::Document => return Ok(None),
     };
-    let provenance = positions.provenance_enclosing(sourcepos, &children)?;
+    let range = positions.range_enclosing(sourcepos, &children)?;
     let id = NodeId::pending(*next_id);
     *next_id += 1;
     Ok(Some(Block {
         id,
-        provenance,
+        range,
         kind,
-        attributes: BTreeMap::new(),
         children,
     }))
 }
@@ -329,7 +323,7 @@ fn convert_inline<'a>(
     positions: &ParserSourceIndex,
 ) -> Result<Option<Inline>, ParseError> {
     let data = node.data();
-    let provenance = positions.provenance(data.sourcepos)?;
+    let range = positions.range(data.sourcepos)?;
     let value = data.value.clone();
     drop(data);
 
@@ -382,7 +376,7 @@ fn convert_inline<'a>(
             destination: format!("#footnote-{}", reference.name),
             title: String::new(),
             children: vec![Inline {
-                provenance: provenance.clone(),
+                range: range.clone(),
                 kind: InlineKind::Text {
                     value: format!("[{}]", reference.name),
                 },
@@ -402,7 +396,7 @@ fn convert_inline<'a>(
             value: format!("{other:?}"),
         },
     };
-    Ok(Some(Inline { provenance, kind }))
+    Ok(Some(Inline { range, kind }))
 }
 
 fn parse_code_info(info: &str) -> (Option<String>, Option<String>, bool) {
@@ -436,15 +430,15 @@ impl<'a> ParserSourceIndex<'a> {
         }
     }
 
-    fn provenance(&self, sourcepos: Sourcepos) -> Result<SourceProvenance, ParseError> {
-        self.provenance_enclosing(sourcepos, &[])
+    fn range(&self, sourcepos: Sourcepos) -> Result<SourceRange, ParseError> {
+        self.range_enclosing(sourcepos, &[])
     }
 
-    fn provenance_enclosing(
+    fn range_enclosing(
         &self,
         sourcepos: Sourcepos,
         children: &[Node],
-    ) -> Result<SourceProvenance, ParseError> {
+    ) -> Result<SourceRange, ParseError> {
         let start = self.sourcepos_start(sourcepos);
         let end_line = sourcepos.end.line.checked_sub(1);
         // Comrak can truncate the final item and paragraph end inside a block directive.
@@ -454,9 +448,9 @@ impl<'a> ParserSourceIndex<'a> {
         let reported_end = self.sourcepos_end_offset(sourcepos);
         let child_end = children
             .iter()
-            .filter_map(|child| match child {
-                Node::Block(block) => block.provenance.primary_range(),
-                Node::Inline(inline) => inline.provenance.primary_range(),
+            .map(|child| match child {
+                Node::Block(block) => &block.range,
+                Node::Inline(inline) => &inline.range,
             })
             .filter(|range| {
                 start.is_some_and(|start| range.byte_start >= start as u64)
@@ -486,11 +480,9 @@ impl<'a> ParserSourceIndex<'a> {
             (Some(start), Some(end)) if start <= end => (start, end),
             _ => return Err(self.invalid(sourcepos)),
         };
-        Ok(SourceProvenance::original(
-            self.index
-                .range(start..end)
-                .map_err(|_| self.invalid(sourcepos))?,
-        ))
+        self.index
+            .range(start..end)
+            .map_err(|_| self.invalid(sourcepos))
     }
 
     fn sourcepos_start(&self, sourcepos: Sourcepos) -> Option<usize> {
@@ -586,7 +578,7 @@ mod tests {
     fn uses_utf8_byte_offsets_and_half_open_ranges() {
         let source = "# 🦀\n";
         let document = parse(DocumentUri("file:///unicode.md".into()), 1, source).unwrap();
-        let range = document.blocks[0].provenance.primary_range().unwrap();
+        let range = &document.blocks[0].range;
         assert_eq!((range.byte_start, range.byte_end), (0, 6));
         assert_eq!(
             SourceIndex::new(source)
@@ -669,7 +661,7 @@ mod tests {
             Node::Block(block) => block,
             Node::Inline(_) => panic!("list item must be a block"),
         };
-        let range = item.provenance.primary_range().unwrap();
+        let range = &item.range;
         assert_eq!(
             &source[range.byte_start as usize..range.byte_end as usize],
             "- そんなに震えない"
@@ -678,7 +670,7 @@ mod tests {
             Node::Block(block) => block,
             Node::Inline(_) => panic!("list paragraph must be a block"),
         };
-        let range = paragraph.provenance.primary_range().unwrap();
+        let range = &paragraph.range;
         assert_eq!(
             &source[range.byte_start as usize..range.byte_end as usize],
             "そんなに震えない"
@@ -694,7 +686,7 @@ mod tests {
             Node::Block(block) => block,
             Node::Inline(_) => panic!("list item must be a block"),
         };
-        let range = item.provenance.primary_range().unwrap();
+        let range = &item.range;
         assert_eq!(
             &source[range.byte_start as usize..range.byte_end as usize],
             "- last"
@@ -705,7 +697,7 @@ mod tests {
     fn accepts_list_items_that_include_blank_lines_past_the_parent_list() {
         let source = "- 近距離\n  - ベース幅: 3.0\n- 遠距離\n  - エラー: 10.0\n\n\n:::info\n- そんなに震えない\n:::\n";
         let document = parse(DocumentUri("file:///nested-list.md".into()), 1, source).unwrap();
-        let range = document.blocks[0].provenance.primary_range().unwrap();
+        let range = &document.blocks[0].range;
         assert_eq!(
             &source[range.byte_start as usize..range.byte_end as usize],
             "- 近距離\n  - ベース幅: 3.0\n- 遠距離\n  - エラー: 10.0"

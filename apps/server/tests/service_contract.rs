@@ -238,7 +238,7 @@ fn initialization_preserves_active_defaults_and_typed_resource_locations() {
             .lines()
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
             .collect::<Vec<_>>(),
-        ["schema_version = 2", "[notes]", "root = \"notes\""]
+        ["schema_version = 1", "[notes]", "root = \"notes\""]
     );
     assert_eq!(
         fs::read_to_string(root.join(".fleximark/theme.css")).expect("read default theme"),
@@ -452,7 +452,7 @@ fn workspace_control_junction_is_rejected_without_touching_its_target() {
     let root = test_workspace("junction-root");
     let outside = test_workspace("junction-target");
     fs::write(outside.join("sentinel.txt"), "user bytes").expect("write target sentinel");
-    fs::write(outside.join("config.toml"), "schema_version = 2\n").expect("write target config");
+    fs::write(outside.join("config.toml"), "schema_version = 1\n").expect("write target config");
     let junction = root.join(".fleximark");
     let _junction_guard = create_junction(&junction, &outside);
 

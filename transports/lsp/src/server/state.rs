@@ -3,13 +3,13 @@ pub(super) use std::collections::{HashMap, HashSet};
 pub(super) use std::sync::mpsc::Sender;
 pub(super) use std::time::Instant;
 
+pub(super) use fleximark_application::CancellationToken;
 pub(super) use fleximark_application::{
     DidChangeParams, DidCloseParams, DidOpenParams, SessionError, SessionRegistry,
 };
 pub(super) use fleximark_model::{
     Block, BlockKind, Document, Inline, InlineKind, Node, NodeId, PositionEncoding,
 };
-pub(super) use fleximark_plugin_api::CancellationToken;
 pub(super) use fleximark_protocol::{
     AttachDocumentParams, CONTENT_MODIFIED, CreatePreviewParams, CreatePreviewResult,
     DisposePreviewParams, ExecuteCommandParams, GetNoteOptionsParams, IncomingMessage,

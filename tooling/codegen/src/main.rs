@@ -1,5 +1,6 @@
 //! Role: Generate schemas and TypeScript from the current Rust wire contract.
 mod configuration;
+mod examples;
 mod fixtures;
 mod typescript;
 use fixtures::{generate_render_frame_fixture, render_fixture};
@@ -62,7 +63,7 @@ fn run() -> Result<(), String> {
         .ok_or_else(|| "run codegen inside the FlexiMark repository".to_owned())?
         .to_path_buf();
     let named = named_schemas();
-    let outputs = [
+    let mut outputs = vec![
         (
             root.join("contracts/schemas/config.schema.json"),
             configuration::schema()?,
@@ -84,6 +85,7 @@ fn run() -> Result<(), String> {
             )?,
         ),
     ];
+    outputs.extend(examples::outputs(&root)?);
     if command == "generate" {
         for (path, contents) in outputs {
             fs::write(&path, contents)

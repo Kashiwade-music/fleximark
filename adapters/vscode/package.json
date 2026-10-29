@@ -45,7 +45,7 @@
       "restrictedConfigurations": [
         "fleximark.daemonPath"
       ],
-      "description": "Plain Markdown preview is available without trust. Local assets, WebAssembly components, and workspace writes require trust."
+      "description": "Plain Markdown preview is available without trust. Local assets and workspace writes require trust."
     },
     "virtualWorkspaces": {
       "supported": false,

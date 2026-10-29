@@ -38,12 +38,11 @@ class VerificationPhasesTests(unittest.TestCase):
                 stack.enter_context(patch.object(tasks, name))
             tasks.main(["ci", "quality"])
         commands = [call.args for call in run.call_args_list]
-        for manifest in ("adapters/zed/Cargo.toml", "tests/fixtures/plugin-component/Cargo.toml"):
+        for manifest in ("adapters/zed/Cargo.toml",):
             for gate in ("fmt", "test", "clippy"):
                 self.assertTrue(any(command[:2] == ("cargo", gate) and manifest in command for command in commands))
         for gate in ("fmt", "test", "clippy", "xtask"):
             self.assertTrue(any(command[:2] == ("cargo", gate) for command in commands))
-        self.assertTrue(any("wasm32-wasip2" in command for command in commands))
         self.assertNotIn(("npm", "audit", "--all", "--recursive", "--severity", "high"), [call.args for call in yarn.call_args_list])
 
     def test_audit_is_an_explicit_network_gate(self):

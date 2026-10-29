@@ -529,10 +529,7 @@ export function suite(): void {
         trustGranted: () => record("migration.trust"),
       },
     );
-    assert.equal(
-      watcherPattern,
-      "**/.fleximark/{config.toml,theme.css,plugins/**}",
-    );
+    assert.equal(watcherPattern, "**/.fleximark/{config.toml,theme.css}");
     assert.equal(handlers.size, 11);
     assert.equal(registrations.length, 12);
     assert.ok(registrations.includes(watcher));

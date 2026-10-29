@@ -26,7 +26,7 @@ export function registerEditorEvents(
   },
 ): vscode.Disposable[] {
   const workspacePolicyWatcher = registrar.workspace.createFileSystemWatcher(
-    "**/.fleximark/{config.toml,theme.css,plugins/**}",
+    "**/.fleximark/{config.toml,theme.css}",
   );
   const reconfigureFor = (uri: vscode.Uri) => {
     if (!isActive()) return;

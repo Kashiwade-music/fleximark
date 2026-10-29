@@ -1,7 +1,7 @@
 //! Role: Verify unsaved browser previews and bidirectional standard editor navigation.
 mod support;
+use fleximark_application::CancellationToken;
 use fleximark_lsp_transport::Server;
-use fleximark_plugin_api::CancellationToken;
 use fleximark_protocol::{CONTENT_MODIFIED, method};
 use serde_json::json;
 use std::sync::mpsc;

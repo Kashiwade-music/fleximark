@@ -196,7 +196,7 @@ pub fn plan(workspace: &Path, editor_settings: Option<&Path>) -> io::Result<Migr
         vec![]
     };
     let config = FlexiMarkConfig {
-        schema_version: 2,
+        schema_version: fleximark_config::CONFIG_SCHEMA_VERSION,
         notes,
         assets: AssetsConfig { roots },
     };
@@ -485,11 +485,11 @@ mod tests {
         assert!(migration.apply().is_err());
         assert!(!control.join("config.toml").exists());
         let migration = plan(&root, None).unwrap();
-        fs::write(control.join("config.toml"), "schema_version=2\n").unwrap();
+        fs::write(control.join("config.toml"), "schema_version=1\n").unwrap();
         assert!(migration.apply().is_err());
         assert_eq!(
             fs::read_to_string(control.join("config.toml")).unwrap(),
-            "schema_version=2\n"
+            "schema_version=1\n"
         );
         assert!(plan(&root, None).is_err());
         fs::remove_dir_all(root).unwrap();

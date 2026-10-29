@@ -1,9 +1,7 @@
 //! Role: Reconcile stable document node identities across source edits.
 use std::collections::{HashMap, HashSet};
 
-use fleximark_model::{
-    Block, BlockKind, Document, Inline, InlineKind, Node, NodeId, SourceProvenance,
-};
+use fleximark_model::{Block, BlockKind, Document, Inline, InlineKind, Node, NodeId, SourceRange};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
@@ -11,7 +9,7 @@ struct IdentityRecord {
     semantic: String,
     structure: std::mem::Discriminant<BlockKind>,
     parent: String,
-    provenance: String,
+    range: String,
     id: NodeId,
 }
 
@@ -26,13 +24,13 @@ pub(super) fn reconcile_node_ids(previous: Option<&Document>, current: &mut Docu
     let mut used_old = HashSet::new();
 
     assign_unique(&old, &new, &mut assigned, &mut used_old, |record| {
-        format!("{}\0{}", record.semantic, record.provenance)
+        combined_key(&record.semantic, &record.range)
     });
     assign_unique(&old, &new, &mut assigned, &mut used_old, |record| {
-        format!("{}\0{}", record.semantic, record.parent)
+        combined_key(&record.semantic, &record.parent)
     });
     assign_unique(&old, &new, &mut assigned, &mut used_old, |record| {
-        format!("{}\0{}", record.provenance, record.parent)
+        combined_key(&record.range, &record.parent)
     });
     assign_unique(&old, &new, &mut assigned, &mut used_old, |record| {
         record.semantic.clone()
@@ -82,14 +80,18 @@ pub(super) fn reconcile_node_ids(previous: Option<&Document>, current: &mut Docu
         }
         let mut salt = 0_u64;
         loop {
-            let material = format!(
-                "{}\0{}\0{index}\0{}\0{}\0{salt}",
-                current.uri.0, current.document_version, new[index].semantic, new[index].provenance
-            );
-            let id = NodeId(format!(
-                "block-{}",
-                &blake3::hash(material.as_bytes()).to_hex()[..20]
-            ));
+            let mut material = Vec::new();
+            for field in [
+                current.uri.0.as_bytes(),
+                &current.document_version.to_le_bytes(),
+                &(index as u64).to_le_bytes(),
+                new[index].semantic.as_bytes(),
+                new[index].range.as_bytes(),
+                &salt.to_le_bytes(),
+            ] {
+                append_field(&mut material, field);
+            }
+            let id = NodeId(format!("block-{}", &blake3::hash(&material).to_hex()[..20]));
             if occupied.insert(id.clone()) {
                 *slot = Some(id);
                 break;
@@ -97,7 +99,7 @@ pub(super) fn reconcile_node_ids(previous: Option<&Document>, current: &mut Docu
             salt += 1;
         }
     }
-    let mut ids = assigned.into_iter().map(Option::unwrap);
+    let mut ids = assigned.into_iter().flatten();
     apply_ids(&mut current.blocks, &mut ids);
 }
 
@@ -143,7 +145,7 @@ fn collect_identity(blocks: &[Block], parent: &str, output: &mut Vec<IdentityRec
             semantic: semantic.clone(),
             structure: std::mem::discriminant(&block.kind),
             parent: parent.to_owned(),
-            provenance: provenance_key(&block.provenance),
+            range: range_key(&block.range),
             id: block.id.clone(),
         });
         for child in &block.children {
@@ -154,83 +156,207 @@ fn collect_identity(blocks: &[Block], parent: &str, output: &mut Vec<IdentityRec
     }
 }
 
-fn semantic_key(block: &Block) -> String {
-    let mut material = format!("{:?}\0{:?}", block.kind, block.attributes);
-    for child in &block.children {
-        match child {
-            Node::Block(block) => material.push_str(&semantic_key(block)),
-            Node::Inline(inline) => append_inline_semantics(inline, &mut material),
-        }
-        material.push('\0');
-    }
-    blake3::hash(material.as_bytes()).to_hex().to_string()
+fn append_field(output: &mut Vec<u8>, field: &[u8]) {
+    output.extend_from_slice(&(field.len() as u64).to_le_bytes());
+    output.extend_from_slice(field);
 }
 
-fn append_inline_semantics(inline: &Inline, output: &mut String) {
+fn combined_key(first: &str, second: &str) -> String {
+    let mut material = Vec::new();
+    field(&mut material, first);
+    field(&mut material, second);
+    blake3::hash(&material).to_hex().to_string()
+}
+
+fn field(output: &mut Vec<u8>, value: &str) {
+    append_field(output, value.as_bytes());
+}
+fn number(output: &mut Vec<u8>, value: u64) {
+    append_field(output, &value.to_le_bytes());
+}
+fn boolean(output: &mut Vec<u8>, value: bool) {
+    append_field(output, &[u8::from(value)]);
+}
+fn optional(output: &mut Vec<u8>, value: Option<&str>) {
+    boolean(output, value.is_some());
+    if let Some(value) = value {
+        field(output, value);
+    }
+}
+
+fn semantic_key(block: &Block) -> String {
+    let mut material = Vec::new();
+    encode_block(block, &mut material);
+    blake3::hash(&material).to_hex().to_string()
+}
+
+fn encode_block(block: &Block, output: &mut Vec<u8>) {
+    match &block.kind {
+        BlockKind::Paragraph => field(output, "paragraph"),
+        BlockKind::Heading { level } => {
+            field(output, "heading");
+            number(output, u64::from(*level));
+        }
+        BlockKind::Quote => field(output, "quote"),
+        BlockKind::List {
+            ordered,
+            start,
+            tight,
+        } => {
+            field(output, "list");
+            boolean(output, *ordered);
+            number(output, *start);
+            boolean(output, *tight);
+        }
+        BlockKind::ListItem { checked } => {
+            field(output, "list-item");
+            boolean(output, checked.is_some());
+            if let Some(value) = checked {
+                boolean(output, *value);
+            }
+        }
+        BlockKind::Table => field(output, "table"),
+        BlockKind::TableRow { header } => {
+            field(output, "table-row");
+            boolean(output, *header);
+        }
+        BlockKind::TableCell { header } => {
+            field(output, "table-cell");
+            boolean(output, *header);
+        }
+        BlockKind::CodeBlock {
+            language,
+            title,
+            line_numbers,
+            code,
+        } => {
+            field(output, "code-block");
+            optional(output, language.as_deref());
+            optional(output, title.as_deref());
+            boolean(output, *line_numbers);
+            field(output, code);
+        }
+        BlockKind::Mermaid { source } => {
+            field(output, "mermaid");
+            field(output, source);
+        }
+        BlockKind::AbcNotation { source } => {
+            field(output, "abc");
+            field(output, source);
+        }
+        BlockKind::Math { source } => {
+            field(output, "math");
+            field(output, source);
+        }
+        BlockKind::ThematicBreak => field(output, "thematic-break"),
+        BlockKind::Admonition { kind, title } => {
+            field(output, "admonition");
+            field(output, kind);
+            field(output, title);
+        }
+        BlockKind::Tabs => field(output, "tabs"),
+        BlockKind::Tab { label } => {
+            field(output, "tab");
+            field(output, label);
+        }
+        BlockKind::Details { summary } => {
+            field(output, "details");
+            field(output, summary);
+        }
+        BlockKind::Media { source } => {
+            field(output, "media");
+            field(output, source);
+        }
+        BlockKind::RawHtml { html } => {
+            field(output, "raw-html");
+            field(output, html);
+        }
+        BlockKind::Directive { name } => {
+            field(output, "directive");
+            field(output, name);
+        }
+    }
+    number(output, block.children.len() as u64);
+    for child in &block.children {
+        match child {
+            Node::Block(block) => {
+                field(output, "block");
+                encode_block(block, output);
+            }
+            Node::Inline(inline) => {
+                field(output, "inline");
+                encode_inline(inline, output);
+            }
+        }
+    }
+}
+
+fn encode_inline(inline: &Inline, output: &mut Vec<u8>) {
     match &inline.kind {
         InlineKind::Text { value } => {
-            output.push_str("text:");
-            output.push_str(value);
+            field(output, "text");
+            field(output, value);
         }
         InlineKind::Code { value } => {
-            output.push_str("code:");
-            output.push_str(value);
+            field(output, "code");
+            field(output, value);
         }
         InlineKind::Math { source } => {
-            output.push_str("math:");
-            output.push_str(source);
+            field(output, "math");
+            field(output, source);
         }
-        InlineKind::SoftBreak => output.push_str("soft-break"),
-        InlineKind::HardBreak => output.push_str("hard-break"),
+        InlineKind::SoftBreak => field(output, "soft-break"),
+        InlineKind::HardBreak => field(output, "hard-break"),
         InlineKind::RawHtml { html } => {
-            output.push_str("raw:");
-            output.push_str(html);
+            field(output, "raw-html");
+            field(output, html);
         }
-        InlineKind::Emphasis { children } => append_nested("em", children, output),
-        InlineKind::Strong { children } => append_nested("strong", children, output),
-        InlineKind::Strikethrough { children } => append_nested("strike", children, output),
+        InlineKind::Emphasis { children } => encode_nested("emphasis", children, output),
+        InlineKind::Strong { children } => encode_nested("strong", children, output),
+        InlineKind::Strikethrough { children } => encode_nested("strikethrough", children, output),
         InlineKind::Link {
             destination,
             title,
             children,
         } => {
-            output.push_str("link:");
-            output.push_str(destination);
-            output.push('\0');
-            output.push_str(title);
-            append_nested("", children, output);
+            field(output, "link");
+            field(output, destination);
+            field(output, title);
+            encode_nested("children", children, output);
         }
         InlineKind::Image {
             source,
             title,
             children,
         } => {
-            output.push_str("image:");
-            output.push_str(source);
-            output.push('\0');
-            output.push_str(title);
-            append_nested("", children, output);
+            field(output, "image");
+            field(output, source);
+            field(output, title);
+            encode_nested("children", children, output);
         }
     }
 }
 
-fn append_nested(label: &str, children: &[Inline], output: &mut String) {
-    output.push_str(label);
-    output.push('[');
+fn encode_nested(tag: &str, children: &[Inline], output: &mut Vec<u8>) {
+    field(output, tag);
+    number(output, children.len() as u64);
     for child in children {
-        append_inline_semantics(child, output);
-        output.push('\0');
+        encode_inline(child, output);
     }
-    output.push(']');
 }
 
-fn provenance_key(provenance: &SourceProvenance) -> String {
-    serde_json::to_string(provenance).expect("source provenance is serializable")
+fn range_key(range: &SourceRange) -> String {
+    let mut material = Vec::new();
+    number(&mut material, range.byte_start);
+    number(&mut material, range.byte_end);
+    blake3::hash(&material).to_hex().to_string()
 }
 
 fn apply_ids(blocks: &mut [Block], ids: &mut impl Iterator<Item = NodeId>) {
     for block in blocks {
-        block.id = ids.next().expect("identity record count matches blocks");
+        if let Some(id) = ids.next() {
+            block.id = id;
+        }
         for child in &mut block.children {
             if let Node::Block(child) = child {
                 apply_ids(std::slice::from_mut(child), ids);

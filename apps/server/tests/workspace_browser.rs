@@ -14,7 +14,7 @@ fn browser_forms_select_context_and_preserve_native_workspace_authority() {
     let root = test_directory("browser-forms");
     let workspace = uri(&root);
     fleximark_application::native::initialize_workspace(&workspace).unwrap();
-    std::fs::write(root.join(".fleximark/config.toml"),"schema_version = 2\n[notes]\nroot = \"notes\"\n[notes.categories]\nWork = { Project = {} }\n[notes.templates]\ndaily = [\"# Daily\"]\n").unwrap();
+    std::fs::write(root.join(".fleximark/config.toml"),"schema_version = 1\n[notes]\nroot = \"notes\"\n[notes.categories]\nWork = { Project = {} }\n[notes.templates]\ndaily = [\"# Daily\"]\n").unwrap();
     let document = uri(&root.join("document.md"));
     std::fs::write(root.join("document.md"), "# Saved\n").unwrap();
     let mut instance = Server::with_assets(None, browser_assets());

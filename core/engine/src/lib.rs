@@ -1,8 +1,7 @@
-//! Role: Compose document parsing, plugin hooks, rendering, and export.
+//! Role: Compose document parsing, stable identity, and HTML snapshots.
 mod assets;
 mod error;
 mod identity;
-mod provenance;
 mod render;
 mod session;
 
@@ -11,12 +10,8 @@ pub use assets::{
     ResolvedRenderAsset,
 };
 pub use error::EngineError;
-pub use render::{
-    PluginRenderSnapshot, PreparedExport, RenderBlock, RenderSnapshot, ResolvedExport,
-};
+pub use render::{RenderBlock, RenderSnapshot};
 pub use session::DocumentEngine;
 
-#[cfg(test)]
-mod plugin_tests;
 #[cfg(test)]
 mod tests;

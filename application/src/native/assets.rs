@@ -66,7 +66,6 @@ fn compose_portable_html_with_css(
         "style":style,
         "assets":[],
         "blocks":[{"id":node_ids[0],"nodeIds":node_ids,"html":rendered_html}],
-        "annotations":{},
     });
     let frames = serde_json::to_string(&vec![frame])?
         .replace('<', "\\u003c")
@@ -173,7 +172,7 @@ pub fn resolve_render_assets(
             references
                 .entry(source.clone())
                 .or_default()
-                .push(block.provenance.navigation_range());
+                .push(Some(block.range.clone()));
         }
         for child in &block.children {
             match child {
@@ -190,7 +189,7 @@ pub fn resolve_render_assets(
                 references
                     .entry(source.clone())
                     .or_default()
-                    .push(inline.provenance.navigation_range());
+                    .push(Some(inline.range.clone()));
                 children
             }
             InlineKind::Link { children, .. }
@@ -634,6 +633,7 @@ mod tests {
             1,
             source.into(),
             fleximark_model::PositionEncoding::Utf8,
+            Default::default(),
         )
         .unwrap();
         let assets = resolve_render_assets(&document_uri, &workspace_uri, session.document())
@@ -648,6 +648,7 @@ mod tests {
             2,
             "![outside](../outside.png)\n".into(),
             fleximark_model::PositionEncoding::Utf8,
+            Default::default(),
         )
         .unwrap();
         let traversal =
@@ -674,6 +675,7 @@ mod tests {
             1,
             source.into(),
             fleximark_model::PositionEncoding::Utf8,
+            Default::default(),
         )
         .unwrap();
 
@@ -692,6 +694,7 @@ mod tests {
             1,
             source.to_owned(),
             fleximark_model::PositionEncoding::Utf8,
+            Default::default(),
         )
         .unwrap()
     }
@@ -792,7 +795,7 @@ mod tests {
         initialize_workspace(&workspace_uri).unwrap();
         fs::write(
             root.join(".fleximark/config.toml"),
-            "schema_version = 2\n[assets]\nroots = [\"missing-root\"]\n",
+            "schema_version = 1\n[assets]\nroots = [\"missing-root\"]\n",
         )
         .unwrap();
         let document_path = root.join("doc.md");

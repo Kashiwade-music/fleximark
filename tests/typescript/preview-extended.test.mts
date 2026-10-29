@@ -394,7 +394,6 @@ function frame(
     assets: [],
     blocks,
     navigation: blocks.map(({ id }, line) => entry(id, line)),
-    annotations: {},
   };
 }
 

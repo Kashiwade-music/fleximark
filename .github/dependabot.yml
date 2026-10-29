@@ -14,15 +14,6 @@ updates:
       timezone: Asia/Tokyo
     open-pull-requests-limit: 10
 
-  - package-ecosystem: cargo
-    directory: /tests/fixtures/plugin-component
-    schedule:
-      interval: weekly
-      day: monday
-      time: "09:00"
-      timezone: Asia/Tokyo
-    open-pull-requests-limit: 10
-
   - package-ecosystem: npm
     directory: /
     schedule:

@@ -60,7 +60,7 @@ def build_zed_product() -> None:
 
 
 def build_core(_: Sequence[str]) -> None:
-    run("cargo", "build", "--locked", "-p", "fleximark-model", "-p", "fleximark-parser", "-p", "fleximark-render-html", "-p", "fleximark-engine", "-p", "fleximark-language", "-p", "fleximark-plugin-api", "-p", "fleximark-application")
+    run("cargo", "build", "--locked", "-p", "fleximark-model", "-p", "fleximark-parser", "-p", "fleximark-render-html", "-p", "fleximark-engine", "-p", "fleximark-language", "-p", "fleximark-application")
 
 
 def vscode_task(_: Sequence[str]) -> None:
@@ -245,7 +245,6 @@ def check_generated_freshness(generate: Callable[[], None], paths: Sequence[Path
 def check_architecture() -> None:
     run("cargo", "xtask", "check")
     run("cargo", "xtask", "check", "--root", "adapters/zed")
-    run("cargo", "xtask", "check", "--root", "tests/fixtures/plugin-component")
 
 
 def verify_audit(_: Sequence[str]) -> None:
@@ -332,7 +331,7 @@ def check_steps() -> list[Step]:
     return [
         Step("Check product version freshness against release.toml", lambda: check_generated_freshness(generate_versions, [ROOT / name for name in ("adapters/vscode/package.json", "adapters/zed/extension.toml", "apps/server/Cargo.toml", "apps/cli/Cargo.toml", "Cargo.lock")])),
         Step("Check generated protocol against the Rust contract", check_protocol_contract),
-        Step("Check root/Zed/plugin Rust architecture and diagram freshness", lambda: check_generated_freshness(check_architecture, [ROOT / name for name in ("architecture", "adapters/zed/architecture", "tests/fixtures/plugin-component/architecture")])),
+        Step("Check root/Zed Rust architecture and diagram freshness", lambda: check_generated_freshness(check_architecture, [ROOT / name for name in ("architecture", "adapters/zed/architecture")])),
         Step("Check Python task syntax", lambda: run("python", "-m", "compileall", "-q", "tooling/tasks")),
         Step("Check all TypeScript project types", lambda: yarn("tsc", "-b")),
         Step("Lint TypeScript/JavaScript sources", lambda: yarn("eslint", "adapters/vscode", "web", "contracts/typescript", "tests/typescript", "tooling/tasks")),
@@ -340,9 +339,6 @@ def check_steps() -> list[Step]:
         Step("Check root Rust formatting", lambda: run("cargo", "fmt", "--all", "--", "--check")),
         Step("Check Zed Rust formatting", lambda: run("cargo", "fmt", "--manifest-path", "adapters/zed/Cargo.toml", "--", "--check")),
         Step("Lint Zed Rust code and test targets", lambda: run("cargo", "clippy", "--manifest-path", "adapters/zed/Cargo.toml", "--target-dir", "target/zed", "--all-targets", "--locked", "--", "-D", "warnings")),
-        Step("Check plugin fixture Rust formatting", lambda: run("cargo", "fmt", "--manifest-path", "tests/fixtures/plugin-component/Cargo.toml", "--", "--check")),
-        Step("Lint plugin fixture Rust code and test targets", lambda: run("cargo", "clippy", "--manifest-path", "tests/fixtures/plugin-component/Cargo.toml", "--target-dir", "target/fixture-native", "--all-targets", "--locked", "--", "-D", "warnings")),
-        Step("Check plugin fixture compilation for wasm32-wasip2", lambda: run("cargo", "check", "--manifest-path", "tests/fixtures/plugin-component/Cargo.toml", "--target", "wasm32-wasip2", "--target-dir", "target/fixture-wasm", "--locked")),
         Step("Lint root Rust workspace code and test targets", lambda: run("cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings")),
     ]
 
@@ -352,7 +348,6 @@ def unit_steps() -> list[Step]:
         Step("Run Python and Node build/release tooling tests", python_test),
         Step("Run root Rust workspace tests (including native integration)", lambda: run("cargo", "test", "--workspace", "--all-targets", "--locked")),
         Step("Run native Zed adapter tests", lambda: run("cargo", "test", "--manifest-path", "adapters/zed/Cargo.toml", "--target-dir", "target/zed", "--locked")),
-        Step("Run native plugin fixture tests", lambda: run("cargo", "test", "--manifest-path", "tests/fixtures/plugin-component/Cargo.toml", "--target-dir", "target/fixture-native", "--locked")),
         Step("Check protocol; compile and run Node protocol/preview/adapter tests", lambda: pure_test(())),
     ]
 
@@ -394,7 +389,7 @@ def create_plan(args: argparse.Namespace) -> Plan:
             Step("Install locked JavaScript dependencies", lambda: run("yarn", "install", "--immutable")),
             Step("Install locked Python environment", lambda: run("uv", "sync", "--frozen")),
             Step("Install Rust formatting and lint components", lambda: run("rustup", "component", "add", "rustfmt", "clippy")),
-            Step("Install WASI target for Zed and plugin tests", lambda: run("rustup", "target", "add", "wasm32-wasip2")),
+            Step("Install WASI target for Zed", lambda: run("rustup", "target", "add", "wasm32-wasip2")),
         ], "Development dependencies ready. Toolchain versions are installed first with mise install.")
     if command in {"build", "package"}:
         steps = build_steps(args.target)

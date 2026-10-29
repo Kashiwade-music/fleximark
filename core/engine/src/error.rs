@@ -8,8 +8,7 @@ pub enum EngineError {
     Render(RenderError),
     StaleVersion { current: u64, received: u64 },
     ContentModified,
-    Plugin(String),
-    UnsafeExportPolicy,
+    Configuration(String),
     Asset(String),
 }
 impl std::fmt::Display for EngineError {
@@ -24,11 +23,7 @@ impl std::fmt::Display for EngineError {
                 f,
                 "the document session is out of sync and requires full text"
             ),
-            Self::Plugin(value) => write!(f, "plugin pipeline failed: {0}", value),
-            Self::UnsafeExportPolicy => write!(
-                f,
-                "unsafe plugin HTML is available only after a safe portable render"
-            ),
+            Self::Configuration(value) => write!(f, "invalid render configuration: {value}"),
             Self::Asset(value) => write!(f, "invalid resolved render asset: {0}", value),
         }
     }
@@ -36,8 +31,8 @@ impl std::fmt::Display for EngineError {
 impl std::error::Error for EngineError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Parse(value) => std::error::Error::source(value),
-            Self::Render(value) => std::error::Error::source(value),
+            Self::Parse(value) => Some(value),
+            Self::Render(value) => Some(value),
             _ => None,
         }
     }

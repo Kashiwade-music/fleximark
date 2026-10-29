@@ -3,7 +3,6 @@ use fleximark_engine::DocumentEngine;
 use fleximark_model::{DocumentUri, PositionEncoding, SourceIndex};
 use fleximark_protocol::RenderFrame;
 use fleximark_render_html::RenderContext;
-use serde_json::json;
 
 pub(super) fn generate_render_frame_fixture() -> Result<String, String> {
     render_fixture(
@@ -21,35 +20,103 @@ pub(super) fn render_fixture(
     preview: &str,
 ) -> Result<String, String> {
     let index = SourceIndex::new(&source);
-    let mut session = DocumentEngine::open(
+    let session = DocumentEngine::open(
         DocumentUri(uri.to_owned()),
         version,
         source.clone(),
         PositionEncoding::Utf8,
+        fleximark_engine::RenderConfig::default(),
     )
     .map_err(|error| format!("failed to open render-frame fixture: {error}"))?;
-    let frame = session
+    let snapshot = session
         .render(&RenderContext::default())
         .map_err(|error| format!("failed to render frame fixture: {error}"))?;
-    let mut frame = serde_json::to_value(frame).map_err(|error| error.to_string())?;
-    for entry in frame["navigation"]
-        .as_array_mut()
-        .expect("navigation array")
-    {
-        for (byte_key, position_key) in [("byteStart", "start"), ("byteEnd", "end")] {
-            let offset = entry["sourceRange"][byte_key]
-                .as_u64()
-                .expect("byte offset");
-            let position = index
-                .byte_to_position(offset as usize, PositionEncoding::Utf8)
-                .ok_or_else(|| "invalid fixture source offset".to_owned())?;
-            entry["sourceRange"][position_key] =
-                serde_json::to_value(position).map_err(|error| error.to_string())?;
-        }
-    }
-    frame["previewSessionId"] = json!(preview);
-    frame["renderRevision"] = json!(1);
-    let frame: RenderFrame = serde_json::from_value(frame).map_err(|error| error.to_string())?;
+    let navigation = snapshot
+        .navigation
+        .into_iter()
+        .map(|entry| {
+            let position = |offset: u64| -> Result<fleximark_protocol::SourcePosition, String> {
+                let offset = usize::try_from(offset).map_err(|error| error.to_string())?;
+                let value = index
+                    .byte_to_position(offset, PositionEncoding::Utf8)
+                    .ok_or_else(|| "invalid fixture source offset".to_owned())?;
+                Ok(fleximark_protocol::SourcePosition {
+                    line: value.line.try_into().map_err(
+                        |error: <fleximark_protocol::JsSafeU64 as TryFrom<u64>>::Error| {
+                            error.to_string()
+                        },
+                    )?,
+                    character: value.character.try_into().map_err(
+                        |error: <fleximark_protocol::JsSafeU64 as TryFrom<u64>>::Error| {
+                            error.to_string()
+                        },
+                    )?,
+                    encoding: fleximark_protocol::PositionEncoding::Utf8,
+                })
+            };
+            Ok(fleximark_protocol::NavigationEntry {
+                node_id: fleximark_protocol::NodeId(entry.node_id.0),
+                depth: entry.depth,
+                source_range: fleximark_protocol::SourceRange {
+                    start: position(entry.source_range.byte_start)?,
+                    end: position(entry.source_range.byte_end)?,
+                    byte_start: entry.source_range.byte_start.try_into().map_err(
+                        |error: <fleximark_protocol::JsSafeU64 as TryFrom<u64>>::Error| {
+                            error.to_string()
+                        },
+                    )?,
+                    byte_end: entry.source_range.byte_end.try_into().map_err(
+                        |error: <fleximark_protocol::JsSafeU64 as TryFrom<u64>>::Error| {
+                            error.to_string()
+                        },
+                    )?,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let frame = RenderFrame {
+        preview_session_id: fleximark_protocol::PreviewSessionId(preview.to_owned()),
+        document_version: snapshot.document_version.try_into().map_err(
+            |error: <fleximark_protocol::JsSafeU64 as TryFrom<u64>>::Error| error.to_string(),
+        )?,
+        render_revision: 1_u32.into(),
+        renderer_fingerprint: snapshot.renderer_fingerprint,
+        style: snapshot.style.map(|style| fleximark_protocol::RenderStyle {
+            css: style.css().to_owned(),
+            fingerprint: style.fingerprint().to_owned(),
+        }),
+        assets: snapshot
+            .assets
+            .into_iter()
+            .map(|asset| {
+                Ok(fleximark_protocol::RenderAsset {
+                    reference: asset.reference,
+                    media_type: asset.media_type,
+                    content_hash: asset.content_hash,
+                    byte_length: asset.byte_length.try_into().map_err(
+                        |error: <fleximark_protocol::JsSafeU64 as TryFrom<u64>>::Error| {
+                            error.to_string()
+                        },
+                    )?,
+                    data: asset.data,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+        blocks: snapshot
+            .blocks
+            .into_iter()
+            .map(|block| fleximark_protocol::RenderBlock {
+                id: fleximark_protocol::NodeId(block.id.0),
+                html: block.html,
+                node_ids: block
+                    .node_ids
+                    .into_iter()
+                    .map(|id| fleximark_protocol::NodeId(id.0))
+                    .collect(),
+            })
+            .collect(),
+        navigation,
+    };
     serde_json::to_string_pretty(&frame)
         .map(|json| format!("{json}\n"))
         .map_err(|error| format!("failed to serialize render-frame fixture: {error}"))

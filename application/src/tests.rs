@@ -69,7 +69,6 @@ fn configured_render(label: &str, _trusted: bool) -> RenderConfig {
     let mut config = RenderConfig::default();
     config.config_hash = content_hash(label);
     config.config_generation = 1;
-    config.plugin_generation = 1;
     config
 }
 fn render_fingerprint(
@@ -409,14 +408,8 @@ fn engine_error_categories_preserve_session_error_identity_and_messages() {
             SessionError::StaleVersion,
         ),
         (
-            EngineError::Plugin("plugin detail".into()),
-            SessionError::Engine("plugin pipeline failed: plugin detail".into()),
-        ),
-        (
-            EngineError::UnsafeExportPolicy,
-            SessionError::Engine(
-                "unsafe plugin HTML is available only after a safe portable render".into(),
-            ),
+            EngineError::Configuration("config detail".into()),
+            SessionError::Engine("invalid render configuration: config detail".into()),
         ),
         (
             EngineError::Asset("asset detail".into()),

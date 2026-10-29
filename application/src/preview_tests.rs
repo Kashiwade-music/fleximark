@@ -185,7 +185,6 @@ fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
     let mut config = RenderConfig::default();
     config.config_hash = content_hash("initial");
     config.config_generation = 1;
-    config.plugin_generation = 1;
     registry
         .configure_workspaces(vec![(crate::tests::workspace_uri().into(), config)])
         .unwrap();
@@ -216,7 +215,6 @@ fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
     let mut config = RenderConfig::default();
     config.config_hash = content_hash("replacement");
     config.config_generation = 1;
-    config.plugin_generation = 1;
     registry
         .reconfigure_workspace(
             crate::tests::workspace_uri(),
@@ -325,7 +323,12 @@ fn cancelled_open_never_installs_a_document_session() {
 
 #[test]
 fn cancellation_before_change_commit_preserves_authoritative_state_and_preview() {
-    for recovery in [false, true] {
+    for (recovery, stage) in [
+        (false, "change_candidate"),
+        (true, "change_candidate"),
+        (false, "change_commit"),
+        (true, "change_commit"),
+    ] {
         let (mut registry, daemon, session) = opened();
         let frame = registry
             .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
@@ -340,7 +343,7 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
             registry.mark_out_of_sync("file:///preview.md", "test recovery");
         }
         let token = CancellationToken::default();
-        crate::cancellation_checks::cancel_at("change_commit", &token);
+        crate::cancellation_checks::cancel_at(stage, &token);
         let result = registry.change_with_cancellation(
             DidChangeParams {
                 text_document: VersionedTextDocumentIdentifier {
@@ -368,8 +371,8 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
 }
 
 #[test]
-fn cancellation_after_parse_and_before_reconfiguration_commit_discards_candidates() {
-    for stage in ["after_parse", "reconfigure_commit"] {
+fn cancelled_reconfiguration_discards_configuration_candidates() {
+    for stage in ["configuration_prepared", "reconfigure_commit"] {
         let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
         let root = crate::tests::workspace_uri();
         registry
@@ -417,4 +420,29 @@ fn cancellation_after_parse_and_before_reconfiguration_commit_discards_candidate
         assert_eq!(retained.previews.get("one"), Some(&frame));
         assert_eq!(retained.source(), "# Heading\n");
     }
+}
+
+#[test]
+fn cancellation_after_render_keeps_the_published_frame_and_revision() {
+    let (mut registry, daemon, session) = opened();
+    let previous = registry
+        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .unwrap();
+    let token = CancellationToken::default();
+    crate::cancellation_checks::cancel_at("render_commit", &token);
+    assert_eq!(
+        registry.render_with_cancellation(&daemon, &session, 1, "one", &token),
+        Err(SessionError::Cancelled)
+    );
+    assert_eq!(
+        registry
+            .read_preview(&daemon, &session, "one", None)
+            .unwrap(),
+        Some(previous.clone())
+    );
+    let next = registry
+        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .unwrap();
+    assert_eq!(next.render_revision, previous.render_revision + 1);
+    assert_eq!(next.blocks, previous.blocks);
 }

@@ -24,8 +24,8 @@ mise run setup
 | `mise run build core` | Rust の文書処理・application libraries を debug build する |
 | `mise run build all` | runtime を一度ビルドして VS Code と Zed の両方を作る |
 | `mise run watch` | VS Code 製品だけをビルドし、JS/TS の変更を監視・再ビルドする。起動は F5 |
-| `mise run check` | 生成物・Rust 構造・型・lint・format・WASM compilation を検査する |
-| `mise run test` | Python/tooling・Rust workspace/Zed/plugin fixture・Node のテストを実行する |
+| `mise run check` | 生成物・Rust 構造・型・lint・format を検査する |
+| `mise run test` | Python/tooling・Rust workspace/Zed・Node のテストを実行する |
 | `mise run test editor` | VS Code 製品をビルドして workspace/standalone/restricted の結合テストを実行する |
 | `mise run package vscode` | VS Code 製品をビルドしてインストール用 VSIX を作る |
 | `mise run package zed` | runtime と Zed 拡張をビルドして ZIP と SHA-256 を作る |

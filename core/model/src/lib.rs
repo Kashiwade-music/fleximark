@@ -1,16 +1,10 @@
-//! Role: Editor-independent document model and source provenance.
-use std::collections::{BTreeMap, HashSet};
+//! Role: Editor-independent document model and UTF-8 source ranges.
+use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize};
-
-pub const DOCUMENT_SCHEMA_VERSION: u32 = 2;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DocumentUri(pub String);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub String);
 
 impl NodeId {
@@ -19,51 +13,40 @@ impl NodeId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TransformId(pub String);
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DocumentMetadata {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub front_matter: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
-    pub schema_version: u32,
     pub document_version: u64,
     pub uri: DocumentUri,
     pub metadata: DocumentMetadata,
     pub blocks: Vec<Block>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
     pub id: NodeId,
-    pub provenance: SourceProvenance,
+    pub range: SourceRange,
     pub kind: BlockKind,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub attributes: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Block(Block),
     Inline(Inline),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inline {
-    pub provenance: SourceProvenance,
+    pub range: SourceRange,
     pub kind: InlineKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
     Paragraph,
     Heading {
@@ -118,14 +101,12 @@ pub enum BlockKind {
     RawHtml {
         html: String,
     },
-    Plugin {
-        namespace: String,
+    Directive {
         name: String,
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InlineKind {
     Text {
         value: String,
@@ -162,8 +143,7 @@ pub enum InlineKind {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PositionEncoding {
     Utf8,
     Utf16,
@@ -180,150 +160,29 @@ impl PositionEncoding {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourcePosition {
     pub line: u64,
     pub character: u64,
     pub encoding: PositionEncoding,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceRange {
     pub byte_start: u64,
     pub byte_end: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationEntry {
     pub node_id: NodeId,
     pub source_range: SourceRange,
     pub depth: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum AnchorAffinity {
-    Before,
-    After,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct GeneratedAnchor {
-    pub range: SourceRange,
-    pub affinity: AnchorAffinity,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum SourceProvenance {
-    Original {
-        ranges: Vec<SourceRange>,
-        primary_range_index: u32,
-    },
-    Derived {
-        ranges: Vec<SourceRange>,
-        primary_range_index: u32,
-        transform: TransformId,
-    },
-    Generated {
-        anchor: Option<GeneratedAnchor>,
-        transform: TransformId,
-    },
-}
-
-impl SourceProvenance {
-    pub fn original(range: SourceRange) -> Self {
-        Self::Original {
-            ranges: vec![range],
-            primary_range_index: 0,
-        }
-    }
-
-    pub fn primary_range(&self) -> Option<&SourceRange> {
-        match self {
-            Self::Original {
-                ranges,
-                primary_range_index,
-            }
-            | Self::Derived {
-                ranges,
-                primary_range_index,
-                ..
-            } => ranges.get(*primary_range_index as usize),
-            Self::Generated { anchor, .. } => anchor.as_ref().map(|anchor| &anchor.range),
-        }
-    }
-
-    pub fn navigation_range(&self) -> Option<SourceRange> {
-        match self {
-            Self::Original { .. } | Self::Derived { .. } => self.primary_range().cloned(),
-            Self::Generated { anchor, .. } => anchor.as_ref().map(|anchor| {
-                let byte_offset = match anchor.affinity {
-                    AnchorAffinity::Before => anchor.range.byte_start,
-                    AnchorAffinity::After => anchor.range.byte_end,
-                };
-                SourceRange {
-                    byte_start: byte_offset,
-                    byte_end: byte_offset,
-                }
-            }),
-        }
-    }
-
-    pub fn validate(&self, source: &str) -> Result<(), ValidationError> {
-        self.validate_with_index(&SourceIndex::new(source))
-    }
-
-    fn validate_with_index(&self, source: &SourceIndex<'_>) -> Result<(), ValidationError> {
-        let (ranges, primary) = match self {
-            Self::Original {
-                ranges,
-                primary_range_index,
-            }
-            | Self::Derived {
-                ranges,
-                primary_range_index,
-                ..
-            } => (ranges.as_slice(), Some(*primary_range_index)),
-            Self::Generated { anchor, .. } => {
-                if let Some(anchor) = anchor {
-                    validate_range(&anchor.range, source)?;
-                }
-                return Ok(());
-            }
-        };
-        if ranges.is_empty() {
-            return Err(ValidationError::EmptyProvenance);
-        }
-        if primary.unwrap() as usize >= ranges.len() {
-            return Err(ValidationError::InvalidPrimaryRange);
-        }
-        for range in ranges {
-            validate_range(range, source)?;
-        }
-        for pair in ranges.windows(2) {
-            if pair[1].byte_start < pair[0].byte_start {
-                return Err(ValidationError::UnorderedProvenanceRanges);
-            }
-            if pair[1].byte_start < pair[0].byte_end {
-                return Err(ValidationError::OverlappingProvenanceRanges);
-            }
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum ValidationError {
-    Schema { actual: u32, expected: u32 },
     DuplicateNodeId(String),
-    EmptyProvenance,
-    InvalidPrimaryRange,
-    UnorderedProvenanceRanges,
-    OverlappingProvenanceRanges,
     InvalidRange,
     InvalidUtf8Boundary,
     InvalidChildShape,
@@ -331,23 +190,9 @@ pub enum ValidationError {
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Schema { actual, expected } => write!(
-                f,
-                "document schema {actual} is not supported; expected {expected}"
-            ),
             Self::DuplicateNodeId(value) => {
                 write!(f, "a block NodeId occurs more than once: {0}", value)
             }
-            Self::EmptyProvenance => write!(f, "original or derived provenance has no ranges"),
-            Self::InvalidPrimaryRange => write!(f, "provenance primary range is out of bounds"),
-            Self::UnorderedProvenanceRanges => write!(
-                f,
-                "provenance ranges are not ordered by original UTF-8 byte offset"
-            ),
-            Self::OverlappingProvenanceRanges => write!(
-                f,
-                "provenance ranges overlap in the original source snapshot"
-            ),
             Self::InvalidRange => {
                 write!(f, "source range is reversed or outside the source snapshot")
             }
@@ -373,7 +218,8 @@ impl Document {
             .map(|block| (block, 0_u32))
             .collect::<Vec<_>>();
         while let Some((block, depth)) = stack.pop() {
-            if let Some(source_range) = block.provenance.navigation_range() {
+            {
+                let source_range = block.range.clone();
                 entries.push(NavigationEntry {
                     node_id: block.id.clone(),
                     source_range,
@@ -389,12 +235,6 @@ impl Document {
     }
 
     pub fn validate(&self, source: &str) -> Result<(), ValidationError> {
-        if self.schema_version != DOCUMENT_SCHEMA_VERSION {
-            return Err(ValidationError::Schema {
-                actual: self.schema_version,
-                expected: DOCUMENT_SCHEMA_VERSION,
-            });
-        }
         let source = SourceIndex::new(source);
         let mut ids = HashSet::new();
         for block in &self.blocks {
@@ -412,7 +252,7 @@ fn validate_block(
     if !ids.insert(block.id.clone()) {
         return Err(ValidationError::DuplicateNodeId(block.id.0.clone()));
     }
-    block.provenance.validate_with_index(source)?;
+    validate_range(&block.range, source)?;
     let valid_children = block.children.iter().all(|child| match &block.kind {
         BlockKind::Paragraph | BlockKind::Heading { .. } | BlockKind::TableCell { .. } => {
             matches!(child, Node::Inline(_))
@@ -467,7 +307,7 @@ fn validate_block(
 }
 
 fn validate_inline(inline: &Inline, source: &SourceIndex<'_>) -> Result<(), ValidationError> {
-    inline.provenance.validate_with_index(source)?;
+    validate_range(&inline.range, source)?;
     let children = match &inline.kind {
         InlineKind::Emphasis { children }
         | InlineKind::Strong { children }
@@ -593,7 +433,7 @@ impl<'a> SourceIndex<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! Role: Verify document model validation and source provenance.
+    //! Role: Verify document ranges, child shapes, and source positions.
     use super::*;
 
     fn range(start: u64, end: u64) -> SourceRange {
@@ -604,55 +444,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_provenance_and_accepts_adjacent_ranges() {
-        let empty = SourceProvenance::Original {
-            ranges: vec![],
-            primary_range_index: 0,
-        };
-        assert_eq!(empty.validate("é"), Err(ValidationError::EmptyProvenance));
-        let split = SourceProvenance::original(range(1, 2));
+    fn rejects_invalid_source_ranges() {
+        let index = SourceIndex::new("é");
         assert_eq!(
-            split.validate("é"),
+            index.validate_range(&range(1, 2)),
             Err(ValidationError::InvalidUtf8Boundary)
         );
-        let unordered = SourceProvenance::Derived {
-            ranges: vec![range(3, 4), range(0, 1)],
-            primary_range_index: 0,
-            transform: TransformId("merge".into()),
-        };
         assert_eq!(
-            unordered.validate("abcd"),
-            Err(ValidationError::UnorderedProvenanceRanges)
+            index.validate_range(&range(2, 1)),
+            Err(ValidationError::InvalidRange)
         );
-        let overlapping = SourceProvenance::Derived {
-            ranges: vec![range(0, 3), range(2, 4)],
-            primary_range_index: 0,
-            transform: TransformId("merge".into()),
-        };
         assert_eq!(
-            overlapping.validate("abcd"),
-            Err(ValidationError::OverlappingProvenanceRanges)
+            index.validate_range(&range(0, 3)),
+            Err(ValidationError::InvalidRange)
         );
-        let adjacent = SourceProvenance::Derived {
-            ranges: vec![range(0, 2), range(2, 4)],
-            primary_range_index: 1,
-            transform: TransformId("merge".into()),
-        };
-        assert_eq!(adjacent.validate("abcd"), Ok(()));
-    }
-
-    #[test]
-    fn provenance_round_trips_without_collapsing_ranges() {
-        let value = SourceProvenance::Derived {
-            ranges: vec![range(0, 1), range(3, 4)],
-            primary_range_index: 1,
-            transform: TransformId("merge".into()),
-        };
-        let json = serde_json::to_string(&value).unwrap();
-        assert_eq!(
-            serde_json::from_str::<SourceProvenance>(&json).unwrap(),
-            value
-        );
+        assert_eq!(index.validate_range(&range(0, 2)), Ok(()));
     }
 
     #[test]
@@ -748,9 +554,8 @@ mod tests {
     fn rejects_incompatible_children_without_rejecting_container_forms() {
         let leaf = Block {
             id: NodeId("child".into()),
-            provenance: SourceProvenance::original(range(0, 1)),
+            range: range(0, 1),
             kind: BlockKind::Paragraph,
-            attributes: BTreeMap::new(),
             children: vec![],
         };
         for kind in [
@@ -762,13 +567,11 @@ mod tests {
         ] {
             let parent = Block {
                 id: NodeId("parent".into()),
-                provenance: leaf.provenance.clone(),
+                range: leaf.range.clone(),
                 kind,
-                attributes: BTreeMap::new(),
                 children: vec![Node::Block(leaf.clone())],
             };
             let document = Document {
-                schema_version: DOCUMENT_SCHEMA_VERSION,
                 document_version: 1,
                 uri: DocumentUri("test".into()),
                 metadata: DocumentMetadata::default(),
@@ -782,33 +585,13 @@ mod tests {
         let mut ids = HashSet::new();
         let parent = Block {
             id: NodeId("parent".into()),
-            provenance: leaf.provenance.clone(),
+            range: leaf.range.clone(),
             kind: BlockKind::ListItem { checked: None },
-            attributes: BTreeMap::new(),
             children: vec![Node::Block(leaf)],
         };
         assert_eq!(
             validate_block(&parent, &SourceIndex::new("x"), &mut ids),
             Ok(())
         );
-    }
-
-    #[test]
-    fn generated_navigation_resolves_to_the_declared_anchor_edge() {
-        let anchor = range(1, 3);
-        for (affinity, expected) in [(AnchorAffinity::Before, 1), (AnchorAffinity::After, 3)] {
-            let provenance = SourceProvenance::Generated {
-                anchor: Some(GeneratedAnchor {
-                    range: anchor.clone(),
-                    affinity,
-                }),
-                transform: TransformId("generated".into()),
-            };
-            let navigation = provenance.navigation_range().unwrap();
-            assert_eq!(
-                (navigation.byte_start, navigation.byte_end),
-                (expected, expected)
-            );
-        }
     }
 }

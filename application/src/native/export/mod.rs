@@ -10,12 +10,12 @@ use std::fs;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
 
+use crate::CancellationToken;
 use crate::outcomes::ExportReceipt;
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
 use fleximark_engine::DocumentEngine;
-use fleximark_plugin_api::CancellationToken;
 use fleximark_render_html::{HtmlTarget, RenderContext};
 
 use crate::native::ServiceError;
@@ -70,35 +70,33 @@ pub fn export_document(
     destination_uri: &str,
     cancellation: &CancellationToken,
 ) -> Result<ExportReceipt, ServiceError> {
-    if cancellation.is_cancelled() {
-        return Err(ServiceError::Cancelled);
-    }
+    crate::cancellation_checks::check(cancellation, "export_start")
+        .map_err(|_| ServiceError::Cancelled)?;
     preflight_export(source_uri, workspace_uri, destination_uri)?;
     let mut context = export_render_context(workspace_uri)?;
     context.resolved_resources = session.render_config().context.resolved_resources.clone();
-    let prepared = session.prepare_safe_export(&context)?;
-    if cancellation.is_cancelled() {
-        return Err(ServiceError::Cancelled);
-    }
+    crate::cancellation_checks::check(cancellation, "export_render_start")
+        .map_err(|_| ServiceError::Cancelled)?;
+    let rendered = session.render(&context)?;
+    crate::cancellation_checks::check(cancellation, "export_rendered")
+        .map_err(|_| ServiceError::Cancelled)?;
     let mut assets = Vec::new();
     let resolved = resolve_export_assets(
         source_uri,
         workspace_uri,
-        prepared.safe_html(),
-        prepared.assets(),
+        &rendered.html(),
+        &rendered.assets,
     )?;
-    if cancellation.is_cancelled() {
-        return Err(ServiceError::Cancelled);
-    }
+    crate::cancellation_checks::check(cancellation, "export_assets")
+        .map_err(|_| ServiceError::Cancelled)?;
     assets.extend(resolved.assets);
     let html = compose_portable_html(
         &resolved.html,
-        prepared.style(),
+        rendered.style.as_ref(),
         &fleximark_preview_assets::read("browser-host.js")?,
     )?;
-    if cancellation.is_cancelled() {
-        return Err(ServiceError::Cancelled);
-    }
+    crate::cancellation_checks::check(cancellation, "export_commit")
+        .map_err(|_| ServiceError::Cancelled)?;
     export_html(source_uri, workspace_uri, destination_uri, &html, &assets)
 }
 

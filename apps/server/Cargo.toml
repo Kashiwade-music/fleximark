@@ -15,8 +15,8 @@ fleximark-application = { path = "../../application" }
 fleximark-preview-assets = { path = "../../runtime/preview-assets" }
 
 [dev-dependencies]
+fleximark-engine = { path = "../../core/engine" }
 fleximark-model = { path = "../../core/model" }
-fleximark-plugin-api = { path = "../../core/plugin-api" }
 fleximark-protocol = { path = "../../contracts/protocol" }
 fleximark-preview-http = { path = "../../transports/preview-http" }
 serde.workspace = true
