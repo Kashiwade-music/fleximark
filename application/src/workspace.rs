@@ -224,6 +224,10 @@ impl WorkspaceAuthority {
         &mut self,
         roots: Vec<(String, RenderConfig)>,
     ) -> Result<(), ApplicationError> {
+        let roots = roots
+            .into_iter()
+            .map(|(uri, render)| (uri.trim_end_matches('/').to_owned(), render))
+            .collect::<Vec<_>>();
         let mut canonical = std::collections::HashSet::new();
         for (uri, _) in &roots {
             if let Ok(path) = Self::workspace_path(uri) {
@@ -244,7 +248,7 @@ impl WorkspaceAuthority {
             .into_iter()
             .map(|(uri, render)| Workspace {
                 canonical_root: Self::workspace_path(&uri).ok(),
-                uri: uri.trim_end_matches('/').to_owned(),
+                uri,
                 trusted: true,
                 lease: crate::CancellationToken::default(),
                 state: WorkspaceState::Trusted,

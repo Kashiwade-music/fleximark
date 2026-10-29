@@ -293,3 +293,4 @@ fake runtimeと完全に重なるように見えるケースにもobject保持�
 - npmのdeprecation通知はadvisoryと異なるため`--no-deprecations`とする。脆弱性のpackage除外、advisory除外、CI閾値の緩和は行わない。
 - setupの両lockfile準備順・失敗時停止、quality内でnetwork auditを実行しないこと、明示auditが新閾値で実行されることを検証した。GPT-6.1 Sol lowの実装agentとreadonly reviewerを使用し、追加懸念なし。
 - `mise run setup`、`mise run check`、`mise run test`、`mise run verify`全25工程成功。Python76件・Node136件を含む。ログは`.build/refactoring/pr5-{setup,check,test,verify}.log`。実CIの各platformの結果は[PR #5のChecks](https://github.com/Kashiwade-music/fleximark/pull/5/checks)でcommitごとに確認する。
+- 249df32の再実行40879206035ではdependency-reviewとCodeQLが成功し、Linuxのoffline構造検査・clippyも通過した。その先のapplication unitでUnix symlinkのremove_dir二件とbare file:///のauthority判定一件が失敗した。symlink cleanupをUnix remove_file/Windows remove_dirに分け、replace_rootsでは最初に正規化した同一URIから重複canonical検査・canonical root・keyを導出するよう修正した。元のout-of-root拒否・nested alias・重複root検査を保持し、invalid URIのmembership拒否も明示した。readonly review追加指摘なし。ローカル全check/test成功（`pr5-unix-{check,test}.log`）。

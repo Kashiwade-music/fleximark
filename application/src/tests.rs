@@ -192,6 +192,13 @@ fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself()
         ])
         .unwrap();
 
+    assert!(
+        registry
+            .workspaces
+            .membership("file:///outside.md")
+            .is_none()
+    );
+    assert!(registry.workspaces.membership("file:").is_none());
     let cases = [
         (workspace_document_uri("nested"), Some(workspace_uri())),
         (
@@ -455,6 +462,9 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
     );
     assert!(duplicate.workspace_statuses().is_empty());
     if linked.is_ok() {
+        #[cfg(unix)]
+        std::fs::remove_file(alias).unwrap();
+        #[cfg(windows)]
         std::fs::remove_dir(alias).unwrap();
     }
 }

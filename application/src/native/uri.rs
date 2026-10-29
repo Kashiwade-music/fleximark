@@ -188,6 +188,9 @@ mod tests {
                 )
                 .unwrap()
             );
+            #[cfg(unix)]
+            std::fs::remove_file(&linked).unwrap();
+            #[cfg(windows)]
             std::fs::remove_dir(&linked).unwrap();
         }
     }
