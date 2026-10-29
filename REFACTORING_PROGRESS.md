@@ -1,7 +1,7 @@
 # リファクタリング進捗ログ
 
 ## 状態
-- 現在のフェーズ: P2-T1（P5-T1 を独立作業として前倒し）
+- 現在のフェーズ: P2-T2（P4-T8 の残りを独立作業として前倒し）
 - 最終更新: 2026-10-29
 - 起点: `fd5cd1a`、ブランチ `feat/kashiwade/big-update`
 
@@ -27,9 +27,10 @@
 | P1-T5 | 完了 | 本コミット | TS の annotations DOM/watcher/trust 文言を追従、旧 field 拒否を検証 |
 | P1-T6 | 完了 | 本コミット | README を更新。capabilities の旧 JSON は全件未参照であり P5-T4 で削除する |
 | P1-T7 | 完了 | 2946e5a / 本記録 | 最終 phase review 指摘なし。VS Code GUI結合テスト成功（workspace、standalone、restricted） |
-| P2-T1 | 完了 | 本コミット | ApplicationError / ErrorKind、原因チェーン、RPC定数、共通の秘匿ログを統一。レビュー2件修正、全関門成功 |
-| P4-T8 | 進行中 | 本コミット（初期部分） | 配布正本、Rust共通検証、runtime/Zed、生成schema/TS/JS、Node検証まで接続。Python/全package関門は残作業 |
-| P5-T1 | 進行中 | | 独立したリリース tooling を前倒し。手動タグ経路は維持 |
+| P2-T1 | 完了 | 2df85ba | ApplicationError / ErrorKind、原因チェーン、RPC定数、共通の秘匿ログを統一。レビュー2件修正、全関門成功 |
+| P2-T2 | 進行中 | | 型付き command と記述子を設計し、protocol/codegen を統合する |
+| P4-T8 | 進行中 | 2df85ba（初期部分） | 配布正本、Rust共通検証、runtime/Zed、生成schema/TS/JS、Node検証まで接続。Python/全package関門は残作業 |
+| P5-T1 | 完了 | 本コミット | semantic-release の設定・script・専用test・7直接依存を削除。手動タグの draft release を維持し開発手順を記載 |
 
 ## 判断の記録
 | 日付 | タスク | 判断 | 理由 |
@@ -44,6 +45,7 @@
 | 2026-10-29 | P2-T1 | 公開エラーを詳細 enum と kind() に統合する | ownership/journal/session の具体的な意味と下位 cause を失わず、6分類と一つの RPC mapping を実現する |
 | 2026-10-29 | P2-T1 | I/O を原因別に分類し config/parser の cause も保持する | レビュー指摘に対応し、NotFound/Denied/Conflict/Invalid を Internal と区別する。型 downcast で末端まで検証した |
 | 2026-10-29 | P4-T8 | 配布正本の Rust/TS 接続を前倒しする | application の担当と所有範囲が重ならず進行できるため。共通検証は旧 Zed 検査を保ち、サイズ上限・Windows reparse と Node junction テストを加えた |
+| 2026-10-29 | P5-T1 | semantic-release の専用testを撤去し、配布・versionテストは維持する | 撤去対象だけを試すtestであり、手動タグで使う生成・manifest・archiveの観点はPython側に残る。Yarn依存は302 package減少 |
 
 ## 指示書からの逸脱
 | タスク | 逸脱の内容 | 理由 | 影響 |

@@ -80,6 +80,18 @@ CI は `python tooling/tasks/tasks.py ci <phase>` を呼び、ローカルと同
 `quality` = check + unit tests、`product` = runtime/VS Code build + 性能/editor/VSIX/identity/smoke、`zed` = Zed WASM/ZIP のみ。
 ネットワーク audit は独立した必須工程。全 6 platform を各 host で検証し、Linux x64 では `FLEXIMARK_BROWSER_DOM=true` も指定する。
 
+## リリース
+
+リリースは手動タグに一本化する。
+
+1. `release.toml` の version を更新する。
+2. `mise run generate versions` で各製品へ反映する。
+3. CHANGELOG を手で更新し、変更を commit する。
+4. `vX.Y.Z` タグを作成して push する。
+5. `release.yml` が作成した draft release と配布物を確認して公開する。
+
+protocol と config の形式は、リリースまでは version 1 を維持する。
+
 ## 旧コマンドからの移行
 
 - `install` → `setup`、`dev` → `watch`（起動は F5）。
