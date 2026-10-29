@@ -4,9 +4,9 @@
   "type": "module",
   "dependencies": {
     "@fleximark/contracts": "workspace:*",
-    "abcjs": "6.7.0",
-    "katex": "0.16.47",
-    "mermaid": "11.17.2"
+    "abcjs": "6.7.2",
+    "katex": "0.19.1",
+    "mermaid": "12.2.0"
   },
   "exports": {
     "./*": "./*.mts",
