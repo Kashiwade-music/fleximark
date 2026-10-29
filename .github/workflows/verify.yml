@@ -1,7 +1,8 @@
-name: Verify products
+name: Full verification (manual)
 
 on:
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read

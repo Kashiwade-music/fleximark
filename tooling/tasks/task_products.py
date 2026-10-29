@@ -69,6 +69,11 @@ def verify_built_product(package_args: Sequence[str]=()) -> None:
     check_performance_budgets()
     task_js.compile_tests()
     task_js.run_editor_integration()
+    vsix = package_identified_product(package_args)
+    smoke_vsix(vsix)
+
+def package_identified_product(package_args: Sequence[str]=()) -> Path:
+    """Package the assembled VSIX and verify its exact source identity."""
     vsix = package_built_product(package_args)
     source_head = os.environ.get('SOURCE_GIT_HEAD') or subprocess.check_output([executable('git'), 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     tag = f"v{metadata()['version']}"
@@ -86,7 +91,7 @@ def verify_built_product(package_args: Sequence[str]=()) -> None:
         expected_git_tag=tag,
         expected_source_git_head=source_head,
     )
-    smoke_vsix(vsix)
+    return vsix
 
 def package_built_product(args: Sequence[str]) -> Path:
     target = host_target()

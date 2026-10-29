@@ -304,3 +304,10 @@ fake runtimeと完全に重なるように見えるケースにもobject保持�
 - 23f9173の実CI40888119225はquality・dependency-review・Zed・Linux/Windows全4製品構成が成功した。Mac ARMは実行ファイル直接測定でも593,248,256 bytesとなり、起動方法だけでは解消しなかった。Windows上のSystem allocator計数probeでは20編集後のモデル保持量増加はなく、100k行の子要素配列の余剰約8.9MBと再確保を確認した（この計数とmacOS RSSは区別する）。
 - parserのinline配列をAST child数で事前確保し、段落判定の一時配列を除去した。AST/位置indexはowned model構築後、validation前にscopeを終えて解放する。旧新modelのatomicな保持は維持する。4096行の8191 inline全件の本文・種類・rangeを追加検証した。局所計数ではchange同時live peak150.5→128.4MB、要求量238.6→187.7MB/回に減少し、Windows正式bench RSS115,232,768 bytesで成功した。
 - benchmarkはbaseline/parse/render/編集完了時のpeak RSSを計測時間の外で診断へ出力し、Python側がstderrを表示する。256MiB予算・20編集・1k/10k/100k workload・RSS算定は維持する。parser/engine/renderer全testとreadonly reviewは成功。Mac ARMでの解消は引き続き実CIの結果で判断する。
+
+## 利用者指示による CI 範囲の変更（2026-10-29）
+- 利用者が「PRはビルド・パッケージ作成のみ、GUI・性能などの全検証は手動実行、publishは現行のRelease公開時」を明示選択した。従来の自動全検証という要件をこの方針で上書きする。01dbdf6の旧構成CI40891230950は実行中に停止したため、macOS全検証の成功を主張しない。同commitのローカルverify全25工程は成功した（pr5-parser-memory-local-verify.log）。
+- ci.ymlとtag releaseは新しいbuild.ymlを共用し、distribution.json由来の6native targetのruntime ZIP/VSIX/identityと共通Zed WASM ZIPを生成・アップロードする。自動CIからunit/GUI/性能/audit/dependency-review/CodeQLを外す。全検証のverify.ymlとCodeQLはworkflow_dispatchで手動実行でき、ローカルverifyも保持する。既存テストや予算値の削除・緩和は行わない。
+- packageとidentity作成/厳密検証を共通helperへ抽出し、通常のpackage vscode/allも同じsidecarを生成する。手動verifyは従来どおり性能→editor→package/identity→clean-install smokeを行う。SOURCE_GIT_HEAD/gitHEAD fallback・tag・hash照合・失敗伝播は維持した。
+- releaseのtag起動→draft作成→人によるRelease公開→Marketplace OIDCという経路、成果物のsource identity/attestation検証、権限は維持する。mainマージ・通常pushでは公開しない。実release/tag/Marketplace公開は行っていない。
+- 親がworkflowと共通package APIを設計してからGPT-6.1 Sol lowへ実装を割当てた。focused Python21件とreadonly reviewは成功した。main rulesetには旧CI check名の必須指定はなかった（設定変更なし）。

@@ -1,0 +1,70 @@
+name: Build products
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.matrix.outputs.targets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - name: Read distribution targets
+        id: matrix
+        run: python tooling/tasks/tasks.py ci matrix
+
+  zed-product:
+    name: Build universal Zed extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+      - name: Build and stage Zed WASM product
+        run: python tooling/tasks/tasks.py ci zed
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: product-zed
+          include-hidden-files: true
+          path: |
+            .artifacts/**/fleximark-zed-*.zip
+            .artifacts/**/fleximark-zed-*.zip.sha256
+          if-no-files-found: error
+          overwrite: true
+
+  products:
+    name: Package ${{ matrix.target }}
+    needs: matrix
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-toolchain
+      - name: Build native runtime and package VSIX with source identity
+        env:
+          SOURCE_GIT_HEAD: ${{ github.sha }}
+        run: python tooling/tasks/tasks.py package vscode
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: product-${{ matrix.target }}
+          include-hidden-files: true
+          path: |
+            .artifacts/**/*.zip
+            .artifacts/**/*.zip.sha256
+            .artifacts/**/*.vsix
+            .artifacts/**/*.identity.json
+          if-no-files-found: error
+          overwrite: true

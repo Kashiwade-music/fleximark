@@ -65,7 +65,7 @@ class TaskCommandTests(unittest.TestCase):
                 "generate_protocol_contract", "check_protocol_contract", "check_architecture",
                 "python_test", "pure_test", "check_localization", "export_localization",
                 "clean", "smoke_vsix", "verify_built_product",
-                "package_built_product",
+                "package_identified_product",
             )]
             actions += [stack.enter_context(patch.object(javascript_build, name)) for name in (
                 "build_browser_client", "build_workspace_ui",
@@ -88,10 +88,10 @@ class TaskCommandTests(unittest.TestCase):
                     stack.enter_context(patch.object(javascript_build, name))
                 vscode = stack.enter_context(action("build_vscode_product"))
                 zed = stack.enter_context(action("build_zed_product"))
-                package = stack.enter_context(action("package_built_product"))
+                package = stack.enter_context(action("package_identified_product"))
                 tests = [stack.enter_context(action(name)) for name in (
                     "python_test", "pure_test", "run_editor_integration",
-                    "verify_built_product", "verify_audit", "smoke_vsix",
+                    "verify_built_product", "verify_audit", "smoke_vsix", "check_performance_budgets",
                 )]
                 self.run_cli(command, "vscode")
                 vscode.assert_called_once()
@@ -99,6 +99,17 @@ class TaskCommandTests(unittest.TestCase):
                 self.assertEqual(package.call_count, int(command == "package"))
                 for test in tests:
                     test.assert_not_called()
+
+    def test_package_all_creates_identity_without_launching_test_gates(self):
+        with action("build_steps", return_value=[]), action("package_identified_product") as package:
+            with ExitStack() as stack:
+                gates = [stack.enter_context(action(name)) for name in (
+                    "check_performance_budgets", "compile_tests", "run_editor_integration", "smoke_vsix",
+                )]
+                self.run_cli("package", "all")
+        package.assert_called_once_with(())
+        for gate in gates:
+            gate.assert_not_called()
 
     def test_setup_prepares_both_locked_rust_workspaces_after_toolchains(self):
         with action("run") as run:
@@ -130,7 +141,7 @@ class TaskCommandTests(unittest.TestCase):
             python = stack.enter_context(action("python_test"))
             node = stack.enter_context(action("pure_test"))
             editor = stack.enter_context(action("run_editor_integration"))
-            package = stack.enter_context(action("package_built_product"))
+            package = stack.enter_context(action("package_identified_product"))
             self.run_cli("test")
         python.assert_called_once()
         node.assert_called_once()
@@ -150,7 +161,7 @@ class TaskCommandTests(unittest.TestCase):
             for name in ("check_generated_freshness", "check_protocol_contract", "check_localization"):
                 stack.enter_context(action(name))
             suites = [stack.enter_context(action(name)) for name in (
-                "python_test", "pure_test", "run_editor_integration", "package_built_product",
+                "python_test", "pure_test", "run_editor_integration", "package_identified_product",
             )]
             self.run_cli("check")
         self.assertFalse(any(call.args[:2] == ("cargo", "test") for call in run.call_args_list))
@@ -158,7 +169,7 @@ class TaskCommandTests(unittest.TestCase):
             suite.assert_not_called()
 
     def test_execution_stops_before_packaging_if_a_build_step_fails(self):
-        with action("check_protocol_contract", side_effect=RuntimeError("stale protocol")), action("package_built_product") as package:
+        with action("check_protocol_contract", side_effect=RuntimeError("stale protocol")), action("package_identified_product") as package:
             with self.assertRaisesRegex(RuntimeError, "stale protocol"):
                 self.run_cli("package", "vscode")
             package.assert_not_called()

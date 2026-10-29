@@ -57,6 +57,6 @@ sourceNavigationEventsがtrueのclientにはsource移動通知だけ、falseま�
 
 release.tomlを製品version、contracts/distribution/distribution.jsonをtarget/payload/上限の正本とする。Rust共通RuntimeDistribution、Python組立・検証、生成Node/TS/schema、CI matrixが同じ仕様を使う。runtime ZIPをVSIXへそのまま取り込み、Zedも同じmanifest検証を使う。
 
-task入口はtasks.py、Plan/Stepとworkflow・製品・JS・watch・検査・release操作はtask_*.pyへ分ける。独自module CLIやprepublish経路を持たない。source、.build、.artifactsを分離する。CIとtag releaseはverify.ymlを共用し、draftを手動確認してから公開する。
+task入口はtasks.py、Plan/Stepとworkflow・製品・JS・watch・検査・release操作はtask_*.pyへ分ける。独自module CLIやprepublish経路を持たない。source、.build、.artifactsを分離する。CIとtag releaseはbuild.ymlでビルドとパッケージ作成を共用し、draftを手動確認してから公開する。全検証はverify.ymlとローカルverifyで手動実行し、CodeQLも手動実行する。
 
 構造検査は固定tooling/xtask-coreを使い、依存allowlist、module循環、Role、1000未満のcode linesを検査する。TSはpackage projectとbuiltin ESLintで境界と行数を強制する。pure coreのテストはNode出力を必要としない。一時workspace builderはdev/test-supportに共通化し、export wire/security、worker競合、実framingのadapter、browser/editor、配布artifactを各境界で検証する。

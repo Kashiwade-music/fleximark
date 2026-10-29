@@ -103,14 +103,58 @@ class VerificationPhasesTests(unittest.TestCase):
         browser.assert_called_once_with()
         workspace.assert_called_once_with()
 
+    def test_package_identity_is_strict_for_explicit_and_current_source_heads(self):
+        for explicit in (True, False):
+            with self.subTest(explicit=explicit), ExitStack() as stack:
+                head = "a" * 40
+                package = stack.enter_context(action("package_built_product", return_value=Path("product.vsix")))
+                create = stack.enter_context(patch("release_artifact.create_identity"))
+                verify = stack.enter_context(patch("release_artifact.verify_identity"))
+                git = stack.enter_context(patch.object(task_products.subprocess, "check_output", return_value=head + "\n"))
+                stack.enter_context(patch.object(task_products, "executable", return_value="git-tool"))
+                stack.enter_context(patch.object(task_products, "metadata", return_value={"version": "1.2.3"}))
+                stack.enter_context(patch.dict(task_products.os.environ, {"SOURCE_GIT_HEAD": head if explicit else ""}))
+                self.assertEqual(task_products.package_identified_product(("--allow-missing-repository",)), Path("product.vsix"))
+                package.assert_called_once_with(("--allow-missing-repository",))
+                create.assert_called_once_with(Path("product.vsix"), Path("product.vsix.identity.json"), expected_version="1.2.3", git_tag="v1.2.3", source_git_head=head)
+                verify.assert_called_once_with(Path("product.vsix"), Path("product.vsix.identity.json"), expected_git_tag="v1.2.3", expected_source_git_head=head)
+                if explicit:
+                    git.assert_not_called()
+                else:
+                    git.assert_called_once_with(["git-tool", "rev-parse", "HEAD"], cwd=task_products.ROOT, text=True)
+
+    def test_identity_failures_propagate_without_running_later_gates(self):
+        for failure in ("package", "create", "verify"):
+            with self.subTest(failure=failure), ExitStack() as stack:
+                package = stack.enter_context(action("package_built_product", return_value=Path("product.vsix")))
+                create = stack.enter_context(patch("release_artifact.create_identity"))
+                verify = stack.enter_context(patch("release_artifact.verify_identity"))
+                smoke = stack.enter_context(action("smoke_vsix"))
+                stack.enter_context(patch.dict(task_products.os.environ, {"SOURCE_GIT_HEAD": "a" * 40}))
+                {"package": package, "create": create, "verify": verify}[failure].side_effect = RuntimeError("identity gate failed")
+                with self.assertRaisesRegex(RuntimeError, "identity gate failed"):
+                    task_products.package_identified_product()
+                if failure == "package":
+                    create.assert_not_called()
+                if failure != "verify":
+                    verify.assert_not_called()
+                smoke.assert_not_called()
+
     def test_product_gate_runs_performance_editor_identity_and_clean_install(self):
+        order = []
         with ExitStack() as stack:
             gates = {name: stack.enter_context(action(name)) for name in ("check_performance_budgets", "compile_tests", "run_editor_integration", "smoke_vsix")}
             package = stack.enter_context(action("package_built_product", return_value=Path("product.vsix")))
             create = stack.enter_context(patch("release_artifact.create_identity"))
             verify = stack.enter_context(patch("release_artifact.verify_identity"))
             stack.enter_context(patch.dict(tasks.os.environ, {"SOURCE_GIT_HEAD": "a" * 40}))
+            for name, gate in gates.items():
+                gate.side_effect = lambda *args, name=name: order.append(name)
+            package.side_effect = lambda *args: order.append("package") or Path("product.vsix")
+            create.side_effect = lambda *args, **kwargs: order.append("create")
+            verify.side_effect = lambda *args, **kwargs: order.append("verify")
             task_products.verify_built_product()
+        self.assertEqual(order, ["check_performance_budgets", "compile_tests", "run_editor_integration", "package", "create", "verify", "smoke_vsix"])
         for gate in gates.values():
             gate.assert_called_once()
         package.assert_called_once_with(())

@@ -29,7 +29,7 @@ macOS の GUI 検証は短い実パスの一時 directory を使う（例: `TMPD
 | `mise run check` | 生成物・Rust 構造・型・lint・format を検査する |
 | `mise run test` | Python/tooling・Rust workspace/Zed・Node のテストを実行する |
 | `mise run test editor` | VS Code 製品をビルドして workspace/standalone/restricted の結合テストを実行する |
-| `mise run package vscode` | VS Code 製品をビルドしてインストール用 VSIX を作る |
+| `mise run package vscode` | VS Code 製品をビルドして VSIX と検証済み source identity を作る |
 | `mise run package zed` | runtime と Zed 拡張をビルドして ZIP と SHA-256 を作る |
 | `mise run package runtime` | runtime をビルドして ZIP と SHA-256 を作る |
 | `mise run package all` | runtime・Zed ZIP と VS Code VSIX を作る |
@@ -78,9 +78,9 @@ version の正本は `release.toml`。ビルド対象は現在の OS/CPU。daemo
 protocol は Rust の契約から schema/TypeScript/fixture を生成する。図・翻訳・version も source と一緒に差分を確認する。
 構造検査の違反は所有元の source で修正し、固定 submodule `tooling/xtask-core` や生成図を直接変更しない。
 
-CI と release は共通の verify.yml を呼び、各 job は `python tooling/tasks/tasks.py ci <phase>` でローカルと同じ処理を使う。matrix は distribution.json から setup job が生成する。Windows/macOS の product job でも Rust unit tests を実行する。
-`quality` = check + unit tests、`product` = runtime/VS Code build + 性能/editor/VSIX/identity/smoke、`zed` = Zed WASM/ZIP のみ。
-ネットワーク audit は独立した必須工程。全 6 platform を各 host で検証し、Linux x64 では `FLEXIMARK_BROWSER_DOM=true` も指定する。
+PR の自動 CI と tag release は共通の `build.yml` を呼び、ビルドとパッケージ作成だけを行う。matrix は distribution.json から生成し、全 6 platform の native runtime ZIP・VSIX・source identity と、共通の Zed WASM ZIP を作ってアップロードする。native 製品はローカルと同じ `python tooling/tasks/tasks.py package vscode`、Zed は `ci zed` を使う。テスト・GUI・性能測定・audit は自動 CI の必須条件にしない。
+
+全検証を実行するときは、Actions の **Full verification (manual)** を選び、対象 branch を指定して **Run workflow** を実行する。`verify.yml` は従来の check・全 unit tests・moderate 以上の dependency audit・全 6 platform の性能/editor/identity/clean-install smoke を保持する。Linux x64 の実 browser 検証も実行する。ローカルでは引き続き `mise run verify` を使える。CodeQL も Actions から手動実行する。
 
 ## TSテストの追加
 
@@ -98,8 +98,10 @@ TypeScriptはpackageごとのcomposite projectとbuiltin ESLintで依存境界�
 2. `mise run generate versions` で各製品へ反映する。
 3. CHANGELOG を手で更新し、変更を commit する。
 4. `vX.Y.Z` タグを作成して push する。
-5. `release.yml` が作成した draft release と配布物を確認して手動で公開する。
+5. `release.yml` がビルド・パッケージ作成・配布物の identity/attestation 検証を終えて作成した draft release を確認し、手動で公開する。
 6. 公開イベントを受けた marketplace.yml が、同じ release の VSIX・source identity・attestation を確認して Marketplace へ送る。
+
+main へのマージや通常の branch push だけでは公開しない。全検証は自動 release の前提条件ではなく、必要な時点で手動実行する。
 
 protocol と config の形式は、リリースまでは version 1 を維持する。
 

@@ -130,8 +130,8 @@ def create_plan(args: argparse.Namespace) -> task_plan.Plan:
         if command == 'package' and args.target in {'vscode', 'all'}:
             steps.append(
                 task_plan.Step(
-                    'Create platform VSIX from the assembled VS Code product',
-                    lambda: task_products.package_built_product(()),
+                    'Create platform VSIX and verify its source identity',
+                    lambda: task_products.package_identified_product(()),
                 ),
             )
         runtime_zip = f"{artifacts}/fleximark-{metadata()['version']}-{host_target()}.zip"
