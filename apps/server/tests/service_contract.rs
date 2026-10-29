@@ -13,8 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const DEFAULT_CONFIG: &str =
-    "# FlexiMark workspace configuration\nschema_version = 2\n\n[notes]\nroot = \"notes\"\n";
 const DEFAULT_THEME: &str =
     "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
@@ -231,15 +229,20 @@ fn keys(value: &Value) -> BTreeSet<&str> {
 }
 
 #[test]
-fn initialization_preserves_default_bytes_and_typed_resource_locations() {
+fn initialization_preserves_active_defaults_and_typed_resource_locations() {
     let root = test_workspace("defaults");
     let workspace_uri = path_to_file_uri(&root).expect("workspace URI");
 
     let result = initialize_workspace(&workspace_uri).expect("initialize workspace");
 
+    let config =
+        fs::read_to_string(root.join(".fleximark/config.toml")).expect("read default config");
     assert_eq!(
-        fs::read_to_string(root.join(".fleximark/config.toml")).expect("read default config"),
-        DEFAULT_CONFIG
+        config
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect::<Vec<_>>(),
+        ["schema_version = 2", "[notes]", "root = \"notes\""]
     );
     assert_eq!(
         fs::read_to_string(root.join(".fleximark/theme.css")).expect("read default theme"),

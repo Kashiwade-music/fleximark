@@ -69,8 +69,8 @@ pub fn create_note_with_options(
             create_directory(&mut notes, directory)?;
         }
     }
-    let prefix = expand_note_text(&config.notes.file_name_prefix);
-    let suffix = expand_note_text(&config.notes.file_name_suffix);
+    let prefix = expand_note_text(&config.notes.file_name_prefix, None);
+    let suffix = expand_note_text(&config.notes.file_name_suffix, None);
     let generated_name;
     let file_name = match file_name {
         Some(file_name) if is_safe_note_category_name(file_name) => file_name,
@@ -106,7 +106,7 @@ pub fn create_note_with_options(
         })
         .transpose()?;
     let contents = template
-        .map(|lines| expand_note_text(&lines.join("\n")))
+        .map(|lines| expand_note_text(&lines.join("\n"), Some(file_name)))
         .unwrap_or_else(|| "# New note".into());
     let mut file = OpenOptions::new()
         .write(true)
@@ -165,7 +165,7 @@ fn category_path_exists(
     true
 }
 
-fn expand_note_text(text: &str) -> String {
+fn expand_note_text(text: &str, file_name: Option<&str>) -> String {
     let days = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -184,6 +184,11 @@ fn expand_note_text(text: &str) -> String {
         if let Some(after) = rest.strip_prefix("${") {
             if let Some(end) = after.find('}') {
                 let placeholder = &after[..end];
+                if let ("FILE_NAME", Some(file_name)) = (placeholder, file_name) {
+                    output.push_str(file_name);
+                    rest = &after[end + 1..];
+                    continue;
+                }
                 if placeholder
                     .split_once(':')
                     .is_some_and(|(number, _)| number.bytes().all(|byte| byte.is_ascii_digit()))
@@ -305,7 +310,7 @@ file_name_suffix = "-draft"
 Work = { Reports = {} }
 
 [notes.templates]
-daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}", "$0"]
+daily = ["# ${FILE_NAME}", "${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}", "$0"]
 "##,
         )
         .unwrap();
@@ -326,12 +331,66 @@ daily = ["# ${1:Title}", "Created ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DAT
         let name = note.file_name().unwrap().to_string_lossy();
         assert!(name.ends_with("-session-draft.md"));
         let contents = fs::read_to_string(note).unwrap();
-        assert!(contents.starts_with("# Title\nCreated "));
+        assert!(contents.starts_with("# session\nTitle\nCreated "));
         assert!(!contents.contains("${") && !contents.contains("$0"));
         assert!(matches!(
             create_note_with_options(&uri, Some(&category), Some("daily"), Some("session")),
             Err(ServiceError::NoteAlreadyExists)
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn default_template_inserts_user_names_literally() {
+        let root = test_workspace("note-template-file-name-test");
+        let uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&uri).unwrap();
+        fs::write(
+            root.join(".fleximark/config.toml"),
+            r##"schema_version = 2
+[notes]
+file_name_prefix = "prefix-"
+file_name_suffix = "-suffix"
+[notes.templates]
+default = ["# ${FILE_NAME}", "Name: ${FILE_NAME}", "${1:Body}", "$0", "${UNKNOWN}"]
+"##,
+        )
+        .unwrap();
+
+        for name in [
+            "音楽 ミーティング",
+            "release.v0.17",
+            "literal-$0-${CURRENT_YEAR}-${FILE_NAME}",
+        ] {
+            let result = create_note_with_options(&uri, None, None, Some(name)).unwrap();
+            let note = workspace_path(&result.uri).unwrap();
+            assert_eq!(
+                note.file_name().unwrap().to_str().unwrap(),
+                format!("prefix-{name}-suffix.md")
+            );
+            assert_eq!(
+                fs::read_to_string(note).unwrap(),
+                format!("# {name}\nName: {name}\nBody\n\n${{UNKNOWN}}\n")
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn template_uses_generated_name_when_no_name_is_supplied() {
+        let root = test_workspace("note-template-generated-name-test");
+        let uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&uri).unwrap();
+        fs::write(
+            root.join(".fleximark/config.toml"),
+            "schema_version = 2\n[notes.templates]\ndefault = [\"# ${FILE_NAME}\"]\n",
+        )
+        .unwrap();
+        let result = create_note(&uri).unwrap();
+        let note = workspace_path(&result.uri).unwrap();
+        let name = note.file_stem().unwrap().to_str().unwrap();
+        assert!(name.starts_with("note-"));
+        assert_eq!(fs::read_to_string(&note).unwrap(), format!("# {name}\n"));
         fs::remove_dir_all(root).unwrap();
     }
 

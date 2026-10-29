@@ -54,6 +54,8 @@ Whether you’re a **developer**, **writer**, **researcher**, or **student**, Fl
 - Auto-generate **customizable directory structures** based on your category tree.
 - Configure **prefixes and suffixes** for filenames.
 - Choose from **multiple, customizable templates** when creating new notes.
+- Insert the entered note name into a template with `${FILE_NAME}` (without the
+  configured filename prefix, suffix or `.md` extension).
 - Stay organized with minimal effort.
 
 ![Flexible File Generation](assets/demo_create_note.avif)

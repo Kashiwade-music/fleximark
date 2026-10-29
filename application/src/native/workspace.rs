@@ -10,8 +10,60 @@ use fleximark_config::FlexiMarkConfig;
 
 use crate::native::{ServiceError, path_to_file_uri, workspace_path};
 
-pub(crate) const CONFIG: &str =
-    "# FlexiMark workspace configuration\nschema_version = 2\n\n[notes]\nroot = \"notes\"\n";
+pub(crate) const CONFIG: &str = r###"# FlexiMark workspace configuration
+# Uncomment optional entries and their section headers below to enable them.
+schema_version = 2
+
+[notes]
+# Save notes under this workspace-relative directory. Use "." for the workspace root.
+# Use forward slashes for nested directories, e.g. "documents/notes".
+root = "notes"
+
+# Optional filename decorations; the .md extension is added automatically.
+# Dates use UTC: ${CURRENT_YEAR}, ${CURRENT_MONTH}, ${CURRENT_DATE}.
+# Example: entering "Meeting" produces "2026-10-29_Meeting-draft.md" on that date.
+# file_name_prefix = "${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}_"
+# file_name_suffix = "-draft"
+
+# Categories become directories below notes.root. Quote names containing Japanese.
+# Both parent and child categories can be selected as a note destination.
+# [notes.categories]
+# Work = {
+#   Meetings = {},
+#   Reports = {},
+# }
+# "音楽" = {
+#   "作曲" = {},
+#   "練習" = {},
+# }
+
+# Templates are arrays of Markdown lines. Blank strings insert blank lines.
+# ${FILE_NAME} is the entered name without the configured prefix, suffix or .md.
+# If no name is supplied, ${FILE_NAME} uses the generated note name.
+# Date variables also work here. ${1:Title} inserts "Title"; $1 and $0 are removed.
+# A template named "default" is used when no template is explicitly selected.
+# [notes.templates]
+# default = [
+#   "# ${FILE_NAME}",
+#   "",
+#   "Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+#   "",
+#   "$0",
+# ]
+# meeting = [
+#   "# ${FILE_NAME}",
+#   "",
+#   "## ${1:Agenda}",
+#   "",
+#   "## Notes",
+#   "",
+#   "$0",
+# ]
+
+# Optional extra workspace-relative directories for preview/export assets.
+# [assets]
+# roots = ["images", "attachments"]
+"###;
 const THEME: &str = "/* FlexiMark workspace theme */\n:root { color-scheme: light dark; }\n";
 
 pub fn initialize_workspace(workspace_uri: &str) -> Result<InitializedWorkspace, ServiceError> {
@@ -146,6 +198,79 @@ mod tests {
     use super::*;
     use crate::native::test_support::test_workspace;
     use crate::native::{create_note, get_note_options, load_plugin_host};
+
+    #[test]
+    fn commented_examples_are_valid_and_leave_defaults_unchanged() {
+        let defaults = FlexiMarkConfig::from_toml(CONFIG).unwrap();
+        assert_eq!(defaults.notes.root, "notes");
+        assert!(defaults.notes.file_name_prefix.is_empty());
+        assert!(defaults.notes.file_name_suffix.is_empty());
+        assert!(defaults.notes.categories.is_empty());
+        assert!(defaults.notes.templates.is_empty());
+        assert!(defaults.assets.roots.is_empty());
+        assert!(defaults.plugins.is_empty());
+
+        let examples = CONFIG
+            .lines()
+            .map(|line| match line.strip_prefix("# ") {
+                Some(example)
+                    if example.starts_with(['[', ' ', '}', ']']) || example.contains(" = ") =>
+                {
+                    example
+                }
+                _ => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let config = FlexiMarkConfig::from_toml(&examples).unwrap();
+        assert_eq!(
+            config.notes.file_name_prefix,
+            "${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}_"
+        );
+        assert_eq!(config.notes.file_name_suffix, "-draft");
+        assert!(config.notes.categories["Work"].0.contains_key("Meetings"));
+        assert!(config.notes.categories["音楽"].0.contains_key("作曲"));
+        assert_eq!(
+            config.notes.templates["default"],
+            [
+                "# ${FILE_NAME}",
+                "",
+                "Created: ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+                "",
+                "$0"
+            ]
+        );
+        assert_eq!(
+            config.notes.templates["meeting"],
+            [
+                "# ${FILE_NAME}",
+                "",
+                "## ${1:Agenda}",
+                "",
+                "## Notes",
+                "",
+                "$0"
+            ]
+        );
+        assert_eq!(config.assets.roots, ["images", "attachments"]);
+    }
+
+    #[test]
+    fn reinitialization_preserves_existing_config_and_theme() {
+        let root = test_workspace("reinitialize-workspace-test");
+        let uri = path_to_file_uri(&root).unwrap();
+        initialize_workspace(&uri).unwrap();
+        let config = root.join(".fleximark/config.toml");
+        let theme = root.join(".fleximark/theme.css");
+        let custom = "schema_version = 2\n[notes]\nroot = \"custom\"\n";
+        fs::write(&config, custom).unwrap();
+        fs::write(&theme, "/* custom theme */\n").unwrap();
+        initialize_workspace(&uri).unwrap();
+        assert_eq!(fs::read_to_string(config).unwrap(), custom);
+        assert_eq!(fs::read_to_string(theme).unwrap(), "/* custom theme */\n");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn linked_control_directory_never_reads_or_writes_outside_the_workspace() {
         let root = test_workspace("linked-control-test");
