@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "noteCategory": {
+      "additionalProperties": {
+        "$ref": "#/$defs/noteCategory"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/noteCategoryName"
+      },
+      "type": "object"
+    },
+    "noteCategoryName": {
+      "maxLength": 255,
+      "pattern": "^(?=\\S)(?!\\.{1,2}$)(?!.*[. ]$)(?!.*[\\u0000-\\u001f\\u007f-\\u009f\\\\/:*?\"<>|])(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9¹²³]|[Ll][Pp][Tt][1-9¹²³])(?:\\..*)?$).*\\S$",
+      "type": "string"
+    }
+  },
+  "$id": "https://fleximark.dev/schemas/config-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assets": {
+      "additionalProperties": false,
+      "properties": {
+        "roots": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "type": "object"
+    },
+    "notes": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "additionalProperties": {
+            "$ref": "#/$defs/noteCategory"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/noteCategoryName"
+          },
+          "type": "object"
+        },
+        "file_name_prefix": {
+          "default": "",
+          "type": "string"
+        },
+        "file_name_suffix": {
+          "default": "",
+          "type": "string"
+        },
+        "root": {
+          "default": ".",
+          "pattern": "^(?:\\.|(?=\\S)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[. ](?:/|$))(?!.*[\\u0000-\\u001f\\u007f-\\u009f\\\\:*?\"<>|])[^/]+(?:/[^/]+)*)$",
+          "type": "string"
+        },
+        "templates": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "FlexiMark configuration v1",
+  "type": "object"
+}

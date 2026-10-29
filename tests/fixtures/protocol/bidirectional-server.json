@@ -1,0 +1,22 @@
+{
+  "notifications": [
+    {
+      "method": "fleximark/previewEvent",
+      "params": {
+        "daemonInstanceId": "daemon",
+        "event": {
+          "activePosition": null,
+          "nodeIds": [
+            "document-root"
+          ],
+          "previewSessionId": "preview",
+          "renderRevision": 1,
+          "type": "selection"
+        },
+        "previewSessionId": "preview",
+        "renderRevision": 1
+      }
+    }
+  ],
+  "schemaVersion": 1
+}

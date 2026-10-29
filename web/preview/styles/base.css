@@ -1,0 +1,163 @@
+html {
+  font-size: 90%;
+}
+
+body {
+  margin: 0;
+  color: var(--fleximark-color-text);
+  background-color: var(--fleximark-color-surface);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+@keyframes fadeHighlightOverlay {
+  from {
+    background-color: rgba(160, 64, 160, 0.25);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.markdown-body {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.markdown-body {
+  & .fade-highlight {
+    position: relative;
+    overflow: hidden;
+  }
+}
+
+.markdown-body {
+  & .fade-highlight::before {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    content: "";
+    animation: fadeHighlightOverlay 1s ease-out forwards;
+  }
+}
+
+.markdown-body {
+  & h1,
+  & h2,
+  & h3,
+  & h4,
+  & h5,
+  & h6 {
+    margin: 0 0 1rem;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+}
+
+.markdown-body {
+  & h1,
+  & h2 {
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--fleximark-color-heading-border);
+  }
+}
+
+.markdown-body {
+  & h1 {
+    font-size: 2rem;
+  }
+}
+
+.markdown-body {
+  & h2 {
+    font-size: 1.7rem;
+  }
+}
+
+.markdown-body {
+  & h3 {
+    font-size: 1.4rem;
+  }
+}
+
+.markdown-body {
+  & h4 {
+    font-size: 1.2rem;
+  }
+}
+
+.markdown-body {
+  & h5 {
+    font-size: 1rem;
+    font-weight: bold;
+  }
+}
+
+.markdown-body {
+  & h6 {
+    color: var(--fleximark-color-muted);
+    font-size: 1rem;
+  }
+}
+
+.markdown-body {
+  & p {
+    margin: 0.5rem 0;
+  }
+}
+
+.markdown-body {
+  & a {
+    color: var(--fleximark-color-link);
+    text-decoration: none;
+  }
+}
+
+.markdown-body {
+  & a:hover {
+    text-decoration: underline;
+  }
+}
+
+.markdown-body {
+  & ul,
+  & ol {
+    padding-left: 2rem;
+    margin-bottom: 1rem;
+  }
+}
+
+.markdown-body {
+  & li {
+    margin-bottom: 0.3rem;
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-tight="true"] > li {
+    margin-bottom: 0;
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-tight="true"] > li > p {
+    margin: 0;
+  }
+}
+
+.markdown-body {
+  & blockquote {
+    padding: 0.1rem 1rem;
+    margin: 0.5rem 0;
+    color: var(--fleximark-color-muted);
+    background-color: var(--fleximark-color-quote-background);
+    border-left: 4px solid var(--fleximark-color-border);
+  }
+}

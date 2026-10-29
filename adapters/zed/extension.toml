@@ -1,0 +1,11 @@
+id = "fleximark"
+name = "FlexiMark"
+version = "0.16.14"
+schema_version = 1
+authors = ["FlexiMark contributors"]
+description = "FlexiMark Markdown language server and browser workspace"
+repository = "https://github.com/Kashiwade-music/fleximark"
+
+[language_servers.fleximark]
+name = "FlexiMark"
+languages = ["Markdown"]

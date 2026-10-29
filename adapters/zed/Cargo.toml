@@ -1,0 +1,18 @@
+[package]
+name = "fleximark-zed"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "=0.7.0"
+fleximark-distribution = { path = "../../contracts/distribution" }
+
+[build-dependencies]
+fleximark-distribution = { path = "../../contracts/distribution" }
+
+[workspace]

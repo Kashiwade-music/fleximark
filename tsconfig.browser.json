@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "contracts/typescript"
+    },
+    {
+      "path": "web/preview"
+    },
+    {
+      "path": "web/workspace-ui"
+    },
+    {
+      "path": "adapters/vscode/webview"
+    }
+  ]
+}

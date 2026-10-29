@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+  "contracts/distribution",
+  "contracts/wire",
+  "core/model",
+  "core/parser",
+  "core/render-html",
+  "core/engine",
+  "contracts/protocol",
+  "tooling/codegen",
+  "dev/xtask",
+  "dev/test-support",
+  "core/language",
+  "application",
+  "apps/server",
+  "apps/cli",
+  "runtime/preview-assets",
+  "contracts/config",
+  "migration",
+  "transports/lsp",
+  "transports/preview-http",
+  "transports/wire-mapping",
+]
+
+exclude = ["tooling/xtask-core", "adapters/zed"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.86"
+
+[workspace.dependencies]
+ammonia = "4.1.2"
+base64 = "0.22.1"
+blake3 = "1.8.2"
+caseless = "0.2.2"
+comrak = { version = "0.55.0", default-features = false }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+schemars = { version = "1.0.4", default-features = false, features = ["derive"] }
+sha2 = "0.10.9"
+toml = "0.9.8"
+unicode-normalization = "0.1.25"

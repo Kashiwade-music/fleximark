@@ -1,0 +1,21 @@
+.markdown-body {
+  & table {
+    width: 100%;
+    margin-bottom: 1.5rem;
+    border-collapse: collapse;
+  }
+}
+
+.markdown-body {
+  & th,
+  & td {
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--fleximark-color-border);
+  }
+}
+
+.markdown-body {
+  & th {
+    background-color: var(--fleximark-color-control-background);
+  }
+}

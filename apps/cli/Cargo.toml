@@ -1,0 +1,32 @@
+[package]
+name = "fleximark-cli"
+version = "0.16.14"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "fleximark"
+path = "src/main.rs"
+
+[dependencies]
+fleximark-model = { path = "../../core/model" }
+fleximark-application = { path = "../../application" }
+fleximark-protocol = { path = "../../contracts/protocol" }
+fleximark-preview-assets = { path = "../../runtime/preview-assets" }
+serde_json.workspace = true
+
+[[bench]]
+name = "document_pipeline"
+harness = false
+
+[dev-dependencies]
+fleximark-test-support = { path = "../../dev/test-support" }
+fleximark-engine = { path = "../../core/engine" }
+fleximark-render-html = { path = "../../core/render-html" }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.59.0", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2.186"

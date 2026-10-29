@@ -1,0 +1,18 @@
+{
+  "Select a note template": "ノートのテンプレートを選択してください",
+  "Enter a file name": "ファイル名を入力してください",
+  "File name cannot be empty": "ファイル名を空にすることはできません",
+  "Use this category": "このカテゴリーを使用",
+  "Back": "戻る",
+  "Select a note category in {0}": "{0} 内のノートカテゴリーを選択してください",
+  "Select a note category": "ノートのカテゴリーを選択してください",
+  "Select a FlexiMark workspace": "FlexiMark ワークスペースを選択してください",
+  "FlexiMark daemon stopped; reconnecting…": "FlexiMark daemon が停止しました。再接続しています…",
+  "FlexiMark recovered": "FlexiMark が復旧しました",
+  "FlexiMark daemon repeatedly failed.": "FlexiMark daemon が繰り返し停止しました。",
+  "Retry": "再試行",
+  "Open Output": "出力を開く",
+  "Open a Markdown document first.": "先に Markdown 文書を開いてください。",
+  "Open the Markdown document inside a workspace first.": "先にワークスペース内の Markdown 文書を開いてください。",
+  "FlexiMark failed: {0}": "FlexiMark の処理に失敗しました: {0}"
+}

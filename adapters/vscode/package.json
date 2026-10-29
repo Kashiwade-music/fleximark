@@ -1,0 +1,230 @@
+{
+  "name": "fleximark",
+  "type": "module",
+  "displayName": "FlexiMark",
+  "description": "Flexible Markdown Preview and Note Taking for VSCode. Supports ABC Notation, Mermaid Diagrams, and more.",
+  "version": "0.16.14",
+  "publisher": "Kashiwade",
+  "license": "MIT",
+  "homepage": "https://github.com/Kashiwade-music/fleximark#readme",
+  "bugs": {
+    "url": "https://github.com/Kashiwade-music/fleximark/issues"
+  },
+  "galleryBanner": {
+    "color": "#1f2937",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "engines": {
+    "vscode": "^1.137.0"
+  },
+  "categories": [
+    "Notebooks",
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "note",
+    "flexible",
+    "vscode",
+    "preview",
+    "browser",
+    "abc",
+    "abc notation",
+    "mermaid"
+  ],
+  "icon": "assets/logo_icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kashiwade-music/fleximark.git"
+  },
+  "preview": true,
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "fleximark.daemonPath"
+      ],
+      "description": "Plain Markdown preview is available without trust. Local assets and workspace writes require trust."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "FlexiMark requires local workspace files and local preview servers."
+    }
+  },
+  "activationEvents": [
+    "onLanguage:markdown",
+    "workspaceContains:.fleximark/config.toml"
+  ],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fleximark.workspace",
+        "title": "%command.workspace%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.previewAt",
+        "title": "%command.previewAt%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.previewMarkdown",
+        "title": "%command.previewMarkdown%",
+        "category": "FlexiMark",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "fleximark.previewMarkdownOnVscode",
+        "title": "%command.previewMarkdownOnVscode%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.previewMarkdownOnBrowser",
+        "title": "%command.previewMarkdownOnBrowser%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.forceReloadPreview",
+        "title": "%command.forceReloadPreview%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.exportHtml",
+        "title": "%command.exportHtml%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.editTheme",
+        "title": "%command.editTheme%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.createNote",
+        "title": "%command.createNote%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.initializeWorkspace",
+        "title": "%command.initializeWorkspace%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.collectAdmonitions",
+        "title": "%command.collectAdmonitions%",
+        "category": "FlexiMark"
+      },
+      {
+        "command": "fleximark.migrate",
+        "title": "%command.migrate%",
+        "category": "FlexiMark"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "fleximark.previewMarkdown",
+          "group": "navigation",
+          "when": "editorLangId == markdown"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "%configuration.title%",
+      "type": "object",
+      "properties": {
+        "fleximark.daemonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "%configuration.daemonPath.description%"
+        },
+        "fleximark.previewTarget": {
+          "type": "string",
+          "default": "embeddedHtml",
+          "scope": "resource",
+          "enum": [
+            "embeddedHtml",
+            "externalBrowser"
+          ],
+          "description": "%configuration.previewTarget.description%"
+        },
+        "fleximark.previewColumn": {
+          "type": "string",
+          "default": "beside",
+          "enum": [
+            "active",
+            "beside"
+          ],
+          "description": "%configuration.previewColumn.description%"
+        },
+        "fleximark.autoOpenPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.autoOpenPreview.description%"
+        },
+        "fleximark.logLevel": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "off",
+            "error",
+            "info",
+            "debug"
+          ],
+          "description": "%configuration.logLevel.description%"
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "abc",
+        "aliases": [
+          "ABC Notation",
+          "abc"
+        ],
+        "extensions": [
+          ".abc"
+        ],
+        "configuration": "./languages/configurations/abc/language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "path": "./languages/syntaxes/markdown-mermaid.tmLanguage.json",
+        "scopeName": "custom.markdown.mermaid",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.mermaid": "mermaid"
+        }
+      },
+      {
+        "path": "./languages/syntaxes/markdown-abc.tmLanguage.json",
+        "scopeName": "custom.markdown.abc",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.abc": "abc"
+        }
+      },
+      {
+        "language": "abc",
+        "scopeName": "source.abc",
+        "path": "./languages/configurations/abc/abc.tmLanguage.json"
+      }
+    ]
+  },
+  "l10n": "./l10n",
+  "exports": {
+    "./src/*": "./src/*.mts",
+    "./webview/*": "./webview/*.mts"
+  },
+  "dependencies": {
+    "@fleximark/contracts": "workspace:*",
+    "@fleximark/preview": "workspace:*"
+  }
+}

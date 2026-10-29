@@ -1,0 +1,168 @@
+{
+  "cases": [
+    {
+      "definition": "customRequest",
+      "name": "wrong JSON-RPC version",
+      "value": {
+        "id": 7,
+        "jsonrpc": "1.0",
+        "method": "fleximark/getNoteOptions",
+        "params": {
+          "daemonInstanceId": "daemon",
+          "workspaceUri": "file:///workspace"
+        }
+      }
+    },
+    {
+      "definition": "response",
+      "name": "response error code is not numeric",
+      "value": {
+        "error": {
+          "code": "-32801",
+          "message": "content modified"
+        },
+        "id": 7,
+        "jsonrpc": "2.0"
+      }
+    },
+    {
+      "definition": "customNotification",
+      "name": "negative nested selection position",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "fleximark/setSelection",
+        "params": {
+          "daemonInstanceId": "daemon",
+          "documentSessionId": "document",
+          "expectedDocumentVersion": 3,
+          "selections": [
+            {
+              "active": {
+                "character": 0,
+                "line": 0
+              },
+              "anchor": {
+                "character": 0,
+                "line": -1
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "definition": "renderFrame",
+      "name": "malformed nested preview navigation position",
+      "value": {
+        "assets": [],
+        "blocks": [
+          {
+            "html": "<p></p>",
+            "id": "document-root",
+            "nodeIds": [
+              "document-root"
+            ]
+          }
+        ],
+        "documentVersion": 3,
+        "navigation": [
+          {
+            "depth": 0,
+            "nodeId": "document-root",
+            "sourceRange": {
+              "byteEnd": 0,
+              "byteStart": 0,
+              "end": {
+                "character": 0,
+                "encoding": "utf8",
+                "line": 0
+              },
+              "start": {
+                "character": 0,
+                "encoding": "bytes",
+                "line": 0
+              }
+            }
+          }
+        ],
+        "previewSessionId": "preview",
+        "renderRevision": 1,
+        "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "style": null
+      }
+    },
+    {
+      "definition": "renderFrame",
+      "name": "malformed empty block node IDs",
+      "value": {
+        "assets": [],
+        "blocks": [
+          {
+            "html": "<p></p>",
+            "id": "document-root",
+            "nodeIds": []
+          }
+        ],
+        "documentVersion": 4,
+        "navigation": [],
+        "previewSessionId": "preview",
+        "renderRevision": 2,
+        "rendererFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "style": null
+      }
+    },
+    {
+      "definition": "customNotification",
+      "name": "unknown nested source navigation event",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "fleximark/previewEvent",
+        "params": {
+          "daemonInstanceId": "daemon",
+          "event": {
+            "sourceRange": {
+              "byteEnd": 3,
+              "byteStart": 0,
+              "end": {
+                "character": 3,
+                "encoding": "utf8",
+                "line": 0
+              },
+              "start": {
+                "character": 0,
+                "encoding": "invalid",
+                "line": 0
+              }
+            },
+            "type": "selectSource"
+          },
+          "previewSessionId": "preview",
+          "renderRevision": 1
+        }
+      }
+    },
+    {
+      "definition": "initializeParams",
+      "name": "boolean is not an integer",
+      "value": {
+        "client": {
+          "name": "contract-test",
+          "version": "1"
+        },
+        "protocolVersion": true
+      }
+    },
+    {
+      "definition": "initializeParams",
+      "name": "previous protocol version is incompatible",
+      "value": {
+        "client": {
+          "name": "old-runtime",
+          "version": "0.16.14"
+        },
+        "protocolVersion": 0
+      }
+    }
+  ],
+  "schemaVersion": 1
+}

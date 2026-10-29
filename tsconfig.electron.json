@@ -1,0 +1,34 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node", "mocha", "vscode"],
+    "rootDir": "tests/typescript",
+    "outDir": ".build/types/electron",
+    "tsBuildInfoFile": ".build/types/.tsbuildinfo/electron.tsbuildinfo"
+  },
+  "include": [
+    "tests/typescript/editor/**/*.mts",
+    "tests/typescript/standalone/**/*.mts"
+  ],
+  "references": [
+    {
+      "path": "contracts/typescript"
+    },
+    {
+      "path": "web/preview"
+    },
+    {
+      "path": "web/workspace-ui"
+    },
+    {
+      "path": "adapters/vscode/webview"
+    },
+    {
+      "path": "adapters/vscode/src"
+    },
+    {
+      "path": "./tsconfig.unit.json"
+    }
+  ]
+}

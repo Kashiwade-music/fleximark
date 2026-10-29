@@ -1,0 +1,11 @@
+{
+  "name": "@fleximark/workspace-ui",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@fleximark/contracts": "workspace:*"
+  },
+  "exports": {
+    "./*": "./*.mts"
+  }
+}

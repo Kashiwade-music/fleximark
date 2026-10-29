@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "types": [],
+    "rootDir": ".",
+    "outDir": "../../.build/types/contracts",
+    "tsBuildInfoFile": "../../.build/types/.tsbuildinfo/contracts.tsbuildinfo"
+  },
+  "include": ["**/*.mts"],
+  "references": []
+}

@@ -1,125 +1,95 @@
 <div align="center">
-  <img src="assets/logo.webp" alt="FlexiMark Logo" height="150"/>
+  <img src="assets/logo.webp" alt="FlexiMark" height="150"/>
   <h1>FlexiMark</h1>
-  <p><strong>Next-Level Markdown Preview and Note-Taking for VSCode</strong></p>
-
-  <p>
-    <a href="https://marketplace.visualstudio.com/items?itemName=kashiwade.fleximark">
-      <img src="https://img.shields.io/visual-studio-marketplace/v/kashiwade.fleximark?color=brightgreen&label=VS%20Code%20Marketplace&style=for-the-badge" alt="Marketplace Version" />
-    </a>
-  </p>
+  <p>Markdown previews and note workflows for VS Code, Zed and the browser.</p>
 </div>
 
-![top_demo](assets/demo_main.avif)
+![FlexiMark preview](assets/demo_main.avif)
 
-<h2 align="center">Getting Started</h2>
+FlexiMark uses a shared native runtime for parsing, language features, safe HTML
+rendering and workspace operations. VS Code offers embedded and browser previews;
+Zed uses the browser preview and standard editor navigation.
 
-<p align="center">
-  <a href="https://fleximark.kashiwade.works/docs/documents/tutorial"><strong>English</strong></a> | <a href="https://fleximark.kashiwade.works/ja/docs/documents/tutorial"><strong>日本語</strong></a>
-</p>
+## Features
 
-## 🚀 Overview
+- Live previews for workspace files, standalone Markdown and unsaved documents.
+- Source-to-preview and preview-to-source navigation with stable document nodes.
+- GFM tables and task lists, admonitions and alerts, tabs, collapsible sections,
+  math, Mermaid diagrams, YouTube embeds and ABC notation with playback.
+- Completion, semantic tokens, hover, document symbols, diagnostics and Code Actions.
+- Trusted workspace themes, category/template-based notes, filename expansion,
+  admonition collection and portable HTML export.
+- Explicit migration of legacy workspace data with a reviewable plan and backups.
 
-FlexiMark transforms **Markdown in VSCode** into a fully-customizable, interactive workspace.  
-Write, preview, organize, and present your notes — all without leaving your editor.
+Workspace folders can be added or removed without restarting the daemon. Restricted
+workspaces still support text previews; workspace writes, themes and local assets
+require trust. Raw HTML is sanitized. Extended syntax is built into the runtime.
 
-- ⚡ **Instant Live Preview** in both VSCode and your web browser  
-- 🎨 **Customizable Layouts & Styles** using full JavaScript/CSS power  
-- 🧩 **Extended Markdown Syntax**: tabs, admonitions, diagrams, sheet music, and more  
-- 📂 **Smart File Management** for effortless note organization  
+## Build and install
 
-Whether you’re a **developer**, **writer**, **researcher**, or **student**, FlexiMark makes your Markdown workflow faster, clearer, and far more flexible.
-
-## ✨ Key Features
-
-### 🔁 **Live Preview**
-
-- **VSCode Live Preview**: – Instant, side-by-side preview as you type.
-  ![VSCode Live Preview](assets/demo_vscode_preview.avif)
-- **Web Browser Preview**: Render Markdown in a browser, with support for JavaScript execution, custom scripts, and styles.  
-  ![Web Browser Preview](assets/demo_browser_preview.avif)
-
-### 🧩 **Flexible File Generation**
-
-- Auto-generate **customizable directory structures** based on your category tree.
-- Configure **prefixes and suffixes** for filenames.
-- Choose from **multiple, customizable templates** when creating new notes.
-- Stay organized with minimal effort.
-
-![Flexible File Generation](assets/demo_create_note.avif)
-
-### 🧪 **Enhanced Markdown Features**
-
-Based on GitHub Flavored Markdown (GFM) with advanced extensions:
-
-- **Admonitions**: Notes, tips, warnings, dangers.
-  ![Admonitions](assets/demo_admonitions.avif)
-- **Tabs**: Organize content into neat sections.
-  ![Tabs](assets/demo_tab.webp)
-- **Collapsible Sections**: An alternative to `<details>`.
-  ![Collapsible Sections](assets/demo_details.webp)
-- **Embedded YouTube Videos**:
-  ![Youtube iframe](assets/demo_youtube_iframe.webp)
-- **Flexible Code Block**: Titles, line numbers, highlighting.
-  ![Code Block](assets/demo_code_block.webp)
-- **Mermaid Diagrams**: Flowcharts, sequences, and more.
-  ![Mermaid Supports](assets/demo_mermaid.webp)
-  Uses [this extension](https://marketplace.visualstudio.com/items?itemName=bpruitt-goddard.mermaid-markdown-syntax-highlighting) for syntax highlighting.
-- **ABC Notation**: Render and play sheet music directly in Markdown.
-  ![ABC Notation](assets/demo_abc.webp)
-  - Realtime render and **play sheet music** in Markdown.
-  - Supports **live preview**, **syntax highlighting**, and **useful snippets**.
-
-### 🔧 **Other Useful Features**
-
-- Export to Portable HTML files
-- Extending Markdown Syntax
-  ![Extending Markdown Syntax](assets/demo_extending_syntax.webp)
-- Collect Admonitions/Alerts under specific categories
-  ![Collect Admonitions](assets/demo_collect_admonitions.avif)
-
-## 🧰 Ideal For
-
-- Developers maintaining technical notes or documentation.
-- Writers and researchers building structured content.
-- Musicians using abc notation.
-- Anyone wanting a smarter, more interactive Markdown workflow.
-
-## 📦 Installation
-
-Available via the [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=Kashiwade.fleximark) or install manually:
-
-```bash
-code --install-extension kashiwade.fleximark
+```sh
+mise install
+mise run setup
+mise run package all
 ```
 
-## 🚀 Getting Started
+Packages are written to `.artifacts/<version>/<Rust target>/`:
 
-1. **Set up a new workspace** for your FlexiMark notes.
+- A platform VSIX containing the VS Code extension and native runtime.
+- A native runtime ZIP containing `fleximarkd`, `fleximark` and browser resources.
+- A Zed extension ZIP; its WebAssembly component starts the matching native daemon.
 
-   > If you're migrating from the VSCode Note Taking Extension, use the [Migration Tool](https://github.com/Kashiwade-music/fleximark-migration-tool) to carry over your existing notes.
+Install the VSIX in VS Code. For local Zed development, install `adapters/zed` as a
+dev extension and set `lsp.fleximark.binary.path` to the assembled daemon.
+See [development commands](docs/DEVELOPMENT.md) for build, watch and release steps.
 
-2. Open the **VSCode Command Palette** and run:
-   `FlexiMark: Initialize Workspace as Note Taking Directory`
+## Use
 
-3. Customize your note categories in the generated configuration file.
+Open a Markdown document and run **FlexiMark: Preview Markdown (Default)**,
+**Preview in VSCode**, or **Preview in Browser**. A folder is optional.
 
-4. Start writing! Use the Command Palette and select:
-   `FlexiMark: Create New Note`
+For note workflows, trust the workspace and run **Initialize Workspace as Note
+Taking Directory**. Edit `.fleximark/config.toml` and `.fleximark/theme.css`, then
+use **Create New Note**, **Edit Workspace Theme**, **Export as HTML**, or
+**Open Workspace in Browser**. Zed exposes these operations through Code Actions
+and the authenticated browser workspace UI.
 
-## 📚 Documentation
+The CLI uses the same workspace operations:
 
-Detailed guides, configuration options, and templates are available in the [**FlexiMark Official Docs**](https://fleximark.kashiwade.works).
+```sh
+fleximark render document.md
+fleximark init ./notes --trusted-workspace
+fleximark create-note ./notes --name today --trusted-workspace
+fleximark export ./notes/today.md ./notes/public --trusted-workspace
+```
 
-## 💬 Feedback & Contributions
+Legacy migration is explicit. In the editor, review the migration plan before
+applying it. From the CLI:
 
-FlexiMark is open source and welcomes contributions!
-Found a bug or have a feature request? [Open an issue](#) or submit a pull request.
+```sh
+fleximark migrate ./notes --dry-run --trusted-workspace
+fleximark migrate ./notes --trusted-workspace
+fleximark migrate ./notes --recover --trusted-workspace
+```
 
-## 📄 License
+Migration preserves backups and reports legacy JavaScript plugins as unsupported,
+with no replacement feature. Normal startup does not inspect or import legacy data.
+Current configuration and protocol formats remain version 1 until release.
 
-MIT License. See [LICENSE](./LICENSE) for more details.
+## Development
 
----
+```sh
+mise run check
+mise run test
+mise run test editor
+mise run verify
+```
 
-FlexiMark — _Take Markdown Notes. Preview Your Way._
+`verify` includes browser/editor tests, dependency audit, all products, performance
+checks, VSIX identity verification and a clean-install smoke test. Every command
+supports `--dry-run`.
+
+- [Architecture and ownership](docs/ARCHITECTURE.md)
+- [Implementation boundaries](docs/IMPLEMENTATION.md)
+- [Development and release guide](docs/DEVELOPMENT.md)
+- [MIT license](LICENSE)

@@ -1,0 +1,11 @@
+@import "./styles/colors.css";
+@import "./styles/base.css";
+@import "./styles/admonition.css";
+@import "./styles/details.css";
+@import "./styles/tabs.css";
+@import "./styles/code.css";
+@import "./styles/table.css";
+@import "./styles/media.css";
+@import "./styles/abc.css";
+@import "./styles/mermaid.css";
+@import "./styles/navigation.css";

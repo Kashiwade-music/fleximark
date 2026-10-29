@@ -1,0 +1,323 @@
+{
+  "$defs": {
+    "files-aarch64-apple-darwin": {
+      "additionalProperties": false,
+      "properties": {
+        "bin/fleximark": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bin/fleximarkd": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/browser-host.js": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/fleximark.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/katex.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.js": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "bin/fleximarkd",
+        "bin/fleximark",
+        "resources/preview/browser-host.js",
+        "resources/preview/fleximark.css",
+        "resources/preview/katex.css",
+        "resources/workspace/workspace.js",
+        "resources/workspace/workspace.css"
+      ],
+      "type": "object"
+    },
+    "files-aarch64-pc-windows-msvc": {
+      "additionalProperties": false,
+      "properties": {
+        "bin/fleximark.exe": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bin/fleximarkd.exe": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/browser-host.js": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/fleximark.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/katex.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.js": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "bin/fleximarkd.exe",
+        "bin/fleximark.exe",
+        "resources/preview/browser-host.js",
+        "resources/preview/fleximark.css",
+        "resources/preview/katex.css",
+        "resources/workspace/workspace.js",
+        "resources/workspace/workspace.css"
+      ],
+      "type": "object"
+    },
+    "files-aarch64-unknown-linux-gnu": {
+      "additionalProperties": false,
+      "properties": {
+        "bin/fleximark": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bin/fleximarkd": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/browser-host.js": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/fleximark.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/katex.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.js": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "bin/fleximarkd",
+        "bin/fleximark",
+        "resources/preview/browser-host.js",
+        "resources/preview/fleximark.css",
+        "resources/preview/katex.css",
+        "resources/workspace/workspace.js",
+        "resources/workspace/workspace.css"
+      ],
+      "type": "object"
+    },
+    "files-x86_64-apple-darwin": {
+      "additionalProperties": false,
+      "properties": {
+        "bin/fleximark": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bin/fleximarkd": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/browser-host.js": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/fleximark.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/katex.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.js": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "bin/fleximarkd",
+        "bin/fleximark",
+        "resources/preview/browser-host.js",
+        "resources/preview/fleximark.css",
+        "resources/preview/katex.css",
+        "resources/workspace/workspace.js",
+        "resources/workspace/workspace.css"
+      ],
+      "type": "object"
+    },
+    "files-x86_64-pc-windows-msvc": {
+      "additionalProperties": false,
+      "properties": {
+        "bin/fleximark.exe": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bin/fleximarkd.exe": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/browser-host.js": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/fleximark.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/katex.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.js": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "bin/fleximarkd.exe",
+        "bin/fleximark.exe",
+        "resources/preview/browser-host.js",
+        "resources/preview/fleximark.css",
+        "resources/preview/katex.css",
+        "resources/workspace/workspace.js",
+        "resources/workspace/workspace.css"
+      ],
+      "type": "object"
+    },
+    "files-x86_64-unknown-linux-gnu": {
+      "additionalProperties": false,
+      "properties": {
+        "bin/fleximark": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bin/fleximarkd": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/browser-host.js": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/fleximark.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/preview/katex.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.css": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources/workspace/workspace.js": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "bin/fleximarkd",
+        "bin/fleximark",
+        "resources/preview/browser-host.js",
+        "resources/preview/fleximark.css",
+        "resources/preview/katex.css",
+        "resources/workspace/workspace.js",
+        "resources/workspace/workspace.css"
+      ],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://fleximark.dev/schemas/runtime-manifest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/files-x86_64-unknown-linux-gnu"
+        },
+        "target": {
+          "const": "x86_64-unknown-linux-gnu"
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/files-aarch64-unknown-linux-gnu"
+        },
+        "target": {
+          "const": "aarch64-unknown-linux-gnu"
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/files-x86_64-apple-darwin"
+        },
+        "target": {
+          "const": "x86_64-apple-darwin"
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/files-aarch64-apple-darwin"
+        },
+        "target": {
+          "const": "aarch64-apple-darwin"
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/files-x86_64-pc-windows-msvc"
+        },
+        "target": {
+          "const": "x86_64-pc-windows-msvc"
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/files-aarch64-pc-windows-msvc"
+        },
+        "target": {
+          "const": "aarch64-pc-windows-msvc"
+        }
+      }
+    }
+  ],
+  "properties": {
+    "files": {
+      "type": "object"
+    },
+    "protocolVersion": {
+      "const": 1
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "target": {
+      "enum": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc"
+      ]
+    },
+    "version": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "protocolVersion",
+    "version",
+    "target",
+    "files"
+  ],
+  "title": "FlexiMark runtime manifest",
+  "type": "object"
+}

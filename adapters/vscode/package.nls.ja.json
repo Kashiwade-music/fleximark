@@ -1,0 +1,20 @@
+{
+  "command.workspace": "ワークスペースをブラウザーで開く",
+  "command.previewAt": "選択位置をブラウザーに表示",
+  "command.migrate": "旧FlexiMarkワークスペースを移行",
+  "command.previewMarkdown": "Markdownをプレビュー",
+  "command.previewMarkdownOnVscode": "MarkdownをVSCodeでプレビュー",
+  "command.previewMarkdownOnBrowser": "Markdownをブラウザでプレビュー",
+  "command.forceReloadPreview": "プレビューを強制的に再読み込み",
+  "command.exportHtml": "MarkdownをHTMLとしてエクスポート",
+  "command.editTheme": "ワークスペーステーマを編集",
+  "command.createNote": "新しいノートを作成",
+  "command.initializeWorkspace": "ワークスペースをノートディレクトリとして初期化",
+  "command.collectAdmonitions": "Admonition/Alertを収集して1つのMarkdownにまとめる",
+  "configuration.title": "FlexiMark",
+  "configuration.daemonPath.description": "fleximarkd 実行ファイルのパス。空の場合は同梱バイナリを使用します。",
+  "configuration.previewTarget.description": "既定のプレビューを開く場所。",
+  "configuration.previewColumn.description": "埋め込みプレビューを表示するエディター列。",
+  "configuration.autoOpenPreview.description": "Markdown文書のプレビューを自動で開きます。",
+  "configuration.logLevel.description": "VS Code adapter のログ詳細度。"
+}

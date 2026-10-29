@@ -1,0 +1,36 @@
+output = "architecture"
+
+[limits]
+max_code_lines = 1000
+max_role_chars = 80
+
+[diagrams]
+targets = "lib-bin"
+
+[visible_to]
+fleximark-distribution = ["fleximark-lsp-transport", "fleximark-preview-assets"]
+fleximark-wire = ["fleximark-protocol"]
+fleximark-model = ["fleximark-application", "fleximark-cli", "fleximark-engine", "fleximark-language", "fleximark-lsp-transport", "fleximark-parser", "fleximark-preview-http", "fleximark-render-html", "fleximark-server", "fleximark-wire-mapping", "xtask"]
+fleximark-parser = ["fleximark-engine", "fleximark-render-html"]
+fleximark-render-html = ["fleximark-application", "fleximark-cli", "fleximark-engine", "xtask"]
+fleximark-engine = ["fleximark-application", "fleximark-cli", "fleximark-lsp-transport", "fleximark-preview-http", "fleximark-server", "fleximark-wire-mapping", "xtask"]
+fleximark-protocol = ["fleximark-application", "fleximark-cli", "fleximark-lsp-transport", "fleximark-preview-http", "fleximark-protocol-codegen", "fleximark-server", "fleximark-wire-mapping", "xtask"]
+fleximark-protocol-codegen = []
+fleximark-config = ["fleximark-application", "fleximark-migration", "fleximark-protocol-codegen"]
+fleximark-test-support = ["fleximark-application", "fleximark-cli", "fleximark-lsp-transport", "fleximark-server"]
+fleximark-language = ["fleximark-application", "fleximark-lsp-transport"]
+fleximark-application = ["fleximark-cli", "fleximark-lsp-transport", "fleximark-preview-http", "fleximark-server", "fleximark-wire-mapping"]
+fleximark-migration = ["fleximark-application"]
+fleximark-preview-assets = ["fleximark-application", "fleximark-cli", "fleximark-lsp-transport", "fleximark-server"]
+fleximark-server = []
+fleximark-lsp-transport = ["fleximark-server"]
+fleximark-preview-http = ["fleximark-lsp-transport", "fleximark-server"]
+fleximark-wire-mapping = ["fleximark-lsp-transport", "fleximark-preview-http", "fleximark-server"]
+fleximark-cli = []
+
+# Established serialization/schema derives generate external trait impls.
+# No repository function-like macros are exempted from reference analysis.
+[analysis]
+trusted_attributes = ["serde", "schemars"]
+trusted_derives = ["Serialize", "Deserialize", "JsonSchema", "serde::Serialize", "serde::Deserialize", "schemars::JsonSchema"]
+trusted_macros = []

@@ -1,0 +1,70 @@
+.markdown-body {
+  & [data-admonition-kind="note"],
+  & [data-admonition-kind="info"] {
+    --fleximark-admonition-background: var(--fleximark-color-info-background);
+    --fleximark-admonition-border: var(--fleximark-color-info-border);
+    --fleximark-admonition-color: var(--fleximark-color-info-text);
+  }
+}
+
+.markdown-body {
+  & [data-admonition-kind="tip"] {
+    --fleximark-admonition-background: var(--fleximark-color-tip-background);
+    --fleximark-admonition-border: var(--fleximark-color-tip-border);
+    --fleximark-admonition-color: var(--fleximark-color-tip-text);
+  }
+}
+
+.markdown-body {
+  & [data-admonition-kind="important"] {
+    --fleximark-admonition-background: var(--fleximark-color-important-background);
+    --fleximark-admonition-border: var(--fleximark-color-important-border);
+    --fleximark-admonition-color: var(--fleximark-color-important-text);
+  }
+}
+
+.markdown-body {
+  & [data-admonition-kind="warning"] {
+    --fleximark-admonition-background: var(--fleximark-color-warning-background);
+    --fleximark-admonition-border: var(--fleximark-color-warning-border);
+    --fleximark-admonition-color: var(--fleximark-color-warning-text);
+  }
+}
+
+.markdown-body {
+  & [data-admonition-kind="caution"],
+  & [data-admonition-kind="danger"] {
+    --fleximark-admonition-background: var(--fleximark-color-danger-background);
+    --fleximark-admonition-border: var(--fleximark-color-danger-border);
+    --fleximark-admonition-color: var(--fleximark-color-danger-text);
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="admonition"] {
+    margin: 0 0 1rem;
+    color: var(--fleximark-admonition-color, inherit);
+    background-color: var(--fleximark-admonition-background, transparent);
+    border: 1px solid var(--fleximark-admonition-background, transparent);
+    border-radius: 6px;
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="admonition"] > .fleximark-admonition-title {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    color: var(--fleximark-admonition-color, inherit);
+    font-weight: bold;
+    border-bottom: 1px solid var(--fleximark-admonition-border, transparent);
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="admonition"] > :not(header) {
+    margin-right: 1rem;
+    margin-left: 1rem;
+  }
+}

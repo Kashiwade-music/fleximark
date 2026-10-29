@@ -1,0 +1,39 @@
+.markdown-body {
+  & [data-fleximark-kind="tabs"] {
+    margin: 0 0 1rem;
+    background-color: transparent;
+    border: 1px solid var(--fleximark-color-control-border);
+    border-radius: 6px;
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="tabs"] > [role="tablist"] {
+    display: flex;
+    border-bottom: 1px solid var(--fleximark-color-control-border);
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="tabs"] > [role="tablist"] > [role="tab"] {
+    min-width: 5rem;
+    padding: 0.6rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    background: var(--fleximark-color-control-background);
+    border: 0;
+    border-right: 1px solid var(--fleximark-color-control-border);
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="tabs"] > [role="tablist"] > [role="tab"]:hover {
+    background: var(--fleximark-color-control-hover);
+  }
+}
+
+.markdown-body {
+  & [data-fleximark-kind="tabs"] > [role="tabpanel"] {
+    margin: 1rem;
+  }
+}
