@@ -31,6 +31,31 @@ def checked_process(
     return result
 
 
+def benchmark_executable(messages: str) -> Path:
+    candidates: set[Path] = set()
+    for line in messages.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("invalid Cargo benchmark artifact JSON") from error
+        if not isinstance(message, dict) or message.get("reason") != "compiler-artifact":
+            continue
+        target = message.get("target", {})
+        if not isinstance(target, dict):
+            continue
+        if target.get("name") != "document_pipeline" or "bench" not in target.get("kind", []):
+            continue
+        manifest = message.get("manifest_path")
+        if not isinstance(manifest, str) or Path(manifest) != ROOT / "apps" / "cli" / "Cargo.toml":
+            continue
+        path = message.get("executable")
+        if isinstance(path, str) and path:
+            candidates.add(Path(path))
+    if len(candidates) != 1:
+        raise RuntimeError(f"expected one document_pipeline benchmark executable, found {len(candidates)}")
+    return next(iter(candidates))
+
+
 def render(binary: Path, directory: Path, name: str, source: str) -> float:
     document = directory / f"{name}.md"
     document.write_text(source, encoding="utf-8")
@@ -63,9 +88,18 @@ def check_performance_budgets() -> None:
     with tempfile.TemporaryDirectory(prefix="fleximark-perf-") as temp:
         cold_start_ms = render(binary, Path(temp), "cold", "# Cold\n")
 
-    run("cargo", "bench", "--no-run", "-p", "fleximark-cli", "--bench", "document_pipeline", "--locked")
+    build = checked_process(
+        [executable("cargo"), "bench", "--no-run", "--message-format=json", "-p", "fleximark-cli", "--bench", "document_pipeline", "--locked"],
+        timeout=900,
+        description="benchmark compilation",
+    )
+    if build.stderr:
+        print(build.stderr, end="", file=sys.stderr, flush=True)
+    benchmark_path = benchmark_executable(build.stdout)
+    if not benchmark_path.is_file():
+        raise RuntimeError(f"benchmark executable does not exist: {benchmark_path}")
     benchmark = checked_process(
-        [executable("cargo"), "bench", "--quiet", "-p", "fleximark-cli", "--bench", "document_pipeline", "--locked", "--", "--json"],
+        [str(benchmark_path), "--json"],
         timeout=60,
         description="benchmark",
     )
@@ -89,12 +123,12 @@ def check_performance_budgets() -> None:
         "peakMemoryBytes": report["peakMemoryBytes"],
         "specialRenderMs": report["specialRenderMs"],
     }
+    print(json.dumps({"schemaVersion": 1, "multiplier": multiplier, "metrics": metrics}), flush=True)
     for name, measured in metrics.items():
         allowed = contract["budgets"][name] * multiplier
         if measured > allowed:
             raise RuntimeError(f"{name} {measured} exceeds {allowed}")
 
-    print(json.dumps({"schemaVersion": 1, "multiplier": multiplier, "metrics": metrics}))
 
 
 if __name__ == "__main__":

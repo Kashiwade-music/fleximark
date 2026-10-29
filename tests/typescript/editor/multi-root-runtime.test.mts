@@ -29,12 +29,27 @@ async function waitForPreviewRendered(
   api: FlexiMarkTestApi,
   document: vscode.Uri,
 ): Promise<void> {
-  await pollUntil(
-    () => api.recoveryState().previewRenderRevisions[document.toString()],
-    (revision) => revision !== undefined,
-    `preview render for ${document.toString()}`,
-    5_000,
-  );
+  try {
+    await pollUntil(
+      () => api.recoveryState().previewRenderRevisions[document.toString()],
+      (revision) => revision !== undefined,
+      `preview render for ${document.toString()}`,
+      5_000,
+    );
+  } catch (cause) {
+    const state = api.recoveryState();
+    throw new Error(
+      JSON.stringify({
+        message: "Preview render did not become observable",
+        expectedDocumentUri: document.toString(),
+        documentSessionKeys: Object.keys(state.documentSessions),
+        previewSessionKeys: Object.keys(state.previewSessions),
+        previewRenderRevisionKeys: Object.keys(state.previewRenderRevisions),
+        state,
+      }),
+      { cause },
+    );
+  }
 }
 
 async function saveAndCloseTestEditors(

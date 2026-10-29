@@ -13,6 +13,8 @@ mise run setup
 `mise install` は固定バージョンの toolchain を導入する。
 `setup` は固定 submodule、Yarn の依存関係、rustfmt/clippy、wasm32-wasip2 を導入し、root・Zed の lockfile に基づく全 target の Rust 依存を取得する。構造検査の offline 解析に備えるため、キャッシュのない環境でも最初に実行する。ネットワークが必要。
 
+macOS の GUI 検証は短い実パスの一時 directory を使う（例: `TMPDIR=/private/tmp mise run verify`）。既定の `/var/folders` 以下に profile を重ねると、VS Code の Unix socket のパス長上限を超える場合がある。CI は `runner.temp` を使用する。
+
 ## コマンドと実行内容
 
 | コマンド | 実行されること |

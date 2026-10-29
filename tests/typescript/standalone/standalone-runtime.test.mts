@@ -19,8 +19,12 @@ function assertNoWorkspace(): void {
     assert.equal(vscode.workspace.isTrusted, false);
 }
 
-async function frameText(url: string): Promise<string> {
+async function frameText(
+  url: string,
+  options: { pendingEdit?: boolean } = {},
+): Promise<string> {
   const response = await fetch(`${url}/frame`);
+  if (options.pendingEdit && response.status === 409) return "";
   assert.equal(response.status, 200);
   const payload = (await response.json()) as { frame: unknown };
   return JSON.stringify(payload.frame);
@@ -87,7 +91,10 @@ export function suite(): void {
       assert.equal(await vscode.workspace.applyEdit(edit), true);
       assert.equal(document.isDirty, true);
       await until(
-        async () => (await frameText(url)).includes("Unsaved standalone edit"),
+        async () =>
+          (await frameText(url, { pendingEdit: true })).includes(
+            "Unsaved standalone edit",
+          ),
         "external preview unsaved edit frame",
       );
 
