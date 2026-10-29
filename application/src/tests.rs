@@ -178,6 +178,12 @@ fn full_document_updates_accept_unicode_in_all_snapshot_encodings() {
 
 #[test]
 fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself() {
+    let root = native::workspace_path(workspace_uri()).unwrap();
+    let nested = root.join("nested").canonicalize().unwrap();
+    let case_aliases_nested = root
+        .join("NESTED")
+        .canonicalize()
+        .is_ok_and(|path| path == nested);
     let mut registry = DocumentStore::new(PositionEncoding::Utf8);
     let parent_config = configured_render("parent", true);
     let nested_config = configured_render("nested", false);
@@ -209,7 +215,7 @@ fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself()
         ("/outside.md", None),
         (
             workspace_document_uri("NESTED/case.md"),
-            if cfg!(windows) {
+            if case_aliases_nested {
                 Some(workspace_document_uri("nested"))
             } else {
                 Some(workspace_uri())
@@ -247,7 +253,9 @@ fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself()
         "nested",
     );
     assert_eq!(encoded_fingerprint, nested_fingerprint);
-    if !cfg!(windows) {
+    if case_aliases_nested {
+        assert_eq!(nested_fingerprint, parent_fingerprint);
+    } else {
         assert_ne!(nested_fingerprint, parent_fingerprint);
     }
 }

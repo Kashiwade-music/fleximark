@@ -47,6 +47,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: product-zed
+          include-hidden-files: true
           path: |
             .artifacts/**/fleximark-zed-*.zip
             .artifacts/**/fleximark-zed-*.zip.sha256
@@ -83,6 +84,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: product-${{ matrix.target }}
+          include-hidden-files: true
           path: |
             .artifacts/**/*.zip
             .artifacts/**/*.zip.sha256
