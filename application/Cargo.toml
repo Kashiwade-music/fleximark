@@ -20,7 +20,7 @@ fleximark-preview-assets = { path = "../runtime/preview-assets" }
 base64.workspace = true
 cap-std = "3.4.6"
 cap-fs-ext = "3.4.6"
-getrandom = "0.2.17"
+getrandom = "0.4.3"
 serde_json.workspace = true
 toml.workspace = true
 fleximark-migration = { path = "../migration" }
