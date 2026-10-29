@@ -3,20 +3,46 @@ import { validateContractSchema } from "./contract-validator.mjs";
 import {
   CLIENT_NOTIFICATION_VALIDATORS,
   CONTRACT_DEFINITIONS,
-  PROTOCOL_VERSION,
+  COMMAND_DESCRIPTORS as ContractCommands,
   REQUEST_VALIDATORS,
   SERVER_NOTIFICATION_VALIDATORS,
   TYPE_VALIDATORS,
 } from "./protocol.generated.mjs";
 import type * as Contract from "./protocol.generated.mjs";
 
-export { PROTOCOL_VERSION };
+export {
+  WORKSPACE_COMMAND_KIND,
+  PROTOCOL_VERSION,
+  COMMAND_DESCRIPTORS,
+} from "./protocol.generated.mjs";
+
+export function commandDescriptor<
+  Kind extends Contract.WorkspaceCommand["command"],
+>(
+  kind: Kind,
+): Extract<(typeof Contract.COMMAND_DESCRIPTORS)[number], { kind: Kind }> {
+  const descriptor = ContractCommands.find(
+    (
+      entry,
+    ): entry is Extract<(typeof ContractCommands)[number], { kind: Kind }> =>
+      entry.kind === kind,
+  );
+  if (!descriptor) throw new Error(`Missing command descriptor: ${kind}`);
+  return descriptor;
+}
 export type {
   AttachDocumentResult,
   CommandResult,
   CreatePreviewResult,
-  ExecuteCommandParams,
-  GetNoteOptionsParams,
+  WorkspaceCommandRequest,
+  WorkspaceCommand,
+  WorkspaceCommandName,
+  LspWorkspaceCommandName,
+  CommandContext,
+  MigrationPlanResult,
+  WorkspaceStateResult,
+  WorkspaceUiCommandRequest,
+  WorkspaceUiContext,
   GetNoteOptionsResult,
   InitializeParams,
   InitializeResult,

@@ -3,18 +3,58 @@ use super::protocol::counter;
 use super::state::*;
 use super::wire::*;
 
-pub(super) const COMMANDS: &[&str] = &[
-    "fleximark.preview",
-    "fleximark.previewAt",
-    "fleximark.workspace",
-    "fleximark.createNote",
-    "fleximark.exportHtml",
-    "fleximark.initializeWorkspace",
-    "fleximark.editTheme",
-    "fleximark.collectAdmonitions",
-    "fleximark.migrate",
-];
-
+use fleximark_protocol::{
+    CommandContext, CommandKind, DocumentCommandContext, WorkspaceCommand, WorkspaceCommandRequest,
+};
+fn default_operation(kind: CommandKind) -> WorkspaceCommand {
+    match kind {
+        CommandKind::InitializeWorkspace => WorkspaceCommand::InitializeWorkspace {},
+        CommandKind::EditTheme => WorkspaceCommand::EditTheme {},
+        CommandKind::CreateNote => WorkspaceCommand::CreateNote {
+            category_path: None,
+            template: None,
+            name: None,
+        },
+        CommandKind::GetNoteOptions => WorkspaceCommand::GetNoteOptions {},
+        CommandKind::CollectAdmonitions => WorkspaceCommand::CollectAdmonitions {},
+        CommandKind::ExportHtml => WorkspaceCommand::ExportHtml {
+            destination_uri: None,
+        },
+        CommandKind::AcknowledgeExport => WorkspaceCommand::AcknowledgeExport {
+            destination_uri: None,
+        },
+        CommandKind::PlanMigration => WorkspaceCommand::PlanMigration {
+            settings_uri: None,
+            recover: false,
+        },
+        CommandKind::ApplyMigration => WorkspaceCommand::ApplyMigration {
+            plan_id: String::new(),
+        },
+        CommandKind::OpenPreview => WorkspaceCommand::OpenPreview {
+            target: PreviewTarget::ExternalBrowser,
+            source_offset: None,
+        },
+        CommandKind::OpenWorkspace => WorkspaceCommand::OpenWorkspace {},
+    }
+}
+#[derive(serde::Serialize)]
+struct CodeAction {
+    title: String,
+    kind: &'static str,
+    command: EditorCommand,
+}
+#[derive(serde::Serialize)]
+struct EditorCommand {
+    title: String,
+    command: &'static str,
+    arguments: Vec<WorkspaceCommandRequest>,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExecuteCommand {
+    command: String,
+    arguments: Vec<WorkspaceCommandRequest>,
+}
 impl Server {
     pub(super) fn code_actions(&self, id: Option<Value>, params: &Value) -> Option<Value> {
         let id = id?;
@@ -22,146 +62,117 @@ impl Server {
             return Some(invalid_params(id, "textDocument.uri is required"));
         };
         let Some(session) = self.registry.session_id_for_uri(uri) else {
-            return Some(response_value(Response::success(id, json!([]))));
+            return Some(response_value(Response::success(
+                id,
+                Vec::<CodeAction>::new(),
+            )));
         };
-        let version = match self
-            .registry
-            .current_version(self.registry.daemon_instance_id(), session)
-        {
-            Ok(version) => version,
-            Err(error) => return Some(session_error(id, error)),
-        };
-        let range = params.get("range").cloned().unwrap_or_else(
-            || json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}}),
-        );
-        let actions = [
-            ("Preview document", "fleximark.preview"),
-            ("Preview at selection", "fleximark.previewAt"),
-            ("Open FlexiMark workspace", "fleximark.workspace"),
-            ("Create note", "fleximark.createNote"),
-            ("Export HTML", "fleximark.exportHtml"),
-            ("Initialize workspace", "fleximark.initializeWorkspace"),
-            ("Edit theme", "fleximark.editTheme"),
-            ("Collect admonitions", "fleximark.collectAdmonitions"),
-            ("Migrate legacy workspace", "fleximark.migrate"),
-        ]
-        .into_iter()
-        .map(|(title, command)| {
-            json!({
-                "title":title,"kind":"source","command":{"title":title,"command":command,
-                "arguments":[{"documentUri":uri,"documentVersion":version,"range":range}]}
-            })
+        let result = (|| {
+            let version = self.registry.current_version(session)?;
+            let version = i64::try_from(version)
+                .ok()
+                .and_then(|version| fleximark_protocol::JsSafeI64::new(version).ok())
+                .ok_or(ApplicationError::IntegerRange(version))?;
+            let context = CommandContext {
+                workspace_uri: self.workspace_for_document(uri).map(|(uri, _)| uri),
+                document: Some(DocumentCommandContext {
+                    document_session_id: session.to_owned(),
+                    expected_document_version: version,
+                }),
+            };
+            let mut actions = Vec::new();
+            for descriptor in fleximark_protocol::COMMAND_DESCRIPTORS
+                .iter()
+                .filter(|descriptor| descriptor.code_action)
+            {
+                let operation = default_operation(descriptor.kind);
+                let request = WorkspaceCommandRequest {
+                    daemon_instance_id: self.daemon_instance_id().to_owned(),
+                    context: context.clone(),
+                    operation,
+                };
+                actions.push(CodeAction {
+                    title: descriptor.title.to_owned(),
+                    kind: "source",
+                    command: EditorCommand {
+                        title: descriptor.title.to_owned(),
+                        command: descriptor.lsp_command,
+                        arguments: vec![request.clone()],
+                    },
+                });
+                if descriptor.kind == CommandKind::OpenPreview {
+                    let position = params
+                        .pointer("/range/start")
+                        .cloned()
+                        .unwrap_or_else(|| json!({"line":0,"character":0}));
+                    let position: super::lsp_types::Position = serde_json::from_value(position)?;
+                    let offset = self.position_offset(uri, &position)?;
+                    let mut request = request;
+                    request.operation = WorkspaceCommand::OpenPreview {
+                        target: PreviewTarget::ExternalBrowser,
+                        source_offset: Some(counter(offset as u64)?),
+                    };
+                    actions.push(CodeAction {
+                        title: "Preview at selection".into(),
+                        kind: "source",
+                        command: EditorCommand {
+                            title: "Preview at selection".into(),
+                            command: descriptor.lsp_command,
+                            arguments: vec![request],
+                        },
+                    });
+                }
+            }
+            Ok::<_, ApplicationError>(actions)
+        })();
+        Some(match result {
+            Ok(actions) => response_value(Response::success(id, actions)),
+            Err(error) => session_error(id, error),
         })
-        .collect::<Vec<_>>();
-        Some(response_value(Response::success(id, actions)))
     }
-
     pub(super) fn standard_execute_command(
         &mut self,
         id: Option<Value>,
         params: Value,
     ) -> Option<Value> {
         let id = id?;
-        let Some(command) = params.get("command").and_then(Value::as_str) else {
-            return Some(invalid_params(id, "command is required"));
+        let params = match deserialize_params::<ExecuteCommand>(&id, params) {
+            Ok(params) => params,
+            Err(error) => return Some(error),
         };
-        if !COMMANDS.contains(&command) {
+        let Some(descriptor) = fleximark_protocol::COMMAND_DESCRIPTORS
+            .iter()
+            .find(|descriptor| descriptor.lsp_command == params.command)
+        else {
             return Some(invalid_params(id, "unknown command"));
+        };
+        if params.arguments.len() != 1 {
+            return Some(invalid_params(id, "command requires one typed request"));
         }
-        let context = params
-            .pointer("/arguments/0")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        if command == "fleximark.migrate" {
-            let workspace = context
-                .get("workspaceUri")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| {
-                    context
-                        .get("documentUri")
-                        .and_then(Value::as_str)
-                        .and_then(|uri| self.workspace_for_document(uri).map(|(uri, _)| uri))
-                });
-            let Some(workspace) = workspace else {
-                return Some(invalid_params(
-                    id,
-                    "migration requires an explicit workspace",
-                ));
-            };
-            if !self.workspace_grants_write(&workspace) {
-                return Some(session_error(id, ApplicationError::WriteDenied));
-            }
-            let result = (|| -> Result<Value, ApplicationError> {
-                let output = fleximark_application::native::migrate_workspace(&workspace)?;
-                Ok(json!({"message":{"level":"info","text":output.stdout}}))
-            })();
-            return Some(match result {
-                Ok(value) => response_value(Response::success(id, value)),
-                Err(error) => session_error(id, error),
-            });
+        let Some(request) = params.arguments.into_iter().next() else {
+            return Some(invalid_params(id, "command requires one typed request"));
+        };
+        if request.operation.kind() != descriptor.kind {
+            return Some(invalid_params(id, "command and operation do not match"));
         }
-        if matches!(command, "fleximark.preview" | "fleximark.previewAt") {
-            let Some(uri) = context.get("documentUri").and_then(Value::as_str) else {
-                return Some(invalid_params(id, "preview requires documentUri"));
-            };
-            let Some(session) = self.registry.session_id_for_uri(uri).map(str::to_owned) else {
-                return Some(session_error(id, ApplicationError::NotOpen));
-            };
-            let current = match self
-                .registry
-                .current_version(self.registry.daemon_instance_id(), &session)
-            {
-                Ok(version) => version,
-                Err(error) => return Some(session_error(id, error)),
-            };
-            let version = context
-                .get("documentVersion")
-                .and_then(Value::as_i64)
-                .unwrap_or(current);
-            let response = self.create_preview(Some(id.clone()), json!({
-                "daemonInstanceId":self.registry.daemon_instance_id(),"documentSessionId":session,
-                "expectedDocumentVersion":version,"target":"externalBrowser"
-            }))?;
-            if let Some(url) = response.pointer("/result/url").and_then(Value::as_str) {
-                let url = url.to_owned();
-                if command == "fleximark.previewAt" {
-                    let position = context
-                        .pointer("/range/start")
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    let position: fleximark_application::Position =
-                        match serde_json::from_value(position) {
-                            Ok(position) => position,
-                            Err(error) => return Some(invalid_params(id, error)),
-                        };
-                    if let Some(preview) = response
-                        .pointer("/result/previewSessionId")
-                        .and_then(Value::as_str)
-                    {
-                        if let Some(state) = self.preview_states.get_mut(preview) {
-                            state.explicit_jump = Some(position);
-                        }
-                        if let Err(error) = self.refresh_explicit_jump(preview) {
-                            return Some(session_error(id, error));
-                        }
-                    }
-                }
+        let result = self.dispatch_command(request, false).and_then(|result| {
+            if let fleximark_protocol::CommandResult::MigrationPlanned { plan, .. } = &result {
+                let url = self.workspace_ui_url(fleximark_protocol::WorkspaceStateRequest {
+                    context: fleximark_protocol::WorkspaceUiContext {
+                        workspace_uri: Some(plan.workspace_uri.clone()),
+                        document_uri: None,
+                        document_version: None,
+                    },
+                    command: Some(CommandKind::PlanMigration),
+                })?;
                 self.show_document(&url, true, None);
             }
-            return Some(response);
-        }
-        let token = match random_token() {
-            Ok(token) => token,
-            Err(error) => return Some(invalid_params(id, error)),
-        };
-        let url = self.previews.publish_workspace(
-            &token,
-            command.trim_start_matches("fleximark."),
-            &context,
-        );
-        self.show_document(&url, true, None);
-        Some(response_value(Response::success(id, json!({"url":url}))))
+            Ok(result)
+        });
+        Some(match result {
+            Ok(result) => response_value(Response::success(id, result)),
+            Err(error) => session_error(id, error),
+        })
     }
 
     pub(super) fn refresh_explicit_jump(
@@ -174,16 +185,9 @@ impl Server {
         let Some(position) = state.explicit_jump else {
             return Ok(());
         };
-        let daemon = self.registry.daemon_instance_id().to_owned();
-        let version = self
-            .registry
-            .current_version(&daemon, &state.document_session_id)?;
-        let Some(entry) = self.registry.navigation_at_position(
-            &daemon,
-            &state.document_session_id,
-            version,
-            &position,
-        )?
+        let version = self.registry.current_version(&state.document_session_id)?;
+        let Some(entry) =
+            self.navigation_at_position(&state.document_session_id, version, &position)?
         else {
             return Ok(());
         };

@@ -141,10 +141,7 @@ struct ContractCase {
 }
 
 fn contract_fixture() -> ContractFixture {
-    serde_json::from_str(include_str!(
-        "../../../tests/fixtures/protocol/contract.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("../fixtures/contract.json")).unwrap()
 }
 
 fn accept_contract_params(case: &ContractCase, spec: &MethodSpec) {
@@ -155,7 +152,6 @@ fn accept_contract_params(case: &ContractCase, spec: &MethodSpec) {
     match params_type {
         WireType::InitializeParams => {
             let params = accept::<InitializeParams>(case);
-            assert!(!params.capabilities.embedded_html);
             assert!(params.workspaces.is_empty());
         }
         WireType::AttachDocumentParams => drop(accept::<AttachDocumentParams>(case)),
@@ -178,16 +174,7 @@ fn accept_contract_params(case: &ContractCase, spec: &MethodSpec) {
         WireType::SetSelectionParams => drop(accept::<SetSelectionParams>(case)),
         WireType::SetViewportParams => drop(accept::<SetViewportParams>(case)),
         WireType::PreviewEventParams => drop(accept::<PreviewEventParams>(case)),
-        WireType::ExecuteCommandParams => {
-            let params = accept::<ExecuteCommandParams>(case);
-            assert!(params.document_session_id.is_none());
-            assert!(params.expected_document_version.is_none());
-            assert!(params.workspace_uri.is_none());
-            assert!(params.destination_uri.is_none());
-            assert!(params.note_category_path.is_none());
-            assert!(params.note_template.is_none());
-        }
-        WireType::GetNoteOptionsParams => drop(accept::<GetNoteOptionsParams>(case)),
+        WireType::WorkspaceCommandRequest => drop(accept::<WorkspaceCommandRequest>(case)),
         WireType::ReconfigureWorkspaceParams => drop(accept::<ReconfigureWorkspaceParams>(case)),
         wire_type => panic!(
             "registry uses non-params type {wire_type:?} for {}",
@@ -247,11 +234,9 @@ fn serialize_contract_result(case: &ContractCase, spec: &MethodSpec) -> Value {
                 .collect(),
         })
         .unwrap(),
-        Some(WireType::CommandResult) => serde_json::to_value(CommandResult {
-            message: None,
-            open_uri: None,
-            data: None,
-        })
+        Some(WireType::CommandResult) => serde_json::to_value(
+            serde_json::from_value::<CommandResult>(case.result.clone()).unwrap(),
+        )
         .unwrap(),
         None => case.result.clone(),
         Some(WireType::Unit) => {
@@ -489,5 +474,14 @@ fn attachments_enforce_json_integer_boundaries() {
     }
     for version in [-MAX_SAFE_INTEGER - 1, MAX_SAFE_INTEGER + 1] {
         assert!(serde_json::from_value::<AttachDocumentParams>(params(version)).is_err());
+    }
+}
+
+#[test]
+fn obsolete_client_capabilities_are_rejected() {
+    for field in ["embeddedHtml", "structuredPreview", "openExternal"] {
+        let mut capabilities = json!({});
+        capabilities[field] = json!(true);
+        assert!(serde_json::from_value::<ClientCapabilities>(capabilities).is_err());
     }
 }

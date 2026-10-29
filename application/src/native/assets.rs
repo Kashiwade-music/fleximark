@@ -17,8 +17,10 @@ use fleximark_model::{BlockKind, Document, InlineKind, Node, SourceRange};
 
 use crate::native::integrity::{ObjectIdentity, sha256};
 use crate::native::paths::reject_linked_path;
+use crate::native::paths::safe_workspace_relative_path;
 use crate::native::uri::percent_decode;
-use crate::native::workspace::{CONFIG, safe_workspace_relative_path, validate_config};
+#[cfg(test)]
+use crate::native::workspace::{CONFIG, validate_config};
 use crate::native::{ApplicationError, workspace_path};
 
 pub struct ExportAsset {
@@ -38,8 +40,9 @@ pub fn compose_portable_html(
     rendered_html: &str,
     style: Option<&RenderStyle>,
     common_runtime: &str,
+    resources: &fleximark_preview_assets::PreviewAssets,
 ) -> Result<String, ApplicationError> {
-    let katex_css = fleximark_preview_assets::read("katex.css")?;
+    let katex_css = resources.read("katex.css")?;
     compose_portable_html_with_css(rendered_html, style, common_runtime, &katex_css)
 }
 
@@ -86,7 +89,6 @@ pub fn resolve_export_assets(
 ) -> Result<ResolvedExportAssets, ApplicationError> {
     let source = workspace_path(source_uri)?;
     let workspace = workspace_path(workspace_uri)?;
-    validate_config(&workspace.join(".fleximark/config.toml"))?;
     if !source.starts_with(&workspace) {
         return Err(ApplicationError::InvalidExportDestination);
     }
@@ -132,17 +134,13 @@ pub fn resolve_render_assets(
     source_uri: &str,
     workspace_uri: &str,
     document: &Document,
+    config: &FlexiMarkConfig,
 ) -> Result<ResolvedAssets, ApplicationError> {
     let source = workspace_path(source_uri)?;
     let workspace = workspace_path(workspace_uri)?;
     if !source.starts_with(&workspace) {
         return Err(ApplicationError::InvalidWorkspaceUri);
     }
-    let config = match validate_config(&workspace.join(".fleximark/config.toml")) {
-        Ok(config) => config,
-        Err(ApplicationError::NotInitialized) => FlexiMarkConfig::from_toml(CONFIG)?,
-        Err(error) => return Err(error),
-    };
     let workspace_dir = Dir::open_ambient_dir(&workspace, ambient_authority())?;
     let mut allowed_roots = vec![
         source
@@ -150,8 +148,8 @@ pub fn resolve_render_assets(
             .ok_or(ApplicationError::InvalidWorkspaceUri)?
             .canonicalize()?,
     ];
-    for root in config.assets.roots {
-        if !safe_workspace_relative_path(&root) {
+    for root in &config.assets.roots {
+        if !safe_workspace_relative_path(root) {
             return Err(ApplicationError::InvalidConfig);
         }
         reject_linked_path(&workspace, Path::new(&root), true)?;
@@ -493,7 +491,23 @@ fn has_avif_file_type(bytes: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! Role: Verify workspace operations and security invariants.
+    //! Role: Verify cached native policies preserve filesystem safety.
+    fn resolve_render_assets(
+        uri: &str,
+        workspace: &str,
+        document: &fleximark_model::Document,
+    ) -> Result<fleximark_engine::ResolvedAssets, crate::ApplicationError> {
+        let config = match super::validate_config(
+            &super::workspace_path(workspace)?.join(".fleximark/config.toml"),
+        ) {
+            Ok(config) => config,
+            Err(crate::ApplicationError::NotInitialized) => {
+                fleximark_config::FlexiMarkConfig::from_toml(super::CONFIG)?
+            }
+            Err(error) => return Err(error),
+        };
+        super::resolve_render_assets(uri, workspace, document, &config)
+    }
     use std::fs;
 
     use super::*;

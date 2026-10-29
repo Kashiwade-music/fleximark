@@ -1,14 +1,12 @@
 //! Role: Verify native workspace export ownership and filesystem authority contracts.
-use fleximark_application::ApplicationError;
+use crate::ApplicationError;
 use std::collections::BTreeSet;
 use std::fs;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fleximark_application::native::{
-    acknowledge_export, export_html, initialize_workspace, path_to_file_uri,
-};
+use crate::native::{acknowledge_export, export_html, initialize_workspace, path_to_file_uri};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -173,10 +171,7 @@ impl ExportFixture {
         }
     }
 
-    fn export(
-        &self,
-        html: &str,
-    ) -> Result<fleximark_application::operations::ExportReceipt, ApplicationError> {
+    fn export(&self, html: &str) -> Result<crate::ExportReceipt, ApplicationError> {
         export_html(
             &self.source_uri,
             &self.workspace_uri,
@@ -239,7 +234,7 @@ fn initialization_preserves_active_defaults_and_typed_resource_locations() {
             .lines()
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
             .collect::<Vec<_>>(),
-        ["schema_version = 1", "[notes]", "root = \"notes\""]
+        ["schema_version = 1", "[notes]", "root = \".\""]
     );
     assert_eq!(
         fs::read_to_string(root.join(".fleximark/theme.css")).expect("read default theme"),

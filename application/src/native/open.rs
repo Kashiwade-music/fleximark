@@ -1,10 +1,14 @@
 //! Role: Open CLI documents and resolve assets with the shared native policy.
 
 use fleximark_engine::DocumentEngine;
+#[cfg(test)]
 use fleximark_model::{DocumentUri, PositionEncoding};
 
-use super::{ApplicationError, resolve_render_assets, workspace_for_document};
+use super::{ApplicationError, resolve_render_assets};
+#[cfg(test)]
+use super::{workspace_for_document, workspace_path};
 
+#[cfg(test)]
 pub fn open_document(
     uri: String,
     source: String,
@@ -31,15 +35,24 @@ pub fn open_document(
     let config = super::configured_render_config(&workspace, true, 1)?;
     let mut engine =
         DocumentEngine::open(DocumentUri(uri), 1, source, PositionEncoding::Utf8, config)?;
-    refresh_document_assets(&mut engine, &workspace)?;
+    let config = super::workspace::validate_config(
+        &workspace_path(&workspace)?.join(".fleximark/config.toml"),
+    )?;
+    refresh_document_assets(&mut engine, &workspace, &config)?;
     Ok(engine)
 }
 
 pub fn refresh_document_assets(
     engine: &mut DocumentEngine,
     workspace: &str,
+    config: &fleximark_config::FlexiMarkConfig,
 ) -> Result<(), ApplicationError> {
-    let assets = resolve_render_assets(&engine.document().uri.0, workspace, engine.document())?;
+    let assets = resolve_render_assets(
+        &engine.document().uri.0,
+        workspace,
+        engine.document(),
+        config,
+    )?;
     let config = engine
         .render_config()
         .clone()

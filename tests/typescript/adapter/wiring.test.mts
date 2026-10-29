@@ -13,6 +13,7 @@ import {
   type ProviderRegistrar,
   registerProviders,
 } from "../../../adapters/vscode/src/providers.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../../contracts/typescript/protocol.mjs";
 import type { LspMethod } from "../../../contracts/typescript/protocol.mjs";
 import { deferred, flushMicrotasks } from "./async-helpers.mjs";
 
@@ -81,9 +82,9 @@ export function suite(): void {
       "externalBrowser",
     ]);
     assert.equal(reloads, 1);
-    assert.deepEqual(calls, ["createNote"]);
+    assert.deepEqual(calls, [WORKSPACE_COMMAND_KIND.createNote]);
 
-    rejection.command = "createNote";
+    rejection.command = WORKSPACE_COMMAND_KIND.createNote;
     await assert.rejects(
       Promise.resolve(callbacks.get("fleximark.createNote")?.()),
       failure,

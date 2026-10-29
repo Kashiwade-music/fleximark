@@ -13,18 +13,12 @@ fn lifecycle_advertises_complete_editor_commands_and_rejects_removed_handshakes(
     let commands = result["capabilities"]["executeCommandProvider"]["commands"]
         .as_array()
         .unwrap();
-    for command in [
-        "fleximark.preview",
-        "fleximark.previewAt",
-        "fleximark.workspace",
-        "fleximark.createNote",
-        "fleximark.exportHtml",
-        "fleximark.initializeWorkspace",
-        "fleximark.editTheme",
-        "fleximark.collectAdmonitions",
-        "fleximark.migrate",
-    ] {
-        assert!(commands.contains(&json!(command)), "missing {command}");
+    for descriptor in fleximark_protocol::COMMAND_DESCRIPTORS {
+        assert!(
+            commands.contains(&json!(descriptor.lsp_command)),
+            "missing {}",
+            descriptor.lsp_command
+        );
     }
     for method in [
         "fleximark/initialize",
@@ -61,13 +55,26 @@ fn code_actions_capture_document_version_and_selection() {
     assert_eq!(actions.len(), 9);
     for action in actions {
         assert_eq!(
-            action["command"]["arguments"][0]["documentUri"],
-            "file:///actions.md"
+            action["command"]["arguments"][0]["context"]["document"]["documentSessionId"],
+            session(&server, "file:///actions.md")
         );
-        assert_eq!(action["command"]["arguments"][0]["documentVersion"], 7);
-        assert_eq!(action["command"]["arguments"][0]["range"], range);
+        assert_eq!(
+            action["command"]["arguments"][0]["context"]["document"]["expectedDocumentVersion"],
+            7
+        );
     }
-    let stale=server.request(3,"workspace/executeCommand",json!({"command":"fleximark.preview","arguments":[{"documentUri":"file:///actions.md","documentVersion":6}]}));
+    let selected = actions
+        .iter()
+        .find(|action| action["title"] == "Preview at selection")
+        .unwrap();
+    assert_eq!(
+        selected["command"]["arguments"][0]["operation"]["sourceOffset"],
+        2
+    );
+    let mut args = selected["command"].clone();
+    args["arguments"][0]["context"]["document"]["expectedDocumentVersion"] = json!(6);
+    args.as_object_mut().unwrap().remove("title");
+    let stale = server.request(3, "workspace/executeCommand", args);
     assert_eq!(
         stale[0]["error"]["code"],
         fleximark_protocol::error_code::CONTENT_MODIFIED
@@ -114,7 +121,7 @@ fn completion_uses_authoritative_open_document_and_position() {
     let attach = server.request(
         4,
         method::ATTACH_DOCUMENT,
-        json!({"daemonInstanceId":server.sessions().daemon_instance_id(),
+        json!({"daemonInstanceId":server.daemon_instance_id(),
                 "uri":"file:///completion.md","expectedDocumentVersion":7}),
     );
     assert!(attach[0]["result"]["documentSessionId"].is_string());
@@ -222,4 +229,112 @@ fn previous_protocol_is_rejected_before_workspace_or_document_setup() {
         current["capabilities"]["experimental"]["fleximark"]["protocolVersion"],
         fleximark_protocol::PROTOCOL_VERSION
     );
+}
+
+#[test]
+fn utf16_position_resolves_through_the_authoritative_session() {
+    let mut server = native_server();
+    server.request(
+        1,
+        "initialize",
+        json!({"capabilities":{"general":{"positionEncodings":["utf-16"]}}}),
+    );
+    let uri = "file:///utf16-position.md";
+    open(&mut server, uri, "# \u{1f600} heading\r\n", 1);
+    let hover = server.request(
+        2,
+        "textDocument/hover",
+        json!({"textDocument":{"uri":uri},"position":{"line":0,"character":4}}),
+    );
+    assert!(
+        hover[0]["result"]["contents"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("UTF-8 source bytes")
+    );
+    let actions = server.request(
+        3,
+        "textDocument/codeAction",
+        json!({"textDocument":{"uri":uri},"range":{"start":{"line":0,"character":4}}}),
+    );
+    let selected = actions[0]["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Preview at selection")
+        .unwrap();
+    assert_eq!(
+        selected["command"]["arguments"][0]["operation"]["sourceOffset"],
+        6
+    );
+    let invalid = server.request(
+        4,
+        "textDocument/hover",
+        json!({"textDocument":{"uri":uri},"position":{"line":0,"character":3}}),
+    );
+    assert!(invalid[0]["result"].is_null());
+}
+#[test]
+fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental_input() {
+    for encoding in ["utf-8", "utf-16", "utf-32"] {
+        let mut server = native_server();
+        let initialized = server.request(
+            1,
+            "initialize",
+            json!({"capabilities":{"general":{"positionEncodings":[encoding]}}}),
+        );
+        assert_eq!(
+            initialized[0]["result"]["capabilities"]["positionEncoding"],
+            encoding
+        );
+        let uri = "file:///unicode-full-sync.md";
+        open(&mut server, uri, "a\u{1f600}b\r\n", 1);
+        for changes in [
+            json!([{ "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"text":"x"}]),
+            json!([{ "text":"first"},{"text":"second"}]),
+            json!([]),
+            json!([{ "range":null,"text":"x"}]),
+        ] {
+            server.notify(
+                "textDocument/didChange",
+                json!({"textDocument":{"uri":uri,"version":2},"contentChanges":changes}),
+            );
+            assert_eq!(
+                server.sessions().source_for_uri(uri).unwrap(),
+                "a\u{1f600}b\r\n"
+            );
+            assert!(
+                server
+                    .sessions()
+                    .current_version(&session(&server, uri))
+                    .is_err()
+            );
+        }
+        server.notify("textDocument/didChange",json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"axb\u{1f600}\r\n"}]}));
+        assert_eq!(
+            server.sessions().source_for_uri(uri).unwrap(),
+            "axb\u{1f600}\r\n"
+        );
+        assert_eq!(
+            server
+                .sessions()
+                .current_version(&session(&server, uri))
+                .unwrap(),
+            2
+        );
+        server.notify(
+            "textDocument/didChange",
+            json!({"textDocument":{"uri":uri,"version":-1},"contentChanges":[{"text":"negative"}]}),
+        );
+        assert_eq!(
+            server.sessions().source_for_uri(uri).unwrap(),
+            "axb\u{1f600}\r\n"
+        );
+        assert!(
+            server
+                .sessions()
+                .current_version(&session(&server, uri))
+                .is_err()
+        );
+    }
 }

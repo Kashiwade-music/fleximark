@@ -61,12 +61,12 @@
     "commands": [
       {
         "command": "fleximark.workspace",
-        "title": "Open Workspace in Browser",
+        "title": "%command.workspace%",
         "category": "FlexiMark"
       },
       {
         "command": "fleximark.previewAt",
-        "title": "Reveal Selection in Browser",
+        "title": "%command.previewAt%",
         "category": "FlexiMark"
       },
       {
@@ -117,7 +117,7 @@
       },
       {
         "command": "fleximark.migrate",
-        "title": "Migrate legacy FlexiMark workspace",
+        "title": "%command.migrate%",
         "category": "FlexiMark"
       }
     ],

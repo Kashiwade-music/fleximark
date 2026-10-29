@@ -1,17 +1,32 @@
 //! Role: Hold authenticated browser delivery state and injected resources.
 use crate::assets::BrowserAssets;
 use fleximark_application::RenderFrame;
-use fleximark_protocol::JsSafeU64;
-use serde_json::Value;
+use fleximark_protocol::{
+    CommandResult, JsSafeU64, WorkspaceStateRequest, WorkspaceStateResult,
+    WorkspaceUiCommandRequest,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-pub(crate) type Handler =
-    Arc<dyn Fn(Value) -> Result<Value, fleximark_application::ApplicationError> + Send + Sync>;
+#[derive(Clone, Debug)]
+pub enum WorkspaceRequest {
+    State(WorkspaceStateRequest),
+    Command(WorkspaceUiCommandRequest),
+}
+#[derive(Clone, Debug)]
+pub enum WorkspaceResponse {
+    State(WorkspaceStateResult),
+    Command(CommandResult),
+}
+pub(crate) type Handler = Arc<
+    dyn Fn(WorkspaceRequest) -> Result<WorkspaceResponse, fleximark_application::ApplicationError>
+        + Send
+        + Sync,
+>;
 #[derive(Clone)]
 pub(crate) struct WorkspaceService {
     pub(crate) assets: BrowserAssets,
-    pub(crate) sessions: Arc<Mutex<HashMap<String, Value>>>,
+    pub(crate) sessions: Arc<Mutex<HashMap<String, WorkspaceStateRequest>>>,
     pub(crate) handler: Arc<Mutex<Option<Handler>>>,
 }
 pub struct PreviewServer {

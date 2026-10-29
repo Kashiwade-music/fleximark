@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from _targets import find_target, normalize_arch, normalize_platform
+from distribution_contract import normalize_arch, normalize_platform
 from _tools import ROOT, run, script_entrypoint
 
 

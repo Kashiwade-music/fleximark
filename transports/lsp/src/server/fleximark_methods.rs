@@ -1,153 +1,129 @@
-//! Role: Deliver LSP and RPC requests and session events over the daemon transport.
+//! Role: Adapt custom preview methods and native workspace reconfiguration.
 use super::protocol::{counter, native_position, range, wire_frame};
 use super::state::*;
 use super::wire::*;
 
 impl Server {
-    pub(super) fn configure_session(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        let id = id?;
-        if !self.lsp_initialized {
-            return Some(response_value(Response::error(
-                id,
-                fleximark_protocol::error_code::SERVER_NOT_INITIALIZED,
-                "LSP initialize must complete first",
-            )));
-        }
-        let params = match deserialize_params::<InitializeParams>(&id, params) {
-            Ok(params) => params,
-            Err(response) => return Some(response),
-        };
-        if params.protocol_version != PROTOCOL_VERSION {
-            return Some(response_value(Response::error(
-                id,
-                fleximark_protocol::error_code::UNSUPPORTED_PROTOCOL,
-                format!(
-                    "unsupported protocol version {}; expected {PROTOCOL_VERSION}",
-                    params.protocol_version
-                ),
-            )));
-        }
-        let workspace_statuses = match self.registry.configure_native_workspaces(
-            params
-                .workspaces
-                .into_iter()
-                .map(|workspace| (workspace.uri, workspace.trusted))
-                .collect(),
-        ) {
-            Ok(statuses) => statuses
+    pub(super) fn initialize_workspaces(
+        &mut self,
+        roots: Vec<(String, bool)>,
+        options: &Value,
+    ) -> Result<InitializeResult, ApplicationError> {
+        let capabilities: fleximark_protocol::ClientCapabilities = options
+            .get("capabilities")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default();
+        let statuses = self.registry.configure_native_workspaces(roots)?;
+        self.selection_events = capabilities.selection_events;
+        self.viewport_events = capabilities.viewport_events;
+        Ok(InitializeResult {
+            protocol_version: PROTOCOL_VERSION,
+            daemon_instance_id: self.daemon_instance_id().to_owned(),
+            workspace_statuses: statuses
                 .into_iter()
                 .map(|status| WorkspaceStatus {
                     uri: status.uri,
-                    enabled: status.enabled,
-                    error: status.error,
+                    enabled: !matches!(
+                        status.state,
+                        fleximark_application::WorkspaceState::Invalid(_)
+                    ),
+                    error: match status.state {
+                        fleximark_application::WorkspaceState::Invalid(error) => Some(error),
+                        _ => None,
+                    },
                 })
                 .collect(),
-            Err(error) => return Some(session_error(id, error)),
-        };
-        self.selection_events = params.capabilities.selection_events;
-        self.viewport_events = params.capabilities.viewport_events;
-        Some(response_value(Response::success(
-            id,
-            InitializeResult {
-                protocol_version: PROTOCOL_VERSION,
-                daemon_instance_id: self.registry.daemon_instance_id().to_owned(),
-                workspace_statuses,
-                capabilities: ServerCapabilities {
-                    html_render: true,
-                    selection_events: self.selection_events,
-                    viewport_events: self.viewport_events,
-                    workspace_commands: vec![
-                        "initializeWorkspace",
-                        "editTheme",
-                        "collectAdmonitions",
-                        "createNote",
-                        "exportHtml",
-                    ],
-                },
+            capabilities: ServerCapabilities {
+                html_render: true,
+                selection_events: self.selection_events,
+                viewport_events: self.viewport_events,
+                workspace_commands: fleximark_protocol::COMMAND_DESCRIPTORS
+                    .iter()
+                    .map(|descriptor| descriptor.name)
+                    .collect(),
             },
-        )))
+        })
     }
 
     pub(super) fn create_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
         let id = id?;
-        if !self.lsp_initialized {
-            return Some(response_value(Response::error(
-                id,
-                fleximark_protocol::error_code::SERVER_NOT_INITIALIZED,
-                "FlexiMark connection is not initialized",
-            )));
-        }
         let params = match deserialize_params::<CreatePreviewParams>(&id, params) {
             Ok(params) => params,
             Err(response) => return Some(response),
         };
-        let preview_nonce = match random_token() {
-            Ok(preview_nonce) => preview_nonce,
-            Err(_) => {
-                return Some(response_value(Response::error(
-                    id,
-                    fleximark_protocol::error_code::INTERNAL_ERROR,
-                    "operating system random source is unavailable",
-                )));
-            }
-        };
-        let preview_id = format!("preview-{preview_nonce}");
-        let frame = match self.registry.render_with_cancellation(
-            &params.daemon_instance_id,
-            &params.document_session_id,
-            params.expected_document_version.get(),
-            &preview_id,
-            &self.work_cancellation,
-        ) {
-            Ok(frame) => frame,
-            Err(error) => return Some(session_error(id, error)),
-        };
+        let result = self
+            .verify_daemon(&params.daemon_instance_id)
+            .and_then(|_| {
+                let version = u64::try_from(params.expected_document_version.get())
+                    .map_err(|_| ApplicationError::VersionMismatch)?;
+                self.open_preview(&params.document_session_id, version, params.target, None)
+            });
         if self.publication_cancellation.is_cancelled() {
             return None;
         }
-        let (token, url) = if params.target == PreviewTarget::ExternalBrowser {
-            let token = match random_token() {
-                Ok(token) => token,
-                Err(_) => {
-                    return Some(response_value(Response::error(
-                        id,
-                        fleximark_protocol::error_code::INTERNAL_ERROR,
-                        "operating system random source is unavailable",
-                    )));
-                }
-            };
+        Some(match result {
+            Ok(result) => response_value(Response::success(id, result)),
+            Err(error) => session_error(id, error),
+        })
+    }
+    pub(super) fn open_preview(
+        &mut self,
+        session: &str,
+        version: u64,
+        target: PreviewTarget,
+        source_offset: Option<u64>,
+    ) -> Result<CreatePreviewResult, ApplicationError> {
+        let preview_id = format!("preview-{}", random_token()?);
+        let frame = self.registry.render_with_cancellation(
+            session,
+            version,
+            &preview_id,
+            &self.work_cancellation,
+        )?;
+        if self.publication_cancellation.is_cancelled() {
+            return Err(ApplicationError::Cancelled);
+        }
+        let (token, url) = if target == PreviewTarget::ExternalBrowser {
+            let token = random_token()?;
             let url =
-                match self
-                    .previews
-                    .publish(&token, &params.daemon_instance_id, &preview_id, &frame)
-                {
-                    Ok(url) => url,
-                    Err(error) => return Some(boundary_error(id, error)),
-                };
+                self.previews
+                    .publish(&token, self.daemon_instance_id(), &preview_id, &frame)?;
             (Some(token), Some(url))
         } else {
             (None, None)
         };
+        let explicit_jump = source_offset
+            .map(|offset| {
+                let document = self.registry.document(session, version)?;
+                let position = fleximark_model::SourceIndex::new(document.source())
+                    .byte_to_position(
+                        usize::try_from(offset).map_err(|_| ApplicationError::InvalidRange)?,
+                        document.position_encoding(),
+                    )
+                    .ok_or(ApplicationError::InvalidRange)?;
+                Ok::<_, ApplicationError>(super::lsp_types::Position {
+                    line: position.line,
+                    character: position.character,
+                })
+            })
+            .transpose()?;
         self.preview_states.insert(
             preview_id.clone(),
             PreviewState {
                 token,
-                document_session_id: params.document_session_id,
-                explicit_jump: None,
+                document_session_id: session.to_owned(),
+                explicit_jump,
                 delivered_revision: frame.render_revision,
             },
         );
-        Some(response_value(Response::success(
-            id.clone(),
-            CreatePreviewResult {
-                preview_session_id: preview_id,
-                frame: match wire_frame(&frame) {
-                    Ok(frame) => frame,
-                    Err(error) => return Some(boundary_error(id.clone(), error)),
-                },
-                url,
-            },
-        )))
+        self.refresh_explicit_jump(&preview_id)?;
+        Ok(CreatePreviewResult {
+            preview_session_id: preview_id,
+            frame: wire_frame(&frame)?,
+            url,
+        })
     }
 
     pub(super) fn rerender_preview(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
@@ -156,6 +132,9 @@ impl Server {
             Ok(params) => params,
             Err(response) => return Some(response),
         };
+        if let Err(error) = self.verify_daemon(&params.daemon_instance_id) {
+            return Some(session_error(id, error));
+        }
         let Some(state) = self.preview_states.get(&params.preview_session_id).cloned() else {
             return Some(response_value(Response::error(
                 id,
@@ -163,15 +142,11 @@ impl Server {
                 "unknown preview session",
             )));
         };
-        let version = match self
-            .registry
-            .current_version(&params.daemon_instance_id, &state.document_session_id)
-        {
+        let version = match self.registry.current_version(&state.document_session_id) {
             Ok(version) => version,
             Err(error) => return Some(session_error(id, error)),
         };
         let frame = match self.registry.render_with_cancellation(
-            &params.daemon_instance_id,
             &state.document_session_id,
             version,
             &params.preview_session_id,
@@ -193,15 +168,14 @@ impl Server {
             Ok(params) => params,
             Err(error) => return id.map(|id| invalid_params(id, error)),
         };
-        if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return id.map(|id| session_error(id, ApplicationError::WrongDaemon));
+        if let Err(error) = self.verify_daemon(&params.daemon_instance_id) {
+            return id.map(|id| session_error(id, error));
         }
         if let Some(state) = self.preview_states.remove(&params.preview_session_id) {
-            if let Err(error) = self.registry.dispose_preview(
-                &params.daemon_instance_id,
-                &state.document_session_id,
-                &params.preview_session_id,
-            ) {
+            if let Err(error) = self
+                .registry
+                .dispose_preview(&state.document_session_id, &params.preview_session_id)
+            {
                 return id.map(|id| session_error(id, error));
             }
             if let Some(token) = &state.token {
@@ -220,16 +194,23 @@ impl Server {
             Ok(params) => params,
             Err(error) => return id.map(|id| invalid_params(id, error)),
         };
+        if let Err(error) = self.verify_daemon(&params.daemon_instance_id) {
+            return id.map(|id| session_error(id, error));
+        }
         let mut node_ids = Vec::new();
         for selection in &params.selections {
             let position = match native_position(&selection.active) {
                 Ok(position) => position,
                 Err(error) => return id.map(|id| session_error(id, error)),
             };
-            match self.registry.navigation_at_position(
-                &params.daemon_instance_id,
+            match self.navigation_at_position(
                 &params.document_session_id,
-                params.expected_document_version.get(),
+                match u64::try_from(params.expected_document_version.get()) {
+                    Ok(version) => version,
+                    Err(_) => {
+                        return id.map(|id| session_error(id, ApplicationError::VersionMismatch));
+                    }
+                },
                 &position,
             ) {
                 Ok(Some(entry)) if !node_ids.contains(&entry.node_id) => {
@@ -282,6 +263,9 @@ impl Server {
             Ok(params) => params,
             Err(error) => return id.map(|id| invalid_params(id, error)),
         };
+        if let Err(error) = self.verify_daemon(&params.daemon_instance_id) {
+            return id.map(|id| session_error(id, error));
+        }
         let position = match params
             .ranges
             .first()
@@ -292,10 +276,14 @@ impl Server {
             Err(error) => return id.map(|id| session_error(id, error)),
         };
         let node_id = match position {
-            Some(position) => match self.registry.navigation_at_position(
-                &params.daemon_instance_id,
+            Some(position) => match self.navigation_at_position(
                 &params.document_session_id,
-                params.expected_document_version.get(),
+                match u64::try_from(params.expected_document_version.get()) {
+                    Ok(version) => version,
+                    Err(_) => {
+                        return id.map(|id| session_error(id, ApplicationError::VersionMismatch));
+                    }
+                },
                 &position,
             ) {
                 Ok(Some(entry)) => Some(entry.node_id),
@@ -343,8 +331,8 @@ impl Server {
             Ok(params) => params,
             Err(error) => return id.map(|id| invalid_params(id, error)),
         };
-        if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return id.map(|id| session_error(id, ApplicationError::WrongDaemon));
+        if let Err(error) = self.verify_daemon(&params.daemon_instance_id) {
+            return id.map(|id| session_error(id, error));
         }
         let Some(state) = self.preview_states.get(&params.preview_session_id) else {
             return id.map(|id| {
@@ -381,7 +369,6 @@ impl Server {
             });
         }
         let entry = match self.registry.navigate_preview(
-            &params.daemon_instance_id,
             &state.document_session_id,
             &params.preview_session_id,
             state.delivered_revision,
@@ -400,7 +387,6 @@ impl Server {
             Err(error) => return id.map(|id| session_error(id, error)),
         };
         let source_frame = match self.registry.read_preview(
-            &params.daemon_instance_id,
             &state.document_session_id,
             &params.preview_session_id,
             None,
@@ -454,14 +440,14 @@ impl Server {
             Ok(params) => params,
             Err(response) => return Some(response),
         };
-        if params.daemon_instance_id != self.registry.daemon_instance_id() {
-            return Some(session_error(id, ApplicationError::WrongDaemon));
+        if let Err(error) = self.verify_daemon(&params.daemon_instance_id) {
+            return Some(session_error(id, error));
         }
         if !self
             .registry
             .workspace_statuses()
             .iter()
-            .any(|(uri, _, _)| uri == &params.workspace_uri)
+            .any(|status| status.uri == params.workspace_uri)
         {
             return Some(response_value(Response::error(
                 id,
@@ -470,7 +456,6 @@ impl Server {
             )));
         }
         if let Err(error) = self.registry.reconfigure_native_workspace(
-            &params.daemon_instance_id,
             &params.workspace_uri,
             params.trusted,
             &self.work_cancellation,
@@ -478,7 +463,6 @@ impl Server {
             return Some(session_error(id, error));
         }
 
-        let daemon = self.registry.daemon_instance_id().to_owned();
         let sessions = self
             .registry
             .workspace_documents(&params.workspace_uri)
@@ -489,15 +473,11 @@ impl Server {
             if !sessions.contains(&state.document_session_id) {
                 continue;
             }
-            let version = match self
-                .registry
-                .current_version(&daemon, &state.document_session_id)
-            {
+            let version = match self.registry.current_version(&state.document_session_id) {
                 Ok(version) => version,
                 Err(error) => return Some(session_error(id, error)),
             };
             let frame = match self.registry.render_with_cancellation(
-                &daemon,
                 &state.document_session_id,
                 version,
                 &preview_id,
@@ -515,12 +495,10 @@ impl Server {
         Some(response_value(Response::success(id, Value::Null)))
     }
 
-    pub(super) fn workspace_grants_write(&self, requested_uri: &str) -> bool {
-        self.registry.workspace_grants_write(requested_uri)
-    }
-
     pub(super) fn workspace_for_document(&self, document_uri: &str) -> Option<(String, bool)> {
-        self.registry.workspace_for_document(document_uri)
+        self.registry
+            .workspace_for_document(document_uri)
+            .map(|membership| (membership.uri, membership.trusted))
     }
 }
 impl Server {

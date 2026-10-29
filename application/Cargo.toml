@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 blake3.workspace = true
+fleximark-protocol = { path = "../contracts/protocol" }
 fleximark-model = { path = "../core/model" }
 fleximark-language = { path = "../core/language" }
 fleximark-engine = { path = "../core/engine" }

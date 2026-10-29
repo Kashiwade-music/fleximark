@@ -253,33 +253,14 @@
       "kind": "request",
       "params": {
         "daemonInstanceId": "daemon",
-        "command": "editTheme"
-      },
-      "result": {}
-    },
-    {
-      "method": "fleximark/getNoteOptions",
-      "direction": "clientToServer",
-      "kind": "request",
-      "params": {
-        "daemonInstanceId": "daemon",
-        "workspaceUri": "file:///workspace"
+        "context": {},
+        "operation": {
+          "command": "editTheme"
+        }
       },
       "result": {
-        "categories": [
-          {
-            "name": "Work",
-            "children": [
-              {
-                "name": "Project",
-                "children": []
-              }
-            ]
-          }
-        ],
-        "templates": [
-          "daily"
-        ]
+        "kind": "themeEdited",
+        "uri": "file:///workspace/.fleximark/theme.css"
       }
     },
     {

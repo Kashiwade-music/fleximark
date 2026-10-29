@@ -1,18 +1,45 @@
 import * as vscode from "vscode";
 
-import type {
-  CommandResult,
-  ExecuteCommandParams,
-  GetNoteOptionsParams,
-  GetNoteOptionsResult,
-  NoteCategoryOption,
-  PreviewTarget,
+import { WORKSPACE_COMMAND_KIND } from "../../../contracts/typescript/protocol.mjs";
+import {
+  COMMAND_DESCRIPTORS,
+  type CommandResult,
+  type GetNoteOptionsResult,
+  type MigrationPlanResult,
+  type NoteCategoryOption,
+  type PreviewTarget,
+  type WorkspaceCommand,
+  type WorkspaceCommandName,
+  type WorkspaceCommandRequest,
+  commandDescriptor,
 } from "../../../contracts/typescript/protocol.mjs";
-import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
+
+export function buildWorkspaceOperation(
+  kind: WorkspaceCommandName,
+  sourceOffset?: number,
+): WorkspaceCommand {
+  const descriptor = commandDescriptor(kind);
+  switch (descriptor.kind) {
+    case WORKSPACE_COMMAND_KIND.planMigration:
+      return { command: descriptor.name, recover: false };
+    case WORKSPACE_COMMAND_KIND.openPreview:
+      return {
+        command: descriptor.name,
+        target: "externalBrowser",
+        ...(sourceOffset === undefined ? {} : { sourceOffset }),
+      };
+    case WORKSPACE_COMMAND_KIND.applyMigration:
+      throw new Error(vscode.l10n.t("Plan the migration before applying it."));
+    default:
+      return { command: descriptor.name };
+  }
+}
 
 export async function executeCreateNote(
-  params: ExecuteCommandParams,
-  getOptions: (params: GetNoteOptionsParams) => Promise<GetNoteOptionsResult>,
+  params: WorkspaceCommandRequest,
+  getOptions: (
+    params: WorkspaceCommandRequest,
+  ) => Promise<GetNoteOptionsResult>,
   pickCategory: (
     items: readonly NoteCategoryQuickPickItem[],
     options: { placeHolder: string },
@@ -25,12 +52,15 @@ export async function executeCreateNote(
     prompt: string;
     validateInput(value: string): string | undefined;
   }) => Thenable<string | undefined>,
-  execute: (params: ExecuteCommandParams) => Promise<CommandResult>,
+  execute: (params: WorkspaceCommandRequest) => Promise<CommandResult>,
 ): Promise<CommandResult | undefined> {
-  if (!params.workspaceUri) return execute(params);
+  if (!params.context.workspaceUri) return execute(params);
   const options = await getOptions({
     daemonInstanceId: params.daemonInstanceId,
-    workspaceUri: params.workspaceUri,
+    context: params.context,
+    operation: {
+      command: commandDescriptor(WORKSPACE_COMMAND_KIND.getNoteOptions).name,
+    },
   });
   const noteCategoryPath = options.categories.length
     ? await selectNoteCategory(options.categories, pickCategory)
@@ -48,15 +78,79 @@ export async function executeCreateNote(
       value.trim() ? undefined : vscode.l10n.t("File name cannot be empty"),
   });
   if (noteFileName === undefined) return;
-  const commandParams = Object.fromEntries(
-    Object.entries({
-      ...params,
-      noteCategoryPath,
-      noteTemplate,
-      noteFileName,
-    }).filter(([, value]) => value !== undefined),
-  ) as ExecuteCommandParams;
+  const commandParams: WorkspaceCommandRequest = {
+    ...params,
+    operation: {
+      command: commandDescriptor(WORKSPACE_COMMAND_KIND.createNote).name,
+      ...(noteCategoryPath ? { categoryPath: noteCategoryPath } : {}),
+      ...(noteTemplate ? { template: noteTemplate } : {}),
+      name: noteFileName,
+    },
+  };
   return execute(commandParams);
+}
+
+export async function executeMigration(
+  params: WorkspaceCommandRequest,
+  execute: (params: WorkspaceCommandRequest) => Promise<CommandResult>,
+  confirm: (plan: MigrationPlanResult) => PromiseLike<boolean>,
+  isCurrent: () => boolean,
+): Promise<CommandResult | undefined> {
+  const result = await execute({
+    ...params,
+    operation: {
+      command: commandDescriptor(WORKSPACE_COMMAND_KIND.planMigration).name,
+      recover: false,
+    },
+  });
+  if (!isCurrent()) return;
+  if (result.kind !== "migrationPlanned")
+    throw new Error(vscode.l10n.t("Invalid migration plan response"));
+  if (result.plan.status !== "ready") return result;
+  if (!(await confirm(result.plan)) || !isCurrent()) return;
+  return execute({
+    ...params,
+    operation: {
+      command: commandDescriptor(WORKSPACE_COMMAND_KIND.applyMigration).name,
+      planId: result.plan.planId,
+    },
+  });
+}
+
+export async function confirmMigrationPlan(
+  plan: MigrationPlanResult,
+): Promise<boolean> {
+  const apply = vscode.l10n.t("Apply migration");
+  const detail = [
+    plan.status,
+    ...plan.outputs,
+    ...plan.warnings,
+    plan.config,
+  ].join("\n");
+  return (
+    (await vscode.window.showWarningMessage(
+      vscode.l10n.t("Review the workspace migration plan."),
+      { modal: true, detail },
+      apply,
+    )) === apply
+  );
+}
+
+export async function showMigrationPlanStatus(
+  plan: MigrationPlanResult,
+): Promise<void> {
+  await vscode.window.showInformationMessage(
+    vscode.l10n.t("Workspace migration status: {0}", plan.status),
+    {
+      modal: true,
+      detail: [
+        plan.status,
+        ...plan.outputs,
+        ...plan.warnings,
+        plan.config,
+      ].join("\n"),
+    },
+  );
 }
 
 export interface NoteCategoryQuickPickItem extends vscode.QuickPickItem {
@@ -129,31 +223,32 @@ export async function selectNoteCategory(
 }
 
 export async function openCommandResult(
-  params: ExecuteCommandParams,
+  params: WorkspaceCommandRequest,
   result: CommandResult,
   openUri: (uri: string) => Promise<void>,
-  execute: (params: ExecuteCommandParams) => Promise<CommandResult>,
+  execute: (params: WorkspaceCommandRequest) => Promise<CommandResult>,
 ): Promise<void> {
-  if (!result.openUri) return;
-  await openUri(result.openUri);
-  if (params.command === "exportHtml")
-    await execute({ ...params, command: "acknowledgeExport" });
-}
-
-export async function selectWorkspaceUri(
-  activeWorkspaceUri: string | undefined,
-  workspaces: readonly { label: string; uri: string }[],
-  pick: (
-    items: readonly { label: string; uri: string }[],
-    options: { placeHolder: string },
-  ) => Thenable<{ label: string; uri: string } | undefined>,
-): Promise<string | undefined> {
-  return selectWorkspaceUriWithPlaceholder(
-    activeWorkspaceUri,
-    workspaces,
-    pick,
-    vscode.l10n.t("Select a FlexiMark workspace"),
-  );
+  const uri =
+    result.kind === "htmlExported"
+      ? result.outputUri
+      : result.kind === "themeEdited" ||
+          result.kind === "noteCreated" ||
+          result.kind === "admonitionsCollected"
+        ? result.uri
+        : result.kind === "workspaceInitialized"
+          ? result.configUri
+          : undefined;
+  if (!uri) return;
+  await openUri(uri);
+  if (result.kind === "htmlExported")
+    await execute({
+      ...params,
+      operation: {
+        command: commandDescriptor(WORKSPACE_COMMAND_KIND.acknowledgeExport)
+          .name,
+        destinationUri: result.outputUri,
+      },
+    });
 }
 
 interface CommandAdapter {
@@ -209,18 +304,21 @@ export function registerCommands(
       "fleximark.forceReloadPreview",
       guarded(() => adapter.forceReload(), false),
     ),
-    ...[
-      "workspace",
-      "previewAt",
-      "exportHtml",
-      "createNote",
-      "initializeWorkspace",
-      "collectAdmonitions",
-      "editTheme",
-    ].map((command) =>
+    ...["workspace", "previewAt"].map((command) =>
       registrar.registerCommand(
         `fleximark.${command}`,
         run(() => adapter.execute(command)),
+      ),
+    ),
+    ...COMMAND_DESCRIPTORS.filter(
+      (descriptor) =>
+        descriptor.codeAction &&
+        descriptor.browserUi &&
+        descriptor.kind !== WORKSPACE_COMMAND_KIND.planMigration,
+    ).map((descriptor) =>
+      registrar.registerCommand(
+        `fleximark.${descriptor.name}`,
+        run(() => adapter.execute(descriptor.name)),
       ),
     ),
   ];

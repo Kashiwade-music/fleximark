@@ -10,15 +10,22 @@ name = "fleximark"
 path = "src/main.rs"
 
 [dependencies]
-fleximark-engine = { path = "../../core/engine" }
 fleximark-model = { path = "../../core/model" }
-fleximark-render-html = { path = "../../core/render-html" }
 fleximark-application = { path = "../../application" }
-fleximark-migration = { path = "../../migration" }
+fleximark-protocol = { path = "../../contracts/protocol" }
+fleximark-preview-assets = { path = "../../runtime/preview-assets" }
 serde_json.workspace = true
 
-[target.'cfg(windows)'.dependencies]
+[[bench]]
+name = "document_pipeline"
+harness = false
+
+[dev-dependencies]
+fleximark-engine = { path = "../../core/engine" }
+fleximark-render-html = { path = "../../core/render-html" }
+
+[target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.59.0", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(target_os = "macos")'.dev-dependencies]
 libc = "0.2.186"

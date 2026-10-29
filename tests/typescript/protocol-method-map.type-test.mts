@@ -1,6 +1,7 @@
 import type { JsonRpcConnection } from "../../adapters/vscode/src/rpc.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
 import type {
-  GetNoteOptionsResult,
+  CommandResult,
   InitializeResult,
 } from "../../contracts/typescript/protocol.mjs";
 
@@ -21,19 +22,27 @@ type InitializeVersionIsLiteral = Assert<
   >
 >;
 
-const noteOptions = connection.request("fleximark/getNoteOptions", {
+const noteOptions = connection.request("fleximark/executeCommand", {
   daemonInstanceId: "daemon",
-  workspaceUri: "file:///workspace",
+  context: { workspaceUri: "file:///workspace" },
+  operation: { command: WORKSPACE_COMMAND_KIND.getNoteOptions },
 });
 type NoteOptionsAreInferred = Assert<
-  Equal<typeof noteOptions, Promise<GetNoteOptionsResult>>
+  Equal<typeof noteOptions, Promise<CommandResult>>
 >;
 
-connection.request("fleximark/getNoteOptions", {
+connection.request("fleximark/executeCommand", {
   daemonInstanceId: "daemon",
-  // @ts-expect-error getNoteOptions requires workspaceUri, not command.
-  command: "editTheme",
+  context: {},
+  operation: {
+    command: WORKSPACE_COMMAND_KIND.createNote,
+    // @ts-expect-error createNote does not accept export destinations.
+    destinationUri: "file:///output",
+  },
 });
+
+// @ts-expect-error getNoteOptions is a command, not a protocol method.
+connection.request("fleximark/getNoteOptions", {});
 
 // @ts-expect-error the removed recovery method is outside the current protocol.
 connection.request("fleximark/requestFullText", {

@@ -1,94 +1,206 @@
-//! Role: Associate workspace roots with trust and render policies.
-
+//! Role: Own canonical workspace authority and validated configuration snapshots.
+use crate::ApplicationError;
+use fleximark_config::FlexiMarkConfig;
 use fleximark_engine::RenderConfig;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct WorkspaceRoot(String);
-
-pub struct Workspace {
+pub enum WorkspaceState {
+    Restricted,
+    Trusted,
+    Invalid(String),
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceStatus {
+    pub uri: String,
+    pub state: WorkspaceState,
     pub trusted: bool,
-    pub enabled: bool,
-    root: WorkspaceRoot,
-    canonical_root: Option<std::path::PathBuf>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceMembership {
+    pub uri: String,
+    pub trusted: bool,
+}
+struct Workspace {
+    uri: String,
+    trusted: bool,
+    canonical_root: Option<PathBuf>,
+    state: WorkspaceState,
     render: RenderConfig,
+    config: Option<Arc<FlexiMarkConfig>>,
 }
-
+pub(super) enum PendingMigration {
+    Plan(fleximark_migration::MigrationPlan),
+    Recovery(PathBuf),
+}
 #[derive(Default)]
-pub(super) struct WorkspaceAuthority {
+pub struct WorkspaceAuthority {
     rooted: Vec<Workspace>,
+    failures: HashMap<String, Arc<ApplicationError>>,
+    pub(super) migrations: HashMap<String, (String, PendingMigration)>,
+    pub(super) next_plan: u64,
 }
-
 impl WorkspaceAuthority {
+    pub fn path_to_file_uri(path: &Path) -> Result<String, ApplicationError> {
+        crate::native::path_to_file_uri(path)
+    }
+    pub fn workspace_path(uri: &str) -> Result<PathBuf, ApplicationError> {
+        crate::native::workspace_path(uri)
+    }
+    pub fn discover_workspace(uri: &str) -> Result<String, ApplicationError> {
+        crate::native::workspace_for_document(uri)
+    }
+    pub fn default_export_destination(uri: &str) -> Result<String, ApplicationError> {
+        crate::native::default_export_destination(uri)
+    }
+    pub fn statuses(&self) -> Vec<WorkspaceStatus> {
+        self.rooted
+            .iter()
+            .map(|entry| WorkspaceStatus {
+                uri: entry.uri.clone(),
+                state: entry.state.clone(),
+                trusted: entry.trusted,
+            })
+            .collect()
+    }
+    pub fn membership(&self, document_uri: &str) -> Option<WorkspaceMembership> {
+        self.select(document_uri).map(|entry| WorkspaceMembership {
+            uri: entry.uri.clone(),
+            trusted: entry.trusted,
+        })
+    }
+    pub fn cached_config(&self, uri: &str) -> Result<Arc<FlexiMarkConfig>, ApplicationError> {
+        let uri = uri.trim_end_matches('/');
+        if let Some(config) = self
+            .rooted
+            .iter()
+            .find(|entry| entry.uri == uri)
+            .and_then(|entry| entry.config.clone())
+        {
+            return Ok(config);
+        }
+        if let Some(error) = self.failures.get(uri) {
+            return Err(ApplicationError::WorkspaceConfiguration(Arc::clone(error)));
+        }
+        Err(ApplicationError::InvalidState(
+            "workspace configuration is not loaded".into(),
+        ))
+    }
+    pub(super) fn record_shared_failure(&mut self, uri: &str, error: Arc<ApplicationError>) {
+        self.failures
+            .insert(uri.trim_end_matches('/').into(), error);
+    }
+    pub(super) fn record_failure(&mut self, uri: &str, error: ApplicationError) {
+        self.failures
+            .insert(uri.trim_end_matches('/').into(), Arc::new(error));
+    }
     pub(super) fn replace_roots(
         &mut self,
-        workspaces: Vec<(String, RenderConfig)>,
-    ) -> Result<(), crate::error::ApplicationError> {
-        let mut canonical_roots = std::collections::HashSet::new();
-        for (uri, _) in &workspaces {
-            if let Ok(path) = crate::native::workspace_path(uri) {
-                if !canonical_roots.insert(path) {
-                    return Err(crate::error::ApplicationError::InvalidState(
+        roots: Vec<(String, RenderConfig)>,
+    ) -> Result<(), ApplicationError> {
+        let mut canonical = std::collections::HashSet::new();
+        for (uri, _) in &roots {
+            if let Ok(path) = Self::workspace_path(uri) {
+                if !canonical.insert(path) {
+                    return Err(ApplicationError::InvalidState(
                         "canonical workspace root is duplicated".into(),
                     ));
                 }
             }
         }
-        self.rooted = workspaces
+        let default = Arc::new(FlexiMarkConfig::from_toml(
+            crate::native::workspace::CONFIG,
+        )?);
+        self.rooted = roots
             .into_iter()
             .map(|(uri, render)| Workspace {
+                canonical_root: Self::workspace_path(&uri).ok(),
+                uri: uri.trim_end_matches('/').to_owned(),
                 trusted: true,
-                enabled: true,
-                canonical_root: crate::native::workspace_path(&uri).ok(),
-                root: WorkspaceRoot(uri.trim_end_matches('/').to_owned()),
+                state: WorkspaceState::Trusted,
                 render,
+                config: Some(Arc::clone(&default)),
             })
             .collect();
+        self.migrations.clear();
+        self.failures.clear();
         self.sort_roots();
         Ok(())
     }
-
     pub(super) fn revoke(&mut self, uri: &str) {
-        if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.root.0 == uri) {
+        if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.uri == uri) {
             entry.trusted = false;
+            entry.state = WorkspaceState::Restricted;
             entry.render = RenderConfig::default();
+            entry.config = None;
         }
+        self.migrations.retain(|_, (root, _)| root != uri);
     }
-    pub(super) fn grants_write(&self, uri: &str) -> bool {
-        let Ok(requested) = crate::native::workspace_path(uri) else {
+    pub(super) fn invalidate(&mut self, uri: &str) {
+        self.failures.remove(uri.trim_end_matches('/'));
+        if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.uri == uri) {
+            entry.config = None;
+        }
+        self.migrations.retain(|_, (root, _)| root != uri);
+    }
+    pub(super) fn is_trusted(&self, uri: &str) -> bool {
+        let Ok(root) = Self::workspace_path(uri) else {
             return false;
         };
         self.rooted
             .iter()
-            .find(|entry| entry.canonical_root.as_ref() == Some(&requested))
-            .is_some_and(|entry| entry.trusted && entry.enabled)
+            .find(|entry| entry.canonical_root.as_ref() == Some(&root))
+            .is_some_and(|entry| entry.trusted)
     }
-    pub(super) fn status(&self) -> Vec<(String, bool, bool)> {
-        self.rooted
-            .iter()
-            .map(|entry| (entry.root.0.clone(), entry.trusted, entry.enabled))
-            .collect()
-    }
-    pub(super) fn set_status(&mut self, uri: &str, trusted: bool, enabled: bool) {
+    pub(super) fn set_state(&mut self, uri: &str, state: WorkspaceState) {
         if let Some(entry) = self
             .rooted
             .iter_mut()
-            .find(|entry| entry.root.0 == uri.trim_end_matches('/'))
+            .find(|entry| entry.uri == uri.trim_end_matches('/'))
         {
-            entry.trusted = trusted;
-            entry.enabled = enabled;
+            entry.trusted = match state {
+                WorkspaceState::Trusted => true,
+                WorkspaceState::Restricted => false,
+                WorkspaceState::Invalid(_) => entry.trusted,
+            };
+            entry.state = state;
         } else {
             self.rooted.push(Workspace {
-                root: WorkspaceRoot(uri.trim_end_matches('/').to_owned()),
-                canonical_root: crate::native::workspace_path(uri).ok(),
-                trusted,
-                enabled,
+                uri: uri.trim_end_matches('/').to_owned(),
+                trusted: matches!(state, WorkspaceState::Trusted),
+                canonical_root: Self::workspace_path(uri).ok(),
+                state,
                 render: RenderConfig::default(),
+                config: None,
             });
             self.sort_roots();
         }
     }
-    fn select(&self, document_uri: &str) -> Option<&Workspace> {
-        let document = crate::native::canonical_document_path(document_uri).ok()?;
+    pub(super) fn set_grant(&mut self, uri: &str, trusted: bool) {
+        if let Some(entry) = self
+            .rooted
+            .iter_mut()
+            .find(|entry| entry.uri == uri.trim_end_matches('/'))
+        {
+            entry.trusted = trusted;
+        }
+    }
+    pub(super) fn install_config(&mut self, uri: &str, config: Arc<FlexiMarkConfig>) {
+        self.failures.remove(uri.trim_end_matches('/'));
+        if let Some(entry) = self
+            .rooted
+            .iter_mut()
+            .find(|entry| entry.uri == uri.trim_end_matches('/'))
+        {
+            entry.config = Some(config);
+        }
+    }
+    fn select(&self, uri: &str) -> Option<&Workspace> {
+        let document = crate::native::canonical_document_path(uri).ok()?;
         self.rooted.iter().find(|entry| {
             entry
                 .canonical_root
@@ -96,37 +208,32 @@ impl WorkspaceAuthority {
                 .is_some_and(|root| document != *root && document.starts_with(root))
         })
     }
-    pub(super) fn document_workspace(&self, document_uri: &str) -> Option<(String, bool)> {
-        self.select(document_uri)
-            .map(|entry| (entry.root.0.clone(), entry.trusted))
+    pub(super) fn document_workspace(&self, uri: &str) -> Option<WorkspaceMembership> {
+        self.membership(uri)
     }
-    pub(super) fn matching(&self, document_uri: &str) -> Option<(&str, &RenderConfig)> {
-        let entry = self.select(document_uri)?;
-        if !entry.enabled {
-            return None;
+    pub(super) fn matching(&self, uri: &str) -> Option<(&str, &RenderConfig)> {
+        let entry = self.select(uri)?;
+        if matches!(entry.state, WorkspaceState::Invalid(_)) {
+            None
+        } else {
+            Some((&entry.uri, &entry.render))
         }
-        Some((entry.root.0.as_str(), &entry.render))
     }
-
-    pub(super) fn replace(&mut self, workspace_uri: &str, render: RenderConfig) {
-        if let Some(entry) = self
-            .rooted
-            .iter_mut()
-            .find(|entry| entry.root.0 == workspace_uri)
-        {
+    pub(super) fn replace(&mut self, uri: &str, render: RenderConfig) {
+        if let Some(entry) = self.rooted.iter_mut().find(|entry| entry.uri == uri) {
             entry.render = render;
         } else {
             self.rooted.push(Workspace {
+                uri: uri.into(),
                 trusted: true,
-                enabled: true,
-                canonical_root: crate::native::workspace_path(workspace_uri).ok(),
-                root: WorkspaceRoot(workspace_uri.to_owned()),
+                canonical_root: Self::workspace_path(uri).ok(),
+                state: WorkspaceState::Trusted,
                 render,
+                config: None,
             });
             self.sort_roots();
         }
     }
-
     fn sort_roots(&mut self) {
         self.rooted.sort_by_key(|entry| {
             std::cmp::Reverse(

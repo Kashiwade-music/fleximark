@@ -34,6 +34,7 @@ pub enum ApplicationError {
     NotInitialized,
     InvalidConfig,
     Config(fleximark_config::ConfigError),
+    WorkspaceConfiguration(std::sync::Arc<ApplicationError>),
     InvalidNoteName,
     NoteAlreadyExists,
     InvalidControlPath,
@@ -72,6 +73,7 @@ impl ApplicationError {
             | Self::InternalState(_)
             | Self::InternalSource(_)
             | Self::Json(_) => ErrorKind::Internal,
+            Self::WorkspaceConfiguration(error) => error.kind(),
             Self::Io(error) => match error.kind() {
                 std::io::ErrorKind::NotFound => ErrorKind::NotFound,
                 std::io::ErrorKind::PermissionDenied => ErrorKind::Denied,
@@ -153,6 +155,7 @@ impl std::fmt::Display for ApplicationError {
                 f.write_str("the previous export must be acknowledged after opening and validation")
             }
             Self::InternalSource(value) => std::fmt::Display::fmt(value, f),
+            Self::WorkspaceConfiguration(value) => std::fmt::Display::fmt(value, f),
             Self::Config(value) => std::fmt::Display::fmt(value, f),
             Self::Engine(value) => std::fmt::Display::fmt(value, f),
             Self::Json(value) => std::fmt::Display::fmt(value, f),
@@ -164,6 +167,7 @@ impl std::error::Error for ApplicationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InternalSource(error) => Some(error.as_ref()),
+            Self::WorkspaceConfiguration(error) => Some(error.as_ref()),
             Self::Config(error) => Some(error),
             Self::Engine(error) => Some(error),
             Self::Json(error) => Some(error),
@@ -246,29 +250,31 @@ mod tests {
 
     #[test]
     fn workspace_operations_preserve_the_native_io_source() {
-        use crate::operations::{OperationRequest, WorkspaceOperation};
         let root = crate::native::test_support::test_workspace("operation-source");
         let uri = crate::native::path_to_file_uri(&root).unwrap();
-        std::fs::remove_dir_all(root).unwrap();
-        let registry = crate::SessionRegistry::new(fleximark_model::PositionEncoding::Utf8);
-        let result = registry.execute_operation(
-            WorkspaceOperation::EditTheme,
-            OperationRequest {
-                daemon: registry.daemon_instance_id(),
-                workspace: Some(&uri),
-                document_session: None,
-                document_version: None,
-                destination: None,
-                category: None,
-                template: None,
-                name: None,
-            },
-            &crate::CancellationToken::default(),
-        );
-        let error = result.err().unwrap();
+        let mut store = crate::DocumentStore::new(fleximark_model::PositionEncoding::Utf8);
+        store
+            .configure_native_workspaces(vec![(uri.clone(), true)])
+            .unwrap();
+        let error = crate::WorkspaceOps::new(&mut store, None)
+            .execute(
+                fleximark_protocol::WorkspaceCommand::PlanMigration {
+                    settings_uri: Some(format!("{uri}/missing-settings.json")),
+                    recover: false,
+                },
+                fleximark_protocol::CommandContext {
+                    workspace_uri: Some(uri),
+                    document: None,
+                },
+                &crate::CancellationToken::default(),
+            )
+            .err()
+            .unwrap();
         assert!(matches!(error, ApplicationError::Io(_)));
         assert!(error.source().unwrap().is::<std::io::Error>());
+        std::fs::remove_dir_all(root).unwrap();
     }
+
     #[test]
     fn io_errors_keep_their_semantic_category_and_native_cause() {
         for (native, kind) in [
@@ -295,39 +301,26 @@ mod tests {
 
     #[test]
     fn config_syntax_and_validation_causes_survive_native_operations() {
-        use crate::operations::{OperationRequest, WorkspaceOperation};
         let root = crate::native::test_support::test_workspace("config-source");
         let uri = crate::native::path_to_file_uri(&root).unwrap();
         crate::native::initialize_workspace(&uri).unwrap();
-        let mut registry = crate::SessionRegistry::new(fleximark_model::PositionEncoding::Utf8);
-        registry
-            .configure_workspaces(vec![(
-                uri.clone(),
-                fleximark_engine::RenderConfig::default(),
-            )])
+        let mut store = crate::DocumentStore::new(fleximark_model::PositionEncoding::Utf8);
+        store
+            .configure_native_workspaces(vec![(uri.clone(), true)])
             .unwrap();
         for (text, syntax) in [
             ("schema_version=1\nunknown=true", true),
             ("schema_version=1\n[notes]\nroot='../escape'", false),
         ] {
             std::fs::write(root.join(".fleximark/config.toml"), text).unwrap();
-            let result = registry.execute_operation(
-                WorkspaceOperation::CreateNote,
-                OperationRequest {
-                    daemon: registry.daemon_instance_id(),
-                    workspace: Some(&uri),
-                    document_session: None,
-                    document_version: None,
-                    destination: None,
-                    category: None,
-                    template: None,
-                    name: None,
-                },
-                &crate::CancellationToken::default(),
-            );
-            let error = result.err().unwrap();
+            let error = store
+                .reconfigure_native_workspace(&uri, true, &crate::CancellationToken::default())
+                .err()
+                .unwrap();
             assert_eq!(error.kind(), ErrorKind::Invalid);
             let source = error
+                .source()
+                .unwrap()
                 .source()
                 .unwrap()
                 .downcast_ref::<fleximark_config::ConfigError>()
@@ -336,7 +329,7 @@ mod tests {
                 assert!(matches!(source, fleximark_config::ConfigError::Syntax(_)));
             } else {
                 assert!(
-                    matches!(source, fleximark_config::ConfigError::NoteRoot(root) if root == "../escape")
+                    matches!(source,fleximark_config::ConfigError::NoteRoot(root) if root=="../escape")
                 );
             }
         }

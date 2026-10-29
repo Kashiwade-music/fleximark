@@ -1,5 +1,6 @@
-//! Role: Deliver LSP and RPC requests and session events over the daemon transport.
+//! Role: Negotiate LSP capabilities and serve document language queries.
 use super::diagnostics::{collect_heading_symbols, find_block};
+use super::lsp_types::*;
 use super::protocol::native_position;
 use super::state::*;
 use super::wire::*;
@@ -48,33 +49,38 @@ impl Server {
             .get("trusted")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let roots = options.get("workspaces").cloned().unwrap_or_else(|| {
-            let mut roots = params
-                .get("workspaceFolders")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|folder| {
-                    folder
-                        .get("uri")
-                        .cloned()
-                        .map(|uri| json!({"uri":uri,"trusted":trusted}))
-                })
-                .collect::<Vec<_>>();
-            if roots.is_empty() {
-                if let Some(uri) = params.get("rootUri").filter(|uri| uri.is_string()) {
-                    roots.push(json!({"uri":uri,"trusted":trusted}));
+        let roots: Result<Vec<(String, bool)>, ApplicationError> = (|| {
+            if let Some(roots) = options.get("workspaces") {
+                let roots: Vec<fleximark_protocol::WorkspaceGrant> =
+                    serde_json::from_value(roots.clone())?;
+                return Ok(roots
+                    .into_iter()
+                    .map(|root| (root.uri, root.trusted))
+                    .collect());
+            }
+            let mut roots = Vec::new();
+            if let Some(folders) = params.get("workspaceFolders").and_then(Value::as_array) {
+                for folder in folders {
+                    if let Some(uri) = folder.get("uri").and_then(Value::as_str) {
+                        roots.push((uri.to_owned(), trusted));
+                    }
                 }
             }
-            Value::Array(roots)
-        });
-        let configured = self.configure_session(Some(id.clone()), json!({"protocolVersion":PROTOCOL_VERSION,"client":{"name":params.pointer("/clientInfo/name").and_then(Value::as_str).unwrap_or("lsp-client"),"version":params.pointer("/clientInfo/version").and_then(Value::as_str).unwrap_or("")},"workspaces":roots,"capabilities":options.get("capabilities").cloned().unwrap_or_else(|| json!({"selectionEvents":false,"viewportEvents":false}))})).expect("initialization response");
-        if configured.get("error").is_some() {
-            self.lsp_initialized = false;
-            return Some(configured);
-        }
-        let experimental = configured.get("result").cloned().unwrap_or(Value::Null);
+            if roots.is_empty() {
+                if let Some(uri) = params.get("rootUri").and_then(Value::as_str) {
+                    roots.push((uri.to_owned(), trusted));
+                }
+            }
+            Ok(roots)
+        })();
+        let experimental = match roots.and_then(|roots| self.initialize_workspaces(roots, &options))
+        {
+            Ok(result) => result,
+            Err(error) => {
+                self.lsp_initialized = false;
+                return Some(session_error(id, error));
+            }
+        };
         let position_encoding = match encoding {
             PositionEncoding::Utf8 => "utf-8",
             PositionEncoding::Utf16 => "utf-16",
@@ -82,27 +88,45 @@ impl Server {
         };
         Some(response_value(Response::success(
             id,
-            json!({
-                "capabilities": {
-                    "positionEncoding": position_encoding,
-                    "textDocumentSync": { "openClose": true, "change": 1 },
-                    "completionProvider": {"triggerCharacters":[":","`",">"]},
-                    "hoverProvider": true,
-                    "documentSymbolProvider": true,
-                    "codeActionProvider": true,
-                    "executeCommandProvider":{"commands":super::standard_commands::COMMANDS},
-                    "experimental":{"fleximark":experimental},
-                    "semanticTokensProvider": {
-                        "legend": {
-                            "tokenTypes": fleximark_application::SEMANTIC_TOKEN_TYPES,
-                            "tokenModifiers": []
-                        },
-                        "full": true
+            Initialization {
+                capabilities: Capabilities {
+                    position_encoding,
+                    text_document_sync: DocumentSync {
+                        open_close: true,
+                        change: 1,
                     },
-                    "diagnosticProvider": {"interFileDependencies":false,"workspaceDiagnostics":false}
+                    completion_provider: CompletionProvider {
+                        trigger_characters: vec![":", "`", ">"],
+                    },
+                    hover_provider: true,
+                    document_symbol_provider: true,
+                    code_action_provider: true,
+                    execute_command_provider: ExecuteCommandProvider {
+                        commands: fleximark_protocol::COMMAND_DESCRIPTORS
+                            .iter()
+                            .map(|descriptor| descriptor.lsp_command)
+                            .collect(),
+                    },
+                    experimental: Experimental {
+                        fleximark: experimental,
+                    },
+                    semantic_tokens_provider: SemanticTokensProvider {
+                        legend: Legend {
+                            token_types: &fleximark_application::SEMANTIC_TOKEN_TYPES,
+                            token_modifiers: vec![],
+                        },
+                        full: true,
+                    },
+                    diagnostic_provider: DiagnosticProvider {
+                        inter_file_dependencies: false,
+                        workspace_diagnostics: false,
+                    },
                 },
-                "serverInfo": { "name": "fleximarkd", "version": env!("CARGO_PKG_VERSION") }
-            }),
+                server_info: ServerInfo {
+                    name: "fleximarkd",
+                    version: env!("CARGO_PKG_VERSION"),
+                },
+            },
         )))
     }
 
@@ -126,13 +150,16 @@ impl Server {
                 "position exceeds the document index range",
             ));
         };
-        let Ok(prefix) = self.registry.line_prefix(
-            uri,
-            fleximark_application::Position {
-                line: line32,
-                character: character32,
-            },
-        ) else {
+        let Ok(prefix) = self
+            .position_offset(
+                uri,
+                &super::lsp_types::Position {
+                    line: u64::from(line32),
+                    character: u64::from(character32),
+                },
+            )
+            .and_then(|offset| self.registry.line_prefix(uri, offset))
+        else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
@@ -210,10 +237,7 @@ impl Server {
                 "document is not open",
             )));
         };
-        let Ok(version) = self
-            .registry
-            .current_version(self.registry.daemon_instance_id(), session_id)
-        else {
+        let Ok(version) = self.registry.current_version(session_id) else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
@@ -225,18 +249,10 @@ impl Server {
             Ok(position) => position,
             Err(error) => return Some(session_error(id, error)),
         };
-        let Ok(Some(entry)) = self.registry.navigation_at_position(
-            self.registry.daemon_instance_id(),
-            session_id,
-            version,
-            &position,
-        ) else {
+        let Ok(Some(entry)) = self.navigation_at_position(session_id, version, &position) else {
             return Some(response_value(Response::success(id, Value::Null)));
         };
-        let Ok(document) =
-            self.registry
-                .document(self.registry.daemon_instance_id(), session_id, version)
-        else {
+        let Ok(document) = self.registry.document(session_id, version) else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
@@ -250,7 +266,15 @@ impl Server {
         };
         Some(response_value(Response::success(
             id,
-            json!({"contents":{"kind":"markdown","value":format!("**FlexiMark block**: `{kind}`\n\nUTF-8 source bytes {}..{}", entry.source_range.byte_start, entry.source_range.byte_end)}}),
+            Hover {
+                contents: MarkupContent {
+                    kind: "markdown",
+                    value: format!(
+                        "**FlexiMark block**: `{kind}`\n\nUTF-8 source bytes {}..{}",
+                        entry.source_range.byte_start, entry.source_range.byte_end
+                    ),
+                },
+            },
         )))
     }
 
@@ -270,20 +294,14 @@ impl Server {
                 "document is not open",
             )));
         };
-        let Ok(version) = self
-            .registry
-            .current_version(self.registry.daemon_instance_id(), session_id)
-        else {
+        let Ok(version) = self.registry.current_version(session_id) else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not current",
             )));
         };
-        let Ok(document) =
-            self.registry
-                .document(self.registry.daemon_instance_id(), session_id, version)
-        else {
+        let Ok(document) = self.registry.document(session_id, version) else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
@@ -300,198 +318,11 @@ impl Server {
         Some(response_value(Response::success(id, symbols)))
     }
 
-    pub(super) fn close_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        if id.is_some() {
-            return id.map(|id| {
-                response_value(Response::error(
-                    id,
-                    fleximark_protocol::error_code::INVALID_REQUEST,
-                    "LSP notification must not have an id",
-                ))
-            });
-        }
-        let params = match serde_json::from_value::<DidCloseParams>(params) {
-            Ok(params) => params,
-            Err(error) => {
-                crate::telemetry::log_operational_failure(
-                    "operation-failed",
-                    &error,
-                    None,
-                    None,
-                    None,
-                );
-                log_operational_event("did-close-invalid", None, None, None);
-                return None;
-            }
-        };
-        let uri = params.text_document.uri.clone();
-        if let Some(session_id) = self.registry.session_id_for_uri(&uri) {
-            let expired = self
-                .preview_states
-                .iter()
-                .filter(|(_, state)| state.document_session_id == session_id)
-                .map(|(id, _)| id.clone())
-                .collect::<Vec<_>>();
-            for preview_id in expired {
-                if let Some(state) = self.preview_states.remove(&preview_id) {
-                    let daemon_instance_id = self.registry.daemon_instance_id().to_owned();
-                    let _ = self.registry.dispose_preview(
-                        &daemon_instance_id,
-                        &state.document_session_id,
-                        &preview_id,
-                    );
-                    if let Some(token) = &state.token {
-                        self.previews.remove(token);
-                    }
-                }
-            }
-        }
-        self.registry.close(params);
-        {
-            self.outgoing_events.push(json!({
-                "jsonrpc":"2.0","method":"textDocument/publishDiagnostics",
-                "params":{"uri":uri,"diagnostics":[]}
-            }));
-        }
-        None
-    }
-
-    pub(super) fn open_lsp_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        if id.is_some() {
-            return id.map(|id| {
-                response_value(Response::error(
-                    id,
-                    fleximark_protocol::error_code::INVALID_REQUEST,
-                    "LSP notification must not have an id",
-                ))
-            });
-        }
-        let params = match serde_json::from_value::<DidOpenParams>(params) {
-            Ok(params) => params,
-            Err(error) => {
-                crate::telemetry::log_operational_failure(
-                    "operation-failed",
-                    &error,
-                    None,
-                    None,
-                    None,
-                );
-                log_operational_event("did-open-invalid", None, None, None);
-                return None;
-            }
-        };
-        if fleximark_protocol::JsSafeI64::new(params.text_document.version).is_err() {
-            return None;
-        }
-        let uri = params.text_document.uri.clone();
-        if let Err(error) = self
-            .registry
-            .open_with_cancellation(params, &self.work_cancellation)
-            .and_then(|_| self.refresh_assets(&uri))
-        {
-            crate::telemetry::log_operational_failure("operation-failed", &error, None, None, None);
-            log_operational_event("document-open-failed", Some(&uri), None, None);
-        } else {
-            self.publish_lsp_diagnostics(&uri);
-        }
-        None
-    }
-
-    pub(super) fn change_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
-        if id.is_some() {
-            return id.map(|id| {
-                response_value(Response::error(
-                    id,
-                    fleximark_protocol::error_code::INVALID_REQUEST,
-                    "LSP notification must not have an id",
-                ))
-            });
-        }
-        let params = match serde_json::from_value::<DidChangeParams>(params) {
-            Ok(params) => params,
-            Err(error) => {
-                crate::telemetry::log_operational_failure(
-                    "operation-failed",
-                    &error,
-                    None,
-                    None,
-                    None,
-                );
-                log_operational_event("did-change-invalid", None, None, None);
-                return None;
-            }
-        };
-        let uri = params.text_document.uri.clone();
-        let document_version = params.text_document.version;
-        if fleximark_protocol::JsSafeI64::new(document_version).is_err() {
-            return None;
-        }
-        let trace = OperationalTrace::new(Some(&uri), None, Some(document_version));
-        trace.log("change-received");
-        let transform_started = Instant::now();
-        if let Err(error) = self.apply_document_change(params) {
-            if matches!(error, ApplicationError::Cancelled) {
-                if let (Some(session), Ok(version)) = (
-                    self.registry.session_id_for_uri(&uri).map(str::to_owned),
-                    u64::try_from(document_version)
-                        .ok()
-                        .and_then(|value| JsSafeU64::new(value).ok())
-                        .ok_or(()),
-                ) {
-                    self.mark_preview_document_version(&session, version);
-                }
-            }
-            eprintln!(
-                "{}",
-                trace.event(
-                    "document-sync-failed",
-                    transform_started.elapsed(),
-                    None,
-                    false,
-                )
-            );
-            return None;
-        }
-        if let Some(session_id) = self.registry.session_id_for_uri(&uri).map(str::to_owned) {
-            if let Ok(version) = self
-                .registry
-                .current_version(self.registry.daemon_instance_id(), &session_id)
-                .and_then(|version| {
-                    u64::try_from(version)
-                        .map_err(|_| ApplicationError::VersionMismatch)
-                        .and_then(|version| {
-                            JsSafeU64::new(version).map_err(|_| ApplicationError::VersionMismatch)
-                        })
-                })
-            {
-                self.mark_preview_document_version(&session_id, version);
-            }
-        }
-        if self.publication_cancellation.is_cancelled() {
-            return None;
-        }
-        eprintln!(
-            "{}",
-            trace.event(
-                "transform-complete",
-                transform_started.elapsed(),
-                None,
-                false,
-            )
-        );
-        if !self.refresh_changed_document_assets(&uri, &trace) {
-            return None;
-        }
-        self.publish_changed_document(&uri);
-        None
-    }
-
-    fn apply_document_change(&mut self, params: DidChangeParams) -> Result<(), ApplicationError> {
-        self.registry
-            .change_with_cancellation(params, &self.work_cancellation)
-    }
-
-    fn refresh_changed_document_assets(&mut self, uri: &str, trace: &OperationalTrace) -> bool {
+    pub(super) fn refresh_changed_document_assets(
+        &mut self,
+        uri: &str,
+        trace: &OperationalTrace,
+    ) -> bool {
         let asset_started = Instant::now();
         if let Err(error) = self.refresh_assets(uri) {
             crate::telemetry::log_operational_failure("operation-failed", &error, None, None, None);
@@ -504,16 +335,14 @@ impl Server {
         true
     }
 
-    fn publish_changed_document(&mut self, uri: &str) {
+    pub(super) fn publish_changed_document(&mut self, uri: &str) {
         self.publish_lsp_diagnostics(uri);
         let Some(session_id) = self.registry.session_id_for_uri(uri).map(str::to_owned) else {
             return;
         };
-        let daemon_id = self.registry.daemon_instance_id().to_owned();
-        let version = self
-            .registry
-            .current_version(&daemon_id, &session_id)
-            .expect("changed document remains current");
+        let Ok(version) = self.registry.current_version(&session_id) else {
+            return;
+        };
         let preview_ids = self
             .preview_states
             .iter()
@@ -522,7 +351,6 @@ impl Server {
             .collect::<Vec<_>>();
         for preview_id in preview_ids {
             let frame = match self.registry.render_with_cancellation(
-                &daemon_id,
                 &session_id,
                 version,
                 &preview_id,
@@ -541,7 +369,7 @@ impl Server {
                         "preview-update-failed",
                         Some(uri),
                         Some(&session_id),
-                        Some(version),
+                        i64::try_from(version).ok(),
                     );
                     continue;
                 }

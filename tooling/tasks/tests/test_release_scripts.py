@@ -14,6 +14,7 @@ sys.path.insert(0, str(SCRIPTS))
 import _tools
 import tasks
 import distribution
+import distribution_contract
 import build
 
 class ToolProcessTests(unittest.TestCase):
@@ -207,7 +208,7 @@ class DistributionTests(unittest.TestCase):
             root = Path(temporary)
             with self.assertRaisesRegex(RuntimeError, "release tag differs"):
                 release_assets.verify(root, "a" * 40, "wrong-tag")
-            with self.assertRaisesRegex(RuntimeError, "exactly six"):
+        with self.assertRaisesRegex(RuntimeError, "every distribution target"):
                 release_assets.verify(root, "a" * 40, "v" + distribution.metadata()["version"])
 
     def test_native_build_has_no_node_or_browser_dependency(self):
@@ -215,7 +216,7 @@ class DistributionTests(unittest.TestCase):
             distribution.build_native()
             run.assert_called_once_with("cargo", "build", "--release", "--locked", "--bin", "fleximarkd", "--bin", "fleximark")
 
-    def test_all_six_targets_have_canonical_runtime_and_hash_sidecar(self):
+    def test_all_distribution_targets_have_canonical_runtime_and_hash_sidecar(self):
         import json
         import zipfile
         for target in distribution.TARGETS.values():
@@ -234,14 +235,16 @@ class DistributionTests(unittest.TestCase):
                     (preview / name).write_bytes(name.encode())
                 for name in ("workspace.js", "workspace.css"):
                     (workspace / name).write_bytes(name.encode())
-                with patch.object(distribution, "ROOT", root):
+                with patch.object(distribution, "ROOT", root), patch.object(distribution_contract, "ROOT", root):
                     archive = distribution.assemble_runtime(target, native_dir=native, preview_dir=preview)
                     distribution.verify_runtime(archive.parent / "runtime", target)
                     self.assertEqual(archive.with_suffix(".zip.sha256").read_text(), f"{distribution.digest(archive)}  {archive.name}\n")
                     with zipfile.ZipFile(archive) as stream:
                         manifest = json.loads(stream.read("manifest.json"))
                         self.assertEqual(set(stream.namelist()), set(manifest["files"]) | {"manifest.json"})
-                        self.assertEqual(len(manifest["files"]), 7)
+                        self.assertEqual(len(manifest["files"]), len(distribution_contract.SPEC["files"]))
+                        self.assertEqual(manifest["version"], "1.2.3")
+                        self.assertEqual(manifest["protocolVersion"], 5)
                     (archive.parent / "runtime" / "bin" / ("fleximark" + suffix)).write_bytes(b"tampered")
                     with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
                         distribution.verify_runtime(archive.parent / "runtime", target)

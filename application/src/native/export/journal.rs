@@ -1,4 +1,5 @@
 //! Role: Persist and validate append-only export recovery journals.
+use crate::native::integrity::sha256;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use cap_std::{ambient_authority, fs::Dir};
 use serde::Serialize;
 
 use super::filesystem::{
-    object_identity, object_identity_from_metadata, open_parent, random_id, sha256, sync_directory,
+    object_identity, object_identity_from_metadata, open_parent, random_id, sync_directory,
     write_json,
 };
 use super::model::{ExportJournal, ExportJournalRecord, ExportJournalState, ObjectIdentity};

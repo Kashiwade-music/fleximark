@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 
 from distribution import TARGETS, digest, metadata
-from release_artifact import _daemon_manifest_artifacts, _json_object, verify_identity
+from release_artifact import runtime_manifest_artifacts, _json_object, verify_identity
 from _tools import script_entrypoint
 
 
@@ -18,7 +18,7 @@ def verify(root: Path, source_git_head: str, tag: str) -> None:
     archives = list(root.rglob(f"fleximark-{version}-*.zip"))
     vsixes = list(root.rglob("*.vsix"))
     if len(archives) != len(TARGETS) or len(vsixes) != len(TARGETS):
-        raise RuntimeError("release must contain exactly six runtimes and six VSIX products")
+        raise RuntimeError("release must contain one runtime and VSIX for every distribution target")
     zed = list(root.rglob(f"fleximark-zed-{version}.zip"))
     if len(zed) != 1:
         raise RuntimeError("release must contain exactly one Zed editor product")
@@ -44,7 +44,7 @@ def verify(root: Path, source_git_head: str, tag: str) -> None:
             manifest = _json_object(payload, "release runtime manifest")
             if manifest.get("version") != version or manifest.get("target") != target:
                 raise RuntimeError("runtime identity does not match release")
-            artifacts = _daemon_manifest_artifacts(payload, "release runtime manifest")
+            artifacts = runtime_manifest_artifacts(payload, "release runtime manifest")
             expected = {item["path"].removeprefix("runtime/") for item in artifacts} | {"manifest.json"}
             if set(archive.namelist()) != expected or len(archive.namelist()) != len(expected):
                 raise RuntimeError("runtime archive contains unexpected or duplicated files")

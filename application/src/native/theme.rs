@@ -23,11 +23,17 @@ pub fn edit_theme(workspace_uri: &str) -> Result<ThemeResource, ApplicationError
     })
 }
 
-pub fn configured_render_config(
+pub fn load_configuration(
     workspace_uri: &str,
     trusted: bool,
     generation: u64,
-) -> Result<RenderConfig, ApplicationError> {
+) -> Result<
+    (
+        std::sync::Arc<fleximark_config::FlexiMarkConfig>,
+        RenderConfig,
+    ),
+    ApplicationError,
+> {
     use super::workspace::{CONFIG, open_regular_nofollow};
     use fleximark_config::FlexiMarkConfig;
     use std::io::Read;
@@ -48,13 +54,23 @@ pub fn configured_render_config(
     } else {
         CONFIG.to_owned()
     };
-    FlexiMarkConfig::from_toml(&source)?;
-    render_config(
+    let validated = std::sync::Arc::new(FlexiMarkConfig::from_toml(&source)?);
+    let render = render_config(
         &workspace,
         super::integrity::sha256(source.as_bytes()),
         generation,
         trusted,
-    )
+    )?;
+    Ok((validated, render))
+}
+
+#[cfg(test)]
+pub fn configured_render_config(
+    uri: &str,
+    trusted: bool,
+    generation: u64,
+) -> Result<RenderConfig, ApplicationError> {
+    load_configuration(uri, trusted, generation).map(|(_, render)| render)
 }
 
 pub(crate) fn render_config(

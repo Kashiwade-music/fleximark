@@ -29,7 +29,7 @@ core は concrete runtime、protocol DTO、filesystem、browser bundle に依存
 
 完全 frame 配送の wire protocol と config schema は version 1 である。リリースまでは形式変更でも version を上げず、旧形式を境界で拒否する。内部 IR に交換用の document schema version は置かない。拡張構文は組込みコードで実装し、動的なプラグイン機構は持たない。
 
-application は workspace 所属・trust・設定と文書状態を管理し、native 操作の型付き結果を返す。外部向けの message と JSON 応答は transport が組み立てる。CLI と daemon は共通の native 処理を利用する。中断 token は application が所有し、描画前と候補反映前、export の各段の境界で検査する。
+application の公開入口は DocumentStore、WorkspaceAuthority、WorkspaceOps と ApplicationError である。DocumentStore は native 全文更新と byte offset を扱い、LSP の position・identity は transport に閉じる。WorkspaceOps が共通の trust 検査を行う。検証済み config は WorkspaceAuthority が Arc で保持し、再設定で無効化する。外部向けの message と JSON 応答は transport が組み立てる。CLI と daemon は共通の native 処理を利用する。中断 token は application が所有し、描画前と候補反映前、export の各段の境界で検査する。
 
 ## 起動と文書同期
 
@@ -66,7 +66,7 @@ VS Code の文書 runtime は workspace を任意とし、単独の Markdown フ
 
 通常の相対リンクは拡張子に関係なく保持する。描画ポリシーで許可できないリンク先は active な `href` を出力せず、ラベルと本文を描画する。リンク先の拒否だけで文書全体の描画を失敗させない。画像の解決済み asset 対応表は hyperlink へ適用しない。
 
-Zed は通常版の公式 editor と外部ブラウザを使う。Code Action が URI・version・range を渡し、`workspace/executeCommand` が操作を実行する。プレビュー URL とソース範囲は標準 `window/showDocument` で開く。選択位置からプレビューへの明示移動、browser からソースへの移動、未保存本文の更新を扱う。Zed の継続的な editor viewport 追跡はこの製品契約に含めない。
+Zed は通常版の公式 editor と外部ブラウザを使う。Code Action は型付き WorkspaceCommandRequest を渡し、標準と custom executeCommand は同じ WorkspaceOps に配送する。command の名称・要件・UI対応は protocol の COMMAND_DESCRIPTORS を正本とする。プレビュー URL とソース範囲は標準 `window/showDocument` で開く。選択位置からプレビューへの明示移動、browser からソースへの移動、未保存本文の更新を扱う。Zed の継続的な editor viewport 追跡はこの製品契約に含めない。
 
 共通 workspace UI は文書・workspace の選択、note のカテゴリ・template・名前、theme、初期化、admonition 収集、export のフォームを提供する。文書 context がない command は開いている文書・workspace を画面で選択させる。
 
@@ -95,7 +95,7 @@ VS Code adapter は Node extension host から native process を起動する de
 
 通常の設定は `contracts/config` の現形式だけを読む。`.fleximark/config.toml` の semantic validation と、workspace trust・アセット containment の検証を実行する。WASM プラグイン設定は未知のフィールドとして拒否し、プラグインを読み込まない。export は浄化済みの portable render を組み立て、ownership と journal による transaction で保存する。
 
-旧 JSON、旧 theme、旧 editor 設定は明示的な migration 操作だけで読む。CLI と editor の migration command は同じ `migration` library を直接利用する。通常起動で旧設定を探索・通知・import しない。移行は計画の JSON、dry run、入力 snapshot の再検査、backup と復旧可能な適用を提供する。旧 JavaScript plugin は実行せず、保持して無効化を報告する。
+旧 JSON、旧 theme、旧 editor 設定は明示的な migration 操作だけで読む。CLI と editor の migration command は同じ `migration` library を直接利用する。通常起動で旧設定を探索・通知・import しない。移行は planMigration の確認後に同じ planId を applyMigration へ渡す。計画は workspace と入力 snapshot を保持し、再利用・入力変更を拒否する。CLI の dry run、backup と復旧可能な適用も共通操作を使う。旧 JavaScript plugin は実行せず、保持して無効化を報告する。
 
 ## 検証
 

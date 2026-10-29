@@ -1,13 +1,20 @@
-//! Role: Compose native document and migration CLI commands.
-use std::env;
-use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::time::Instant;
+//! Role: Dispatch CLI document and workspace commands through application APIs.
+use fleximark_application::{
+    CancellationToken, CommandOutcome, DocumentStore, DocumentUpdate, WorkspaceAuthority,
+    WorkspaceOps,
+};
+use fleximark_model::PositionEncoding;
+use fleximark_preview_assets::PreviewAssets;
+use fleximark_protocol::{CommandContext, DocumentCommandContext, WorkspaceCommand};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use fleximark_application::CancellationToken;
-use fleximark_engine::DocumentEngine;
-use fleximark_model::{DocumentUri, PositionEncoding};
+type CliResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+const USAGE: &str = "usage: fleximark <render|init|edit-theme|create-note|collect-admonitions|export|ack-export|migrate> [path] [destination]; create-note [workspace] [--category segment] [--template name] [--name file-name]; migrate [workspace] [--dry-run] [--recover] [--settings file]";
 
 fn main() {
     if let Err(error) = run() {
@@ -16,27 +23,32 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    if env::args().skip(1).collect::<Vec<_>>() == ["--version"] {
+fn run() -> CliResult {
+    let mut args = env::args().skip(1).collect::<Vec<_>>();
+    if args == ["--version"] {
         println!("fleximark {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    let mut raw_args = env::args().skip(1).collect::<Vec<_>>();
-    let trusted_workspace = raw_args
+    let trusted = args
         .iter()
         .position(|argument| argument == "--trusted-workspace")
         .map(|index| {
-            raw_args.remove(index);
+            args.remove(index);
             true
         })
         .unwrap_or(false);
-    let mut args = raw_args.into_iter();
-    let command = args.next().ok_or(
-        "usage: fleximark <render|benchmark|init|edit-theme|create-note|collect-admonitions|export|ack-export|migrate> [path] [destination]; migrate [workspace] [--dry-run] [--settings file]",
-    )?;
+    let command = if args.is_empty() {
+        return Err(USAGE.into());
+    } else {
+        args.remove(0)
+    };
     if command == "migrate" {
-        return migrate(args.collect());
+        return migrate(args, trusted);
     }
+    if command == "create-note" {
+        return create_note(args, trusted);
+    }
+    let mut args = args.into_iter();
     let path = args.next();
     let destination = args.next();
     if args.next().is_some()
@@ -44,259 +56,196 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("too many arguments".into());
     }
-    if !trusted_workspace
-        && matches!(
-            command.as_str(),
-            "init" | "edit-theme" | "create-note" | "collect-admonitions" | "export" | "ack-export"
-        )
-    {
-        return Err("workspace writes require --trusted-workspace".into());
-    }
+    let token = CancellationToken::default();
+    let mut store = DocumentStore::new(PositionEncoding::Utf8);
     match command.as_str() {
-        "benchmark" => {
-            if path.as_deref() != Some("--json") {
-                return Err("benchmark requires --json".into());
-            }
-            let mut results = Vec::new();
-            for lines in [1_000_usize, 10_000, 100_000] {
-                eprintln!("benchmark: start {lines} lines");
-                let source = (0..lines)
-                    .map(|index| format!("line {index}\n"))
-                    .collect::<String>();
-                let parse_started = Instant::now();
-                let mut session = DocumentEngine::open(
-                    DocumentUri(format!("file:///benchmark-{lines}.md")),
-                    1,
-                    source.clone(),
-                    PositionEncoding::Utf8,
-                    Default::default(),
-                )?;
-                let parse_ms = parse_started.elapsed().as_secs_f64() * 1_000.0;
-                let render_started = Instant::now();
-                let full = session.render(&fleximark_render_html::RenderContext::default())?;
-                let render_ms = render_started.elapsed().as_secs_f64() * 1_000.0;
-                let full_bytes = full.html().len();
-                let mut frame_bytes = 0;
-                let mut max_frame_bytes = 0;
-                let mut edit_update_ms = 0.0;
-                let mut edit_render_ms = 0.0;
-                let edits_started = Instant::now();
-                for edit in 0..20_u64 {
-                    let replacement = if edit % 2 == 0 { "Line" } else { "line" };
-                    let mut changed = source.clone();
-                    changed.replace_range(..4, replacement);
-                    let update_started = Instant::now();
-                    session.change(edit + 2, changed)?;
-                    edit_update_ms += update_started.elapsed().as_secs_f64() * 1_000.0;
-                    let edit_render_started = Instant::now();
-                    let frame = session.render(&fleximark_render_html::RenderContext::default())?;
-                    edit_render_ms += edit_render_started.elapsed().as_secs_f64() * 1_000.0;
-                    let bytes = frame.html().len();
-                    frame_bytes += bytes;
-                    max_frame_bytes = max_frame_bytes.max(bytes);
-                }
-                let edit_burst_ms = edits_started.elapsed().as_secs_f64() * 1_000.0;
-                eprintln!(
-                    "benchmark: complete {lines} lines (update={edit_update_ms:.1}ms, render={edit_render_ms:.1}ms)"
-                );
-                results.push(serde_json::json!({
-                    "lines": lines,
-                    "parseMs": parse_ms,
-                    "initialRenderMs": render_ms,
-                    "fullBytes": full_bytes,
-                    "editCount": 20,
-                    "editBurstMs": edit_burst_ms,
-                    "editUpdateMs": edit_update_ms,
-                    "editRenderMs": edit_render_ms,
-                    "frameBytes": frame_bytes,
-                    "maxFrameBytes": max_frame_bytes
-                }));
-            }
-            let special_started = Instant::now();
-            let special = DocumentEngine::open(
-                DocumentUri("file:///benchmark-special.md".into()),
-                1,
-                "```mermaid\ngraph TD; A-->B\n```\n```abc\nX:1\nK:C\nC\n```\n$E=mc^2$\n".into(),
-                PositionEncoding::Utf8,
-                Default::default(),
-            )?;
-            special.render(&fleximark_render_html::RenderContext::default())?;
-            let special_render_ms = special_started.elapsed().as_secs_f64() * 1_000.0;
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({
-                    "schemaVersion": 1,
-                    "byteMetric": "renderedHtmlUtf8",
-                    "peakMemoryBytes": peak_memory_bytes()?,
-                    "specialRenderMs": special_render_ms,
-                    "documents": results
-                }))?
-            );
-        }
         "render" => {
             let path = path.ok_or("render requires a document")?;
-            let source = fs::read_to_string(&path)?;
-            let uri = path_to_uri(Path::new(&path))?;
-            let session =
-                fleximark_application::native::open_document(uri, source, trusted_workspace)?;
-            let frame = session.render(&session.render_config().context)?;
-            let html = frame.html();
-            io::stdout().lock().write_all(html.as_bytes())?;
+            let uri = WorkspaceAuthority::path_to_file_uri(Path::new(&path))?;
+            store.open(
+                DocumentUpdate {
+                    uri: uri.clone(),
+                    version: 1,
+                    source: fs::read_to_string(path)?,
+                },
+                &token,
+            )?;
+            let attachment = store.attach(&uri, 1)?;
+            let document = store.document(&attachment.document_session_id, 1)?;
+            let snapshot = document
+                .engine()
+                .render(&document.engine().render_config().context)?;
+            io::stdout().lock().write_all(snapshot.html().as_bytes())?;
         }
-        "init" | "edit-theme" | "create-note" => {
+        "init" | "edit-theme" => {
             let root = PathBuf::from(path.unwrap_or_else(|| ".".into()));
-            let uri = fleximark_application::native::path_to_file_uri(&root)?;
-            let resource = match command.as_str() {
-                "init" => fleximark_application::native::initialize_workspace(&uri)?.config_uri,
-                "edit-theme" => fleximark_application::native::edit_theme(&uri)?.uri,
-                _ => fleximark_application::native::create_note(&uri)?.uri,
+            let uri = WorkspaceAuthority::path_to_file_uri(&root)?;
+            store.configure_native_workspaces(vec![(uri.clone(), trusted)])?;
+            let operation = if command == "init" {
+                WorkspaceCommand::InitializeWorkspace {}
+            } else {
+                WorkspaceCommand::EditTheme {}
             };
-            println!("{resource}");
+            let outcome = execute(&mut store, operation, workspace_context(uri), None, &token)?;
+            match outcome {
+                CommandOutcome::Initialized(result) => println!("{}", result.config_uri),
+                CommandOutcome::Theme(result) => println!("{}", result.uri),
+                _ => return Err("unexpected workspace operation outcome".into()),
+            }
         }
-        "collect-admonitions" => {
-            let path = path.ok_or("collect-admonitions requires a document")?;
-            let source = fs::read_to_string(&path)?;
-            let session = fleximark_application::native::open_document(
-                path_to_uri(Path::new(&path))?,
-                source.clone(),
-                trusted_workspace,
+        "collect-admonitions" | "export" | "ack-export" => {
+            let path = path.ok_or("command requires a document")?;
+            let path = Path::new(&path).canonicalize()?;
+            let source_uri = WorkspaceAuthority::path_to_file_uri(&path)?;
+            let workspace_uri = WorkspaceAuthority::discover_workspace(&source_uri)?;
+            store.configure_native_workspaces(vec![(workspace_uri.clone(), trusted)])?;
+            store.open(
+                DocumentUpdate {
+                    uri: source_uri.clone(),
+                    version: 1,
+                    source: fs::read_to_string(path)?,
+                },
+                &token,
             )?;
-            let workspace_uri = fleximark_application::native::workspace_for_document(
-                &path_to_uri(&Path::new(&path).canonicalize()?)?,
-            )?;
-            let result = fleximark_application::native::collect_admonitions(
-                session.document(),
-                &source,
-                &workspace_uri,
-            )?;
-            println!("Collected {} admonitions: {}", result.count, result.uri);
-        }
-        "export" => {
-            let path = path.ok_or("export requires a document")?;
-            let canonical = Path::new(&path).canonicalize()?;
-            let source_uri = path_to_uri(&canonical)?;
-            let source = fs::read_to_string(&canonical)?;
-            let workspace_uri = fleximark_application::native::workspace_for_document(&source_uri)?;
-            let destination_uri = match destination {
-                Some(path) => {
-                    let path = PathBuf::from(path);
-                    let absolute = if path.is_absolute() {
-                        path
-                    } else {
-                        env::current_dir()?.join(path)
-                    };
-                    let parent = absolute.parent().ok_or("destination has no parent")?;
-                    let name = absolute.file_name().ok_or("destination has no name")?;
-                    fleximark_application::native::path_to_file_uri(
-                        &parent.canonicalize()?.join(name),
-                    )?
+            let attachment = store.attach(&source_uri, 1)?;
+            let context = CommandContext {
+                workspace_uri: Some(workspace_uri),
+                document: Some(DocumentCommandContext {
+                    document_session_id: attachment.document_session_id,
+                    expected_document_version: 1_i64.try_into()?,
+                }),
+            };
+            let operation = match command.as_str() {
+                "export" => WorkspaceCommand::ExportHtml {
+                    destination_uri: Some(export_destination(&source_uri, destination)?),
+                },
+                "ack-export" => WorkspaceCommand::AcknowledgeExport {
+                    destination_uri: Some(export_destination(&source_uri, destination)?),
+                },
+                _ => WorkspaceCommand::CollectAdmonitions {},
+            };
+            let resources = if command == "export" {
+                Some(Arc::new(PreviewAssets::installed()?))
+            } else {
+                None
+            };
+            match execute(&mut store, operation, context, resources, &token)? {
+                CommandOutcome::Exported(result) => println!("{}", result.output_uri),
+                CommandOutcome::ExportAcknowledged => {
+                    println!("Export opened and validated; recovery backup released")
                 }
-                None => fleximark_application::native::default_export_destination(&source_uri)?,
-            };
-            let session = fleximark_application::native::open_document(
-                source_uri.clone(),
-                source.clone(),
-                trusted_workspace,
-            )?;
-            let result = fleximark_application::native::export_document(
-                &session,
-                &source_uri,
-                &workspace_uri,
-                &destination_uri,
-                &CancellationToken::default(),
-            )?;
-            println!("{}", result.output_uri);
-        }
-        "ack-export" => {
-            let path = path.ok_or("ack-export requires a document")?;
-            let source_uri = path_to_uri(&Path::new(&path).canonicalize()?)?;
-            let workspace_uri = fleximark_application::native::workspace_for_document(&source_uri)?;
-            let destination_uri = match destination {
-                Some(path) => {
-                    let path = PathBuf::from(path);
-                    let absolute = if path.is_absolute() {
-                        path
-                    } else {
-                        env::current_dir()?.join(path)
-                    };
-                    let parent = absolute.parent().ok_or("destination has no parent")?;
-                    let name = absolute.file_name().ok_or("destination has no name")?;
-                    fleximark_application::native::path_to_file_uri(
-                        &parent.canonicalize()?.join(name),
-                    )?
+                CommandOutcome::Admonitions(result) => {
+                    println!("Collected {} admonitions: {}", result.count, result.uri)
                 }
-                None => fleximark_application::native::default_export_destination(&source_uri)?,
-            };
-            fleximark_application::native::acknowledge_export(
-                &source_uri,
-                &workspace_uri,
-                &destination_uri,
-            )?;
-            println!("Export opened and validated; recovery backup released");
+                _ => return Err("unexpected document operation outcome".into()),
+            }
         }
         _ => return Err(format!("unknown command: {command}").into()),
     }
     Ok(())
 }
 
-fn peak_memory_bytes() -> Result<u64, Box<dyn std::error::Error>> {
-    #[cfg(target_os = "linux")]
-    {
-        let status = fs::read_to_string("/proc/self/status")?;
-        let kib = status
-            .lines()
-            .find_map(|line| line.strip_prefix("VmHWM:"))
-            .and_then(|value| value.split_whitespace().next())
-            .ok_or("/proc/self/status did not report VmHWM")?
-            .parse::<u64>()?;
-        Ok(kib * 1024)
-    }
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::ProcessStatus::{
-            K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
-        };
-        use windows_sys::Win32::System::Threading::GetCurrentProcess;
-        let mut counters = unsafe { std::mem::zeroed::<PROCESS_MEMORY_COUNTERS>() };
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-        if unsafe {
-            K32GetProcessMemoryInfo(
-                GetCurrentProcess(),
-                &mut counters,
-                std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        Ok(counters.PeakWorkingSetSize as u64)
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
-        if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        Ok(usage.ru_maxrss as u64)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-    {
-        Err("peak RSS measurement is unsupported on this platform".into())
+fn workspace_context(uri: String) -> CommandContext {
+    CommandContext {
+        workspace_uri: Some(uri),
+        document: None,
     }
 }
 
-fn path_to_uri(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    Ok(fleximark_application::native::path_to_file_uri(path)?)
+fn execute(
+    store: &mut DocumentStore,
+    operation: WorkspaceCommand,
+    context: CommandContext,
+    resources: Option<Arc<PreviewAssets>>,
+    token: &CancellationToken,
+) -> CliResult<CommandOutcome> {
+    // Apply the protocol's argument constraints to values built by the CLI too.
+    let operation = serde_json::from_value(serde_json::to_value(operation)?)?;
+    Ok(WorkspaceOps::new(store, resources).execute(operation, context, token)?)
 }
 
-fn migrate(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn export_destination(source_uri: &str, destination: Option<String>) -> CliResult<String> {
+    let Some(destination) = destination else {
+        return Ok(WorkspaceAuthority::default_export_destination(source_uri)?);
+    };
+    let path = PathBuf::from(destination);
+    let absolute = if path.is_absolute() {
+        path
+    } else {
+        env::current_dir()?.join(path)
+    };
+    let parent = absolute.parent().ok_or("destination has no parent")?;
+    let name = absolute.file_name().ok_or("destination has no name")?;
+    Ok(WorkspaceAuthority::path_to_file_uri(
+        &parent.canonicalize()?.join(name),
+    )?)
+}
+
+fn create_note(args: Vec<String>, trusted: bool) -> CliResult {
+    let mut root = None;
+    let mut categories = Vec::new();
+    let mut template = None;
+    let mut name = None;
+    let mut args = args.into_iter();
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--category" => categories.push(args.next().ok_or("--category requires a segment")?),
+            "--template" => {
+                let value = args.next().ok_or("--template requires a name")?;
+                if template.replace(value).is_some() {
+                    return Err("--template may only be supplied once".into());
+                }
+            }
+            "--name" => {
+                let value = args.next().ok_or("--name requires a file name")?;
+                if name.replace(value).is_some() {
+                    return Err("--name may only be supplied once".into());
+                }
+            }
+            value if value.starts_with("--") => {
+                return Err(format!("unknown create-note option: {value}").into());
+            }
+            _ => {
+                if root.replace(PathBuf::from(argument)).is_some() {
+                    return Err("create-note accepts one workspace".into());
+                }
+            }
+        }
+    }
+    let root = root.unwrap_or_else(|| PathBuf::from("."));
+    let uri = WorkspaceAuthority::path_to_file_uri(&root)?;
+    let mut store = DocumentStore::new(PositionEncoding::Utf8);
+    store.configure_native_workspaces(vec![(uri.clone(), trusted)])?;
+    let operation = WorkspaceCommand::CreateNote {
+        category_path: if categories.is_empty() {
+            None
+        } else {
+            Some(categories)
+        },
+        template,
+        name,
+    };
+    match execute(
+        &mut store,
+        operation,
+        workspace_context(uri),
+        None,
+        &CancellationToken::default(),
+    )? {
+        CommandOutcome::Note(result) => println!("{}", result.uri),
+        _ => return Err("unexpected note operation outcome".into()),
+    }
+    Ok(())
+}
+
+fn migrate(args: Vec<String>, trusted: bool) -> CliResult {
     let mut dry_run = false;
     let mut recover = false;
-    let mut workspace = None;
+    let mut root = None;
     let mut settings = None;
     let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
             "--dry-run" => dry_run = true,
             "--recover" => recover = true,
             "--settings" => {
@@ -308,63 +257,65 @@ fn migrate(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
                 return Err(format!("unknown migration option: {value}").into());
             }
             _ => {
-                if workspace.replace(PathBuf::from(arg)).is_some() {
+                if root.replace(PathBuf::from(argument)).is_some() {
                     return Err("migrate accepts one workspace".into());
                 }
             }
         }
     }
-    let workspace = workspace.unwrap_or_else(|| PathBuf::from("."));
-    if recover {
-        if dry_run || settings.is_some() {
-            return Err("--recover cannot be combined with --dry-run or --settings".into());
-        }
-        println!("{}", fleximark_migration::recover(&workspace)?);
-        return Ok(());
+    if recover && (dry_run || settings.is_some()) {
+        return Err("--recover cannot be combined with --dry-run or --settings".into());
     }
-    let plan = fleximark_migration::plan(&workspace, settings.as_deref())?;
+    let uri = WorkspaceAuthority::path_to_file_uri(&root.unwrap_or_else(|| PathBuf::from(".")))?;
+    let settings_uri = settings
+        .as_deref()
+        .map(WorkspaceAuthority::path_to_file_uri)
+        .transpose()?;
+    let mut store = DocumentStore::new(PositionEncoding::Utf8);
+    store.configure_native_workspaces(vec![(uri.clone(), trusted)])?;
+    let context = workspace_context(uri);
+    let token = CancellationToken::default();
+    let plan = match execute(
+        &mut store,
+        WorkspaceCommand::PlanMigration {
+            settings_uri,
+            recover,
+        },
+        context.clone(),
+        None,
+        &token,
+    )? {
+        CommandOutcome::MigrationPlanned(plan) => plan,
+        _ => return Err("unexpected migration plan outcome".into()),
+    };
     println!("{}", serde_json::to_string_pretty(&plan)?);
     if !dry_run {
-        if let Some(backup) = plan.apply()? {
-            println!(
-                "Migration applied; original workspace data backed up at {}",
-                backup.display()
-            );
+        match execute(
+            &mut store,
+            WorkspaceCommand::ApplyMigration {
+                plan_id: plan.plan_id,
+            },
+            context,
+            None,
+            &token,
+        )? {
+            CommandOutcome::MigrationApplied(result) => {
+                let fleximark_application::MigrationAppliedOutcome {
+                    backup_uri,
+                    recovered,
+                } = result;
+                if recovered {
+                    println!("Migration recovery completed");
+                }
+                if let Some(backup_uri) = backup_uri {
+                    println!(
+                        "Migration applied; original workspace data backed up at {}",
+                        WorkspaceAuthority::workspace_path(&backup_uri)?.display()
+                    );
+                }
+            }
+            _ => return Err("unexpected migration apply outcome".into()),
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    //! Role: Verify invariants and rejection of invalid inputs.
-    use super::*;
-
-    #[test]
-    fn restricted_session_ignores_invalid_workspace_configuration() {
-        let root = std::env::temp_dir().join(format!(
-            "fleximark-cli-untrusted-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&root).unwrap();
-        let workspace_uri = fleximark_application::native::path_to_file_uri(&root).unwrap();
-        fleximark_application::native::initialize_workspace(&workspace_uri).unwrap();
-        fs::write(root.join(".fleximark/config.toml"), "invalid = [").unwrap();
-        let document = root.join("doc.md");
-        fs::write(&document, "# Safe\n").unwrap();
-        let document_uri = path_to_uri(&document).unwrap();
-        assert!(matches!(
-            fleximark_application::native::workspace_for_document(&document_uri),
-            Err(fleximark_application::ApplicationError::Config(_))
-        ));
-        let session =
-            fleximark_application::native::open_document(document_uri, "# Safe\n".into(), false)
-                .expect("restricted CLI never reads workspace configuration");
-        assert_eq!(session.document().blocks.len(), 1);
-        fs::remove_dir_all(root).unwrap();
-    }
 }

@@ -1,17 +1,14 @@
 import { defineConfig } from "@vscode/test-cli";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { arch, platform } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { URL } from "node:url";
 
 import { RUNTIME_TARGETS as targets } from "../../contracts/distribution/distribution.generated.mjs";
+import { releaseMetadata } from "../../tooling/tasks/release-metadata.mjs";
 
-const version = /^version = "([^"]+)"/m.exec(
-  readFileSync(new URL("../../release.toml", import.meta.url), "utf8"),
-)[1];
+const { version } = releaseMetadata();
 const testUserDataDirectory = mkdtempSync(
   join(tmpdir(), "fleximark-vscode-test-"),
 );

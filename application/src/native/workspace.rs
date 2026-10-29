@@ -17,7 +17,7 @@ schema_version = 1
 [notes]
 # Save notes under this workspace-relative directory. Use "." for the workspace root.
 # Use forward slashes for nested directories, e.g. "documents/notes".
-root = "notes"
+root = "."
 
 # Optional filename decorations; the .md extension is added automatically.
 # Dates use UTC: ${CURRENT_YEAR}, ${CURRENT_MONTH}, ${CURRENT_DATE}.
@@ -68,7 +68,8 @@ const THEME: &str = "/* FlexiMark workspace theme */\n:root { color-scheme: ligh
 
 pub fn initialize_workspace(workspace_uri: &str) -> Result<InitializedWorkspace, ApplicationError> {
     let root = workspace_path(workspace_uri)?;
-    let control = open_control_directory(&root, true)?.expect("created control directory");
+    let control =
+        open_control_directory(&root, true)?.ok_or(ApplicationError::InvalidControlPath)?;
     write_new_at(&control, "config.toml", CONFIG)?;
     validate_config(&root.join(".fleximark/config.toml"))?;
     write_new_at(&control, "theme.css", THEME)?;
@@ -77,13 +78,6 @@ pub fn initialize_workspace(workspace_uri: &str) -> Result<InitializedWorkspace,
         config_uri: path_to_file_uri(&config)?,
         theme_uri: path_to_file_uri(&root.join(".fleximark/theme.css"))?,
     })
-}
-
-pub(crate) fn safe_workspace_relative_path(value: &str) -> bool {
-    !value.is_empty()
-        && Path::new(value)
-            .components()
-            .all(|component| matches!(component, std::path::Component::Normal(_)))
 }
 
 pub(crate) fn open_control_directory(
@@ -190,7 +184,6 @@ pub fn workspace_for_document(document_uri: &str) -> Result<String, ApplicationE
         .ancestors()
     {
         if parent.join(".fleximark/config.toml").is_file() {
-            validate_config(&parent.join(".fleximark/config.toml"))?;
             return path_to_file_uri(parent);
         }
     }
@@ -202,12 +195,12 @@ mod tests {
     //! Role: Verify workspace operations and security invariants.
     use super::*;
     use crate::native::test_support::test_workspace;
-    use crate::native::{configured_render_config, create_note, get_note_options};
+    use crate::native::{configured_render_config, create_note};
 
     #[test]
     fn commented_examples_are_valid_and_leave_defaults_unchanged() {
         let defaults = FlexiMarkConfig::from_toml(CONFIG).unwrap();
-        assert_eq!(defaults.notes.root, "notes");
+        assert_eq!(defaults.notes.root, ".");
         assert!(defaults.notes.file_name_prefix.is_empty());
         assert!(defaults.notes.file_name_suffix.is_empty());
         assert!(defaults.notes.categories.is_empty());
@@ -297,7 +290,7 @@ mod tests {
             Err(ApplicationError::LinkedControlDirectory)
         ));
         assert!(matches!(
-            get_note_options(&uri),
+            validate_config(&root.join(".fleximark/config.toml")),
             Err(ApplicationError::LinkedControlDirectory)
         ));
         assert!(matches!(

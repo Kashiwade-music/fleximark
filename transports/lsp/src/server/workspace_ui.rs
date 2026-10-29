@@ -1,189 +1,160 @@
-//! Role: Adapt browser forms to document-aware workspace operations.
-use super::commands;
+//! Role: Resolve browser document context and return typed workspace UI state.
 use super::state::*;
-
-fn without_nulls(mut value: Value) -> Value {
-    if let Some(fields) = value.as_object_mut() {
-        fields.retain(|_, value| !value.is_null());
-    }
-    value
-}
-
-fn decode_query(value: &str) -> Option<String> {
-    let mut bytes = Vec::new();
-    let mut input = value.bytes();
-    while let Some(byte) = input.next() {
-        bytes.push(match byte {
-            b'%' => {
-                let a = (input.next()? as char).to_digit(16)?;
-                let b = (input.next()? as char).to_digit(16)?;
-                (a * 16 + b) as u8
-            }
-            b'+' => b' ',
-            byte => byte,
-        });
-    }
-    String::from_utf8(bytes).ok()
-}
-
+use fleximark_protocol::{
+    CommandContext, DocumentCommandContext, WorkspaceCommand, WorkspaceCommandRequest,
+    WorkspaceStateRequest, WorkspaceStateResult, WorkspaceUiContext, WorkspaceUiDocument,
+    WorkspaceUiWorkspace,
+};
 impl Server {
     pub fn workspace_request(
         &mut self,
-        request: Value,
-    ) -> Result<Value, fleximark_application::ApplicationError> {
+        request: crate::preview_http::WorkspaceRequest,
+    ) -> Result<crate::preview_http::WorkspaceResponse, ApplicationError> {
         if !self.lsp_initialized {
             return Err(ApplicationError::InvalidState(
                 "server is not initialized".into(),
             ));
         }
-        match request.get("kind").and_then(Value::as_str) {
-            Some("state") => self.workspace_state(&request),
-            Some("command") => {
-                self.workspace_command(request.get("params").cloned().unwrap_or(Value::Null))
+        match request {
+            crate::preview_http::WorkspaceRequest::State(request) => self
+                .workspace_state(request)
+                .map(crate::preview_http::WorkspaceResponse::State),
+            crate::preview_http::WorkspaceRequest::Command(request) => {
+                let context = self.resolve_ui_context(request.context)?;
+                let result = self.dispatch_command(
+                    WorkspaceCommandRequest {
+                        daemon_instance_id: self.daemon_instance_id().to_owned(),
+                        context,
+                        operation: request.operation,
+                    },
+                    true,
+                )?;
+                Ok(crate::preview_http::WorkspaceResponse::Command(result))
             }
-            _ => Err(ApplicationError::InvalidState(
-                "unknown workspace request".into(),
-            )),
         }
     }
-
-    fn workspace_state(
+    pub(super) fn ui_context(
         &self,
-        request: &Value,
-    ) -> Result<Value, fleximark_application::ApplicationError> {
-        let context = request.get("context").cloned().unwrap_or_else(|| json!({}));
-        let query_workspace = request
-            .get("query")
-            .and_then(Value::as_str)
-            .and_then(|query| {
-                query.split('&').find_map(|pair| {
-                    let (key, value) = pair.split_once('=')?;
-                    if key == "workspaceUri" {
-                        decode_query(value)
-                    } else {
-                        None
-                    }
+        context: &CommandContext,
+    ) -> Result<WorkspaceUiContext, ApplicationError> {
+        let (document_uri, document_version) = if let Some(document) = &context.document {
+            let version = u64::try_from(document.expected_document_version.get())
+                .map_err(|_| ApplicationError::VersionMismatch)?;
+            let session = self
+                .registry
+                .document(&document.document_session_id, version)?;
+            (
+                Some(session.uri.clone()),
+                Some(document.expected_document_version),
+            )
+        } else {
+            (None, None)
+        };
+        Ok(WorkspaceUiContext {
+            workspace_uri: context.workspace_uri.clone(),
+            document_uri,
+            document_version,
+        })
+    }
+    fn resolve_ui_context(
+        &self,
+        context: WorkspaceUiContext,
+    ) -> Result<CommandContext, ApplicationError> {
+        let document = match (context.document_uri.as_deref(), context.document_version) {
+            (Some(uri), Some(version)) => {
+                let native =
+                    u64::try_from(version.get()).map_err(|_| ApplicationError::VersionMismatch)?;
+                let attached = self.registry.attach(uri, native)?;
+                Some(DocumentCommandContext {
+                    document_session_id: attached.document_session_id,
+                    expected_document_version: version,
                 })
-            });
-        let selected = query_workspace.or_else(|| {
+            }
+            (None, None) => None,
+            _ => {
+                return Err(ApplicationError::InvalidState(
+                    "document URI and version must be selected together".into(),
+                ));
+            }
+        };
+        let workspace_uri = context.workspace_uri.or_else(|| {
             context
-                .get("workspaceUri")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| {
-                    context
-                        .get("documentUri")
-                        .and_then(Value::as_str)
-                        .and_then(|uri| self.workspace_for_document(uri).map(|(uri, _)| uri))
-                })
+                .document_uri
+                .as_deref()
+                .and_then(|uri| self.workspace_for_document(uri).map(|(uri, _)| uri))
         });
-        let mut workspaces = self.registry.workspace_statuses().iter().map(|(uri, trusted, _)| {
-            let options = if *trusted { fleximark_application::native::get_note_options(uri).ok().map(commands::note_options_value) } else { None };
-            json!({"uri":uri,"name":uri.rsplit('/').next().unwrap_or(uri),"trusted":trusted,"noteOptions":options})
-        }).collect::<Vec<_>>();
-        workspaces.sort_by(|a, b| a["uri"].as_str().cmp(&b["uri"].as_str()));
+        Ok(CommandContext {
+            workspace_uri,
+            document,
+        })
+    }
+    fn workspace_state(
+        &mut self,
+        request: WorkspaceStateRequest,
+    ) -> Result<WorkspaceStateResult, ApplicationError> {
+        let context = self.resolve_ui_context(request.context.clone())?;
+        let mut workspaces = Vec::new();
+        for status in self.registry.workspace_statuses() {
+            let options = self
+                .dispatch_command(
+                    WorkspaceCommandRequest {
+                        daemon_instance_id: self.daemon_instance_id().to_owned(),
+                        context: CommandContext {
+                            workspace_uri: Some(status.uri.clone()),
+                            document: None,
+                        },
+                        operation: WorkspaceCommand::GetNoteOptions {},
+                    },
+                    true,
+                )
+                .ok()
+                .and_then(|result| match result {
+                    fleximark_protocol::CommandResult::NoteOptions { options, .. } => Some(options),
+                    _ => None,
+                });
+            let trusted = status.trusted;
+            workspaces.push(WorkspaceUiWorkspace {
+                name: status
+                    .uri
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&status.uri)
+                    .to_owned(),
+                uri: status.uri,
+                trusted,
+                note_options: options,
+            });
+        }
+        workspaces.sort_by(|a, b| a.uri.cmp(&b.uri));
         let documents = self
             .registry
             .open_documents()
             .into_iter()
             .map(|(uri, document)| {
-                let workspace = self.workspace_for_document(&uri).map(|(uri, _)| uri);
-                without_nulls(
-                    json!({"uri":uri,"version":document.document_version,"workspaceUri":workspace}),
-                )
+                let version = i64::try_from(document.document_version)
+                    .ok()
+                    .and_then(|version| fleximark_protocol::JsSafeI64::new(version).ok())
+                    .ok_or(ApplicationError::IntegerRange(document.document_version))?;
+                let workspace_uri = self.workspace_for_document(&uri).map(|(uri, _)| uri);
+                Ok(WorkspaceUiDocument {
+                    uri,
+                    version,
+                    workspace_uri,
+                })
             })
-            .collect::<Vec<_>>();
-        let options = selected
-            .as_deref()
-            .filter(|uri| self.workspace_grants_write(uri))
-            .and_then(|uri| fleximark_application::native::get_note_options(uri).ok())
-            .map(commands::note_options_value);
-        Ok(without_nulls(
-            json!({"workspaces":workspaces,"documents":documents,"noteOptions":options,"command":request.get("command"),"context":context}),
-        ))
-    }
-
-    fn workspace_command(
-        &mut self,
-        request: Value,
-    ) -> Result<Value, fleximark_application::ApplicationError> {
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        struct Command {
-            command: String,
-            document_uri: Option<String>,
-            document_version: Option<i64>,
-            workspace_uri: Option<String>,
-            note_category_path: Option<Vec<String>>,
-            note_template: Option<String>,
-            note_file_name: Option<String>,
-            destination_uri: Option<String>,
-        }
-        let request: Command = serde_json::from_value(request)?;
-        let command = request.command.trim_start_matches("fleximark.");
-        if !matches!(
-            command,
-            "initializeWorkspace"
-                | "editTheme"
-                | "createNote"
-                | "exportHtml"
-                | "collectAdmonitions"
-        ) {
-            return Err(ApplicationError::InvalidState(
-                "unknown workspace command".into(),
-            ));
-        }
-        let session = request
-            .document_uri
-            .as_deref()
-            .map(|uri| {
-                self.registry
-                    .session_id_for_uri(uri)
-                    .map(str::to_owned)
-                    .ok_or(ApplicationError::NotOpen)
-            })
-            .transpose()?;
-        let workspace = request.workspace_uri.or_else(|| {
-            request
-                .document_uri
-                .as_deref()
-                .and_then(|uri| self.workspace_for_document(uri).map(|(uri, _)| uri))
-        });
-        if matches!(command, "exportHtml" | "collectAdmonitions")
-            && (session.is_none() || request.document_version.is_none())
-        {
-            return Err(ApplicationError::InvalidState(
-                "select an open document and its current version".into(),
-            ));
-        }
-        let expected_document_version = request
-            .document_version
-            .map(TryInto::try_into)
-            .transpose()
-            .map_err(|_| {
-                ApplicationError::InvalidState(
-                    "document version exceeds the transport integer range".into(),
-                )
-            })?;
-        let params = ExecuteCommandParams {
-            daemon_instance_id: self.registry.daemon_instance_id().into(),
-            command: command.into(),
-            workspace_uri: workspace,
-            document_session_id: session,
-            expected_document_version,
-            note_category_path: request.note_category_path,
-            note_template: request.note_template,
-            note_file_name: request.note_file_name,
-            destination_uri: request.destination_uri,
-            arguments: Vec::new(),
-        };
-        let result = self.execute_operation(&params)?;
-        if let Some(uri) = &result.open_uri {
-            self.show_document(uri, false, None);
-        }
-        Ok(without_nulls(
-            json!({"message":result.message.map(|message|message.text),"openUri":result.open_uri,"data":result.data}),
-        ))
+            .collect::<Result<Vec<_>, ApplicationError>>()?;
+        let note_options = context
+            .workspace_uri
+            .as_ref()
+            .and_then(|uri| workspaces.iter().find(|workspace| &workspace.uri == uri))
+            .and_then(|workspace| workspace.note_options.clone());
+        Ok(WorkspaceStateResult {
+            workspaces,
+            documents,
+            note_options,
+            command: request.command,
+            context: request.context,
+        })
     }
 
     pub fn browser_notification(&mut self, message: Value) -> Vec<Value> {
@@ -203,12 +174,10 @@ impl Server {
         {
             return vec![];
         };
-        let Ok(Some(frame)) = self.registry.read_preview(
-            self.registry.daemon_instance_id(),
-            &state.document_session_id,
-            preview,
-            None,
-        ) else {
+        let Ok(Some(frame)) = self
+            .registry
+            .read_preview(&state.document_session_id, preview, None)
+        else {
             return vec![];
         };
         let Some(range) = message
@@ -217,21 +186,14 @@ impl Server {
         else {
             return vec![];
         };
-        let version = match self.registry.current_version(
-            self.registry.daemon_instance_id(),
-            &state.document_session_id,
-        ) {
+        let version = match self.registry.current_version(&state.document_session_id) {
             Ok(version) => version,
             Err(_) => return vec![],
         };
-        if frame.document_version != version as u64 {
+        if frame.document_version != version {
             return vec![];
         }
-        let document = match self.registry.document(
-            self.registry.daemon_instance_id(),
-            &state.document_session_id,
-            version,
-        ) {
+        let document = match self.registry.document(&state.document_session_id, version) {
             Ok(document) => document,
             Err(_) => return vec![],
         };

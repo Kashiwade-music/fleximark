@@ -3,11 +3,11 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::native::integrity::sha256;
 use cap_fs_ext::{DirExt, FollowSymlinks, MetadataExt as _, OpenOptionsFollowExt};
 use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use super::model::{ExportJournal, ObjectIdentity, OwnershipPayload, RecordedObject};
 use crate::native::ApplicationError;
@@ -52,10 +52,6 @@ pub(super) fn write_synced(
 
 pub(super) fn payload_digest(payload: &OwnershipPayload) -> Result<String, ApplicationError> {
     Ok(sha256(&serde_json::to_vec(payload)?))
-}
-
-pub(crate) fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
 }
 
 pub(super) fn open_parent(path: &Path) -> Result<(Dir, std::ffi::OsString), ApplicationError> {
@@ -418,11 +414,7 @@ pub(super) fn sync_directory(path: &Path) -> Result<(), ApplicationError> {
 }
 
 pub(super) fn safe_relative_path(path: &str) -> bool {
-    !path.is_empty()
-        && !reserved_export_path(path)
-        && Path::new(path)
-            .components()
-            .all(|component| matches!(component, std::path::Component::Normal(_)))
+    crate::native::paths::safe_workspace_relative_path(path) && !reserved_export_path(path)
 }
 
 pub(super) fn reserved_export_path(path: &str) -> bool {

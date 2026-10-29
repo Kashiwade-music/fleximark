@@ -1,86 +1,65 @@
-export interface Category {
-  name: string;
-  children: Category[];
-}
-export interface WorkspaceState {
-  command?: string;
-  context?: { workspaceUri?: string; documentUri?: string };
-  workspaces: { uri: string; name: string }[];
-  documents: {
-    uri: string;
-    version?: number;
-    workspaceUri?: string;
-    title?: string;
-  }[];
-  noteOptions?: { categories: Category[]; templates: string[] };
-}
-export interface CommandResult {
-  message?: string;
-  openUri?: string;
-  data?: unknown;
-}
-export type WorkspaceCommand =
-  | "createNote"
-  | "initializeWorkspace"
-  | "editTheme"
-  | "collectAdmonitions"
-  | "exportHtml";
-export interface CommandInput {
-  command: WorkspaceCommand;
-  workspaceUri: string;
-  documentUri?: string;
-  documentVersion?: number;
-  noteCategoryPath?: string[];
-  noteTemplate?: string;
-  noteFileName?: string;
-  destinationUri?: string;
-}
+import type {
+  CommandResult,
+  MigrationPlanResult,
+  NoteCategoryOption,
+  WorkspaceStateResult,
+  WorkspaceUiCommandRequest,
+} from "../../contracts/typescript/protocol.generated.mjs";
+import { COMMAND_DESCRIPTORS } from "../../contracts/typescript/protocol.generated.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
+import { hasContractShape } from "../../contracts/typescript/protocol.mjs";
+
+export const browserCommands = COMMAND_DESCRIPTORS.filter(
+  (command) => command.browserUi,
+);
 const object = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string";
-const category = (v: unknown): v is Category =>
-  object(v) &&
-  text(v.name) &&
-  Array.isArray(v.children) &&
-  v.children.every(category);
-export function isWorkspaceState(v: unknown): v is WorkspaceState {
-  return (
-    object(v) &&
-    Array.isArray(v.workspaces) &&
-    v.workspaces.every((w) => object(w) && text(w.uri) && text(w.name)) &&
-    Array.isArray(v.documents) &&
-    v.documents.every(
-      (d) =>
-        object(d) &&
-        text(d.uri) &&
-        (d.version === undefined || Number.isSafeInteger(d.version)) &&
-        (d.workspaceUri === undefined || text(d.workspaceUri)) &&
-        (d.title === undefined || text(d.title)),
-    ) &&
-    (v.command === undefined || text(v.command)) &&
-    (v.context === undefined ||
-      (object(v.context) &&
-        (v.context.workspaceUri === undefined ||
-          text(v.context.workspaceUri)) &&
-        (v.context.documentUri === undefined ||
-          text(v.context.documentUri)))) &&
-    (v.noteOptions === undefined ||
-      (object(v.noteOptions) &&
-        Array.isArray(v.noteOptions.categories) &&
-        v.noteOptions.categories.every(category) &&
-        Array.isArray(v.noteOptions.templates) &&
-        v.noteOptions.templates.every(text)))
-  );
+export function isWorkspaceState(v: unknown): v is WorkspaceStateResult {
+  return hasContractShape("workspaceStateResult", v);
 }
 export function isCommandResult(v: unknown): v is CommandResult {
-  return (
-    object(v) &&
-    (v.message === undefined || text(v.message)) &&
-    (v.openUri === undefined || text(v.openUri))
+  return hasContractShape("commandResult", v);
+}
+
+export async function runWorkspaceCommand(
+  input: WorkspaceUiCommandRequest,
+  send: (input: WorkspaceUiCommandRequest) => Promise<CommandResult>,
+  confirmMigration: (plan: MigrationPlanResult) => boolean | Promise<boolean>,
+  isCurrent: () => boolean = () => true,
+): Promise<CommandResult | undefined> {
+  if (!browserCommands.some(({ name }) => name === input.operation.command))
+    throw new Error("This operation is not available in the browser.");
+  const response = await send(input);
+  if (!isCurrent()) return;
+  if (response.kind !== "migrationPlanned") return response;
+  if (response.plan.status !== "ready") return response;
+  if (!(await confirmMigration(response.plan)) || !isCurrent()) return;
+  const descriptor = COMMAND_DESCRIPTORS.find(
+    ({ kind }) => kind === WORKSPACE_COMMAND_KIND.applyMigration,
   );
+  if (!descriptor || descriptor.kind !== WORKSPACE_COMMAND_KIND.applyMigration)
+    throw new Error("Migration operation is unavailable.");
+  return send({
+    context: input.context,
+    operation: { command: descriptor.name, planId: response.plan.planId },
+  });
+}
+
+export function migrationSummary(plan: MigrationPlanResult): string {
+  return [
+    `Status: ${plan.status}`,
+    `Workspace: ${plan.workspaceUri}`,
+    "Outputs:",
+    ...plan.outputs,
+    "Warnings:",
+    ...plan.warnings,
+    "Configuration:",
+    plan.config,
+  ].join("\n");
 }
 export function categoryPaths(
-  categories: Category[],
+  categories: NoteCategoryOption[],
   parents: string[] = [],
 ): string[][] {
   return categories.flatMap((c) => {
@@ -105,8 +84,8 @@ export async function readResponse<T>(
   const value: unknown = await response.json();
   if (!response.ok)
     throw new Error(
-      object(value) && text(value.message)
-        ? value.message
+      object(value) && text(value.error)
+        ? value.error
         : "Request failed (" + response.status + ").",
     );
   if (!validate(value))

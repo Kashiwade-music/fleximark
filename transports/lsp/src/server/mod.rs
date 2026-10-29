@@ -1,12 +1,15 @@
 //! Role: Assemble standard LSP routing and external contract adapters.
 mod commands;
 mod diagnostics;
+mod document_sync;
+mod fleximark_methods;
 mod language;
 mod lsp;
+mod lsp_types;
+mod positions;
 mod protocol;
 mod publication;
 mod routing;
-mod rpc;
 mod standard_commands;
 mod state;
 mod wire;

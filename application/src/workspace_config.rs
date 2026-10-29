@@ -1,119 +1,131 @@
-//! Role: Configure native workspace authority and transactional reconfiguration.
-use crate::CancellationToken;
-use crate::error::ApplicationError;
-use crate::native;
-use crate::registry::SessionRegistry;
+//! Role: Reload workspace configuration and commit document render policies together.
+use crate::{ApplicationError, CancellationToken, DocumentStore, WorkspaceState, WorkspaceStatus};
 use std::collections::{HashMap, HashSet};
-pub struct WorkspaceConfigurationStatus {
-    pub uri: String,
-    pub enabled: bool,
-    pub error: Option<String>,
-}
-impl SessionRegistry {
+impl DocumentStore {
     pub fn configure_native_workspaces(
         &mut self,
         roots: Vec<(String, bool)>,
-    ) -> Result<Vec<WorkspaceConfigurationStatus>, ApplicationError> {
+    ) -> Result<Vec<WorkspaceStatus>, ApplicationError> {
         let generation = self.config_generation.checked_add(1).ok_or_else(|| {
             ApplicationError::InternalState("configuration generation exhausted".into())
         })?;
-        let mut seen = HashSet::new();
-        if roots.iter().any(|(uri, _)| !seen.insert(uri.clone())) {
-            return Err(ApplicationError::InvalidState(
-                "workspace URI is duplicated".into(),
-            ));
-        }
-        let mut canonical_roots = HashSet::new();
+        let mut uris = HashSet::new();
+        let mut paths = HashSet::new();
         for (uri, _) in &roots {
-            if let Ok(path) = native::workspace_path(uri) {
-                if !canonical_roots.insert(path) {
+            if !uris.insert(uri.clone()) {
+                return Err(ApplicationError::InvalidState(
+                    "workspace URI is duplicated".into(),
+                ));
+            }
+            if let Ok(path) = crate::native::workspace_path(uri) {
+                if !paths.insert(path) {
                     return Err(ApplicationError::InvalidState(
                         "canonical workspace root is duplicated".into(),
                     ));
                 }
             }
         }
+        let mut loaded = Vec::new();
+        let mut failures = Vec::new();
         let mut configured = Vec::new();
-        let mut statuses = Vec::new();
-        let mut grants = Vec::new();
         for (uri, trusted) in roots {
-            match native::configured_render_config(&uri, trusted, generation) {
-                Ok(config) => {
-                    configured.push((uri.clone(), config));
-                    grants.push((uri.clone(), trusted, true));
-                    statuses.push(WorkspaceConfigurationStatus {
+            match crate::native::load_configuration(&uri, trusted, generation) {
+                Ok((config, render)) => {
+                    configured.push((uri.clone(), render));
+                    loaded.push((
                         uri,
-                        enabled: true,
-                        error: None,
-                    });
+                        trusted,
+                        if trusted {
+                            WorkspaceState::Trusted
+                        } else {
+                            WorkspaceState::Restricted
+                        },
+                        Some(config),
+                    ));
                 }
                 Err(error) => {
-                    grants.push((uri.clone(), false, false));
-                    statuses.push(WorkspaceConfigurationStatus {
-                        uri,
-                        enabled: false,
-                        error: Some(error.to_string()),
-                    });
+                    let message = error.to_string();
+                    failures.push((uri.clone(), error));
+                    configured.push((uri.clone(), Default::default()));
+                    loaded.push((uri, trusted, WorkspaceState::Invalid(message), None));
                 }
             }
         }
         self.configure_workspaces(configured)?;
-        for (uri, trusted, enabled) in grants {
-            self.set_workspace_status(&uri, trusted, enabled);
+        for (uri, trusted, state, config) in loaded {
+            self.workspaces.set_state(&uri, state);
+            self.workspaces.set_grant(&uri, trusted);
+            if let Some(config) = config {
+                self.workspaces.install_config(&uri, config);
+            } else {
+                self.workspaces.invalidate(&uri);
+            }
+        }
+        for (uri, error) in failures {
+            self.workspaces.record_failure(&uri, error);
         }
         self.config_generation = generation;
-        Ok(statuses)
+        Ok(self.workspace_statuses())
     }
     pub fn reconfigure_native_workspace(
         &mut self,
-        daemon: &str,
         uri: &str,
         trusted: bool,
         cancellation: &CancellationToken,
     ) -> Result<(), ApplicationError> {
-        self.verify_daemon(daemon)?;
         if !self
             .workspace_statuses()
             .iter()
-            .any(|(root, _, _)| root == uri)
+            .any(|status| status.uri == uri)
         {
             return Err(ApplicationError::InvalidState(
                 "workspace is not registered".into(),
             ));
         }
+        self.workspaces.invalidate(uri);
         if !trusted {
             self.workspaces.revoke(uri);
-            let documents = self.workspace_documents(uri);
-            let mut failure = None;
-            for (document_uri, _) in documents {
+            for (document_uri, _) in self.workspace_documents(uri) {
                 if let Some(session) = self.index.by_uri_mut(&document_uri) {
-                    if let Err(error) = session
-                        .engine
-                        .set_render_config(fleximark_engine::RenderConfig::default())
-                    {
-                        failure = Some(error);
-                    }
+                    session.engine.set_render_config(Default::default())?;
                 }
-            }
-            if let Some(error) = failure {
-                return Err(crate::error::engine_error(error));
             }
         }
         let generation = self.config_generation.checked_add(1).ok_or_else(|| {
             ApplicationError::InternalState("configuration generation exhausted".into())
         })?;
-        let config = native::configured_render_config(uri, trusted, generation)?;
+        let (config, render) = match crate::native::load_configuration(uri, trusted, generation) {
+            Ok(value) => value,
+            Err(error) => {
+                self.workspaces
+                    .set_state(uri, WorkspaceState::Invalid(error.to_string()));
+                let error = std::sync::Arc::new(error);
+                self.workspaces
+                    .record_shared_failure(uri, std::sync::Arc::clone(&error));
+                return Err(ApplicationError::WorkspaceConfiguration(error));
+            }
+        };
         let mut assets = HashMap::new();
         for (document_uri, document) in self.workspace_documents(uri) {
-            let resolved = if trusted {
-                native::resolve_render_assets(&document_uri, uri, &document)?
-            } else {
-                Default::default()
-            };
-            assets.insert(document_uri, resolved);
+            assets.insert(
+                document_uri.clone(),
+                if trusted {
+                    crate::native::resolve_render_assets(&document_uri, uri, &document, &config)?
+                } else {
+                    Default::default()
+                },
+            );
         }
-        self.reconfigure_workspace(uri, config, assets, cancellation)?;
-        self.set_workspace_status(uri, trusted, true);
+        self.reconfigure_workspace(uri, render, assets, cancellation)?;
+        self.workspaces.install_config(uri, config);
+        self.workspaces.set_state(
+            uri,
+            if trusted {
+                WorkspaceState::Trusted
+            } else {
+                WorkspaceState::Restricted
+            },
+        );
         self.config_generation = generation;
         Ok(())
     }

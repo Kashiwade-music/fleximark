@@ -1,13 +1,17 @@
 //! Role: Verify workspace operations and security invariants.
+use super::filesystem::object_identity;
 use super::filesystem::read_json_regular;
 use super::journal::read_journal;
+use super::journal::{append_journal, create_journal};
 use super::model::RecordedObject;
+use super::model::{ExportJournal, ExportJournalState, OwnershipMarker, RegistryRecord};
 use super::*;
 use crate::native::assets::resolve_export_assets;
 use crate::native::integrity::ObjectIdentity;
 use crate::native::test_support::test_workspace;
 use crate::native::{initialize_workspace, path_to_file_uri};
 use fleximark_engine::ResolvedRenderAsset;
+use std::fs;
 
 #[test]
 fn export_resolves_and_manifests_only_contained_assets() {
@@ -695,6 +699,7 @@ fn cancelled_export_preserves_existing_destination() {
             &workspace_uri,
             &destination_uri,
             &token,
+            None,
         );
         assert!(
             matches!(result, Err(ApplicationError::Cancelled)),

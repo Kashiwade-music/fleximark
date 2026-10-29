@@ -11,7 +11,10 @@ use crate::cancellation::{CancellationCoordinator, WorkPermit};
 use crate::server::{Server, response_value};
 use crate::telemetry::log_operational_failure;
 
-pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(
+    assets: crate::preview_http::BrowserAssets,
+    resources: Arc<fleximark_preview_assets::PreviewAssets>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let output = CoalescingOutput::default();
     let writer_output = output.clone();
     thread::spawn(move || {
@@ -83,7 +86,8 @@ pub fn run(assets: crate::preview_http::BrowserAssets) -> Result<(), Box<dyn std
             }
         }
     });
-    let mut server = Server::with_assets(Some(browser_outgoing), assets);
+    let mut server = Server::with_assets(Some(browser_outgoing), assets)?;
+    server.set_preview_assets(resources);
     server.set_workspace_handler(Arc::new(move |request| {
         let (reply, response) = mpsc::channel();
         input_sender
@@ -269,8 +273,10 @@ enum InputEvent {
     Browser(Value),
     Response(Value),
     Workspace {
-        request: Value,
-        reply: mpsc::Sender<Result<Value, fleximark_application::ApplicationError>>,
+        request: crate::preview_http::WorkspaceRequest,
+        reply: mpsc::Sender<
+            Result<crate::preview_http::WorkspaceResponse, fleximark_application::ApplicationError>,
+        >,
     },
     Message {
         message: IncomingMessage,
@@ -336,7 +342,7 @@ mod tests {
     fn suppresses_cancelled_and_obsolete_work_before_publication() {
         let coordinator = CancellationCoordinator::default();
         let (outgoing, incoming) = mpsc::channel();
-        let mut server = Server::new(crate::test_services::assets());
+        let mut server = Server::new(crate::test_services::assets()).unwrap();
 
         let cancelled_request = message(Some(80), "unknown/request", json!({}));
         let cancelled_permit = coordinator.prepare(&cancelled_request).unwrap();
@@ -410,7 +416,7 @@ mod tests {
     fn obsolete_lsp_change_applies_mutation_but_suppresses_all_publication() {
         let coordinator = CancellationCoordinator::default();
         let (outgoing, incoming) = mpsc::channel();
-        let mut server = Server::new(crate::test_services::assets());
+        let mut server = Server::new(crate::test_services::assets()).unwrap();
         let initialized =
             server.handle(message(Some(11), "initialize", json!({"capabilities":{}})));
         let daemon_id = initialized[0]["result"]["capabilities"]["experimental"]["fleximark"]["daemonInstanceId"]
@@ -480,10 +486,7 @@ mod tests {
         )
         .unwrap();
 
-        let document = server
-            .registry
-            .document(&daemon_id, &session_id, 2)
-            .unwrap();
+        let document = server.registry.document(&session_id, 2).unwrap();
         assert_eq!(document.source(), "two\n");
         assert_eq!(
             server.previews.pages.lock().unwrap()[&token]

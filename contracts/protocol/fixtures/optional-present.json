@@ -11,11 +11,8 @@
           "version": "1"
         },
         "capabilities": {
-          "embeddedHtml": true,
-          "structuredPreview": false,
           "selectionEvents": true,
-          "viewportEvents": true,
-          "openExternal": true
+          "viewportEvents": true
         },
         "workspaces": [
           {
@@ -120,30 +117,36 @@
     },
     {
       "name": "execute command params with all optional fields",
-      "definition": "executeCommandParams",
+      "definition": "workspaceCommandRequest",
       "value": {
         "daemonInstanceId": "daemon",
-        "command": "createNote",
-        "documentSessionId": "document",
-        "expectedDocumentVersion": 3,
-        "workspaceUri": "file:///workspace",
-        "destinationUri": "file:///workspace/note.md",
-        "noteCategoryPath": [
-          "Work"
-        ],
-        "noteTemplate": "daily",
-        "noteFileName": "session"
+        "context": {
+          "workspaceUri": "file:///workspace",
+          "document": {
+            "documentSessionId": "document",
+            "expectedDocumentVersion": 3
+          }
+        },
+        "operation": {
+          "command": "createNote",
+          "categoryPath": [
+            "Work"
+          ],
+          "template": "daily",
+          "name": "session"
+        }
       }
     },
     {
       "name": "command result with all optional fields",
       "definition": "commandResult",
       "value": {
+        "kind": "noteCreated",
+        "uri": "file:///workspace/note.md",
         "message": {
           "level": "warning",
           "text": "review note"
-        },
-        "openUri": "file:///workspace/note.md"
+        }
       }
     }
   ]

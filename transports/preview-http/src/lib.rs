@@ -6,7 +6,7 @@ mod workspace;
 use workspace::serve_workspace_request;
 mod state;
 use state::WorkspaceService;
-pub use state::{PreviewPage, PreviewServer, StoredEvent};
+pub use state::{PreviewPage, PreviewServer, StoredEvent, WorkspaceRequest, WorkspaceResponse};
 mod http;
 use http::*;
 use std::collections::HashMap;

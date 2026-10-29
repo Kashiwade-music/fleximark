@@ -66,3 +66,12 @@ pub(crate) fn preview_changed_notification(params: PreviewChangedParams) -> Valu
     })
     .expect("preview changed notification is serializable")
 }
+
+pub(super) fn notification_value(method: &'static str, params: impl serde::Serialize) -> Value {
+    serde_json::to_value(Notification {
+        jsonrpc: "2.0",
+        method,
+        params,
+    })
+    .unwrap_or(Value::Null)
+}

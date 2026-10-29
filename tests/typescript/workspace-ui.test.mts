@@ -1,10 +1,19 @@
 import * as assert from "node:assert/strict";
 
 import {
+  COMMAND_DESCRIPTORS,
+  type CommandResult,
+  type WorkspaceUiCommandRequest,
+} from "../../contracts/typescript/protocol.generated.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
+import {
+  browserCommands,
   categoryPaths,
   isCommandResult,
   isWorkspaceState,
+  migrationSummary,
   readResponse,
+  runWorkspaceCommand,
   validateFileName,
 } from "../../web/workspace-ui/model.mjs";
 
@@ -19,9 +28,13 @@ export function suite(): void {
     );
   });
   test("rejects incomplete server context and malformed note options", () => {
-    assert.equal(isWorkspaceState({ workspaces: [], documents: [] }), true);
+    assert.equal(
+      isWorkspaceState({ context: {}, workspaces: [], documents: [] }),
+      true,
+    );
     assert.equal(
       isWorkspaceState({
+        context: {},
         workspaces: [{ uri: "file:///work" }],
         documents: [],
       }),
@@ -29,6 +42,7 @@ export function suite(): void {
     );
     assert.equal(
       isWorkspaceState({
+        context: {},
         workspaces: [],
         documents: [{ uri: "file:///a", version: 1.5 }],
       }),
@@ -36,6 +50,7 @@ export function suite(): void {
     );
     assert.equal(
       isWorkspaceState({
+        context: {},
         workspaces: [],
         documents: [],
         noteOptions: {
@@ -64,7 +79,7 @@ export function suite(): void {
       ({ ok: status === 200, status, json: async () => value }) as Response;
     await assert.rejects(
       readResponse(
-        response({ message: "Document changed; select it again" }, 409),
+        response({ error: "Document changed; select it again" }, 409),
         isCommandResult,
       ),
       /Document changed/,
@@ -73,5 +88,115 @@ export function suite(): void {
       readResponse(response({ openUri: 42 }), isCommandResult),
       /invalid response/,
     );
+  });
+  test("uses browser permissions from generated descriptors including export acknowledgement", () => {
+    assert.deepEqual(
+      browserCommands,
+      COMMAND_DESCRIPTORS.filter(({ browserUi }) => browserUi),
+    );
+    assert.ok(
+      browserCommands.some(
+        ({ kind }) => kind === WORKSPACE_COMMAND_KIND.acknowledgeExport,
+      ),
+    );
+    assert.equal(
+      isCommandResult({ message: "old form", openUri: "file:///out" }),
+      false,
+    );
+    assert.equal(isWorkspaceState({ workspaces: [], documents: [] }), false);
+  });
+  test("migration shows the complete plan before confirmation and applies its exact plan id", async () => {
+    const calls: WorkspaceUiCommandRequest[] = [];
+    const plan: Extract<CommandResult, { kind: "migrationPlanned" }> = {
+      kind: "migrationPlanned",
+      plan: {
+        planId: "plan-1",
+        workspaceUri: "file:///work",
+        status: "ready",
+        outputs: ["note.md"],
+        warnings: ["old plugin omitted"],
+        config: "schemaVersion = 1",
+        recovery: false,
+      },
+    };
+    const planning = COMMAND_DESCRIPTORS.find(
+      ({ kind }) => kind === WORKSPACE_COMMAND_KIND.planMigration,
+    );
+    const applying = COMMAND_DESCRIPTORS.find(
+      ({ kind }) => kind === WORKSPACE_COMMAND_KIND.applyMigration,
+    );
+    assert.ok(
+      planning &&
+        planning.kind === WORKSPACE_COMMAND_KIND.planMigration &&
+        applying &&
+        applying.kind === WORKSPACE_COMMAND_KIND.applyMigration,
+    );
+    const input: WorkspaceUiCommandRequest = {
+      context: { workspaceUri: "file:///work" },
+      operation: { command: planning.name, recover: false },
+    };
+    const send = async (
+      request: WorkspaceUiCommandRequest,
+    ): Promise<CommandResult> => {
+      calls.push(request);
+      return calls.length === 1
+        ? plan
+        : { kind: "migrationApplied", backupUri: null, recovered: false };
+    };
+    const response = await runWorkspaceCommand(input, send, (received) => {
+      assert.equal(calls.length, 1);
+      assert.equal(received, plan.plan);
+      const summary = migrationSummary(received);
+      for (const text of [
+        "ready",
+        "note.md",
+        "old plugin omitted",
+        "schemaVersion = 1",
+      ])
+        assert.ok(summary.includes(text));
+      return true;
+    });
+    assert.equal(response?.kind, "migrationApplied");
+    assert.deepEqual(calls[1], {
+      context: input.context,
+      operation: { command: applying.name, planId: "plan-1" },
+    });
+    calls.length = 0;
+    assert.equal(
+      await runWorkspaceCommand(input, send, () => false),
+      undefined,
+    );
+    assert.equal(calls.length, 1);
+    calls.length = 0;
+    let current = true;
+    assert.equal(
+      await runWorkspaceCommand(
+        input,
+        send,
+        () => {
+          current = false;
+          return true;
+        },
+        () => current,
+      ),
+      undefined,
+    );
+    assert.equal(calls.length, 1);
+    calls.length = 0;
+    let confirmations = 0;
+    assert.equal(
+      await runWorkspaceCommand(
+        input,
+        send,
+        () => {
+          confirmations++;
+          return true;
+        },
+        () => false,
+      ),
+      undefined,
+    );
+    assert.equal(confirmations, 0);
+    assert.equal(calls.length, 1);
   });
 }

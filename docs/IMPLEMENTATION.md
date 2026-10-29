@@ -32,11 +32,11 @@ core の位置は UTF-8 byte 範囲だけを保持し、共有 SourceIndex が�
 
 VS Code は埋め込み Webview と外部 browser を提供する。通常版 Zed は共通の外部 browser UI を使い、Code Action の URI・version・range、executeCommand、window/showDocument によってプレビューと workspace 操作を提供する。Zed では明示 source-to-preview と browser-to-source navigation を扱い、継続的な viewport 追跡は契約に含めない。
 
-browser UI は context が足りない場合に文書・workspace を選択させ、note category/template/name と export destination を型付き操作へ渡す。application は `CreatedNote` や `ExportReceipt` などの outcome を返す。強化済みの表示状態は HTMLElement にひもづけ、保持した DOM の操作状態を毎回作り直さない。
+browser UI は context が足りない場合に文書・workspace を選択させ、note category/template/name と export destination を型付き操作へ渡す。WorkspaceCommand と CommandContext を受ける WorkspaceOps が唯一の操作入口で、application は CommandOutcome を返す。transport が CommandResult へ変換する。native module は非公開とし、必要な値だけを root で公開する。強化済みの表示状態は HTMLElement にひもづけ、保持した DOM の操作状態を毎回作り直さない。
 
 ## 配布とデータ移行
 
-`contracts/distribution/distribution.json` は target、配布ファイル、サイズ上限を記述する。codegen が runtime schema と TS/JS 定数を生成する。Rust の `RuntimeDistribution` を runtime 資源と Zed の検証に共用し、Node の binary 検証も生成 schema・上限・hash・包含・link 検査を使う。
+`contracts/distribution/distribution.json` は target、配布ファイル、サイズ上限を記述する。codegen が runtime schema と TS/JS 定数を生成する。Rust の `RuntimeDistribution` を runtime 資源と Zed の検証に共用し、Node の binary 検証も生成 schema・上限・hash・包含・link 検査を使う。Python の distribution_contract も同じ JSON を組立・検証・smoke に共用する。release.toml の読取りは言語ごとの共通 helper にまとめる。
 
 root の `release.toml` が製品 version を所有する。native archive は daemon、CLI、preview/workspace browser 資源、version・target・protocol・SHA-256 を記録した manifest を含む。source、`.build` の build output、`.artifacts` の製品 staging を分ける。root `package.json` は private tooling である。
 

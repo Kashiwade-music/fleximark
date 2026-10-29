@@ -4,19 +4,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::native::paths::safe_workspace_relative_path;
+#[cfg(test)]
+use crate::native::workspace::validate_config;
 use crate::outcomes::{CollectedAdmonitions, CreatedNote, NoteCategory, NoteOptions};
 use fleximark_config::{NoteCategoryConfig, is_safe_note_category_name};
 use fleximark_model::{Block, BlockKind, Document, Node};
 
-use crate::native::workspace::{
-    open_control_directory, reject_link, safe_workspace_relative_path, validate_config,
-};
+use crate::native::workspace::{open_control_directory, reject_link};
 use crate::native::{ApplicationError, path_to_file_uri, workspace_path};
 
-pub fn get_note_options(workspace_uri: &str) -> Result<NoteOptions, ApplicationError> {
-    let root = workspace_path(workspace_uri)?;
-    let config = validate_config(&root.join(".fleximark/config.toml"))?;
-    Ok(NoteOptions {
+pub fn get_note_options(config: &fleximark_config::FlexiMarkConfig) -> NoteOptions {
+    NoteOptions {
         categories: config
             .notes
             .categories
@@ -24,7 +23,7 @@ pub fn get_note_options(workspace_uri: &str) -> Result<NoteOptions, ApplicationE
             .map(|(name, category)| note_category_option(name, category))
             .collect(),
         templates: config.notes.templates.keys().cloned().collect(),
-    })
+    }
 }
 
 fn note_category_option(name: &str, category: &NoteCategoryConfig) -> NoteCategory {
@@ -38,23 +37,25 @@ fn note_category_option(name: &str, category: &NoteCategoryConfig) -> NoteCatego
     }
 }
 
+#[cfg(test)]
 pub fn create_note(workspace_uri: &str) -> Result<CreatedNote, ApplicationError> {
-    create_note_with_options(workspace_uri, None, None, None)
+    let config = validate_config(&workspace_path(workspace_uri)?.join(".fleximark/config.toml"))?;
+    create_note_with_options(workspace_uri, &config, None, None, None)
 }
 
 pub fn create_note_with_options(
     workspace_uri: &str,
+    config: &fleximark_config::FlexiMarkConfig,
     category_path: Option<&[String]>,
     template: Option<&str>,
     file_name: Option<&str>,
 ) -> Result<CreatedNote, ApplicationError> {
     let root = workspace_path(workspace_uri)?;
     open_control_directory(&root, false)?.ok_or(ApplicationError::NotInitialized)?;
-    let config = root.join(".fleximark/config.toml");
-    if !config.is_file() {
+    let config_path = root.join(".fleximark/config.toml");
+    if !config_path.is_file() {
         return Err(ApplicationError::NotInitialized);
     }
-    let config = validate_config(&config)?;
     let mut notes = create_note_root(&root, &config.notes.root)?;
     if let Some(category_path) = category_path {
         if category_path.is_empty()
@@ -238,6 +239,7 @@ pub fn collect_admonitions(
     document: &Document,
     source: &str,
     workspace_uri: &str,
+    config: &fleximark_config::FlexiMarkConfig,
 ) -> Result<CollectedAdmonitions, ApplicationError> {
     fn collect<'a>(blocks: &[Block], source: &'a str, output: &mut Vec<&'a str>) {
         for block in blocks {
@@ -264,7 +266,6 @@ pub fn collect_admonitions(
 
     let root = workspace_path(workspace_uri)?;
     open_control_directory(&root, false)?.ok_or(ApplicationError::NotInitialized)?;
-    let config = validate_config(&root.join(".fleximark/config.toml"))?;
     let mut fragments = Vec::new();
     collect(&document.blocks, source, &mut fragments);
     let notes = create_note_root(&root, &config.notes.root)?;
@@ -289,7 +290,33 @@ pub fn collect_admonitions(
 
 #[cfg(test)]
 mod tests {
-    //! Role: Verify workspace operations and security invariants.
+    //! Role: Verify cached native policies preserve filesystem safety.
+    fn collect_admonitions(
+        document: &fleximark_model::Document,
+        source: &str,
+        uri: &str,
+    ) -> Result<crate::CollectedAdmonitions, crate::ApplicationError> {
+        let config =
+            super::validate_config(&super::workspace_path(uri)?.join(".fleximark/config.toml"))?;
+        super::collect_admonitions(document, source, uri, &config)
+    }
+    fn create_note_with_options(
+        uri: &str,
+        category: Option<&[String]>,
+        template: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<crate::outcomes::CreatedNote, crate::ApplicationError> {
+        let config =
+            super::validate_config(&super::workspace_path(uri)?.join(".fleximark/config.toml"))?;
+        super::create_note_with_options(uri, &config, category, template, name)
+    }
+    fn get_note_options(
+        uri: &str,
+    ) -> Result<crate::outcomes::NoteOptions, crate::ApplicationError> {
+        let config =
+            super::validate_config(&super::workspace_path(uri)?.join(".fleximark/config.toml"))?;
+        Ok(super::get_note_options(&config))
+    }
     use super::*;
     use crate::native::initialize_workspace;
     use crate::native::test_support::test_workspace;

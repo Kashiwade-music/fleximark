@@ -36,13 +36,19 @@ fn schema_preserves_registry_frame_and_scalar_contracts() {
         schema["$defs"]["renderBlock"]["properties"]["nodeIds"]["minItems"],
         1
     );
-    let category_path = &schema["$defs"]["executeCommandParams"]["properties"]["noteCategoryPath"];
+    let create_note = schema["$defs"]["workspaceCommand"]["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["properties"]["command"]["const"] == "createNote")
+        .unwrap();
+    let category_path = &create_note["properties"]["categoryPath"];
     assert_eq!(category_path["type"], "array");
     assert_eq!(category_path["items"]["type"], "string");
     assert_eq!(category_path["items"]["minLength"], 1);
     assert_eq!(category_path["minItems"], 1);
     assert_eq!(category_path["maxItems"], 32);
-    let file_name = &schema["$defs"]["executeCommandParams"]["properties"]["noteFileName"];
+    let file_name = &create_note["properties"]["name"];
     assert_eq!(file_name["type"], "string");
     assert_eq!(file_name["minLength"], 1);
     assert_eq!(file_name["maxLength"], 255);
@@ -76,5 +82,47 @@ fn typescript_uses_schema_definitions_directly() {
     assert!(!output.contains("export const CONTRACT_SCHEMA"));
     assert!(output.contains("frame: RenderFrame"));
     assert!(output.contains("level: \"info\" | \"warning\" | \"error\""));
-    assert!(output.contains("noteCategoryPath?: Array<string>"));
+    assert!(output.contains("categoryPath?: Array<string>"));
+}
+
+#[test]
+fn typed_commands_and_http_contracts_are_generated_from_rust() {
+    let named = named_schemas();
+    let output = generate_typescript(&named).unwrap();
+    let schema: Value = serde_json::from_str(&generate_protocol_schema(&named).unwrap()).unwrap();
+    assert!(output.contains("export const COMMAND_DESCRIPTORS = "));
+    assert!(output.contains("export type WorkspaceCommandName = typeof COMMAND_DESCRIPTORS"));
+    assert!(output.contains("export type LspWorkspaceCommandName = typeof COMMAND_DESCRIPTORS"));
+    assert!(!output.contains("ExecuteCommandParams"));
+    assert!(!output.contains("GetNoteOptionsParams"));
+    assert!(!output.contains("fleximark/getNoteOptions"));
+    let variants = schema["$defs"]["workspaceCommand"]["oneOf"]
+        .as_array()
+        .unwrap();
+    assert_eq!(variants.len(), COMMAND_DESCRIPTORS.len());
+    for descriptor in COMMAND_DESCRIPTORS {
+        assert!(output.contains(descriptor.lsp_command));
+        let variant = variants
+            .iter()
+            .find(|variant| variant["properties"]["command"]["const"] == descriptor.name)
+            .unwrap();
+        assert_eq!(variant["additionalProperties"], false);
+    }
+    for definition in [
+        "workspaceCommandRequest",
+        "commandContext",
+        "documentCommandContext",
+        "workspaceStateRequest",
+        "workspaceStateResult",
+        "workspaceUiCommandRequest",
+    ] {
+        assert!(schema["$defs"][definition].is_object(), "{definition}");
+    }
+    assert_eq!(
+        schema["$defs"]["commandResult"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .len(),
+        COMMAND_DESCRIPTORS.len()
+    );
 }

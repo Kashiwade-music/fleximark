@@ -23,6 +23,7 @@ pub(crate) fn file_uri_path(uri: &str) -> Result<PathBuf, ApplicationError> {
     Ok(path)
 }
 
+#[cfg(test)]
 pub fn document_is_in_workspace(
     document_uri: &str,
     workspace_uri: &str,

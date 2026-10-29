@@ -35,7 +35,3 @@ pub struct NoteOptions {
     pub categories: Vec<NoteCategory>,
     pub templates: Vec<String>,
 }
-
-pub struct MigrationOutput {
-    pub stdout: String,
-}

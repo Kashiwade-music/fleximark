@@ -1,30 +1,51 @@
-//! Role: Deliver LSP and RPC requests and session events over the daemon transport.
+//! Role: Start fallible transport sessions and route supported LSP methods.
 use super::state::*;
 use super::wire::*;
 
 impl Server {
-    pub fn sessions(&self) -> &SessionRegistry {
+    pub fn set_preview_assets(&mut self, assets: Arc<fleximark_preview_assets::PreviewAssets>) {
+        self.preview_assets = Some(assets);
+    }
+    pub fn daemon_instance_id(&self) -> &str {
+        &self.daemon_instance_id
+    }
+    pub(super) fn verify_daemon(&self, daemon: &str) -> Result<(), ApplicationError> {
+        if daemon == self.daemon_instance_id {
+            Ok(())
+        } else {
+            Err(ApplicationError::WrongDaemon)
+        }
+    }
+    pub fn sessions(&self) -> &DocumentStore {
         &self.registry
     }
 
     pub fn set_workspace_handler(
         &self,
         handler: Arc<
-            dyn Fn(Value) -> Result<Value, fleximark_application::ApplicationError> + Send + Sync,
+            dyn Fn(
+                    crate::preview_http::WorkspaceRequest,
+                ) -> Result<
+                    crate::preview_http::WorkspaceResponse,
+                    fleximark_application::ApplicationError,
+                > + Send
+                + Sync,
         >,
     ) {
         self.previews.set_workspace_handler(handler);
     }
 
-    pub fn new(assets: crate::preview_http::BrowserAssets) -> Self {
+    pub fn new(assets: crate::preview_http::BrowserAssets) -> Result<Self, ApplicationError> {
         Self::with_assets(None, assets)
     }
 
     pub fn with_assets(
         sender: Option<Sender<Value>>,
         assets: crate::preview_http::BrowserAssets,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ApplicationError> {
+        Ok(Self {
+            preview_assets: None,
+            daemon_instance_id: random_token().map_err(ApplicationError::Io)?,
             next_client_request: 1,
             pending_client_requests: HashSet::new(),
             lsp_initialized: false,
@@ -33,14 +54,13 @@ impl Server {
             viewport_events: false,
             shutdown: false,
             exit: false,
-            registry: SessionRegistry::new(PositionEncoding::Utf16),
-            previews: PreviewServer::with_assets(sender, assets)
-                .expect("loopback preview server must start"),
+            registry: DocumentStore::new(PositionEncoding::Utf16),
+            previews: PreviewServer::with_assets(sender, assets)?,
             preview_states: HashMap::new(),
             outgoing_events: Vec::new(),
             work_cancellation: CancellationToken::default(),
             publication_cancellation: CancellationToken::default(),
-        }
+        })
     }
 
     pub fn handle_cancellable(
@@ -135,7 +155,6 @@ impl Server {
             method::SET_VIEWPORT => self.set_viewport(id, message.params),
             method::PREVIEW_EVENT => self.preview_event(id, message.params),
             method::EXECUTE_COMMAND => self.execute_command(id, message.params),
-            method::GET_NOTE_OPTIONS => self.get_note_options(id, message.params),
             method::RECONFIGURE_WORKSPACE => self.reconfigure_workspace(id, message.params),
             _ => id.map(|id| {
                 response_value(Response::error(

@@ -7,31 +7,16 @@ import json
 import platform
 import re
 import shutil
-import tomllib
+import sys
 import zipfile
 from pathlib import Path
 
 from _tools import ROOT, run, script_entrypoint
-
-
-TARGETS = {
-    "linux-x64": "x86_64-unknown-linux-gnu",
-    "linux-arm64": "aarch64-unknown-linux-gnu",
-    "darwin-x64": "x86_64-apple-darwin",
-    "darwin-arm64": "aarch64-apple-darwin",
-    "win32-x64": "x86_64-pc-windows-msvc",
-    "win32-arm64": "aarch64-pc-windows-msvc",
-}
-
-
-def metadata() -> dict:
-    return tomllib.loads((ROOT / "release.toml").read_text(encoding="utf-8"))
+from distribution_contract import SPEC, TARGETS, metadata, normalize_arch, normalize_platform, read_manifest, target_spec, verify_runtime
 
 
 def host_target() -> str:
-    system = {"Linux": "linux", "Darwin": "darwin", "Windows": "win32"}[platform.system()]
-    arch = "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "x64"
-    return TARGETS[f"{system}-{arch}"]
+    return TARGETS[f"{normalize_platform(sys.platform)}-{normalize_arch(platform.machine())}"]
 
 
 def staging(target: str, product: str) -> Path:
@@ -90,21 +75,17 @@ def assemble_runtime(target: str, *, native_dir: Path | None = None, preview_dir
     reset_output(output)
     native = native_dir or ROOT / "target" / target / "release"
     preview = preview_dir or ROOT / ".build" / "preview"
-    suffix = ".exe" if "windows" in target else ""
-    for name in ("fleximarkd", "fleximark"):
-        destination = output / "bin" / (name + suffix)
+    descriptor = target_spec(target)
+    sources = {"native": native, "preview": preview, "workspace": ROOT / ".build" / "workspace-ui"}
+    prefixes = {"native": "bin/", "preview": "resources/preview/", "workspace": "resources/workspace/"}
+    for file in SPEC["files"]:
+        relative = file["path"].replace("{exe}", descriptor["executableSuffix"])
+        source = sources[file["source"]] / relative.removeprefix(prefixes[file["source"]])
+        destination = output / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(native / (name + suffix), destination)
-        if not suffix:
+        shutil.copy2(source, destination)
+        if file["source"] == "native" and not descriptor["executableSuffix"]:
             destination.chmod(0o755)
-    for name in ("browser-host.js", "fleximark.css", "katex.css"):
-        destination = output / "resources" / "preview" / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(preview / name, destination)
-    for name in ("workspace.js", "workspace.css"):
-        destination = output / "resources" / "workspace" / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / ".build" / "workspace-ui" / name, destination)
     files = {p.relative_to(output).as_posix(): digest(p) for p in sorted(output.rglob("*")) if p.is_file()}
     release = metadata()
     manifest = {"schemaVersion": 1, "version": release["version"], "target": target, "protocolVersion": release["protocol_version"], "files": files}
@@ -116,26 +97,6 @@ def assemble_runtime(target: str, *, native_dir: Path | None = None, preview_dir
                 stream.write(path, path.relative_to(output).as_posix())
     archive.with_suffix(".zip.sha256").write_text(f"{digest(archive)}  {archive.name}\n", encoding="utf-8")
     return archive
-
-
-def verify_runtime(root: Path, target: str) -> None:
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    if set(manifest) != {"schemaVersion", "protocolVersion", "version", "target", "files"}:
-        raise RuntimeError("runtime manifest has unexpected fields")
-    if manifest["schemaVersion"] != 1 or manifest["protocolVersion"] != metadata()["protocol_version"]:
-        raise RuntimeError("runtime manifest version mismatch")
-    if manifest["version"] != metadata()["version"] or manifest["target"] != target:
-        raise RuntimeError("runtime version or target mismatch")
-    suffix = ".exe" if "windows" in target else ""
-    expected = {f"bin/{name}{suffix}" for name in ("fleximarkd", "fleximark")} | {f"resources/preview/{name}" for name in ("browser-host.js", "fleximark.css", "katex.css")} | {f"resources/workspace/{name}" for name in ("workspace.js", "workspace.css")}
-    if not isinstance(manifest["files"], dict) or set(manifest["files"]) != expected:
-        raise RuntimeError("runtime manifest does not describe the canonical file set")
-    for name, checksum in manifest["files"].items():
-        path = root / name
-        if not path.is_file() or path.is_symlink() or path.stat().st_size == 0:
-            raise RuntimeError(f"runtime file missing, empty or not regular: {name}")
-        if digest(path) != checksum:
-            raise RuntimeError(f"runtime checksum mismatch: {name}")
 
 
 def assemble_vscode(target: str, archive: Path) -> Path:
@@ -160,14 +121,14 @@ def assemble_vscode(target: str, archive: Path) -> Path:
     runtime = output / "runtime"
     runtime.mkdir()
     with zipfile.ZipFile(archive) as stream:
-        from release_artifact import _daemon_manifest_artifacts
-        if stream.getinfo("manifest.json").file_size > 1024 * 1024:
+        from release_artifact import runtime_manifest_artifacts
+        if stream.getinfo("manifest.json").file_size > SPEC["limits"]["manifestBytes"]:
             raise RuntimeError("runtime manifest exceeds size limit")
         payload = stream.read("manifest.json")
-        expected = {item["path"].removeprefix("runtime/") for item in _daemon_manifest_artifacts(payload, "runtime archive manifest")} | {"manifest.json"}
+        expected = {item["path"].removeprefix("runtime/") for item in runtime_manifest_artifacts(payload, "runtime archive manifest")} | {"manifest.json"}
         if set(stream.namelist()) != expected or len(stream.namelist()) != len(expected):
             raise RuntimeError("runtime archive does not match canonical file set")
-        if sum(item.file_size for item in stream.infolist()) > 512 * 1024 * 1024:
+        if sum(item.file_size for item in stream.infolist()) > 512 * SPEC["limits"]["manifestBytes"]:
             raise RuntimeError("runtime archive exceeds total size limit")
         for item in stream.infolist():
             if item.filename.startswith("/") or ".." in Path(item.filename).parts or "\\" in item.filename:

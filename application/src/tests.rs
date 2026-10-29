@@ -1,6 +1,5 @@
 //! Role: Verify session synchronization and workspace reconfiguration.
 
-use crate::requests::Position;
 use fleximark_engine::EngineError;
 
 use super::*;
@@ -19,49 +18,38 @@ pub(super) fn workspace_document_uri(suffix: &str) -> &'static str {
 
 const DOCUMENT_URI: &str = "file:///doc.md";
 
-fn open(registry: &mut SessionRegistry, text: &str, version: i64) {
+fn open(registry: &mut DocumentStore, text: &str, version: u64) {
     open_uri(registry, DOCUMENT_URI, text, version);
 }
 
-fn open_uri(registry: &mut SessionRegistry, uri: &str, text: &str, version: i64) {
+fn open_uri(registry: &mut DocumentStore, uri: &str, text: &str, version: u64) {
     registry
-        .open_with_cancellation(
-            DidOpenParams {
-                text_document: TextDocumentItem {
-                    uri: uri.into(),
-                    version,
-                    text: text.into(),
-                },
+        .open(
+            DocumentUpdate {
+                uri: uri.into(),
+                version,
+                source: text.into(),
             },
             &CancellationToken::default(),
         )
         .unwrap();
 }
 
-fn change(uri: &str, version: i64, range: Option<Range>, text: &str) -> DidChangeParams {
-    DidChangeParams {
-        text_document: VersionedTextDocumentIdentifier {
-            uri: uri.into(),
-            version,
-        },
-        content_changes: vec![ContentChange {
-            range,
-            text: text.into(),
-        }],
+fn change(uri: &str, version: u64, text: &str) -> DocumentUpdate {
+    DocumentUpdate {
+        uri: uri.into(),
+        version,
+        source: text.into(),
     }
 }
 
-fn session_id<'a>(registry: &'a SessionRegistry, uri: &str) -> &'a str {
+fn session_id<'a>(registry: &'a DocumentStore, uri: &str) -> &'a str {
     registry.session_id_for_uri(uri).unwrap()
 }
 
-fn document<'a>(registry: &'a SessionRegistry, uri: &str, version: i64) -> &'a DocumentSession {
+fn document<'a>(registry: &'a DocumentStore, uri: &str, version: u64) -> &'a DocumentSession {
     registry
-        .document(
-            registry.daemon_instance_id(),
-            session_id(registry, uri),
-            version,
-        )
+        .document(session_id(registry, uri), version)
         .unwrap()
 }
 
@@ -72,16 +60,14 @@ fn configured_render(label: &str, _trusted: bool) -> RenderConfig {
     config
 }
 fn render_fingerprint(
-    registry: &mut SessionRegistry,
+    registry: &mut DocumentStore,
     uri: &str,
-    version: i64,
+    version: u64,
     preview_id: &str,
 ) -> String {
-    let daemon = registry.daemon_instance_id().to_owned();
     let session_id = session_id(registry, uri).to_owned();
     registry
         .render_with_cancellation(
-            &daemon,
             &session_id,
             version,
             preview_id,
@@ -103,42 +89,36 @@ fn assets_with_duplicate_sources() -> ResolvedAssets {
 }
 
 #[test]
-fn utf16_position_resolves_through_the_authoritative_session() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
+fn byte_offset_resolves_through_the_authoritative_session() {
+    let mut registry = DocumentStore::new(PositionEncoding::Utf16);
     open(&mut registry, "# 😀 heading\n", 1);
-    let daemon = registry.daemon_instance_id().to_owned();
     let session = session_id(&registry, DOCUMENT_URI).to_owned();
     let entry = registry
-        .navigation_at_position(
-            &daemon,
-            &session,
-            1,
-            &Position {
-                line: 0,
-                character: 4,
-            },
-        )
+        .navigation_at_source_offset(&session, 1, 6)
         .unwrap()
-        .expect("heading has a navigation node");
-    assert!(entry.source_range.byte_start <= 6);
-    assert!(entry.source_range.byte_end >= 6);
+        .unwrap();
+    assert!(entry.source_range.byte_start <= 6 && entry.source_range.byte_end >= 6);
+    assert!(matches!(
+        registry.navigation_at_source_offset(&session, 1, 3),
+        Err(ApplicationError::InvalidRange)
+    ));
 }
 
 #[test]
 fn full_sync_recovers_after_a_stale_update_and_reopen_replaces_identity() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf16);
+    let mut registry = DocumentStore::new(PositionEncoding::Utf16);
     open(&mut registry, "old", 3);
     let old = session_id(&registry, DOCUMENT_URI).to_owned();
     assert!(matches!(
-        registry.change_with_cancellation(
-            change(DOCUMENT_URI, 3, None, "stale"),
+        registry.change(
+            change(DOCUMENT_URI, 3, "stale"),
             &CancellationToken::default()
         ),
         Err(ApplicationError::StaleVersion)
     ));
     registry
-        .change_with_cancellation(
-            change(DOCUMENT_URI, 4, None, "latest 😀"),
+        .change(
+            change(DOCUMENT_URI, 4, "latest 😀"),
             &CancellationToken::default(),
         )
         .unwrap();
@@ -150,7 +130,7 @@ fn full_sync_recovers_after_a_stale_update_and_reopen_replaces_identity() {
 
 #[test]
 fn session_index_replaces_colliding_session_ids_atomically() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+    let mut registry = DocumentStore::new(PositionEncoding::Utf8);
     open_uri(&mut registry, "file:///first.md", "first", 1);
     open_uri(&mut registry, "file:///second.md", "second", 1);
     let first_id = session_id(&registry, "file:///first.md").to_owned();
@@ -173,34 +153,17 @@ fn session_index_replaces_colliding_session_ids_atomically() {
 }
 
 #[test]
-fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental_input() {
+fn full_document_updates_accept_unicode_in_all_snapshot_encodings() {
     for encoding in [
         PositionEncoding::Utf8,
         PositionEncoding::Utf16,
         PositionEncoding::Utf32,
     ] {
-        let mut registry = SessionRegistry::new(encoding);
+        let mut registry = DocumentStore::new(encoding);
         open(&mut registry, "a😀b\n", 1);
-        let range = Range {
-            start: Position {
-                line: 0,
-                character: 0,
-            },
-            end: Position {
-                line: 0,
-                character: 1,
-            },
-        };
-        assert!(matches!(
-            registry.change_with_cancellation(
-                change(DOCUMENT_URI, 2, Some(range), "x"),
-                &CancellationToken::default()
-            ),
-            Err(ApplicationError::InvalidRange)
-        ));
         registry
-            .change_with_cancellation(
-                change(DOCUMENT_URI, 2, None, "axb😀\n"),
+            .change(
+                change(DOCUMENT_URI, 2, "axb😀\n"),
                 &CancellationToken::default(),
             )
             .unwrap();
@@ -210,7 +173,7 @@ fn full_sync_accepts_unicode_in_all_negotiated_encodings_and_rejects_incremental
 
 #[test]
 fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+    let mut registry = DocumentStore::new(PositionEncoding::Utf8);
     let parent_config = configured_render("parent", true);
     let nested_config = configured_render("nested", false);
     let file_root_config = configured_render("file-root", true);
@@ -279,7 +242,7 @@ fn workspace_membership_uses_longest_file_uri_segment_and_excludes_root_itself()
 
 #[test]
 fn workspace_reconfiguration_is_transactional() {
-    let mut workspace = SessionRegistry::new(PositionEncoding::Utf8);
+    let mut workspace = DocumentStore::new(PositionEncoding::Utf8);
     let old_config = configured_render("old", true);
     workspace
         .configure_workspaces(vec![(workspace_uri().into(), old_config)])
@@ -290,11 +253,10 @@ fn workspace_reconfiguration_is_transactional() {
     ];
     open_uri(&mut workspace, original_uris[0], "alpha", 1);
     open_uri(&mut workspace, original_uris[1], "beta", 2);
-    let daemon = workspace.daemon_instance_id().to_owned();
     let baseline = original_uris.map(|uri| {
         let session_id = session_id(&workspace, uri).to_owned();
         let version = if uri.ends_with("alpha.md") { 1 } else { 2 };
-        let session = workspace.document(&daemon, &session_id, version).unwrap();
+        let session = workspace.document(&session_id, version).unwrap();
         (
             uri,
             session_id,
@@ -328,16 +290,14 @@ fn workspace_reconfiguration_is_transactional() {
 
     for (uri, session_id, source, version, fingerprint) in &baseline {
         assert_eq!(workspace.session_id_for_uri(uri), Some(session_id.as_str()));
-        let session = workspace
-            .document(&daemon, session_id, *version as i64)
-            .unwrap();
+        let session = workspace.document(session_id, *version).unwrap();
         assert_eq!(session.source(), source);
         assert_eq!(session.document().document_version, *version);
         assert_eq!(
             render_fingerprint(
                 &mut workspace,
                 uri,
-                *version as i64,
+                *version,
                 &format!("after-failure-{uri}"),
             ),
             *fingerprint
@@ -349,7 +309,7 @@ fn workspace_reconfiguration_is_transactional() {
     let new_session_id = session_id(&workspace, new_uri).to_owned();
     assert_eq!(
         workspace
-            .document(&daemon, &new_session_id, 3)
+            .document(&new_session_id, 3)
             .unwrap()
             .workspace_uri(),
         Some(workspace_uri())
@@ -376,9 +336,9 @@ fn workspace_reconfiguration_is_transactional() {
     let mut replacement_fingerprint = None;
     for (uri, session_id, source, version) in all_documents {
         assert_eq!(workspace.session_id_for_uri(uri), Some(session_id));
-        let session = workspace.document(&daemon, session_id, version).unwrap();
+        let session = workspace.document(session_id, version).unwrap();
         assert_eq!(session.source(), source);
-        assert_eq!(session.document().document_version, version as u64);
+        assert_eq!(session.document().document_version, version);
         let fingerprint = render_fingerprint(
             &mut workspace,
             uri,
@@ -446,7 +406,7 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
     } else {
         format!("{base_uri}/%6Futer")
     };
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+    let mut registry = DocumentStore::new(PositionEncoding::Utf8);
     let outer_config = configured_render("privileged-outer", true);
     let nested_config = configured_render("restricted-nested", false);
     let nested_hash = nested_config.config_hash.clone();
@@ -456,10 +416,15 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
             (nested_uri.clone(), nested_config),
         ])
         .unwrap();
-    registry.set_workspace_status(&nested_uri, false, true);
+    registry
+        .authority_mut()
+        .set_state(&nested_uri, WorkspaceState::Restricted);
     assert_eq!(
         registry.workspace_for_document(&document_uri),
-        Some((nested_uri.clone(), false))
+        Some(WorkspaceMembership {
+            uri: nested_uri.clone(),
+            trusted: false
+        })
     );
     open_uri(&mut registry, &document_uri, "# Source", 1);
     assert_eq!(
@@ -473,8 +438,8 @@ fn canonical_nested_authority_beats_long_outer_alias_and_duplicate_roots_reject(
             .config_hash,
         nested_hash
     );
-    assert!(!registry.workspace_grants_write(&nested_uri));
-    let mut duplicate = SessionRegistry::new(PositionEncoding::Utf8);
+    assert!(!registry.workspaces.is_trusted(&nested_uri));
+    let mut duplicate = DocumentStore::new(PositionEncoding::Utf8);
     assert!(
         duplicate
             .configure_native_workspaces(vec![
@@ -498,7 +463,7 @@ fn revocation_ignores_invalid_config_and_cancellation() {
         native::initialize_workspace(&uri).unwrap();
         let document_uri = format!("{uri}/new.md");
         let config = configured_render("privileged", true);
-        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        let mut registry = DocumentStore::new(PositionEncoding::Utf8);
         registry
             .configure_workspaces(vec![(uri.clone(), config)])
             .unwrap();
@@ -508,12 +473,11 @@ fn revocation_ignores_invalid_config_and_cancellation() {
         if cancel {
             token.cancel();
         }
-        let daemon = registry.daemon_instance_id().to_owned();
-        let result = registry.reconfigure_native_workspace(&daemon, &uri, false, &token);
+        let result = registry.reconfigure_native_workspace(&uri, false, &token);
         if !cancel {
             result.unwrap();
         }
-        assert!(!registry.workspace_grants_write(&uri));
+        assert!(!registry.workspaces.is_trusted(&uri));
         assert!(
             document(&registry, &document_uri, 1)
                 .document()
@@ -530,8 +494,8 @@ fn revocation_ignores_invalid_config_and_cancellation() {
             "generated privileged IR must be discarded even on cancellation"
         );
         registry
-            .change_with_cancellation(
-                change(&document_uri, 2, None, "# Changed"),
+            .change(
+                change(&document_uri, 2, "# Changed"),
                 &CancellationToken::default(),
             )
             .unwrap();

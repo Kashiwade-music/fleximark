@@ -11,16 +11,18 @@ use std::fs;
 use typescript::schema_to_typescript;
 
 use fleximark_protocol::{
-    AttachDocumentParams, AttachDocumentResult, ClientCapabilities, ClientInfo, CommandMessage,
-    CommandResult, CreatePreviewParams, CreatePreviewResult, DisposePreviewParams,
-    ExecuteCommandParams, GetNoteOptionsParams, GetNoteOptionsResult, InitializeParams,
-    InitializeResult, MAX_SAFE_INTEGER, METHOD_SPECS, MethodDirection, MethodKind, MethodSpec,
-    NavigationEntry, NodeId, NoteCategoryOption, PROTOCOL_VERSION, PreviewChangedParams,
-    PreviewEventParams, PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams,
-    RenderNavigationEvent, RerenderPreviewParams, RpcId, ServerCapabilities,
-    ServerPreviewEventParams, SetSelectionParams, SetViewportParams, SourceNavigationEvent,
-    SourcePosition, SourceRange, TextPosition, TextRange, TextSelection, WireType, WorkspaceGrant,
-    WorkspaceStatus,
+    AttachDocumentParams, AttachDocumentResult, COMMAND_DESCRIPTORS, ClientCapabilities,
+    ClientInfo, CommandContext, CommandMessage, CommandResult, CreatePreviewParams,
+    CreatePreviewResult, DisposePreviewParams, DocumentCommandContext, GetNoteOptionsResult,
+    InitializeParams, InitializeResult, MAX_SAFE_INTEGER, METHOD_SPECS, MethodDirection,
+    MethodKind, MethodSpec, MigrationPlanResult, MigrationStatus, NavigationEntry, NodeId,
+    NoteCategoryOption, PROTOCOL_VERSION, PreviewChangedParams, PreviewEventParams,
+    PreviewNavigationEvent, PreviewTarget, ReconfigureWorkspaceParams, RenderNavigationEvent,
+    RerenderPreviewParams, RpcId, ServerCapabilities, ServerPreviewEventParams, SetSelectionParams,
+    SetViewportParams, SourceNavigationEvent, SourcePosition, SourceRange, TextPosition, TextRange,
+    TextSelection, WireType, WorkspaceCommand, WorkspaceCommandRequest, WorkspaceGrant,
+    WorkspaceStateRequest, WorkspaceStateResult, WorkspaceStatus, WorkspaceUiCommandRequest,
+    WorkspaceUiContext, WorkspaceUiDocument, WorkspaceUiError, WorkspaceUiWorkspace,
 };
 use fleximark_protocol::{PreviewSessionId, RenderAsset, RenderBlock, RenderFrame, RenderStyle};
 use schemars::{JsonSchema, generate::SchemaSettings};
@@ -262,14 +264,39 @@ fn named_schemas() -> Vec<NamedSchema> {
             WireType::ServerPreviewEventParams => {
                 derived_schema::<ServerPreviewEventParams>(Contract::Serialize)
             }
-            WireType::ExecuteCommandParams => {
-                derived_schema::<ExecuteCommandParams>(Contract::Deserialize)
+            WireType::WorkspaceCommandRequest => {
+                derived_schema::<WorkspaceCommandRequest>(Contract::Deserialize)
             }
+            WireType::CommandContext => derived_schema::<CommandContext>(Contract::Deserialize),
+            WireType::DocumentCommandContext => {
+                derived_schema::<DocumentCommandContext>(Contract::Deserialize)
+            }
+            WireType::WorkspaceCommand => derived_schema::<WorkspaceCommand>(Contract::Deserialize),
+            WireType::MigrationPlanResult => {
+                derived_schema::<MigrationPlanResult>(Contract::Deserialize)
+            }
+            WireType::MigrationStatus => derived_schema::<MigrationStatus>(Contract::Deserialize),
+            WireType::WorkspaceStateRequest => {
+                derived_schema::<WorkspaceStateRequest>(Contract::Deserialize)
+            }
+            WireType::WorkspaceStateResult => {
+                derived_schema::<WorkspaceStateResult>(Contract::Deserialize)
+            }
+            WireType::WorkspaceUiContext => {
+                derived_schema::<WorkspaceUiContext>(Contract::Deserialize)
+            }
+            WireType::WorkspaceUiWorkspace => {
+                derived_schema::<WorkspaceUiWorkspace>(Contract::Deserialize)
+            }
+            WireType::WorkspaceUiDocument => {
+                derived_schema::<WorkspaceUiDocument>(Contract::Deserialize)
+            }
+            WireType::WorkspaceUiCommandRequest => {
+                derived_schema::<WorkspaceUiCommandRequest>(Contract::Deserialize)
+            }
+            WireType::WorkspaceUiError => derived_schema::<WorkspaceUiError>(Contract::Serialize),
             WireType::CommandMessage => derived_schema::<CommandMessage>(Contract::Serialize),
             WireType::CommandResult => derived_schema::<CommandResult>(Contract::Serialize),
-            WireType::GetNoteOptionsParams => {
-                derived_schema::<GetNoteOptionsParams>(Contract::Deserialize)
-            }
             WireType::NoteCategoryOption => {
                 derived_schema::<NoteCategoryOption>(Contract::Serialize)
             }
@@ -647,6 +674,16 @@ fn generate_typescript(named: &[NamedSchema]) -> Result<String, String> {
     output.push_str(&format!(
         "export const PROTOCOL_VERSION = {PROTOCOL_VERSION} as const;\n\n"
     ));
+    output.push_str(&format!(
+        "export const COMMAND_DESCRIPTORS = {} as const;\n\n",
+        serde_json::to_string_pretty(COMMAND_DESCRIPTORS).map_err(|error| error.to_string())?
+    ));
+    output.push_str("export type WorkspaceCommandName = typeof COMMAND_DESCRIPTORS[number][\"name\"];\nexport type LspWorkspaceCommandName = typeof COMMAND_DESCRIPTORS[number][\"lspCommand\"];\n\n");
+    let command_kinds = COMMAND_DESCRIPTORS
+        .iter()
+        .map(|descriptor| (descriptor.name, descriptor.name))
+        .collect::<BTreeMap<_, _>>();
+    write_json_const(&mut output, "WORKSPACE_COMMAND_KIND", &command_kinds)?;
     let shared = shared_definitions(named)?;
     let mut exported = BTreeMap::new();
     for item in named {

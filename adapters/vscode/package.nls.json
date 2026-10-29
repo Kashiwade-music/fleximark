@@ -1,4 +1,7 @@
 {
+  "command.workspace": "Open Workspace in Browser",
+  "command.previewAt": "Reveal Selection in Browser",
+  "command.migrate": "Migrate legacy FlexiMark workspace",
   "command.previewMarkdown": "Preview Markdown (Default)",
   "command.previewMarkdownOnVscode": "Preview in VSCode",
   "command.previewMarkdownOnBrowser": "Preview in Browser",

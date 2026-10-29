@@ -2,6 +2,10 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::io::{self, BufRead, Write};
+mod command_values;
+pub use command_values::{CreatePreviewResult, PreviewTarget};
+mod commands;
+pub use commands::*;
 mod registry;
 mod rendering;
 pub use fleximark_wire::{JsSafeI64, JsSafeU64, MAX_SAFE_INTEGER};
@@ -168,15 +172,9 @@ pub struct ClientInfo {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClientCapabilities {
     #[serde(default)]
-    pub embedded_html: bool,
-    #[serde(default)]
-    pub structured_preview: bool,
-    #[serde(default)]
     pub selection_events: bool,
     #[serde(default)]
     pub viewport_events: bool,
-    #[serde(default)]
-    pub open_external: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -236,25 +234,6 @@ pub struct CreatePreviewParams {
     pub document_session_id: String,
     pub expected_document_version: JsSafeI64,
     pub target: PreviewTarget,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub enum PreviewTarget {
-    EmbeddedHtml,
-    ExternalBrowser,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct CreatePreviewResult {
-    pub frame: RenderFrame,
-    pub preview_session_id: String,
-    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -428,115 +407,6 @@ pub struct ServerPreviewEventParams {
     pub event: ServerPreviewEvent,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExecuteCommandParams {
-    pub daemon_instance_id: String,
-    pub command: String,
-    #[serde(default)]
-    pub document_session_id: Option<String>,
-    #[serde(default)]
-    pub expected_document_version: Option<JsSafeI64>,
-    #[serde(default)]
-    pub workspace_uri: Option<String>,
-    #[serde(default)]
-    pub destination_uri: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_note_category_path")]
-    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null, extend("minItems" = 1, "maxItems" = 32, "items" = {"type":"string","minLength":1})))]
-    pub note_category_path: Option<Vec<String>>,
-    #[serde(default)]
-    pub note_template: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_note_file_name")]
-    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null, extend("minLength" = 1, "maxLength" = 255)))]
-    pub note_file_name: Option<String>,
-    #[serde(default)]
-    pub arguments: Vec<String>,
-}
-
-fn deserialize_note_file_name<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let name = String::deserialize(deserializer)?;
-    if name.is_empty() || name.chars().count() > 255 {
-        return Err(serde::de::Error::custom(
-            "noteFileName must contain 1 to 255 characters",
-        ));
-    }
-    Ok(Some(name))
-}
-
-fn deserialize_note_category_path<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let path = Vec::<String>::deserialize(deserializer)?;
-    if path.is_empty() || path.len() > 32 || path.iter().any(String::is_empty) {
-        return Err(serde::de::Error::custom(
-            "noteCategoryPath must contain 1 to 32 non-empty segments",
-        ));
-    }
-    Ok(Some(path))
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GetNoteOptionsParams {
-    pub daemon_instance_id: String,
-    pub workspace_uri: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct NoteCategoryOption {
-    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1)))]
-    pub name: String,
-    pub children: Vec<NoteCategoryOption>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct GetNoteOptionsResult {
-    #[cfg_attr(feature = "contract-schema", schemars(extend("uniqueItems" = true)))]
-    pub categories: Vec<NoteCategoryOption>,
-    #[cfg_attr(feature = "contract-schema", schemars(extend("uniqueItems" = true)))]
-    pub templates: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct CommandResult {
-    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<CommandMessage>,
-    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub open_uri: Option<String>,
-    #[cfg_attr(feature = "contract-schema", schemars(transform = schema::non_null))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct CommandMessage {
-    pub level: CommandMessageLevel,
-    pub text: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum CommandMessageLevel {
-    Info,
-    Warning,
-    Error,
-}
-
 #[derive(Debug)]
 pub enum FrameError {
     Io(io::Error),
@@ -624,32 +494,4 @@ impl From<io::Error> for FrameError {
 mod tests;
 
 #[cfg(feature = "contract-schema")]
-mod schema {
-    //! Role: Express optional non-null wire fields in derived contract schemas.
-    pub(super) fn non_null(schema: &mut schemars::Schema) {
-        if let Some(types) = schema
-            .get_mut("type")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            types.retain(|kind| kind.as_str() != Some("null"));
-            if types.len() == 1 {
-                let kind = types[0].clone();
-                schema.insert("type".into(), kind);
-            }
-        }
-        for key in ["anyOf", "oneOf"] {
-            if let Some(variants) = schema
-                .get_mut(key)
-                .and_then(serde_json::Value::as_array_mut)
-            {
-                variants.retain(|variant| {
-                    variant.get("type").and_then(serde_json::Value::as_str) != Some("null")
-                });
-                if variants.len() == 1 {
-                    *schema = variants[0].clone().try_into().expect("schema variant");
-                }
-                break;
-            }
-        }
-    }
-}
+mod schema;

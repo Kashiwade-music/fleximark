@@ -1,4 +1,7 @@
 {
+  "command.workspace": "ワークスペースをブラウザーで開く",
+  "command.previewAt": "選択位置をブラウザーに表示",
+  "command.migrate": "旧FlexiMarkワークスペースを移行",
   "command.previewMarkdown": "Markdownをプレビュー",
   "command.previewMarkdownOnVscode": "MarkdownをVSCodeでプレビュー",
   "command.previewMarkdownOnBrowser": "Markdownをブラウザでプレビュー",

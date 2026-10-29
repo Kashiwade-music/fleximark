@@ -21,7 +21,7 @@ fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_c
     let path = root.join("standalone.md");
     std::fs::write(&path, "disk contents").unwrap();
     let document = uri(&path);
-    let mut server = Server::new(browser_assets());
+    let mut server = Server::new(browser_assets()).unwrap();
     let initialized = server.request(1, "initialize", json!({"capabilities": {}}));
     assert_eq!(
         initialized[0]["result"]["capabilities"]["experimental"]["fleximark"]["workspaceStatuses"],
@@ -33,11 +33,21 @@ fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_c
         "[Rust](./src/main.rs)\n\n[Local Rust](file:///tmp/main.rs)\n\n# Following content\n",
         1,
     );
-    let preview = server.request(2, "workspace/executeCommand", json!({
-        "command": "fleximark.preview", "arguments": [{"documentUri": document, "documentVersion": 1}]
-    }));
-    let preview_id = preview[0]["result"]["previewSessionId"].as_str().unwrap();
-    let url = preview[0]["result"]["url"].as_str().unwrap();
+    let request = command_request(
+        &server,
+        None,
+        Some((&document, 1)),
+        json!({"command":"openPreview","target":"externalBrowser","sourceOffset":null}),
+    );
+    let preview = server.request(
+        2,
+        "workspace/executeCommand",
+        json!({"command":"fleximark.openPreview","arguments":[request]}),
+    );
+    let preview_id = preview[0]["result"]["preview"]["previewSessionId"]
+        .as_str()
+        .unwrap();
+    let url = preview[0]["result"]["preview"]["url"].as_str().unwrap();
     let initial = read_frame(&mut server, preview_id);
     let html = initial["blocks"].to_string();
     assert!(html.contains("src/main.rs"));
@@ -68,13 +78,22 @@ fn standalone_preview_keeps_source_links_and_unsaved_updates_without_workspace_c
 #[test]
 fn explicit_preview_selection_survives_initial_browser_load_and_returns_to_source() {
     let (sender, events) = mpsc::channel();
-    let mut server = Server::with_assets(Some(sender), browser_assets());
+    let mut server = Server::with_assets(Some(sender), browser_assets()).unwrap();
     let result=server.request(1,"initialize",json!({"capabilities":{"general":{"positionEncodings":["utf-8"]}},"initializationOptions":{"fleximark":{"capabilities":{"selectionEvents":false,"viewportEvents":false}}}}));
     assert!(result[0].get("result").is_some());
     let document = "file:///unsaved-selection.md";
     open(&mut server, document, "# Unsaved\n", 7);
-    let command=server.request(2,"workspace/executeCommand",json!({"command":"fleximark.previewAt","arguments":[{"documentUri":document,"documentVersion":7,"range":{"start":{"line":0,"character":2},"end":{"line":0,"character":9}}}]}));
-    let result = &command[0]["result"];
+    let actions=server.request(2,"textDocument/codeAction",json!({"textDocument":{"uri":document},"range":{"start":{"line":0,"character":2},"end":{"line":0,"character":9}}}));
+    let mut action = actions[0]["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["title"] == "Preview at selection")
+        .unwrap()["command"]
+        .clone();
+    action.as_object_mut().unwrap().remove("title");
+    let command = server.request(3, "workspace/executeCommand", action);
+    let result = &command[0]["result"]["preview"];
     let url = result["url"].as_str().unwrap();
     let preview_id = result["previewSessionId"].as_str().unwrap();
     assert!(

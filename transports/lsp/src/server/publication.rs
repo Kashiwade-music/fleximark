@@ -31,7 +31,7 @@ impl Server {
         });
         self.outgoing_events
             .push(preview_changed_notification(PreviewChangedParams {
-                daemon_instance_id: self.registry.daemon_instance_id().to_owned(),
+                daemon_instance_id: self.daemon_instance_id().to_owned(),
                 preview_session_id: preview_id.to_owned(),
                 render_revision: checked.render_revision,
                 frame: checked,

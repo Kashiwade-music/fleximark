@@ -1,11 +1,17 @@
+import type {
+  CommandResult,
+  WorkspaceStateResult,
+  WorkspaceUiCommandRequest,
+} from "../../contracts/typescript/protocol.generated.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
 import {
-  type CommandInput,
-  type WorkspaceCommand,
-  type WorkspaceState,
+  browserCommands,
   categoryPaths,
   isCommandResult,
   isWorkspaceState,
+  migrationSummary,
   readResponse,
+  runWorkspaceCommand,
   validateFileName,
 } from "./model.mjs";
 
@@ -15,7 +21,7 @@ const base = location.pathname.replace(/\/$/, "");
 root.innerHTML = `<h1>FlexiMark workspace</h1><form>
 <label>Workspace<select name="workspace"><option value="">Select a workspace</option></select></label>
 <label>Document<select name="document"><option value="">Select a document</option></select></label>
-<label>Operation<select name="command"><option value="createNote">Create note</option><option value="initializeWorkspace">Initialize workspace</option><option value="editTheme">Edit theme</option><option value="collectAdmonitions">Collect admonitions</option><option value="exportHtml">Export HTML</option></select></label>
+<label>Operation<select name="command"></select></label>
 <fieldset id="note-fields"><legend>New note</legend><label>Category<select name="category"></select></label><label>Template<select name="template"></select></label><label>File name<input name="fileName" maxlength="255" placeholder="my-note.md"></label></fieldset>
 <fieldset id="export-fields" hidden><legend>Export</legend><label>Destination file URI (optional)<input name="destination" placeholder="file:///path/document.html"></label></fieldset>
 <button type="submit">Run operation</button><button type="button" id="refresh">Refresh</button></form>
@@ -30,7 +36,17 @@ const control = (name: string) =>
   form.elements.namedItem(name) as HTMLSelectElement | HTMLInputElement;
 const status = required<HTMLElement>("#status");
 const result = required<HTMLElement>("#result");
-let state: WorkspaceState = { workspaces: [], documents: [] };
+const commandSelect = control("command") as HTMLSelectElement;
+commandSelect.replaceChildren(
+  ...browserCommands
+    .filter(({ kind }) => kind !== WORKSPACE_COMMAND_KIND.applyMigration)
+    .map(({ name, title }) => new Option(title, name)),
+);
+let state: WorkspaceStateResult = {
+  context: {},
+  workspaces: [],
+  documents: [],
+};
 let loading = false,
   request = 0,
   initial = true;
@@ -49,10 +65,17 @@ function options(
   if (items.some((i) => i.value === selected)) select.value = selected;
 }
 function updateFields(): void {
-  required<HTMLElement>("#note-fields").hidden =
-    control("command").value !== "createNote";
-  required<HTMLElement>("#export-fields").hidden =
-    control("command").value !== "exportHtml";
+  required<HTMLElement>("#note-fields").hidden = !browserCommands.some(
+    ({ name, kind }) =>
+      name === control("command").value &&
+      kind === WORKSPACE_COMMAND_KIND.createNote,
+  );
+  required<HTMLElement>("#export-fields").hidden = !browserCommands.some(
+    ({ name, kind }) =>
+      name === control("command").value &&
+      (kind === WORKSPACE_COMMAND_KIND.exportHtml ||
+        kind === WORKSPACE_COMMAND_KIND.acknowledgeExport),
+  );
 }
 function populate(): void {
   options(
@@ -65,7 +88,7 @@ function populate(): void {
     "document",
     state.documents
       .filter((d) => !workspace || d.workspaceUri === workspace)
-      .map((d) => ({ value: d.uri, label: d.title ?? d.uri })),
+      .map((d) => ({ value: d.uri, label: d.uri })),
     "Select a document",
   );
   options(
@@ -149,47 +172,67 @@ form.addEventListener("submit", (event) => {
       "Refresh workspace options before running an operation.";
     return;
   }
-  const command = control("command").value as WorkspaceCommand,
-    workspaceUri = control("workspace").value;
+  const descriptor = browserCommands.find(
+    ({ name }) => name === control("command").value,
+  );
+  if (!descriptor) return;
+  const workspaceUri = control("workspace").value;
   const doc = state.documents.find((d) => d.uri === control("document").value);
-  if (!workspaceUri) {
+  if (descriptor.requiresWorkspace && !workspaceUri) {
     status.textContent = "Select a workspace.";
     return;
   }
-  if (
-    ["editTheme", "collectAdmonitions", "exportHtml"].includes(command) &&
-    !doc
-  ) {
+  if (descriptor.requiresDocument && !doc) {
     status.textContent = "Select a document.";
     return;
   }
-  const input: CommandInput = { command, workspaceUri };
-  if (doc) {
-    input.documentUri = doc.uri;
-    if (doc.version !== undefined) input.documentVersion = doc.version;
-  }
-  if (command === "createNote") {
-    const name = control("fileName").value.trim();
-    if (!validateFileName(name)) {
-      status.textContent = "Enter a valid file name without path separators.";
-      return;
+  const context: WorkspaceUiCommandRequest["context"] = {
+    ...(workspaceUri ? { workspaceUri } : {}),
+    ...(doc ? { documentUri: doc.uri, documentVersion: doc.version } : {}),
+  };
+  let operation: WorkspaceUiCommandRequest["operation"];
+  switch (descriptor.kind) {
+    case WORKSPACE_COMMAND_KIND.createNote: {
+      const name = control("fileName").value.trim();
+      if (!validateFileName(name)) {
+        status.textContent = "Enter a valid file name without path separators.";
+        return;
+      }
+      operation = {
+        command: descriptor.name,
+        name,
+        ...(control("category").value
+          ? { categoryPath: JSON.parse(control("category").value) as string[] }
+          : {}),
+        ...(control("template").value
+          ? { template: control("template").value }
+          : {}),
+      };
+      break;
     }
-    input.noteFileName = name;
-    if (control("category").value)
-      input.noteCategoryPath = JSON.parse(
-        control("category").value,
-      ) as string[];
-    if (control("template").value)
-      input.noteTemplate = control("template").value;
-  }
-  const destination = control("destination").value.trim();
-  if (command === "exportHtml" && destination) {
-    if (!destination.startsWith("file:///")) {
-      status.textContent = "Destination must be a file URI.";
-      return;
+    case WORKSPACE_COMMAND_KIND.exportHtml:
+    case WORKSPACE_COMMAND_KIND.acknowledgeExport: {
+      const destinationUri = control("destination").value.trim();
+      if (destinationUri && !destinationUri.startsWith("file:///")) {
+        status.textContent = "Destination must be a file URI.";
+        return;
+      }
+      operation = {
+        command: descriptor.name,
+        ...(destinationUri ? { destinationUri } : {}),
+      };
+      break;
     }
-    input.destinationUri = destination;
+    case WORKSPACE_COMMAND_KIND.planMigration:
+      operation = { command: descriptor.name, recover: false };
+      break;
+    case WORKSPACE_COMMAND_KIND.applyMigration:
+      return;
+    default:
+      operation = { command: descriptor.name };
   }
+  const input: WorkspaceUiCommandRequest = { context, operation };
+  const generation = request;
   loading = true;
   form.setAttribute("aria-busy", "true");
   for (const button of form.querySelectorAll("button")) button.disabled = true;
@@ -197,31 +240,74 @@ form.addEventListener("submit", (event) => {
   result.replaceChildren();
   void (async () => {
     try {
-      const response = await readResponse(
-        await fetch(base + "/command", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        }),
-        isCommandResult,
+      const send = async (input: WorkspaceUiCommandRequest) =>
+        readResponse(
+          await fetch(base + "/command", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          }),
+          isCommandResult,
+        );
+      const response = await runWorkspaceCommand(
+        input,
+        send,
+        (plan) => {
+          const summary = migrationSummary(plan);
+          const pre = document.createElement("pre");
+          pre.textContent = summary;
+          result.replaceChildren(pre);
+          return window.confirm(summary + "\nApply this migration?");
+        },
+        () => generation === request,
       );
-      status.textContent = response.message ?? "Operation completed.";
-      if (response.openUri) {
-        const url = new URL(response.openUri);
+      if (generation !== request) return;
+      if (!response) {
+        status.textContent = "Operation cancelled.";
+        return;
+      }
+      status.textContent = response.message?.text ?? "Operation completed.";
+      const uri = resultUri(response);
+      if (uri) {
+        const url = new URL(uri);
         if (["http:", "https:", "file:"].includes(url.protocol)) {
           const link = document.createElement("a");
           link.textContent = "Open result";
           link.href = url.href;
           link.rel = "noopener";
+          if (response.kind === "htmlExported")
+            link.addEventListener("click", () => {
+              const acknowledgement = browserCommands.find(
+                ({ kind }) => kind === WORKSPACE_COMMAND_KIND.acknowledgeExport,
+              );
+              if (
+                !acknowledgement ||
+                acknowledgement.kind !==
+                  WORKSPACE_COMMAND_KIND.acknowledgeExport ||
+                generation !== request
+              )
+                return;
+              void send({
+                context,
+                operation: {
+                  command: acknowledgement.name,
+                  destinationUri: response.outputUri,
+                },
+              }).catch((error: unknown) => {
+                status.textContent =
+                  error instanceof Error ? error.message : String(error);
+              });
+            });
           result.append(link);
         }
       }
-      if (response.data !== undefined) {
-        const pre = document.createElement("pre");
-        pre.textContent = JSON.stringify(response.data, null, 2);
-        result.append(pre);
-      }
+      const pre = document.createElement("pre");
+      pre.textContent =
+        response.kind === "migrationPlanned"
+          ? migrationSummary(response.plan)
+          : JSON.stringify(response, null, 2);
+      result.append(pre);
     } catch (error) {
       status.textContent =
         error instanceof Error ? error.message : String(error);
@@ -235,3 +321,22 @@ form.addEventListener("submit", (event) => {
 });
 updateFields();
 void refresh();
+
+function resultUri(response: CommandResult): string | undefined {
+  switch (response.kind) {
+    case "workspaceInitialized":
+      return response.configUri;
+    case "themeEdited":
+    case "noteCreated":
+    case "admonitionsCollected":
+      return response.uri;
+    case "htmlExported":
+      return response.outputUri;
+    case "workspaceOpened":
+      return response.url;
+    case "previewOpened":
+      return response.preview.url;
+    default:
+      return;
+  }
+}

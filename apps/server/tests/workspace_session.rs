@@ -12,8 +12,8 @@ fn nested_roots_keep_independent_trust_and_render_configuration() {
     std::fs::create_dir_all(&untrusted).unwrap();
     let trusted_uri = uri(&trusted);
     let untrusted_uri = uri(&untrusted);
-    fleximark_application::native::initialize_workspace(&trusted_uri).unwrap();
-    fleximark_application::native::initialize_workspace(&untrusted_uri).unwrap();
+    initialize_workspace(&trusted_uri).unwrap();
+    initialize_workspace(&untrusted_uri).unwrap();
     std::fs::write(
         trusted.join(".fleximark/theme.css"),
         ":root { color: red; }",
@@ -49,7 +49,13 @@ fn nested_roots_keep_independent_trust_and_render_configuration() {
     assert!(untrusted_frame["style"].is_null());
     assert!(trusted_preview.get("url").is_none());
     assert!(untrusted_preview.get("url").is_none());
-    let escalated=server.request(6,method::EXECUTE_COMMAND,json!({"daemonInstanceId":daemon(&server),"command":"exportHtml","documentSessionId":session(&server,&untrusted_document),"expectedDocumentVersion":1,"workspaceUri":trusted_uri}));
+    let request = command_request(
+        &server,
+        Some(&trusted_uri),
+        Some((&untrusted_document, 1)),
+        json!({"command":"exportHtml","destinationUri":null}),
+    );
+    let escalated = server.request(6, method::EXECUTE_COMMAND, request);
     assert!(
         escalated[0]["error"]["message"]
             .as_str()
@@ -89,8 +95,8 @@ fn invalid_configuration_disables_only_its_root() {
     std::fs::create_dir(&invalid).unwrap();
     let valid_uri = uri(&valid);
     let invalid_uri = uri(&invalid);
-    fleximark_application::native::initialize_workspace(&valid_uri).unwrap();
-    fleximark_application::native::initialize_workspace(&invalid_uri).unwrap();
+    initialize_workspace(&valid_uri).unwrap();
+    initialize_workspace(&invalid_uri).unwrap();
     std::fs::write(
         invalid.join(".fleximark/config.toml"),
         "schema_version=1\nunknown=true\n",
@@ -141,7 +147,16 @@ fn workspace_writes_require_explicit_trust_before_command_arguments() {
         "exportHtml",
         "acknowledgeExport",
     ] {
-        let result=server.request(2,method::EXECUTE_COMMAND,json!({"daemonInstanceId":daemon(&server),"command":command,"workspaceUri":workspace_uri}));
+        let operation = match command {
+            "exportHtml" | "acknowledgeExport" => json!({"command":command,"destinationUri":null}),
+            "createNote" => json!({"command":command}),
+            _ => json!({"command":command}),
+        };
+        let result = server.request(
+            2,
+            method::EXECUTE_COMMAND,
+            command_request(&server, Some(&workspace_uri), None, operation),
+        );
         assert_eq!(
             result[0]["error"]["code"],
             fleximark_protocol::error_code::WRITE_DENIED,
@@ -152,7 +167,7 @@ fn workspace_writes_require_explicit_trust_before_command_arguments() {
     let migration = server.request(
         3,
         "workspace/executeCommand",
-        json!({"command":"fleximark.migrate","arguments":[{"workspaceUri":workspace_uri}]}),
+        json!({"command":"fleximark.planMigration","arguments":[command_request(&server,Some(&workspace_uri),None,json!({"command":"planMigration","settingsUri":null,"recover":false}))]}),
     );
     assert!(
         migration[0]["error"]["message"]
@@ -166,7 +181,7 @@ fn workspace_writes_require_explicit_trust_before_command_arguments() {
 fn asset_errors_have_precise_ranges_without_blocking_safe_images() {
     let root = test_directory("assets");
     let workspace_uri = uri(&root);
-    fleximark_application::native::initialize_workspace(&workspace_uri).unwrap();
+    initialize_workspace(&workspace_uri).unwrap();
     std::fs::write(root.join("valid.png"), b"\x89PNG\r\n\x1a\nvalid").unwrap();
     let document_uri = uri(&root.join("doc.md"));
     let text = "![missing](missing.png)\n\n![valid](valid.png)\n";

@@ -2,18 +2,28 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 
+import { WORKSPACE_COMMAND_KIND } from "../../../contracts/typescript/protocol.mjs";
 import {
-  type ExecuteCommandParams,
+  COMMAND_DESCRIPTORS,
   type LspMethod,
   type PreviewChangedParams,
   type PreviewTarget,
   type ServerPreviewEventParams,
   type SourceNavigationEvent,
+  type WorkspaceCommandRequest,
+  commandDescriptor,
   PROTOCOL_VERSION as protocolVersion,
 } from "../../../contracts/typescript/protocol.mjs";
 import defaultPreviewCss from "../../../web/preview/fleximark.css";
 import katexCss from "../../../web/preview/katex.css";
-import { executeCreateNote, openCommandResult } from "./commands.mjs";
+import {
+  buildWorkspaceOperation,
+  confirmMigrationPlan,
+  executeCreateNote,
+  executeMigration,
+  openCommandResult,
+  showMigrationPlanStatus,
+} from "./commands.mjs";
 import {
   DaemonSupervisor,
   type DaemonSupervisorDependencies,
@@ -31,9 +41,7 @@ import {
   resetDocumentSessions,
 } from "./document-coordinator.mjs";
 import {
-  executeBrowserCommand,
   initializeEditor,
-  migrateWorkspace,
   synchronizeEditorWorkspaces,
 } from "./editor-service.mjs";
 import { errorMessage, redactSensitiveText } from "./error-policy.mjs";
@@ -75,7 +83,7 @@ import {
 import type { DocumentRuntime, PreviewState } from "./runtime-state.mjs";
 import { isShowDocumentParams, showDocument } from "./show-document.mjs";
 import { applySourceNavigation } from "./source-navigation.mjs";
-import { selectWorkspaceUriWithPlaceholder } from "./workspace-selection.mjs";
+import { selectWorkspaceUri } from "./workspace-selection.mjs";
 
 export {
   sourcePositionToCharacter,
@@ -87,8 +95,8 @@ export {
   executeCreateNote,
   openCommandResult,
   selectNoteCategory,
-  selectWorkspaceUri,
 } from "./commands.mjs";
+export { selectWorkspaceUri } from "./workspace-selection.mjs";
 
 type AdapterSupervisor = DaemonSupervisor<
   ChildProcessWithoutNullStreams,
@@ -308,18 +316,9 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async migrateWorkspace(): Promise<void> {
-    if (!vscode.workspace.isTrusted)
-      throw new Error("Trust the workspace before migrating it.");
-    const workspace = await migrateWorkspace(
-      this.#context.extensionUri.fsPath,
-      (value) => this.#appendOutput(value),
+    await this.execute(
+      commandDescriptor(WORKSPACE_COMMAND_KIND.planMigration).name,
     );
-    if (workspace) {
-      await this.reconfigureWorkspace(workspace);
-      void vscode.window.showInformationMessage(
-        "FlexiMark workspace migration completed.",
-      );
-    }
   }
 
   async requestLanguageFeature<T>(
@@ -331,7 +330,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     await this.activateDocument(document);
     if (this.#disposed) return;
     if (!this.#supervisor.rpc)
-      throw new Error("FlexiMark daemon is unavailable");
+      throw new Error(vscode.l10n.t("FlexiMark daemon is unavailable"));
     const rpc = this.#supervisor.rpc;
     try {
       return await rpc.requestLsp<T>(method, {
@@ -486,46 +485,46 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   }
 
   async execute(command: string): Promise<void> {
-    const document = vscode.window.activeTextEditor?.document;
-    if (command === "previewAt" && document?.languageId !== "markdown") {
-      this.#showNoDocument();
-      return;
-    }
-    if (
-      command === "workspace" ||
-      command === "previewAt" ||
-      ((!document || document.languageId !== "markdown") &&
-        ["exportHtml", "collectAdmonitions", "editTheme"].includes(command))
-    ) {
-      const first = vscode.workspace.workspaceFolders?.[0];
-      if (!first && command !== "previewAt") {
-        this.#showNoWorkspace();
+    const editor = vscode.window.activeTextEditor;
+    const document = editor?.document;
+    if (command === "previewAt") {
+      if (document?.languageId !== "markdown") {
+        this.#showNoDocument();
         return;
       }
-      if (command === "previewAt") await this.activateDocument(document);
-      else await this.start(first);
-      if (!this.#supervisor.rpc) return;
-      await executeBrowserCommand(
-        this.#supervisor.rpc,
-        command,
-        vscode.window.activeTextEditor,
-      );
-      return;
     }
+    const descriptor = COMMAND_DESCRIPTORS.find(
+      (entry) =>
+        entry.name === command ||
+        (command === "workspace" &&
+          entry.kind === WORKSPACE_COMMAND_KIND.openWorkspace) ||
+        (command === "previewAt" &&
+          entry.kind === WORKSPACE_COMMAND_KIND.openPreview),
+    );
+    if (!descriptor)
+      throw new Error(
+        vscode.l10n.t("Unknown workspace operation: {0}", command),
+      );
     const folders = vscode.workspace.workspaceFolders ?? [];
     const activeWorkspace = document
       ? vscode.workspace.getWorkspaceFolder(document.uri)
       : undefined;
-    const workspaceUri = await selectWorkspaceUriWithPlaceholder(
+    const workspaceUri = await selectWorkspaceUri(
       activeWorkspace?.uri.toString(),
       folders.map((folder) => ({
         label: folder.name,
         uri: folder.uri.toString(),
       })),
       vscode.window.showQuickPick,
-      vscode.l10n.t("Select a FlexiMark workspace"),
     );
-    if (!workspaceUri) return;
+    if (descriptor.requiresWorkspace && !workspaceUri) {
+      this.#showNoWorkspace();
+      return;
+    }
+    if (descriptor.requiresDocument && document?.languageId !== "markdown") {
+      this.#showNoDocument();
+      return;
+    }
     const workspace = folders.find(
       (folder) => folder.uri.toString() === workspaceUri,
     );
@@ -533,43 +532,72 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (!runtime) return;
     if (document?.languageId === "markdown") await this.syncDocument(document);
     const state = document && runtime.documents.get(document.uri.toString());
-    const rpc = this.#supervisor.rpc;
-    if (!this.#supervisor.daemonInstanceId || !rpc) return;
-    const params: ExecuteCommandParams = {
-      daemonInstanceId: this.#supervisor.daemonInstanceId,
-      command,
-      workspaceUri,
-      ...(state && document
-        ? {
-            documentSessionId: state.sessionId,
-            expectedDocumentVersion: document.version,
-          }
-        : {}),
+    const origin = this.#daemonOrigin();
+    if (!origin) return;
+    const operation = buildWorkspaceOperation(
+      descriptor.kind,
+      editor && document
+        ? Buffer.byteLength(
+            document
+              .getText()
+              .slice(0, document.offsetAt(editor.selection.active)),
+            "utf8",
+          )
+        : undefined,
+    );
+    const params: WorkspaceCommandRequest = {
+      daemonInstanceId: origin.daemonInstanceId,
+      context: {
+        ...(workspaceUri ? { workspaceUri } : {}),
+        ...(state?.sessionId && document
+          ? {
+              document: {
+                documentSessionId: state.sessionId,
+                expectedDocumentVersion: document.version,
+              },
+            }
+          : {}),
+      },
+      operation,
     };
+    const execute = (request: WorkspaceCommandRequest) =>
+      origin.rpc.request("fleximark/executeCommand", request);
     const result =
-      command === "createNote"
+      descriptor.kind === WORKSPACE_COMMAND_KIND.createNote
         ? await executeCreateNote(
             params,
-            (optionParams) =>
-              rpc.request("fleximark/getNoteOptions", optionParams),
+            async (request) => {
+              const options = await execute(request);
+              if (options.kind !== "noteOptions")
+                throw new Error(vscode.l10n.t("Invalid note options response"));
+              return options.options;
+            },
             (items, options) => vscode.window.showQuickPick(items, options),
             (items, options) => vscode.window.showQuickPick(items, options),
             (options) => vscode.window.showInputBox(options),
-            (commandParams) =>
-              rpc.request("fleximark/executeCommand", commandParams),
+            execute,
           )
-        : await rpc.request("fleximark/executeCommand", params);
-    if (!result) return;
+        : descriptor.kind === WORKSPACE_COMMAND_KIND.planMigration
+          ? await executeMigration(params, execute, confirmMigrationPlan, () =>
+              this.#originIsCurrent(origin),
+            )
+          : await execute(params);
+    if (!result || !this.#originIsCurrent(origin)) return;
+    if (result.kind === "migrationPlanned")
+      await showMigrationPlanStatus(result.plan);
+    if (result.kind === "workspaceOpened")
+      await vscode.env.openExternal(vscode.Uri.parse(result.url));
+    if (result.kind === "previewOpened" && result.preview.url)
+      await vscode.env.openExternal(vscode.Uri.parse(result.preview.url));
     await openCommandResult(
       params,
       result,
       async (uri) => {
         await vscode.window.showTextDocument(vscode.Uri.parse(uri));
       },
-      (acknowledgement) =>
-        rpc.request("fleximark/executeCommand", acknowledgement),
+      execute,
     );
-    if (result?.message) {
+    if (result.message) {
       const show =
         result.message.level === "error"
           ? vscode.window.showErrorMessage
@@ -624,7 +652,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     if (this.#context.extensionMode !== vscode.ExtensionMode.Test)
       throw new Error("daemon crash hook is only available in extension tests");
     if (!this.#supervisor.process)
-      throw new Error("FlexiMark daemon is unavailable");
+      throw new Error(vscode.l10n.t("FlexiMark daemon is unavailable"));
     this.#supervisor.process.kill();
   }
 
@@ -850,7 +878,7 @@ export class FlexiMarkAdapter implements vscode.Disposable {
   async #initializeWorkspaces(rpc: JsonRpcConnection): Promise<string> {
     const initialized = this.#initialized;
     if (!initialized)
-      throw new Error("FlexiMark initialization is unavailable");
+      throw new Error(vscode.l10n.t("FlexiMark initialization is unavailable"));
     synchronizeEditorWorkspaces(
       rpc,
       this.#workspaceUris,
@@ -858,7 +886,10 @@ export class FlexiMarkAdapter implements vscode.Disposable {
     );
     if (initialized.protocolVersion !== protocolVersion) {
       throw new Error(
-        `Unsupported FlexiMark protocol version ${initialized.protocolVersion}`,
+        vscode.l10n.t(
+          "Unsupported FlexiMark protocol version {0}",
+          initialized.protocolVersion,
+        ),
       );
     }
     for (const status of initialized.workspaceStatuses)

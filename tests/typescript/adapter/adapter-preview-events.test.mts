@@ -1,6 +1,7 @@
 import * as assert from "node:assert/strict";
 
 import { FlexiMarkAdapter } from "../../../adapters/vscode/src/adapter.mjs";
+import { executeMigration } from "../../../adapters/vscode/src/commands.mjs";
 import type { DaemonOrigin } from "../../../adapters/vscode/src/document-coordinator.mjs";
 import type { JsonRpcConnection } from "../../../adapters/vscode/src/rpc.mjs";
 import type {
@@ -8,6 +9,7 @@ import type {
   PreviewState,
 } from "../../../adapters/vscode/src/runtime-state.mjs";
 import { isShowDocumentParams } from "../../../adapters/vscode/src/show-document.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../../contracts/typescript/protocol.mjs";
 import { deferred } from "./async-helpers.mjs";
 import {
   ExtensionMode,
@@ -46,18 +48,38 @@ export function suite(): void {
       state.adapter.dispose();
     }
   });
-  test("does not invoke CLI migration in a restricted window", async () => {
-    const state = testState();
+  test("propagates daemon migration denial in a restricted window without applying", async () => {
     const trusted = workspaceApi.isTrusted;
     workspaceApi.isTrusted = false;
+    let confirmed = false;
+    const commands: string[] = [];
     try {
       await assert.rejects(
-        state.adapter.migrateWorkspace(),
-        /Trust the workspace/,
+        executeMigration(
+          {
+            daemonInstanceId: "daemon",
+            context: { workspaceUri: "file:///workspace" },
+            operation: {
+              command: WORKSPACE_COMMAND_KIND.planMigration,
+              recover: false,
+            },
+          },
+          async (request) => {
+            commands.push(request.operation.command);
+            throw new Error("Workspace is not trusted");
+          },
+          async () => {
+            confirmed = true;
+            return true;
+          },
+          () => true,
+        ),
+        /Workspace is not trusted/,
       );
+      assert.deepEqual(commands, [WORKSPACE_COMMAND_KIND.planMigration]);
+      assert.equal(confirmed, false);
     } finally {
       workspaceApi.isTrusted = trusted;
-      state.adapter.dispose();
     }
   });
   test("validates browser URLs and source selections before opening them", () => {

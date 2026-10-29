@@ -7,6 +7,7 @@ import {
   DISTRIBUTION_FILES,
   DISTRIBUTION_TARGETS,
 } from "../../contracts/typescript/distribution.generated.mjs";
+import { WORKSPACE_COMMAND_KIND } from "../../contracts/typescript/protocol.mjs";
 import {
   PROTOCOL_VERSION,
   clientNotificationValidators,
@@ -476,7 +477,7 @@ export function suite(): void {
       initializeResult: (value) => hasContractShape("initializeResult", value),
       createPreviewResult:
         customRequestResultValidators["fleximark/createPreview"],
-      executeCommandParams:
+      workspaceCommandRequest:
         customRequestParamsValidators["fleximark/executeCommand"],
       commandResult: customRequestResultValidators["fleximark/executeCommand"],
     };
@@ -491,23 +492,66 @@ export function suite(): void {
 
   test("rejects invalid present note category paths", () => {
     const validate = customRequestParamsValidators["fleximark/executeCommand"];
-    const base = { daemonInstanceId: "daemon", command: "createNote" };
+    const base = {
+      daemonInstanceId: "daemon",
+      context: {},
+      operation: { command: WORKSPACE_COMMAND_KIND.createNote },
+    };
     assert.equal(validate(base), true);
-    for (const noteCategoryPath of [
+    assert.equal(
+      validate({
+        daemonInstanceId: "daemon",
+        command: WORKSPACE_COMMAND_KIND.createNote,
+        workspaceUri: "file:///workspace",
+      }),
+      false,
+    );
+    for (const categoryPath of [
       null,
       [],
       Array.from({ length: 33 }, () => "x"),
       ["Work", ""],
     ]) {
-      assert.equal(validate({ ...base, noteCategoryPath }), false);
+      assert.equal(
+        validate({ ...base, operation: { ...base.operation, categoryPath } }),
+        false,
+      );
     }
   });
 
   test("rejects invalid present note file names", () => {
     const validate = customRequestParamsValidators["fleximark/executeCommand"];
-    const base = { daemonInstanceId: "daemon", command: "createNote" };
-    for (const noteFileName of [null, "", "x".repeat(256)])
-      assert.equal(validate({ ...base, noteFileName }), false);
-    assert.equal(validate({ ...base, noteFileName: "session" }), true);
+    const base = {
+      daemonInstanceId: "daemon",
+      context: {},
+      operation: { command: WORKSPACE_COMMAND_KIND.createNote },
+    };
+    for (const name of [null, "", "x".repeat(256)])
+      assert.equal(
+        validate({ ...base, operation: { ...base.operation, name } }),
+        false,
+      );
+    assert.equal(
+      validate({ ...base, operation: { ...base.operation, name: "session" } }),
+      true,
+    );
+  });
+
+  test("rejects legacy command requests and untagged command results", () => {
+    const request = customRequestParamsValidators["fleximark/executeCommand"];
+    const result = customRequestResultValidators["fleximark/executeCommand"];
+    assert.equal(
+      request({
+        daemonInstanceId: "daemon",
+        context: {},
+        operation: {
+          command: WORKSPACE_COMMAND_KIND.createNote,
+          noteFileName: "legacy",
+        },
+      }),
+      false,
+    );
+    assert.equal(result({ openUri: "file:///note.md", data: "legacy" }), false);
+    assert.equal(result({ kind: "noteCreated", uri: "file:///note.md" }), true);
   });
 }

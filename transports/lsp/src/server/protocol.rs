@@ -1,38 +1,28 @@
 //! Role: Convert transport DTOs into native document and preview values.
 use super::state::*;
 use super::wire::*;
-use fleximark_application::DocumentAttachmentRequest;
-
 impl Server {
     pub(super) fn attach_document(&mut self, id: Option<Value>, params: Value) -> Option<Value> {
         let id = id?;
         let params = match deserialize_params::<AttachDocumentParams>(&id, params) {
-            Ok(params) => params,
-            Err(response) => return Some(response),
+            Ok(p) => p,
+            Err(e) => return Some(e),
         };
-        let request = DocumentAttachmentRequest {
-            daemon_instance_id: params.daemon_instance_id,
-            uri: params.uri,
-            expected_document_version: params.expected_document_version.get(),
-        };
-        Some(match self.registry.attach(&request) {
-            Ok(result) => response_value(Response::success(
-                id.clone(),
-                fleximark_protocol::AttachDocumentResult {
-                    document_session_id: result.document_session_id,
-                    document_version: match result.document_version.try_into() {
-                        Ok(version) => version,
-                        Err(_) => {
-                            return Some(boundary_error(
-                                id,
-                                ApplicationError::IntegerRange(
-                                    result.document_version.unsigned_abs(),
-                                ),
-                            ));
-                        }
-                    },
-                },
-            )),
+        let result = (|| {
+            self.verify_daemon(&params.daemon_instance_id)?;
+            let version = u64::try_from(params.expected_document_version.get())
+                .map_err(|_| ApplicationError::VersionMismatch)?;
+            let attached = self.registry.attach(&params.uri, version)?;
+            Ok::<_, ApplicationError>(fleximark_protocol::AttachDocumentResult {
+                document_session_id: attached.document_session_id,
+                document_version: i64::try_from(attached.document_version)
+                    .ok()
+                    .and_then(|version| fleximark_protocol::JsSafeI64::new(version).ok())
+                    .ok_or(ApplicationError::IntegerRange(attached.document_version))?,
+            })
+        })();
+        Some(match result {
+            Ok(result) => response_value(Response::success(id, result)),
             Err(error) => session_error(id, error),
         })
     }
@@ -40,18 +30,10 @@ impl Server {
 
 pub(super) fn native_position(
     position: &fleximark_protocol::TextPosition,
-) -> Result<fleximark_application::Position, ApplicationError> {
-    Ok(fleximark_application::Position {
-        line: position
-            .line
-            .get()
-            .try_into()
-            .map_err(|_| ApplicationError::InvalidRange)?,
-        character: position
-            .character
-            .get()
-            .try_into()
-            .map_err(|_| ApplicationError::InvalidRange)?,
+) -> Result<super::lsp_types::Position, ApplicationError> {
+    Ok(super::lsp_types::Position {
+        line: position.line.get(),
+        character: position.character.get(),
     })
 }
 

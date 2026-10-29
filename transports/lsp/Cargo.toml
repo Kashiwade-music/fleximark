@@ -12,6 +12,7 @@ fleximark-model = { path = "../../core/model" }
 fleximark-language = { path = "../../core/language" }
 fleximark-preview-http = { path = "../preview-http" }
 fleximark-protocol = { path = "../../contracts/protocol" }
+fleximark-preview-assets = { path = "../../runtime/preview-assets" }
 serde.workspace = true
 serde_json.workspace = true
 

@@ -1,7 +1,7 @@
 # リファクタリング進捗ログ
 
 ## 状態
-- 現在のフェーズ: P2-T2（P4-T8 の残りを独立作業として前倒し）
+- 現在のフェーズ: P3（P2 完了、配布target追加実験はCI統合後）
 - 最終更新: 2026-10-29
 - 起点: `fd5cd1a`、ブランチ `feat/kashiwade/big-update`
 
@@ -21,16 +21,21 @@
 | P0-T1 | 完了 | 67980e9 | 全 suite の成功を確認。一括コマンドの lockfile 停止は上記に記録 |
 | P0-T2 | 完了 | 67980e9 | HEAD は指示書の起点と一致。指摘された旧 API を現コードで確認 |
 | P1-T1 | 完了 | 76bdaa6 | host/SDK/config/unsafe export/診断を撤去。レビュー2件を修正。generate all、check、test の全工程成功 |
-| P1-T2 | 完了 | 本コミット | engine API 縮約、単一 range、plugin/provenance/annotations/型状態 export 撤去、CancellationToken を application へ移設 |
-| P1-T3 | 完了 | 本コミット | plugin crate/fixture/依存を削除、protocol/config を 1 にリセット、schema と全 fixture を再生成 |
-| P1-T4 | 完了 | 本コミット | tooling/CI/policy から plugin fixture 工程を削除、Zed の wasm target は維持 |
-| P1-T5 | 完了 | 本コミット | TS の annotations DOM/watcher/trust 文言を追従、旧 field 拒否を検証 |
-| P1-T6 | 完了 | 本コミット | README を更新。capabilities の旧 JSON は全件未参照であり P5-T4 で削除する |
+| P1-T2 | 完了 | 2946e5a | engine API 縮約、単一 range、plugin/provenance/annotations/型状態 export 撤去、CancellationToken を application へ移設 |
+| P1-T3 | 完了 | 2946e5a | plugin crate/fixture/依存を削除、protocol/config を 1 にリセット、schema と全 fixture を再生成 |
+| P1-T4 | 完了 | 2946e5a | tooling/CI/policy から plugin fixture 工程を削除、Zed の wasm target は維持 |
+| P1-T5 | 完了 | 2946e5a | TS の annotations DOM/watcher/trust 文言を追従、旧 field 拒否を検証 |
+| P1-T6 | 完了 | 2946e5a | README を更新。capabilities の旧 JSON は全件未参照であり P5-T4 で削除する |
 | P1-T7 | 完了 | 2946e5a / 本記録 | 最終 phase review 指摘なし。VS Code GUI結合テスト成功（workspace、standalone、restricted） |
 | P2-T1 | 完了 | 2df85ba | ApplicationError / ErrorKind、原因チェーン、RPC定数、共通の秘匿ログを統一。レビュー2件修正、全関門成功 |
-| P2-T2 | 進行中 | | 型付き command と記述子を設計し、protocol/codegen を統合する |
-| P4-T8 | 進行中 | 2df85ba（初期部分） | 配布正本、Rust共通検証、runtime/Zed、生成schema/TS/JS、Node検証まで接続。Python/全package関門は残作業 |
-| P5-T1 | 完了 | 本コミット | semantic-release の設定・script・専用test・7直接依存を削除。手動タグの draft release を維持し開発手順を記載 |
+| P2-T2 | 完了 | 本コミット | 11 command、共通context/result、唯一の記述子。unknown fieldもstrictに拒否 |
+| P2-T3 | 完了 | 本コミット | DocumentStore / WorkspaceAuthority / WorkspaceOpsを公開入口に統合。byte API、config cache、共通trust gate |
+| P2-T4 | 完了 | 本コミット | LSP custom/standard/HTTPの共通dispatch、typed initialize/言語結果、resource instance注入 |
+| P2-T5 | 完了 | 本コミット | CLIをWorkspaceOpsへ統一、benchmarkを開発benchへ移設 |
+| P2-T6 | 完了 | 本コミット | VS Code/browserで生成command/context/result、migrationの確認後に同じplanId適用、選択UIと翻訳 |
+| P2-T7 | 完了 | 本記録 | レビューのmigration導線・循環・名称複写を修正。全関門とGUI成功 |
+| P4-T8 | 進行中 | 2df85ba（初期部分） | 配布正本、Rust共通検証、runtime/Zed、生成schema/TS/JS、Node検証まで接続。Python77テスト・全package・Zed WASM成功。CI接続後のtarget追加実験は残作業 |
+| P5-T1 | 完了 | ac4a8d3 | semantic-release の設定・script・専用test・7直接依存を削除。手動タグの draft release を維持し開発手順を記載 |
 
 ## 判断の記録
 | 日付 | タスク | 判断 | 理由 |
@@ -76,3 +81,13 @@ P2-T1 / 配布検証初期部分: `mise run generate all`、`mise run check`、`
 ## 残課題
 - 指示書 P1〜P6 の実装・検証・フェーズレビュー。
 - 固定 submodule `tooling/xtask-core` の README の配置名は変更しない。実配置 `tooling/xtask-core` と upstream 記述 `vendor/xtask-core` の不一致は所有元の課題として残す。
+
+## P2 統合の記録
+- `mise run generate all`、`mise run check`、`mise run test`、`mise run package all`、`mise run test editor` 成功。Node119、Python77テストを含む。runtime ZIP・VSIX・Zed ZIPとworkspace/standalone/restricted GUIを確認。ログ: `.build/refactoring/p2-final-{generate,check,test,package,editor}.log`。
+- P2-T2〜T6は型削除が全境界を横断するため原子的に統合した。途中にビルド不能なコミットを作らないための分割変更である。P4-T8のPython接続も同じ検証単位に含めた。
+- module循環3件はsourceの値型・位置型・export検証の所有を分けて解消した。policyやsubmoduleの免除は追加していない。
+- Zed migration Code Actionは認証済みworkspace UIをplanMigration contextで開く。action→execute→showDocument→HTTP stateを試験した。
+- command名は生成WORKSPACE_COMMAND_KINDへ統一した。新操作の主要変更点はprotocol command/記述子、application dispatch、native実装、transport結果変換、CLI引数である。引数のないbrowser操作は記述子から選択される。
+- server service_contractの4テストをapplication/native/service_contract_tests.rsへ移動した。native byte APIから外したUTF-16/全文同期の観点はserver/language_session.rsの同名テストへ移し、UTF-8/16/32、emoji/CRLF、incremental拒否を保持した。
+- benchmarkは `cargo bench -p fleximark-cli --bench document_pipeline -- --json` とする。all-targetsの既定benchでは軽量parse/render/update smokeを実行する。
+- P4-T8のtarget追加実験はP5のCI matrix接続後に行う。未完部分を完了扱いしない。

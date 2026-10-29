@@ -20,3 +20,10 @@ pub(crate) fn reject_linked_path(
     }
     Ok(())
 }
+
+pub(crate) fn safe_workspace_relative_path(value: &str) -> bool {
+    !value.is_empty()
+        && Path::new(value)
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+}

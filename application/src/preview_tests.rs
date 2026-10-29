@@ -1,16 +1,14 @@
 //! Role: Verify preview framing, revisions, cache lifetime, and cancellation.
 use crate::*;
 
-fn opened() -> (SessionRegistry, String, String) {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+fn opened() -> (DocumentStore, String) {
+    let mut registry = DocumentStore::new(PositionEncoding::Utf8);
     registry
-        .open_with_cancellation(
-            DidOpenParams {
-                text_document: TextDocumentItem {
-                    uri: "file:///preview.md".into(),
-                    version: 1,
-                    text: "# Heading\n".into(),
-                },
+        .open(
+            DocumentUpdate {
+                uri: "file:///preview.md".into(),
+                version: 1,
+                source: "# Heading\n".into(),
             },
             &CancellationToken::default(),
         )
@@ -19,29 +17,26 @@ fn opened() -> (SessionRegistry, String, String) {
         .session_id_for_uri("file:///preview.md")
         .unwrap()
         .to_owned();
-    let daemon = registry.daemon_instance_id().to_owned();
-    (registry, daemon, session)
+    (registry, session)
 }
 
 #[test]
 fn publication_revisions_advance_only_on_successful_rendering() {
-    let (mut registry, daemon, session) = opened();
+    let (mut registry, session) = opened();
     let first = registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
     assert_eq!(first.render_revision, 1);
     assert_eq!(first.preview_session_id.0, "one");
     assert_eq!(first.document_version, 1);
     assert!(first.html().contains("Heading"));
     assert_eq!(
-        registry
-            .read_preview(&daemon, &session, "one", None)
-            .unwrap(),
+        registry.read_preview(&session, "one", None).unwrap(),
         Some(first.clone())
     );
     assert!(
         registry
-            .read_preview(&daemon, &session, "one", Some(1))
+            .read_preview(&session, "one", Some(1))
             .unwrap()
             .is_none()
     );
@@ -49,21 +44,19 @@ fn publication_revisions_advance_only_on_successful_rendering() {
     cancelled.cancel();
     assert!(
         registry
-            .render_with_cancellation(&daemon, &session, 1, "one", &cancelled)
+            .render_with_cancellation(&session, 1, "one", &cancelled)
             .is_err()
     );
     assert_eq!(
-        registry
-            .read_preview(&daemon, &session, "one", None)
-            .unwrap(),
+        registry.read_preview(&session, "one", None).unwrap(),
         Some(first)
     );
     let second = registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
     assert_eq!(second.render_revision, 2);
     let independent = registry
-        .render_with_cancellation(&daemon, &session, 1, "two", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "two", &CancellationToken::default())
         .unwrap();
     assert_eq!(independent.render_revision, 1);
     assert_eq!(independent.blocks, second.blocks);
@@ -71,42 +64,37 @@ fn publication_revisions_advance_only_on_successful_rendering() {
 
 #[test]
 fn navigation_checks_revision_and_document_version() {
-    let (mut registry, daemon, session) = opened();
+    let (mut registry, session) = opened();
     let first = registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
     let node = &first.navigation[0].node_id;
     assert!(
         registry
-            .navigate_preview(&daemon, &session, "one", 1, node)
+            .navigate_preview(&session, "one", 1, node)
             .unwrap()
             .is_some()
     );
     assert!(matches!(
-        registry.navigate_preview(&daemon, &session, "one", 2, node),
+        registry.navigate_preview(&session, "one", 2, node),
         Err(ApplicationError::ContentModified)
     ));
     registry
-        .change_with_cancellation(
-            DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///preview.md".into(),
-                    version: 2,
-                },
-                content_changes: vec![ContentChange {
-                    range: None,
-                    text: "# Edited\n".into(),
-                }],
+        .change(
+            DocumentUpdate {
+                uri: "file:///preview.md".into(),
+                version: 2,
+                source: "# Edited\n".into(),
             },
             &CancellationToken::default(),
         )
         .unwrap();
     assert!(matches!(
-        registry.navigate_preview(&daemon, &session, "one", 1, node),
+        registry.navigate_preview(&session, "one", 1, node),
         Err(ApplicationError::ContentModified)
     ));
     let updated = registry
-        .render_with_cancellation(&daemon, &session, 2, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 2, "one", &CancellationToken::default())
         .unwrap();
     assert_eq!(updated.render_revision, 2);
     assert!(updated.html().contains("Edited"));
@@ -114,41 +102,37 @@ fn navigation_checks_revision_and_document_version() {
 
 #[test]
 fn disposal_and_document_close_evict_preview_caches() {
-    let (mut registry, daemon, session) = opened();
+    let (mut registry, session) = opened();
     for id in ["one", "two"] {
         registry
-            .render_with_cancellation(&daemon, &session, 1, id, &CancellationToken::default())
+            .render_with_cancellation(&session, 1, id, &CancellationToken::default())
             .unwrap();
     }
-    registry.dispose_preview(&daemon, &session, "one").unwrap();
+    registry.dispose_preview(&session, "one").unwrap();
     assert!(
         registry
-            .read_preview(&daemon, &session, "one", None)
+            .read_preview(&session, "one", None)
             .unwrap()
             .is_none()
     );
     assert!(
         registry
-            .read_preview(&daemon, &session, "two", None)
+            .read_preview(&session, "two", None)
             .unwrap()
             .is_some()
     );
-    registry.close(DidCloseParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///preview.md".into(),
-        },
-    });
+    registry.close("file:///preview.md");
     assert!(matches!(
-        registry.read_preview(&daemon, &session, "two", None),
+        registry.read_preview(&session, "two", None),
         Err(ApplicationError::UnknownSession)
     ));
 }
 
 #[test]
 fn exhausted_revision_keeps_the_last_published_frame() {
-    let (mut registry, daemon, session) = opened();
+    let (mut registry, session) = opened();
     registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
     registry
         .index
@@ -158,30 +142,20 @@ fn exhausted_revision_keeps_the_last_published_frame() {
         .get_mut("one")
         .unwrap()
         .render_revision = u64::MAX;
-    let previous = registry
-        .read_preview(&daemon, &session, "one", None)
-        .unwrap();
+    let previous = registry.read_preview(&session, "one", None).unwrap();
     assert!(matches!(
-        registry.render_with_cancellation(
-            &daemon,
-            &session,
-            1,
-            "one",
-            &CancellationToken::default()
-        ),
+        registry.render_with_cancellation(&session, 1, "one", &CancellationToken::default()),
         Err(ApplicationError::RevisionExhausted)
     ));
     assert_eq!(
-        registry
-            .read_preview(&daemon, &session, "one", None)
-            .unwrap(),
+        registry.read_preview(&session, "one", None).unwrap(),
         previous
     );
 }
 
 #[test]
 fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
-    let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+    let mut registry = DocumentStore::new(PositionEncoding::Utf8);
     let mut config = RenderConfig::default();
     config.config_hash = content_hash("initial");
     config.config_generation = 1;
@@ -190,27 +164,18 @@ fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
         .unwrap();
     let uri = crate::tests::workspace_document_uri("reconfigure.md");
     registry
-        .open_with_cancellation(
-            DidOpenParams {
-                text_document: TextDocumentItem {
-                    uri: uri.into(),
-                    version: 1,
-                    text: "# Heading\n".into(),
-                },
+        .open(
+            DocumentUpdate {
+                uri: uri.into(),
+                version: 1,
+                source: "# Heading\n".into(),
             },
             &CancellationToken::default(),
         )
         .unwrap();
-    let daemon = registry.daemon_instance_id().to_owned();
     let session = registry.session_id_for_uri(uri).unwrap().to_owned();
     let first = registry
-        .render_with_cancellation(
-            &daemon,
-            &session,
-            1,
-            "preview",
-            &CancellationToken::default(),
-        )
+        .render_with_cancellation(&session, 1, "preview", &CancellationToken::default())
         .unwrap();
     let mut config = RenderConfig::default();
     config.config_hash = content_hash("replacement");
@@ -225,13 +190,7 @@ fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
         .unwrap();
     assert_eq!(registry.session_id_for_uri(uri), Some(session.as_str()));
     let second = registry
-        .render_with_cancellation(
-            &daemon,
-            &session,
-            1,
-            "preview",
-            &CancellationToken::default(),
-        )
+        .render_with_cancellation(&session, 1, "preview", &CancellationToken::default())
         .unwrap();
     assert_eq!(second.preview_session_id, first.preview_session_id);
     assert_eq!(second.render_revision, first.render_revision + 1);
@@ -241,27 +200,18 @@ fn reconfiguration_preserves_preview_identity_and_revision_sequence() {
 
 #[test]
 fn cancelled_change_retains_source_document_frame_and_revision() {
-    let (mut registry, daemon, session) = opened();
+    let (mut registry, session) = opened();
     let frame = registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
-    let before = registry
-        .document(&daemon, &session, 1)
-        .unwrap()
-        .document()
-        .clone();
+    let before = registry.document(&session, 1).unwrap().document().clone();
     let cancelled = CancellationToken::default();
     cancelled.cancel();
-    let result = registry.change_with_cancellation(
-        DidChangeParams {
-            text_document: VersionedTextDocumentIdentifier {
-                uri: "file:///preview.md".into(),
-                version: 2,
-            },
-            content_changes: vec![ContentChange {
-                range: None,
-                text: "# After".into(),
-            }],
+    let result = registry.change(
+        DocumentUpdate {
+            uri: "file:///preview.md".into(),
+            version: 2,
+            source: "# After".into(),
         },
         &cancelled,
     );
@@ -271,26 +221,21 @@ fn cancelled_change_retains_source_document_frame_and_revision() {
     assert_eq!(retained.document(), &before);
     assert_eq!(retained.previews.get("one"), Some(&frame));
     assert!(matches!(
-        registry.document(&daemon, &session, 1).err(),
+        registry.document(&session, 1).err(),
         Some(ApplicationError::ContentModified)
     ));
     registry
-        .change_with_cancellation(
-            DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///preview.md".into(),
-                    version: 2,
-                },
-                content_changes: vec![ContentChange {
-                    range: None,
-                    text: "# Heading\n".into(),
-                }],
+        .change(
+            DocumentUpdate {
+                uri: "file:///preview.md".into(),
+                version: 2,
+                source: "# Heading\n".into(),
             },
             &CancellationToken::default(),
         )
         .unwrap();
     let next = registry
-        .render_with_cancellation(&daemon, &session, 2, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 2, "one", &CancellationToken::default())
         .unwrap();
     assert_eq!(next.blocks, frame.blocks);
     assert_eq!(next.render_revision, frame.render_revision + 1);
@@ -299,20 +244,18 @@ fn cancelled_change_retains_source_document_frame_and_revision() {
 #[test]
 fn cancelled_open_never_installs_a_document_session() {
     for stage in ["open_start", "open_commit"] {
-        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        let mut registry = DocumentStore::new(PositionEncoding::Utf8);
         let token = CancellationToken::default();
         if stage == "open_start" {
             token.cancel();
         } else {
             crate::cancellation_checks::cancel_at(stage, &token);
         }
-        let result = registry.open_with_cancellation(
-            DidOpenParams {
-                text_document: TextDocumentItem {
-                    uri: "file:///cancel-open.md".into(),
-                    version: 1,
-                    text: "# Source".into(),
-                },
+        let result = registry.open(
+            DocumentUpdate {
+                uri: "file:///cancel-open.md".into(),
+                version: 1,
+                source: "# Source".into(),
             },
             &token,
         );
@@ -329,9 +272,9 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
         (false, "change_commit"),
         (true, "change_commit"),
     ] {
-        let (mut registry, daemon, session) = opened();
+        let (mut registry, session) = opened();
         let frame = registry
-            .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+            .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
             .unwrap();
         let before = registry
             .index
@@ -340,20 +283,15 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
             .document()
             .clone();
         if recovery {
-            registry.mark_out_of_sync("file:///preview.md", "test recovery");
+            registry.mark_out_of_sync("file:///preview.md");
         }
         let token = CancellationToken::default();
         crate::cancellation_checks::cancel_at(stage, &token);
-        let result = registry.change_with_cancellation(
-            DidChangeParams {
-                text_document: VersionedTextDocumentIdentifier {
-                    uri: "file:///preview.md".into(),
-                    version: 2,
-                },
-                content_changes: vec![ContentChange {
-                    range: None,
-                    text: "# Replacement".into(),
-                }],
+        let result = registry.change(
+            DocumentUpdate {
+                uri: "file:///preview.md".into(),
+                version: 2,
+                source: "# Replacement".into(),
             },
             &token,
         );
@@ -364,7 +302,7 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
         assert_eq!(retained.previews.get("one"), Some(&frame));
         assert!(retained.engine.is_out_of_sync());
         assert!(matches!(
-            registry.document(&daemon, &session, 1).err(),
+            registry.document(&session, 1).err(),
             Some(ApplicationError::ContentModified)
         ));
     }
@@ -373,28 +311,25 @@ fn cancellation_before_change_commit_preserves_authoritative_state_and_preview()
 #[test]
 fn cancelled_reconfiguration_discards_configuration_candidates() {
     for stage in ["configuration_prepared", "reconfigure_commit"] {
-        let mut registry = SessionRegistry::new(PositionEncoding::Utf8);
+        let mut registry = DocumentStore::new(PositionEncoding::Utf8);
         let root = crate::tests::workspace_uri();
         registry
             .configure_workspaces(vec![(root.into(), RenderConfig::default())])
             .unwrap();
         let uri = crate::tests::workspace_document_uri("cancel-candidate.md");
         registry
-            .open_with_cancellation(
-                DidOpenParams {
-                    text_document: TextDocumentItem {
-                        uri: uri.into(),
-                        version: 1,
-                        text: "# Heading\n".into(),
-                    },
+            .open(
+                DocumentUpdate {
+                    uri: uri.into(),
+                    version: 1,
+                    source: "# Heading\n".into(),
                 },
                 &CancellationToken::default(),
             )
             .unwrap();
-        let daemon = registry.daemon_instance_id().to_owned();
         let session = registry.session_id_for_uri(uri).unwrap().to_owned();
         let frame = registry
-            .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+            .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
             .unwrap();
         let before = registry.index.by_uri(uri).unwrap().document().clone();
         let config = registry
@@ -424,24 +359,22 @@ fn cancelled_reconfiguration_discards_configuration_candidates() {
 
 #[test]
 fn cancellation_after_render_keeps_the_published_frame_and_revision() {
-    let (mut registry, daemon, session) = opened();
+    let (mut registry, session) = opened();
     let previous = registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
     let token = CancellationToken::default();
     crate::cancellation_checks::cancel_at("render_commit", &token);
     assert!(matches!(
-        registry.render_with_cancellation(&daemon, &session, 1, "one", &token),
+        registry.render_with_cancellation(&session, 1, "one", &token),
         Err(ApplicationError::Cancelled)
     ));
     assert_eq!(
-        registry
-            .read_preview(&daemon, &session, "one", None)
-            .unwrap(),
+        registry.read_preview(&session, "one", None).unwrap(),
         Some(previous.clone())
     );
     let next = registry
-        .render_with_cancellation(&daemon, &session, 1, "one", &CancellationToken::default())
+        .render_with_cancellation(&session, 1, "one", &CancellationToken::default())
         .unwrap();
     assert_eq!(next.render_revision, previous.render_revision + 1);
     assert_eq!(next.blocks, previous.blocks);

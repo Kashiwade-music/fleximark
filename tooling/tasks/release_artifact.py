@@ -13,23 +13,14 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from _targets import TARGETS
 from _tools import ROOT, script_entrypoint
+from distribution_contract import SPEC, SHA256_PATTERN, SEMVER_PATTERN, read_manifest
 
 
 IDENTITY_SCHEMA_VERSION = 1
 DEFAULT_VSIX = ROOT / "fleximark.vsix"
 DEFAULT_IDENTITY = ROOT / "fleximark.vsix.identity.json"
-SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 GIT_HEAD_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
-SEMVER_PATTERN = re.compile(
-    r"(?:0|[1-9][0-9]*)\."
-    r"(?:0|[1-9][0-9]*)\."
-    r"(?:0|[1-9][0-9]*)"
-    r"(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-    r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
-)
 ALLOWED_TOP_LEVEL = {"[Content_Types].xml", "extension.vsixmanifest", "extension"}
 ALLOWED_EXTENSION_ROOT_FILES = {
     "changelog.md",
@@ -71,10 +62,10 @@ REQUIRED_RUNTIME = {
 }
 MAX_VSIX_SIZE = 256 * 1024 * 1024
 MAX_ENTRY_COUNT = 20_000
-MAX_ENTRY_SIZE = 128 * 1024 * 1024
-MAX_TOTAL_UNCOMPRESSED_SIZE = 512 * 1024 * 1024
+MAX_ENTRY_SIZE = SPEC["limits"]["fileBytes"]
+MAX_TOTAL_UNCOMPRESSED_SIZE = SPEC["limits"]["totalBytes"]
 MAX_COMPRESSION_RATIO = 200
-MAX_METADATA_SIZE = 1024 * 1024
+MAX_METADATA_SIZE = SPEC["limits"]["manifestBytes"]
 MIN_RUNTIME_SIZE = 1024
 
 
@@ -383,26 +374,9 @@ def _archive_version(
     return version
 
 
-def _daemon_manifest_artifacts(payload: bytes, label: str) -> list[dict[str, Any]]:
-    from distribution import TARGETS as DISTRIBUTION_TARGETS
-    manifest = _json_object(payload, label)
-    if set(manifest) != {"schemaVersion", "protocolVersion", "version", "target", "files"}:
-        raise RuntimeError(f"{label} has unexpected fields")
-    from distribution import metadata
-    if manifest["schemaVersion"] != 1 or manifest["protocolVersion"] != metadata()["protocol_version"] or manifest["target"] not in DISTRIBUTION_TARGETS.values():
-        raise RuntimeError(f"{label} has unsupported versions or target")
-    suffix = ".exe" if "windows" in manifest["target"] else ""
-    expected = {f"bin/{name}{suffix}" for name in ("fleximarkd", "fleximark")} | {f"resources/preview/{name}" for name in ("browser-host.js", "fleximark.css", "katex.css")} | {f"resources/workspace/{name}" for name in ("workspace.js", "workspace.css")}
-    if not isinstance(manifest["files"], dict) or set(manifest["files"]) != expected:
-        raise RuntimeError(f"{label} must contain canonical runtime files")
-    if not isinstance(manifest["version"], str) or not SEMVER_PATTERN.fullmatch(manifest["version"]):
-        raise RuntimeError(f"{label} has invalid version")
-    artifacts = []
-    for path, checksum in manifest["files"].items():
-        if not isinstance(checksum, str) or not SHA256_PATTERN.fullmatch(checksum):
-            raise RuntimeError(f"{label} has invalid SHA-256")
-        artifacts.append({"path": "runtime/" + path, "sha256": checksum})
-    return artifacts
+def runtime_manifest_artifacts(payload: bytes, label: str) -> list[dict[str, Any]]:
+    manifest = read_manifest(payload, label)
+    return [{"path": "runtime/" + path, "sha256": checksum} for path, checksum in manifest["files"].items()]
 
 
 def _validate_daemon_manifest(archive: zipfile.ZipFile, by_name: dict[str, zipfile.ZipInfo]) -> None:
@@ -410,7 +384,7 @@ def _validate_daemon_manifest(archive: zipfile.ZipFile, by_name: dict[str, zipfi
     package = _json_object(archive.read("extension/package.json"), "packaged extension")
     if manifest.get("version") != package.get("version"):
         raise RuntimeError("runtime and extension versions differ")
-    for artifact in _daemon_manifest_artifacts(archive.read("extension/runtime/manifest.json"), "packaged runtime manifest"):
+    for artifact in runtime_manifest_artifacts(archive.read("extension/runtime/manifest.json"), "packaged runtime manifest"):
         name = "extension/" + artifact["path"]
         info = by_name.get(name)
         if info is None or info.file_size <= 0:

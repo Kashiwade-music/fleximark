@@ -1,4 +1,5 @@
-//! Role: Deliver LSP and RPC requests and session events over the daemon transport.
+//! Role: Publish source diagnostics and collect hierarchical document symbols.
+use super::lsp_types::*;
 use super::state::*;
 use super::wire::*;
 
@@ -19,20 +20,14 @@ impl Server {
                 "document is not open",
             )));
         };
-        let Ok(version) = self
-            .registry
-            .current_version(self.registry.daemon_instance_id(), session_id)
-        else {
+        let Ok(version) = self.registry.current_version(session_id) else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
                 "document is not current",
             )));
         };
-        let Ok(document) =
-            self.registry
-                .document(self.registry.daemon_instance_id(), session_id, version)
-        else {
+        let Ok(document) = self.registry.document(session_id, version) else {
             return Some(response_value(Response::error(
                 id,
                 fleximark_protocol::error_code::INVALID_PARAMS,
@@ -42,7 +37,10 @@ impl Server {
         let diagnostics = collect_session_diagnostics(document);
         Some(response_value(Response::success(
             id,
-            json!({"kind":"full","items":diagnostics}),
+            DiagnosticReport {
+                kind: "full",
+                items: diagnostics,
+            },
         )))
     }
 
@@ -53,18 +51,20 @@ impl Server {
         let Some(session_id) = self.registry.session_id_for_uri(uri) else {
             return;
         };
-        let daemon = self.registry.daemon_instance_id();
-        let Ok(version) = self.registry.current_version(daemon, session_id) else {
+        let Ok(version) = self.registry.current_version(session_id) else {
             return;
         };
-        let Ok(document) = self.registry.document(daemon, session_id, version) else {
+        let Ok(document) = self.registry.document(session_id, version) else {
             return;
         };
-        self.outgoing_events.push(json!({
-            "jsonrpc":"2.0",
-            "method":"textDocument/publishDiagnostics",
-            "params":{"uri":uri,"version":version,"diagnostics":collect_session_diagnostics(document)}
-        }));
+        self.outgoing_events.push(super::wire::notification_value(
+            "textDocument/publishDiagnostics",
+            PublishDiagnostics {
+                uri,
+                version: Some(version),
+                diagnostics: collect_session_diagnostics(document),
+            },
+        ));
     }
 }
 
@@ -110,7 +110,7 @@ fn inline_text(inline: &Inline, output: &mut String) {
 
 pub(super) fn collect_heading_symbols(
     blocks: &[Block],
-    output: &mut Vec<Value>,
+    output: &mut Vec<Symbol>,
     source: &fleximark_model::SourceIndex,
     encoding: PositionEncoding,
 ) {
@@ -131,12 +131,20 @@ pub(super) fn collect_heading_symbols(
                         inline_text(inline, &mut name);
                     }
                 }
-                output.push(json!({
-                    "name": if name.is_empty() { "Heading" } else { &name },
-                    "kind": 13,
-                    "range": {"start":{"line":start.line,"character":start.character},"end":{"line":end.line,"character":end.character}},
-                    "selectionRange": {"start":{"line":start.line,"character":start.character},"end":{"line":end.line,"character":end.character}}
-                }));
+                let range = Range {
+                    start: start.into(),
+                    end: end.into(),
+                };
+                output.push(Symbol {
+                    name: if name.is_empty() {
+                        "Heading".into()
+                    } else {
+                        name
+                    },
+                    kind: 13,
+                    range: range.clone(),
+                    selection_range: range,
+                });
             }
         }
         let children = block
@@ -151,32 +159,42 @@ pub(super) fn collect_heading_symbols(
     }
 }
 
-fn collect_session_diagnostics(document: &fleximark_application::DocumentSession) -> Vec<Value> {
+fn collect_session_diagnostics(
+    document: &fleximark_application::DocumentSession,
+) -> Vec<Diagnostic> {
     let source = fleximark_model::SourceIndex::new(document.source());
-    let mut output = Vec::new();
-    for diagnostic in document.asset_diagnostics() {
-        let range = diagnostic.source_range.as_ref().map_or_else(
-            || json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}}),
-            |range| {
-                let start = source
-                    .byte_to_position(range.byte_start as usize, document.position_encoding())
-                    .expect("validated range");
-                let end = source
-                    .byte_to_position(range.byte_end as usize, document.position_encoding())
-                    .expect("validated range");
-                json!({
-                    "start":{"line":start.line,"character":start.character},
-                    "end":{"line":end.line,"character":end.character}
-                })
-            },
-        );
-        output.push(json!({
-            "range":range,
-            "severity":1,
-            "code":diagnostic.kind.code(),
-            "source":"fleximark",
-            "message":diagnostic.message
-        }));
-    }
-    output
+    document
+        .asset_diagnostics()
+        .iter()
+        .filter_map(|diagnostic| {
+            let range = if let Some(range) = &diagnostic.source_range {
+                Range {
+                    start: source
+                        .byte_to_position(range.byte_start as usize, document.position_encoding())?
+                        .into(),
+                    end: source
+                        .byte_to_position(range.byte_end as usize, document.position_encoding())?
+                        .into(),
+                }
+            } else {
+                Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                }
+            };
+            Some(Diagnostic {
+                range,
+                severity: 1,
+                code: diagnostic.kind.code(),
+                source: "fleximark",
+                message: diagnostic.message.clone(),
+            })
+        })
+        .collect()
 }

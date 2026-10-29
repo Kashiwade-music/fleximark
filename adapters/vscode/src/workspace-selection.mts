@@ -1,4 +1,4 @@
-import type { ViewColumn } from "vscode";
+import { type ViewColumn, l10n } from "vscode";
 
 interface VisibleSourceEditor {
   readonly document: {
@@ -35,7 +35,7 @@ export async function selectWorkspaceUri(
     activeWorkspaceUri,
     workspaces,
     pick,
-    "Select a FlexiMark workspace",
+    l10n.t("Select a FlexiMark workspace"),
   );
 }
 

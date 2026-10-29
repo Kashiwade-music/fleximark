@@ -1,10 +1,11 @@
 //! Role: Validate export ownership and installed filesystem identities.
 use super::filesystem::{
     object_identity_from_metadata, open_relative_parent, payload_digest, read_json_regular,
-    read_regular_at, safe_relative_path, sha256,
+    read_regular_at, safe_relative_path,
 };
 use super::model::{ManagedExport, OwnershipMarker, RegistryRecord};
 use crate::native::ApplicationError;
+use crate::native::integrity::sha256;
 use cap_std::{ambient_authority, fs::Dir};
 use std::path::Path;
 pub(super) fn inspect_export(

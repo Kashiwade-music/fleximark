@@ -5,10 +5,7 @@
       "name": "initialize params with all optional fields",
       "value": {
         "capabilities": {
-          "embeddedHtml": true,
-          "openExternal": true,
           "selectionEvents": true,
-          "structuredPreview": false,
           "viewportEvents": true
         },
         "client": {
@@ -118,31 +115,37 @@
       }
     },
     {
-      "definition": "executeCommandParams",
+      "definition": "workspaceCommandRequest",
       "name": "execute command params with all optional fields",
       "value": {
-        "command": "createNote",
+        "context": {
+          "document": {
+            "documentSessionId": "document",
+            "expectedDocumentVersion": 3
+          },
+          "workspaceUri": "file:///workspace"
+        },
         "daemonInstanceId": "daemon",
-        "destinationUri": "file:///workspace/note.md",
-        "documentSessionId": "document",
-        "expectedDocumentVersion": 3,
-        "noteCategoryPath": [
-          "Work"
-        ],
-        "noteFileName": "session",
-        "noteTemplate": "daily",
-        "workspaceUri": "file:///workspace"
+        "operation": {
+          "categoryPath": [
+            "Work"
+          ],
+          "command": "createNote",
+          "name": "session",
+          "template": "daily"
+        }
       }
     },
     {
       "definition": "commandResult",
       "name": "command result with all optional fields",
       "value": {
+        "kind": "noteCreated",
         "message": {
           "level": "warning",
           "text": "review note"
         },
-        "openUri": "file:///workspace/note.md"
+        "uri": "file:///workspace/note.md"
       }
     }
   ],

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from _tools import ROOT, format_process_error, run, script_entrypoint
+from _tools import ROOT, executable, format_process_error, run, script_entrypoint
 
 
 def checked_process(
@@ -63,8 +63,9 @@ def check_performance_budgets() -> None:
     with tempfile.TemporaryDirectory(prefix="fleximark-perf-") as temp:
         cold_start_ms = render(binary, Path(temp), "cold", "# Cold\n")
 
+    run("cargo", "bench", "--no-run", "-p", "fleximark-cli", "--bench", "document_pipeline", "--locked")
     benchmark = checked_process(
-        [str(binary), "benchmark", "--json"],
+        [executable("cargo"), "bench", "--quiet", "-p", "fleximark-cli", "--bench", "document_pipeline", "--locked", "--", "--json"],
         timeout=60,
         description="benchmark",
     )

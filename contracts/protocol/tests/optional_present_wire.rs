@@ -1,7 +1,7 @@
 //! Role: Verify independent wire examples against the current contract.
 use fleximark_protocol::{
-    CommandMessage, CommandResult, CreatePreviewResult, ExecuteCommandParams, InitializeParams,
-    InitializeResult, ServerCapabilities, WorkspaceStatus,
+    CommandMessage, CommandResult, CreatePreviewResult, InitializeParams, InitializeResult,
+    ServerCapabilities, WorkspaceCommandRequest, WorkspaceStatus,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -20,10 +20,7 @@ struct Case {
 }
 
 fn fixture() -> Fixture {
-    serde_json::from_str(include_str!(
-        "../../../tests/fixtures/protocol/optional-present.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("../fixtures/optional-present.json")).unwrap()
 }
 
 fn case<'a>(fixture: &'a Fixture, definition: &str) -> &'a Value {
@@ -43,34 +40,32 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
     let initialize: InitializeParams =
         serde_json::from_value(case(&fixture, "initializeParams").clone()).unwrap();
-    assert!(initialize.capabilities.embedded_html);
-    assert!(!initialize.capabilities.structured_preview);
     assert!(initialize.capabilities.selection_events);
     assert!(initialize.capabilities.viewport_events);
-    assert!(initialize.capabilities.open_external);
     assert_eq!(initialize.workspaces.len(), 1);
     assert!(initialize.workspaces[0].trusted);
 
-    let execute: ExecuteCommandParams =
-        serde_json::from_value(case(&fixture, "executeCommandParams").clone()).unwrap();
-    assert_eq!(execute.document_session_id.as_deref(), Some("document"));
+    let execute: WorkspaceCommandRequest =
+        serde_json::from_value(case(&fixture, "workspaceCommandRequest").clone()).unwrap();
+    let document = execute.context.document.unwrap();
+    assert_eq!(document.document_session_id, "document");
+    assert_eq!(document.expected_document_version.get(), 3);
     assert_eq!(
-        execute
-            .expected_document_version
-            .map(|version| version.get()),
-        Some(3)
+        execute.context.workspace_uri.as_deref(),
+        Some("file:///workspace")
     );
-    assert_eq!(execute.workspace_uri.as_deref(), Some("file:///workspace"));
-    assert_eq!(
-        execute.destination_uri.as_deref(),
-        Some("file:///workspace/note.md")
-    );
-    assert_eq!(
-        execute.note_category_path.as_deref(),
-        Some(["Work".to_owned()].as_slice())
-    );
-    assert_eq!(execute.note_template.as_deref(), Some("daily"));
-    assert_eq!(execute.note_file_name.as_deref(), Some("session"));
+    match execute.operation {
+        fleximark_protocol::WorkspaceCommand::CreateNote {
+            category_path,
+            template,
+            name,
+        } => {
+            assert_eq!(category_path, Some(vec!["Work".into()]));
+            assert_eq!(template.as_deref(), Some("daily"));
+            assert_eq!(name.as_deref(), Some("session"));
+        }
+        _ => panic!("expected create note"),
+    }
 
     let initialize_result = InitializeResult {
         protocol_version: fleximark_protocol::PROTOCOL_VERSION,
@@ -103,13 +98,12 @@ fn optional_present_fixture_matches_directional_public_dtos() {
         *create_preview
     );
 
-    let command_result = CommandResult {
+    let command_result = CommandResult::NoteCreated {
         message: Some(CommandMessage {
             level: fleximark_protocol::CommandMessageLevel::Warning,
             text: "review note".into(),
         }),
-        open_uri: Some("file:///workspace/note.md".into()),
-        data: None,
+        uri: "file:///workspace/note.md".into(),
     };
     assert_eq!(
         serde_json::to_value(command_result).unwrap(),
@@ -124,24 +118,32 @@ fn optional_present_fixture_matches_directional_public_dtos() {
 
 #[test]
 fn note_category_path_rejects_present_invalid_values() {
-    let base = json!({"daemonInstanceId":"daemon","command":"createNote"});
+    let base =
+        json!({"daemonInstanceId":"daemon","context":{},"operation":{"command":"createNote"}});
     let too_deep = Value::Array((0..33).map(|_| Value::String("x".into())).collect());
     for invalid in [Value::Null, json!([]), too_deep, json!(["Work", ""])] {
         let mut value = base.clone();
-        value["noteCategoryPath"] = invalid;
-        assert!(serde_json::from_value::<ExecuteCommandParams>(value).is_err());
+        value["operation"]["categoryPath"] = invalid;
+        assert!(serde_json::from_value::<WorkspaceCommandRequest>(value).is_err());
     }
-    let missing = serde_json::from_value::<ExecuteCommandParams>(base).unwrap();
-    assert!(missing.note_category_path.is_none());
-    assert!(missing.note_file_name.is_none());
+    let missing = serde_json::from_value::<WorkspaceCommandRequest>(base).unwrap();
+    assert!(matches!(
+        missing.operation,
+        fleximark_protocol::WorkspaceCommand::CreateNote {
+            category_path: None,
+            name: None,
+            ..
+        }
+    ));
 }
 
 #[test]
 fn note_file_name_rejects_present_invalid_values() {
-    let base = json!({"daemonInstanceId":"daemon","command":"createNote"});
+    let base =
+        json!({"daemonInstanceId":"daemon","context":{},"operation":{"command":"createNote"}});
     for invalid in [Value::Null, json!(""), json!("x".repeat(256))] {
         let mut value = base.clone();
-        value["noteFileName"] = invalid;
-        assert!(serde_json::from_value::<ExecuteCommandParams>(value).is_err());
+        value["operation"]["name"] = invalid;
+        assert!(serde_json::from_value::<WorkspaceCommandRequest>(value).is_err());
     }
 }
