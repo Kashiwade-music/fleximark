@@ -67,7 +67,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     command(
         'audit',
-        'Query the package registry for high/critical JavaScript dependency vulnerabilities (network)',
+        'Query the package registry for moderate-or-higher JavaScript dependency vulnerabilities (network)',
     )
     command('smoke', 'Install and test an existing VSIX in an isolated VS Code profile').add_argument(
         'vsix',
@@ -112,6 +112,15 @@ def create_plan(args: argparse.Namespace) -> task_plan.Plan:
                 task_plan.Step(
                     'Install WASI target for Zed',
                     lambda: run('rustup', 'target', 'add', 'wasm32-wasip2'),
+                ),
+                # Cold runners need all-target dependencies cached before offline architecture checks.
+                task_plan.Step(
+                    'Cache locked root Rust dependencies for offline architecture checks',
+                    lambda: run('cargo', 'fetch', '--locked'),
+                ),
+                task_plan.Step(
+                    'Cache locked Zed Rust dependencies for offline architecture checks',
+                    lambda: run('cargo', 'fetch', '--locked', '--manifest-path', 'adapters/zed/Cargo.toml'),
                 ),
             ],
             'Development dependencies ready. Toolchain versions are installed first with mise install.',
@@ -193,7 +202,7 @@ def create_plan(args: argparse.Namespace) -> task_plan.Plan:
         return task_plan.Plan(
             [
                 task_plan.Step(
-                    'Run yarn npm audit for high/critical vulnerabilities',
+                    'Run yarn npm audit for moderate-or-higher vulnerabilities',
                     lambda: task_checks.verify_audit(()),
                 ),
             ],

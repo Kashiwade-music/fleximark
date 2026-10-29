@@ -261,7 +261,7 @@ fake runtimeと完全に重なるように見えるケースにもobject保持�
 | F15 | 配布manifest/実fs検証、全package、VSIX identity/clean-install smoke、Zed WASM/ZIP |
 | F16 | renderer golden/security、preview-extendedのmath/Mermaid/ABC再生寿命等、実Chromium数式描画とCSS外観比較 |
 
-## 最終計測（P0と同じ除外条件）
+## 最終計測（73c9ac1時点、P0と同じ除外条件）
 | 言語 | 基準 非空行 / file | 最終 非空行 / file | 行数差 |
 |---|---|---|---|
 | Rust | 27,180 / 130 | 30,776 / 155 | +3,596 |
@@ -284,3 +284,12 @@ fake runtimeと完全に重なるように見えるケースにもobject保持�
 - P6-T1の比率は上記の目安超過を記録した。安全性/機能の検証を守る判断についてreadonly reviewで追加懸念はなかった。
 - 必須auditを満たすため既存間接依存の修正版を固定した。新たな機能依存は導入していない。
 - 利用者の明示指示により、最終commit後に現ブランチをoriginへ通常pushする。PR・タグ・実releaseの作成は行わない。
+
+
+## PR #5 の CI 追補（2026-10-29）
+- 実CIの起点は73c9ac1、run 40876511597。ローカル全verifyの成功とGitHub上の成功を区別する。失敗は公開認証の前段で発生した。
+- [quality失敗](https://github.com/Kashiwade-music/fleximark/actions/runs/40876511597/job/123456606143): offline構造解析前の依存取得が不十分で、clean Linux runnerのambient-authority未cacheで停止した。共通setupにroot/Zed両workspaceの`cargo fetch --locked`を追加し、host targetに絞らず全依存を事前取得する。固定xtask submodule、offline解析、lockfile固定は維持する。
+- [dependency-review失敗](https://github.com/Kashiwade-music/fleximark/actions/runs/40876511597/job/123456605427): fast-uri3.1.7のmoderate脆弱性3件。ローカルがhigh以上、PR reviewがmoderate以上という閾値差を見落としていた。fast-uri3.1.9へ固定し、ローカルauditもmoderate以上へ厳格化した。全体のmoderate監査で追加検出したqsは6.16.1へ更新した。
+- npmのdeprecation通知はadvisoryと異なるため`--no-deprecations`とする。脆弱性のpackage除外、advisory除外、CI閾値の緩和は行わない。
+- setupの両lockfile準備順・失敗時停止、quality内でnetwork auditを実行しないこと、明示auditが新閾値で実行されることを検証した。GPT-6.1 Sol lowの実装agentとreadonly reviewerを使用し、追加懸念なし。
+- `mise run setup`、`mise run check`、`mise run test`、`mise run verify`全25工程成功。Python76件・Node136件を含む。ログは`.build/refactoring/pr5-{setup,check,test,verify}.log`。実CIの各platformの結果は[PR #5のChecks](https://github.com/Kashiwade-music/fleximark/pull/5/checks)でcommitごとに確認する。

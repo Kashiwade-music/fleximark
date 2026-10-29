@@ -100,6 +100,29 @@ class TaskCommandTests(unittest.TestCase):
                 for test in tests:
                     test.assert_not_called()
 
+    def test_setup_prepares_both_locked_rust_workspaces_after_toolchains(self):
+        with action("run") as run:
+            self.run_cli("setup")
+        commands = [call.args for call in run.call_args_list]
+        self.assertEqual(commands, [
+            ("git", "submodule", "update", "--init", "--recursive"),
+            ("yarn", "install", "--immutable"),
+            ("rustup", "component", "add", "rustfmt", "clippy"),
+            ("rustup", "target", "add", "wasm32-wasip2"),
+            ("cargo", "fetch", "--locked"),
+            ("cargo", "fetch", "--locked", "--manifest-path", "adapters/zed/Cargo.toml"),
+        ])
+
+    def test_setup_stops_before_zed_fetch_if_root_fetch_fails(self):
+        def execute(*command):
+            if command == ("cargo", "fetch", "--locked"):
+                raise RuntimeError("root dependency fetch failed")
+
+        with action("run", side_effect=execute) as run:
+            with self.assertRaisesRegex(RuntimeError, "root dependency fetch failed"):
+                self.run_cli("setup")
+        self.assertEqual(run.call_args_list[-1].args, ("cargo", "fetch", "--locked"))
+
     def test_default_test_runs_all_non_gui_suites_without_packaging(self):
         with ExitStack() as stack:
             run = stack.enter_context(action("run"))

@@ -53,12 +53,13 @@ class VerificationPhasesTests(unittest.TestCase):
                 self.assertIn("--locked", command)
         for gate in ("fmt", "test", "clippy", "xtask"):
             self.assertTrue(any(command[:2] == ("cargo", gate) for command in commands))
-        self.assertNotIn(("npm", "audit", "--all", "--recursive", "--severity", "high"), [call.args for call in yarn.call_args_list])
+        self.assertNotIn(("npm", "audit"), [call.args[:2] for call in yarn.call_args_list])
+        self.assertNotIn(("yarn", "npm", "audit"), [command[:3] for command in commands])
 
     def test_audit_is_an_explicit_network_gate(self):
         with action("run") as run:
             task_checks.verify_audit(())
-        run.assert_called_once_with("yarn", "npm", "audit", "--all", "--recursive", "--severity", "high")
+        run.assert_called_once_with("yarn", "npm", "audit", "--all", "--recursive", "--no-deprecations", "--severity", "moderate")
 
     def test_generated_freshness_accepts_current_uncommitted_content(self):
         with tempfile.TemporaryDirectory() as temporary:

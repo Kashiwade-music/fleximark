@@ -36,7 +36,8 @@ def check_architecture() -> None:
 
 def verify_audit(_: Sequence[str]) -> None:
     """Network dependency audit required explicitly by CI and release workflows."""
-    run('yarn', 'npm', 'audit', '--all', '--recursive', '--severity', 'high')
+    # Match dependency-review's advisory threshold; deprecation notices are not advisories.
+    run('yarn', 'npm', 'audit', '--all', '--recursive', '--no-deprecations', '--severity', 'moderate')
 
 def write_ci_matrix() -> None:
     value = json.dumps(

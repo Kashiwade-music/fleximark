@@ -11,7 +11,7 @@ mise run setup
 ```
 
 `mise install` は固定バージョンの toolchain を導入する。
-`setup` は固定 submodule、Yarn の依存関係、rustfmt/clippy、wasm32-wasip2 を導入する。ネットワークが必要。
+`setup` は固定 submodule、Yarn の依存関係、rustfmt/clippy、wasm32-wasip2 を導入し、root・Zed の lockfile に基づく全 target の Rust 依存を取得する。構造検査の offline 解析に備えるため、キャッシュのない環境でも最初に実行する。ネットワークが必要。
 
 ## コマンドと実行内容
 
@@ -32,7 +32,7 @@ mise run setup
 | `mise run package runtime` | runtime をビルドして ZIP と SHA-256 を作る |
 | `mise run package all` | runtime・Zed ZIP と VS Code VSIX を作る |
 | `mise run verify` | check → test → audit → 全製品 build → 性能・editor テスト → VSIX・identity → clean-install smoke |
-| `mise run audit` | registry へ問い合わせて JavaScript 依存の high/critical 脆弱性を検査する |
+| `mise run audit` | registry へ問い合わせて JavaScript 依存の moderate 以上の脆弱性を検査する（非推奨通知は除く） |
 | `mise run smoke <VSIXのパス>` | 既存 VSIX を隔離 VS Code に入れ、daemon 起動・本文描画・ライブ更新を実画面で検証する |
 | `mise run clean` | `.build` 内の JS/TS・test 出力を削除する。`target` と `.artifacts` は残す |
 

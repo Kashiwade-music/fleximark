@@ -46,7 +46,7 @@ description = "All checks/tests + audit + all builds + performance + VSIX + clea
 run = "python tooling/tasks/tasks.py verify"
 
 [tasks.audit]
-description = "Query registry for high/critical JavaScript dependency vulnerabilities"
+description = "Query registry for moderate-or-higher JavaScript dependency vulnerabilities"
 run = "python tooling/tasks/tasks.py audit"
 
 [tasks.smoke]
