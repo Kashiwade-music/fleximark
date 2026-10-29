@@ -78,7 +78,7 @@ class PerformanceBudgetTests(unittest.TestCase):
             with patch.object(performance, "ROOT", root), patch("distribution.host_target", return_value="host"), patch.object(performance, "render", return_value=1), patch.object(performance, "executable", return_value="cargo-tool"), patch.dict(os.environ, {"FLEXIMARK_PERF_MULTIPLIER": "1"}), patch.object(performance, "checked_process") as process:
                 process.side_effect = [
                     subprocess.CompletedProcess([], 0, messages(artifact(bench, fresh=True)), "compiled\n"),
-                    subprocess.CompletedProcess([], 0, json.dumps(report), ""),
+                    subprocess.CompletedProcess([], 0, json.dumps(report), "benchmark phases\n"),
                 ]
                 output, diagnostics = io.StringIO(), io.StringIO()
                 error = None
@@ -96,7 +96,7 @@ class PerformanceBudgetTests(unittest.TestCase):
         self.assertEqual(calls[0].kwargs["timeout"], 900)
         self.assertEqual(calls[1].args[0], [str(bench), "--json"])
         self.assertEqual(calls[1].kwargs["timeout"], 60)
-        self.assertEqual(diagnostics, "compiled\n")
+        self.assertEqual(diagnostics, "compiled\nbenchmark phases\n")
         self.assertEqual(json.loads(output)["metrics"]["peakMemoryBytes"], 100)
 
     def test_missing_executable_is_rejected_before_measurement(self):

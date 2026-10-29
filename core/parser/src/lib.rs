@@ -49,37 +49,39 @@ pub fn parse(
     document_version: u64,
     source: &str,
 ) -> Result<Document, ParseError> {
-    let arena = Arena::new();
-    let mut options = Options::default();
-    options.extension.strikethrough = true;
-    options.extension.table = true;
-    options.extension.autolink = true;
-    options.extension.tasklist = true;
-    options.extension.alerts = true;
-    options.extension.block_directive = true;
-    options.extension.math_dollars = true;
-    options.extension.math_code = true;
-    options.extension.front_matter_delimiter = Some("---".to_owned());
+    let document = {
+        let arena = Arena::new();
+        let mut options = Options::default();
+        options.extension.strikethrough = true;
+        options.extension.table = true;
+        options.extension.autolink = true;
+        options.extension.tasklist = true;
+        options.extension.alerts = true;
+        options.extension.block_directive = true;
+        options.extension.math_dollars = true;
+        options.extension.math_code = true;
+        options.extension.front_matter_delimiter = Some("---".to_owned());
 
-    let root = parse_document(&arena, source, &options);
-    let positions = ParserSourceIndex::new(source);
-    let mut next_id = 0;
-    let mut metadata = DocumentMetadata::default();
-    let mut blocks = Vec::new();
-    for child in root.children() {
-        if let NodeValue::FrontMatter(value) = &child.data().value {
-            metadata.front_matter = Some(value.clone());
-            continue;
+        let root = parse_document(&arena, source, &options);
+        let positions = ParserSourceIndex::new(source);
+        let mut next_id = 0;
+        let mut metadata = DocumentMetadata::default();
+        let mut blocks = Vec::new();
+        for child in root.children() {
+            if let NodeValue::FrontMatter(value) = &child.data().value {
+                metadata.front_matter = Some(value.clone());
+                continue;
+            }
+            if let Some(block) = convert_block(child, &positions, &mut next_id)? {
+                blocks.push(block);
+            }
         }
-        if let Some(block) = convert_block(child, &positions, &mut next_id)? {
-            blocks.push(block);
+        Document {
+            document_version,
+            uri,
+            metadata,
+            blocks,
         }
-    }
-    let document = Document {
-        document_version,
-        uri,
-        metadata,
-        blocks,
     };
     document.validate(source)?;
     Ok(document)
@@ -97,9 +99,9 @@ fn convert_block<'a>(
 
     let (kind, children) = match value {
         NodeValue::Paragraph => {
-            let inline_children = node.children().collect::<Vec<_>>();
-            if inline_children.len() == 1 {
-                match &inline_children[0].data().value {
+            let mut inline_children = node.children();
+            if let (Some(child), None) = (inline_children.next(), inline_children.next()) {
+                match &child.data().value {
                     NodeValue::Math(math) if math.display_math => (
                         BlockKind::Math {
                             source: math.literal.clone(),
@@ -301,10 +303,13 @@ fn inline_nodes<'a>(
     node: &'a AstNode<'a>,
     positions: &ParserSourceIndex,
 ) -> Result<Vec<Node>, ParseError> {
-    node.children()
-        .filter_map(|child| convert_inline(child, positions).transpose())
-        .map(|result| result.map(Node::Inline))
-        .collect()
+    let mut children = Vec::with_capacity(node.children().count());
+    for child in node.children() {
+        if let Some(inline) = convert_inline(child, positions)? {
+            children.push(Node::Inline(inline));
+        }
+    }
+    Ok(children)
 }
 
 fn convert_inline<'a>(
@@ -317,9 +322,13 @@ fn convert_inline<'a>(
     drop(data);
 
     let nested = || -> Result<Vec<Inline>, ParseError> {
-        node.children()
-            .filter_map(|child| convert_inline(child, positions).transpose())
-            .collect()
+        let mut children = Vec::with_capacity(node.children().count());
+        for child in node.children() {
+            if let Some(inline) = convert_inline(child, positions)? {
+                children.push(inline);
+            }
+        }
+        Ok(children)
     };
     let kind = match value {
         NodeValue::Text(value) => InlineKind::Text {
@@ -785,6 +794,41 @@ mod tests {
                     .all(|inline| matches!(inline.kind, InlineKind::Text { .. }))
             );
         }
+        Ok(())
+    }
+    #[test]
+    fn large_paragraph_keeps_all_inline_nodes_and_source_ranges() -> Result<(), ParseError> {
+        let source = (0..4096)
+            .map(|index| format!("line {index}\n"))
+            .collect::<String>();
+        let document = parse(DocumentUri("file:///large.md".into()), 1, &source)?;
+        assert_eq!(document.blocks.len(), 1);
+        let paragraph = &document.blocks[0];
+        assert!(matches!(paragraph.kind, BlockKind::Paragraph));
+        assert_eq!(paragraph.children.len(), 8191);
+        assert_eq!(paragraph.children.capacity(), paragraph.children.len());
+        assert_eq!(
+            paragraph.range,
+            SourceRange {
+                byte_start: 0,
+                byte_end: source.len() as u64 - 1
+            }
+        );
+        for (index, child) in paragraph.children.iter().enumerate() {
+            let Node::Inline(inline) = child else {
+                return Err(ParseError::UnsupportedNode);
+            };
+            let actual = &source[inline.range.byte_start as usize..inline.range.byte_end as usize];
+            if index % 2 == 0 {
+                let expected = format!("line {}", index / 2);
+                assert!(matches!(&inline.kind, InlineKind::Text { value } if value == &expected));
+                assert_eq!(actual, expected);
+            } else {
+                assert!(matches!(inline.kind, InlineKind::SoftBreak));
+                assert_eq!(actual, "\n");
+            }
+        }
+        document.validate(&source)?;
         Ok(())
     }
 }

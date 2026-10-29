@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if arguments != ["--json"] {
         return Err("document_pipeline requires --json".into());
     }
+    eprintln!("benchmark: baseline peak={} bytes", peak_memory_bytes()?);
     let mut results = Vec::new();
     for lines in [1_000_usize, 10_000, 100_000] {
         eprintln!("benchmark: start {lines} lines");
@@ -32,9 +33,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Default::default(),
         )?;
         let parse_ms = parse_started.elapsed().as_secs_f64() * 1_000.0;
+        let parse_peak = peak_memory_bytes()?;
         let render_started = Instant::now();
         let full = session.render(&fleximark_render_html::RenderContext::default())?;
         let render_ms = render_started.elapsed().as_secs_f64() * 1_000.0;
+        let render_peak = peak_memory_bytes()?;
         let full_bytes = full.html().len();
         let mut frame_bytes = 0;
         let mut max_frame_bytes = 0;
@@ -57,7 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let edit_burst_ms = edits_started.elapsed().as_secs_f64() * 1_000.0;
         eprintln!(
-            "benchmark: complete {lines} lines (update={edit_update_ms:.1}ms, render={edit_render_ms:.1}ms)"
+            "benchmark: complete {lines} lines (update={edit_update_ms:.1}ms, render={edit_render_ms:.1}ms, peak after parse={parse_peak}, render={render_peak}, edits={} bytes)",
+            peak_memory_bytes()?
         );
         results.push(serde_json::json!({
             "lines": lines,

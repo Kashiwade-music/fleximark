@@ -103,6 +103,8 @@ def check_performance_budgets() -> None:
         timeout=60,
         description="benchmark",
     )
+    if benchmark.stderr:
+        print(benchmark.stderr, end="", file=sys.stderr, flush=True)
     report = json.loads(benchmark.stdout)
     if report.get("schemaVersion") != 1:
         raise RuntimeError("unsupported benchmark schema")

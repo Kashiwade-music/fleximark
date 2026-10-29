@@ -301,3 +301,6 @@ fake runtimeと完全に重なるように見えるケースにもobject保持�
 - 性能測定はCargoのJSON artifactから対象package/benchの実行ファイルを一意に解決し、Pythonから直接実行する。Cargoを介したプロセス生成履歴がmacOSのRSSに影響する可能性は未確定で、実CIで確認する。workload・RSS算定・256MiB予算は変更せず、超過時も全metricを先に出力する。artifact選択、実行方法、欠落、予算超過時の失敗を5件で検証した。
 - ローカルGUIでは編集中の旧frame失効時に正当なHTTP409を検出した。standaloneの編集後poll一箇所だけ409をpendingとして扱い、初期取得等の200要求・最終本文一致・10秒期限は維持した。この修正後のverify全25工程は成功した（pr5-final-local-verify.log）。
 - 上記追加差分はGPT-6.1 Sol lowによるreadonly reviewで新規指摘なし。全check/test成功（pr5-macos-{check,test}.log）。macOSの解消は実CI結果をもって判断する。
+- 23f9173の実CI40888119225はquality・dependency-review・Zed・Linux/Windows全4製品構成が成功した。Mac ARMは実行ファイル直接測定でも593,248,256 bytesとなり、起動方法だけでは解消しなかった。Windows上のSystem allocator計数probeでは20編集後のモデル保持量増加はなく、100k行の子要素配列の余剰約8.9MBと再確保を確認した（この計数とmacOS RSSは区別する）。
+- parserのinline配列をAST child数で事前確保し、段落判定の一時配列を除去した。AST/位置indexはowned model構築後、validation前にscopeを終えて解放する。旧新modelのatomicな保持は維持する。4096行の8191 inline全件の本文・種類・rangeを追加検証した。局所計数ではchange同時live peak150.5→128.4MB、要求量238.6→187.7MB/回に減少し、Windows正式bench RSS115,232,768 bytesで成功した。
+- benchmarkはbaseline/parse/render/編集完了時のpeak RSSを計測時間の外で診断へ出力し、Python側がstderrを表示する。256MiB予算・20編集・1k/10k/100k workload・RSS算定は維持する。parser/engine/renderer全testとreadonly reviewは成功。Mac ARMでの解消は引き続き実CIの結果で判断する。
