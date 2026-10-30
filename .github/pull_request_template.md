@@ -4,7 +4,7 @@
 
 ## Validation
 
-- [ ] `npm run verify`
+- [ ] `mise run check` / `mise run test` as appropriate
 - [ ] VSIX contents inspected when packaging changed
 
 ## Security and compatibility
