@@ -25,7 +25,7 @@ jobs:
           submodules: recursive
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@311b4ee155dcdab395044f00946f664bd51ff173 # v4
+        uses: github/codeql-action/init@0911ee96d2d6c8def97122c36c5cadd93829a4b4 # v4
         with:
           languages: javascript-typescript
           queries: security-extended
